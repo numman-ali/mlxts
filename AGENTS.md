@@ -12,7 +12,7 @@ nanogpt-ts is a TypeScript-native ML stack for Apple Silicon. It consists of:
 ## Architecture Decisions
 
 - **Runtime**: Bun (for FFI, speed, TypeScript-first)
-- **Binding approach**: C wrapper around MLX C++ → Bun FFI → TypeScript API
+- **Binding approach**: mlx-c (Apple's official C API, `ml-explore/mlx-c`) → Bun FFI → TypeScript API
 - **Monorepo**: Bun workspaces
 - **Build**: CMake for native code, Bun/TypeScript for everything else
 - **Testing**: Bun's built-in test runner
@@ -55,10 +55,12 @@ See [docs/code-standards.md](./docs/code-standards.md) for the full code standar
 
 ### FFI boundary concerns
 
-- MLX arrays are C++ objects. We hold opaque pointers in TypeScript.
-- We must prevent memory leaks by calling release when JS finishes with an array. Use FinalizationRegistry for automatic cleanup as a safety net, but prefer explicit disposal via `using` declarations.
-- Every C++ function we call must have a C-linkage wrapper (extern "C")
-- Pointer size is 8 bytes on ARM64 — use BigInt or Bun's pointer type
+- MLX arrays are C++ objects wrapped by mlx-c as opaque pointers (`struct { void* ctx; }`). We hold these pointers as JS `number` in TypeScript.
+- We must prevent memory leaks by calling `mlx_array_free` when JS finishes with an array. Use FinalizationRegistry for automatic cleanup as a safety net, but prefer explicit disposal via `using` declarations.
+- mlx-c provides pure C linkage — no custom C wrapper needed
+- Pointers are JS `number` (not BigInt) — 52-bit address space fits in double mantissa
+- All mlx-c functions return `int` (0 = success) — check error codes
+- Autograd closures use `mlx_closure` + `JSCallback` — called synchronously on the main thread
 
 ### What nanoGPT needs from mlx-ts (minimum viable surface)
 

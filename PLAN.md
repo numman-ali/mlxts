@@ -52,7 +52,7 @@ We reject that. Our principles:
 
 ## Phase 0.5: Research Spike — Validate Assumptions
 
-**Status**: Not started
+**Status**: Complete
 
 **Goal**: Verify that our plan aligns with the current state of MLX and Bun before writing implementation code. The plan was built from training-data knowledge — this phase grounds it in reality.
 
@@ -68,10 +68,14 @@ We reject that. Our principles:
 - Identify any gaps (functions we need that aren't in the C API)
 - Read MLX's latest release notes for breaking changes or new capabilities
 
+**Findings**: mlx-c is a **separate repo** (`ml-explore/mlx-c`, v0.6.0, tracking MLX v0.31.1) with 580+ C functions. Autograd is fully exposed via the `mlx_closure` + `mlx_value_and_grad` pipeline. Memory is manual new/free with opaque pointers (`struct { void* ctx; }`). All primitives nanoGPT needs are present. Bonus: fused SDPA, RoPE, RMS norm, layer norm, and safetensors I/O. **Decision: use mlx-c directly — no custom C wrapper needed.**
+
 ### 0.5b. Bun FFI validation
 - Verify Bun 1.3.x FFI callback support (`JSCallback`) — required for autograd
 - Test a minimal FFI proof-of-concept: load a .dylib, call a function, get a result
 - Confirm pointer handling, memory semantics, and cleanup patterns
+
+**Findings**: Bun 1.3.4 FFI works well. JSCallback supports closures, iteration, and multi-callback patterns. ~8ns/call for basic FFI, ~35ns for callbacks — negligible vs ML compute. Pointers are JS `number` (not BigInt). `threadsafe: true` crashes on 1.3.4, but MLX calls closures synchronously during graph construction, so `threadsafe: false` suffices. FinalizationRegistry works. **Assessment: Bun FFI is sufficient for all binding needs.**
 
 ### 0.5c. Update documentation
 - Revise `docs/mlx-bindings.md` with findings
@@ -101,22 +105,14 @@ We reject that. Our principles:
 
 ### 1a. Build infrastructure
 
-- CMakeLists.txt for native C wrapper
-- Bun build script that compiles and links against libmlx
+- CMakeLists.txt to build mlx-c from source (fetches MLX automatically via FetchContent)
+- Bun build script that compiles mlx-c and produces libmlxc.dylib
 - CI-like validation script (typecheck + test)
 
-### 1b. C wrapper layer (`native/`)
+### 1b. Bun FFI bindings (`src/core/ffi.ts`)
 
-- C-linkage wrapper functions for MLX C++ core
-- Array lifecycle: create, retain, release
-- Dtype and device enums
-- Basic ops: add, multiply, matmul, reshape, transpose
-- Eval: force lazy computation
-
-### 1c. Bun FFI bindings (`src/core/ffi.ts`)
-
-- Load the compiled .dylib
-- Map C functions to TypeScript with correct types
+- Load libmlxc.dylib via Bun's `dlopen`
+- Map mlx-c functions to TypeScript with correct types
 - Pointer management for array handles
 - FinalizationRegistry for automatic cleanup
 

@@ -12,6 +12,21 @@
 
 MLX is written in C++ with a Python frontend. Our job is to replace that Python frontend with TypeScript.
 
+## What is mlx-c?
+
+[mlx-c](https://github.com/ml-explore/mlx-c) is Apple's **official C API** for MLX. It's a separate repository (`ml-explore/mlx-c`, v0.6.0) that wraps the MLX C++ API with pure C linkage. Apple's own MLX Swift bindings use mlx-c as their bridge layer.
+
+Key properties:
+- **580+ C functions** covering array ops, autograd, random, I/O, and fused ops
+- **Opaque pointer pattern**: every type is `struct { void* ctx; }` — ideal for FFI
+- **Manual memory**: `new` / `free` per type (no reference counting at the C level)
+- **Error codes**: all functions return `int` (0 = success)
+- **Auto-generated** from C++ headers — stays in sync with MLX
+
+### Phase 0.5 Decision
+
+We use mlx-c directly. We do **not** write a custom C wrapper. This was validated during the Phase 0.5 research spike — see PLAN.md for the full findings.
+
 ## Binding Strategy
 
 ### The three layers
@@ -20,52 +35,47 @@ MLX is written in C++ with a Python frontend. Our job is to replace that Python 
 Layer 3:  TypeScript public API     (what users write)
           mx.matmul(a, b)
 
-Layer 2:  Bun FFI bridge            (loads .dylib, calls C functions)
-          ffi.mlx_matmul(a._ptr, b._ptr)
+Layer 2:  Bun FFI bridge            (loads .dylib, calls mlx-c functions)
+          ffi.mlx_matmul(res, a._ptr, b._ptr)
 
-Layer 1:  C wrapper                 (extern "C" over C++ API)
-          mlx_array* mlx_matmul(mlx_array* a, mlx_array* b)
+Layer 1:  mlx-c                     (Apple's official C API)
+          libmlxc.dylib → libmlx.dylib → Metal
 
 Layer 0:  MLX C++ core              (Apple's library, untouched)
           mlx::core::matmul(a, b)
 ```
 
-### Why a C wrapper?
+### Why Bun FFI?
 
-Bun's FFI (and Node's N-API) can only call functions with C linkage. MLX's API is C++ — classes, templates, namespaces. The C wrapper provides `extern "C"` functions that:
+Bun's FFI (`bun:ffi`) provides:
+- `dlopen(path, symbols)` — load a shared library and declare function signatures
+- `JSCallback` — create C-callable function pointers from JavaScript functions
+- `read.ptr()`, `read.i32()`, etc. — fast direct memory reads
+- Pointers as `number` (not BigInt) — avoids allocation overhead
 
-1. Accept and return opaque pointers (`void*` cast to/from `mlx::core::array*`)
-2. Convert C types to C++ types (int enums → dtype enum class, etc.)
-3. Handle exceptions (C++ exceptions → error codes)
+Performance (measured on M4 Max, Bun 1.3.4):
+- Basic FFI call: ~8ns (negligible vs any ML operation)
+- Callback round-trip: ~35ns (negligible vs a matmul)
 
 ### Example: matmul binding
 
-**Layer 1 — C wrapper:**
+**Layer 1 — mlx-c provides:**
 ```c
-// native/mlx_wrapper.h
-extern "C" {
-    mlx_array* mlx_matmul(mlx_array* a, mlx_array* b);
-}
-
-// native/mlx_wrapper.cpp
-mlx_array* mlx_matmul(mlx_array* a, mlx_array* b) {
-    auto result = mlx::core::matmul(
-        *reinterpret_cast<mlx::core::array*>(a),
-        *reinterpret_cast<mlx::core::array*>(b)
-    );
-    return new mlx::core::array(std::move(result));
-}
+// From mlx/c/ops.h (auto-generated)
+int mlx_matmul(mlx_array* res, mlx_array a, mlx_array b, mlx_stream s);
 ```
+
+Note the pattern: result is written to a pre-allocated output pointer. All ops follow this convention.
 
 **Layer 2 — Bun FFI:**
 ```typescript
 // src/core/ffi.ts
-import { dlopen, suffix, ptr } from "bun:ffi";
+import { dlopen, FFIType } from "bun:ffi";
 
-const lib = dlopen(`libmlx_wrapper.${suffix}`, {
+const lib = dlopen("libmlxc.dylib", {
   mlx_matmul: {
-    args: ["ptr", "ptr"],
-    returns: "ptr",
+    args: [FFIType.ptr, FFIType.ptr, FFIType.ptr, FFIType.ptr],
+    returns: FFIType.i32,
   },
 });
 
@@ -76,195 +86,287 @@ export const ffi = lib.symbols;
 ```typescript
 // src/core/ops.ts
 export function matmul(a: MxArray, b: MxArray): MxArray {
-  const resultPtr = ffi.mlx_matmul(a.ptr, b.ptr);
-  return MxArray.fromPtr(resultPtr);
+  const result = MxArray.empty();
+  const status = ffi.mlx_matmul(result.ptr, a.ptr, b.ptr, defaultStream);
+  if (status !== 0) throw new MxError("matmul", status);
+  return result;
 }
 ```
 
-## MLX C++ API Surface
+## mlx-c API Surface
 
-The following is the complete set of C++ APIs we need to bind, grouped by priority.
+The following catalogs the mlx-c functions we need, verified against the v0.6.0 source.
 
 ### Priority 1 — Required for nanoGPT
 
 **Array lifecycle:**
-| C++ Function | Purpose |
+| mlx-c Function | Purpose |
 |---|---|
-| `array(data, shape, dtype)` | Create from data |
-| `zeros(shape, dtype)` | Zero-filled array |
-| `ones(shape, dtype)` | One-filled array |
-| `full(shape, val, dtype)` | Constant-filled array |
-| `arange(start, stop, step, dtype)` | Range array |
-| `array::shape()` | Get shape |
-| `array::dtype()` | Get dtype |
-| `array::ndim()` | Get number of dimensions |
-| `array::size()` | Get total element count |
-| `array::eval()` | Force evaluation |
+| `mlx_array_new_data(res, data, shape, ndim, dtype)` | Create from data |
+| `mlx_zeros(res, shape, ndim, dtype, stream)` | Zero-filled array |
+| `mlx_ones(res, shape, ndim, dtype, stream)` | One-filled array |
+| `mlx_full(res, shape, ndim, val, dtype, stream)` | Constant-filled array |
+| `mlx_arange(res, start, stop, step, dtype, stream)` | Range array |
+| `mlx_array_shape(shape, ndim, a)` | Get shape |
+| `mlx_array_dtype(dtype, a)` | Get dtype |
+| `mlx_array_ndim(ndim, a)` | Get number of dimensions |
+| `mlx_array_size(size, a)` | Get total element count |
+| `mlx_array_eval(a)` | Force evaluation |
+| `mlx_array_free(a)` | Deallocate |
 
 **Arithmetic:**
-| C++ Function | Purpose |
+| mlx-c Function | Purpose |
 |---|---|
-| `add(a, b)` | Element-wise addition |
-| `subtract(a, b)` | Element-wise subtraction |
-| `multiply(a, b)` | Element-wise multiplication |
-| `divide(a, b)` | Element-wise division |
-| `negative(a)` | Negate |
-| `power(a, b)` | Element-wise power |
-| `sqrt(a)` | Square root |
-| `exp(a)` | Exponential |
-| `log(a)` | Natural logarithm |
-| `abs(a)` | Absolute value |
-| `maximum(a, b)` | Element-wise max |
-| `minimum(a, b)` | Element-wise min |
+| `mlx_add` | Element-wise addition |
+| `mlx_subtract` | Element-wise subtraction |
+| `mlx_multiply` | Element-wise multiplication |
+| `mlx_divide` | Element-wise division |
+| `mlx_negative` | Negate |
+| `mlx_power` | Element-wise power |
+| `mlx_sqrt` | Square root |
+| `mlx_exp` | Exponential |
+| `mlx_log` | Natural logarithm |
+| `mlx_abs` | Absolute value |
+| `mlx_maximum` | Element-wise max |
+| `mlx_minimum` | Element-wise min |
+| `mlx_sigmoid` | Sigmoid activation |
+| `mlx_erf` | Error function (for GELU) |
 
 **Reductions:**
-| C++ Function | Purpose |
+| mlx-c Function | Purpose |
 |---|---|
-| `sum(a, axes)` | Sum reduction |
-| `mean(a, axes)` | Mean reduction |
-| `max(a, axes)` | Max reduction |
-| `min(a, axes)` | Min reduction |
-| `argmax(a, axis)` | Index of max |
-| `argmin(a, axis)` | Index of min |
+| `mlx_sum` / `mlx_sum_axis` / `mlx_sum_axes` | Sum reduction |
+| `mlx_mean` / `mlx_mean_axis` / `mlx_mean_axes` | Mean reduction |
+| `mlx_max` / `mlx_max_axis` / `mlx_max_axes` | Max reduction |
+| `mlx_min` / `mlx_min_axis` / `mlx_min_axes` | Min reduction |
+| `mlx_argmax` / `mlx_argmin` | Index of max/min |
+| `mlx_logsumexp` | Log-sum-exp (for cross-entropy) |
 
-**Linear algebra:**
-| C++ Function | Purpose |
+**Shape and indexing:**
+| mlx-c Function | Purpose |
 |---|---|
-| `matmul(a, b)` | Matrix multiplication |
-| `transpose(a, axes)` | Transpose |
-| `reshape(a, shape)` | Reshape |
-| `squeeze(a, axes)` | Remove size-1 dims |
-| `expand_dims(a, axis)` | Add size-1 dim |
-| `concatenate(arrays, axis)` | Join arrays |
-| `split(a, indices, axis)` | Split array |
-| `stack(arrays, axis)` | Stack arrays |
-
-**Comparison and selection:**
-| C++ Function | Purpose |
-|---|---|
-| `equal(a, b)` | Element-wise equality |
-| `greater(a, b)` | Element-wise greater |
-| `less(a, b)` | Element-wise less |
-| `where(condition, a, b)` | Conditional select |
-
-**Indexing:**
-| C++ Function | Purpose |
-|---|---|
-| `take(a, indices, axis)` | Gather by index |
-| `take_along_axis(a, indices, axis)` | Gather along axis |
+| `mlx_matmul` | Matrix multiplication |
+| `mlx_transpose` / `mlx_transpose_axes` | Transpose |
+| `mlx_reshape` | Reshape |
+| `mlx_squeeze` | Remove size-1 dims |
+| `mlx_expand_dims` | Add size-1 dim |
+| `mlx_concatenate` | Join arrays |
+| `mlx_split` / `mlx_split_sections` | Split array |
+| `mlx_stack` | Stack arrays |
+| `mlx_take` / `mlx_take_along_axis` | Gather by index |
+| `mlx_where` | Conditional select |
+| `mlx_equal` / `mlx_greater` / `mlx_less` | Comparisons |
+| `mlx_astype` | Type casting |
+| `mlx_broadcast_to` | Broadcasting |
+| `mlx_stop_gradient` | Detach from gradient tracking |
 
 **Neural network ops:**
-| C++ Function | Purpose |
+| mlx-c Function | Purpose |
 |---|---|
-| `softmax(a, axis)` | Softmax |
+| `mlx_softmax` / `mlx_softmax_axis` | Softmax |
+| `mlx_fast_layer_norm` | Fused layer norm |
+| `mlx_fast_rms_norm` | Fused RMS norm |
+| `mlx_fast_rope` | Fused rotary position embeddings |
+| `mlx_fast_scaled_dot_product_attention` | Fused SDPA |
 
 **Random:**
-| C++ Function | Purpose |
+| mlx-c Function | Purpose |
 |---|---|
-| `random::key(seed)` | Create RNG key |
-| `random::split(key)` | Split RNG key |
-| `random::normal(shape, dtype, key)` | Normal distribution |
-| `random::uniform(shape, dtype, key)` | Uniform distribution |
+| `mlx_random_key` | Create RNG key |
+| `mlx_random_split` | Split RNG key |
+| `mlx_random_normal` | Normal distribution |
+| `mlx_random_uniform` | Uniform distribution |
+| `mlx_random_bernoulli` | Bernoulli (for dropout) |
 
-**Transforms:**
-| C++ Function | Purpose |
+**Transforms and autograd:**
+| mlx-c Function | Purpose |
 |---|---|
-| `eval(arrays)` | Force evaluation |
-| `grad(fn, argnums)` | Gradient transform |
-| `value_and_grad(fn, argnums)` | Loss + gradient |
+| `mlx_eval` | Force evaluation of lazy arrays |
+| `mlx_async_eval` | Async evaluation |
+| `mlx_value_and_grad` | Create value+gradient transform |
+| `mlx_jvp` | Forward-mode AD |
+| `mlx_vjp` | Reverse-mode AD |
+| `mlx_compile` | JIT compilation |
+| `mlx_checkpoint` | Gradient checkpointing |
+
+**I/O:**
+| mlx-c Function | Purpose |
+|---|---|
+| `mlx_load_safetensors` | Load model weights |
+| `mlx_save_safetensors` | Save model weights |
 
 ### Priority 2 — Nice to have
 
-- `conv1d`, `conv2d` — convolutions
-- `fft`, `ifft` — Fourier transforms
-- `linalg::norm`, `linalg::svd` — linear algebra
-- `compile(fn)` — JIT compilation
-- `vmap(fn)` — vectorized map
-- `astype(a, dtype)` — type casting
-- `broadcast_to(a, shape)` — broadcasting
+- `mlx_conv1d`, `mlx_conv2d` — convolutions
+- `mlx_fft_*` — Fourier transforms
+- `mlx_linalg_*` — linear algebra (norm, svd, etc.)
+- `mlx_einsum` — Einstein summation
+- `mlx_quantize`, `mlx_dequantize` — quantization
+- `mlx_fast_metal_kernel` — custom Metal kernels
 
-## The Autograd Challenge
+## The Autograd Bridge
 
-This is the hardest part of the binding and deserves detailed explanation.
+This is the most architecturally significant part of the binding.
 
-### How MLX autograd works internally
+### mlx-c closure types
 
-When you call `mx.grad(fn)`, MLX:
-1. Takes your function `fn`
-2. Returns a new function `grad_fn`
-3. When `grad_fn` is called, MLX:
-   a. Runs `fn` while tracing the computation graph
-   b. Performs reverse-mode autodiff on the graph
-   c. Returns the gradients
+mlx-c wraps function pointers in typed closures:
 
-The key insight: **MLX doesn't need to call back into your function repeatedly.** It calls `fn` once to build the graph, then differentiates the graph. The graph is built from MLX operations (matmul, add, etc.) which are all C++.
+| Closure Type | Signature | Purpose |
+|---|---|---|
+| `mlx_closure` | `vec<array> → vec<array>` | General function (wrap loss fn) |
+| `mlx_closure_value_and_grad` | `vec<array> → (vec<array>, vec<array>)` | Result of `mlx_value_and_grad` |
+| `mlx_closure_custom` | Custom forward/backward | Custom VJP |
 
-### Why this helps us
+Each closure supports:
+- `_new_func(fn_ptr)` — wrap a C function pointer
+- `_new_func_payload(fn_ptr, payload, dtor)` — wrap with captured state + destructor
+- `_apply(res, closure, inputs)` — invoke
+- `_free(closure)` — cleanup
 
-Since `fn` is called exactly once, the callback from C++ to TypeScript happens once per grad call. The flow is:
+### The TypeScript → C → TypeScript flow
 
 ```
-TypeScript: gradFn = mx.grad(lossFn)
-TypeScript: grads = gradFn(params, x, y)
-  → C++: call lossFn(params, x, y) via callback
-    → TypeScript: lossFn runs, calling mx.matmul, mx.add, etc.
-      → C++: each op adds to computation graph
-    → TypeScript: lossFn returns loss MxArray
-  → C++: differentiate the computation graph
-  → C++: return gradients
-TypeScript: grads is now available
+1. TypeScript defines a loss function:
+   const lossFn = (params: MxArray[], x: MxArray, y: MxArray) => { ... }
+
+2. We wrap it as a JSCallback with the signature mlx-c expects:
+   const cb = new JSCallback(
+     (inputs: Pointer) => { /* unwrap inputs, call lossFn, wrap outputs */ },
+     { args: [FFIType.ptr], returns: FFIType.ptr }
+   );
+
+3. Create an mlx_closure from the JSCallback:
+   mlx_closure_new_func(&closure, cb.ptr)
+
+4. Create the value_and_grad transform:
+   mlx_value_and_grad(&vag, closure, argnums, num_argnums)
+
+5. Apply it to get loss + gradients:
+   mlx_closure_value_and_grad_apply(&values, &grads, vag, inputs)
 ```
 
-### Implementation approach
+### The payload + destructor pattern
 
-1. Register a TypeScript callback function pointer with the C wrapper
-2. The C wrapper's grad implementation calls this function pointer
-3. The callback executes the TypeScript loss function
-4. All tensor ops within the callback go through FFI as normal
-5. MLX traces them into its computation graph automatically
-6. After the callback returns, C++ differentiates and returns gradients
+For closures that need to capture TypeScript state (e.g., model parameters), use the payload variant:
 
-This is feasible with Bun's FFI callback support (`JSCallback`).
+```typescript
+// The payload carries a reference to our JS closure context
+const payload = encodePayload({ lossFn, model });
+const dtor = new JSCallback(
+  (p: number) => { freePayload(p); },
+  { args: [FFIType.ptr], returns: FFIType.void }
+);
+
+mlx_closure_new_func_payload(&closure, cb.ptr, payload, dtor.ptr);
+```
+
+This ensures mlx-c properly cleans up the payload when the closure is freed.
+
+### Why `threadsafe: false` is sufficient
+
+MLX's autograd calls the closure **synchronously on the calling thread** during graph construction. The actual GPU execution happens later during `eval()` and doesn't involve callbacks. Since graph construction is on Bun's main thread, `JSCallback` with `threadsafe: false` (the default) works correctly.
+
+This was validated with a proof-of-concept during Phase 0.5 — see PLAN.md.
+
+## Composing Missing Operations
+
+Some operations needed for nanoGPT don't exist as single mlx-c functions but compose from primitives:
+
+### Cross-entropy loss
+```typescript
+function crossEntropy(logits: MxArray, targets: MxArray): MxArray {
+  // log_softmax = logits - logsumexp(logits, axis=-1, keepdims=true)
+  const lse = mx.logsumexp(logits, -1, true);
+  const logSoftmax = mx.subtract(logits, lse);
+
+  // nll = -gather(log_softmax, targets, axis=-1)
+  const gathered = mx.takeAlongAxis(logSoftmax, mx.expandDims(targets, -1), -1);
+  const nll = mx.negative(mx.squeeze(gathered, -1));
+
+  return mx.mean(nll);
+}
+```
+
+### GELU activation
+```typescript
+function gelu(x: MxArray): MxArray {
+  // GELU(x) = x * 0.5 * (1 + erf(x / sqrt(2)))
+  const scaled = mx.divide(x, mx.sqrt(mx.full([], 2.0)));
+  const cdf = mx.multiply(mx.add(mx.erf(scaled), mx.full([], 1.0)), mx.full([], 0.5));
+  return mx.multiply(x, cdf);
+}
+```
+
+### Dropout
+```typescript
+function dropout(x: MxArray, p: number, key: MxArray): MxArray {
+  const mask = mx.random.bernoulli(1.0 - p, x.shape, key);
+  const scale = 1.0 / (1.0 - p);
+  return mx.multiply(mx.multiply(x, mask), mx.full([], scale));
+}
+```
 
 ## Building and Linking
 
 ### Prerequisites
+
+mlx-c builds from source via CMake and automatically fetches MLX:
+
 ```bash
-# Install MLX (provides the compiled library)
-pip install mlx
+# Clone mlx-c
+git clone https://github.com/ml-explore/mlx-c.git
+cd mlx-c
 
-# Or build from source
-git clone https://github.com/ml-explore/mlx.git
-cd mlx && mkdir build && cd build
-cmake .. -DMLX_BUILD_METAL=ON
-make -j
+# Build (fetches MLX v0.31.1 automatically via FetchContent)
+mkdir build && cd build
+cmake .. -DBUILD_SHARED_LIBS=ON -DCMAKE_BUILD_TYPE=Release
+make -j$(sysctl -n hw.ncpu)
+
+# Output: libmlxc.dylib (links against libmlx.dylib)
 ```
 
-### Finding MLX headers and library
+### Integration with mlx-ts
+
+Our build script will:
+1. Check if mlx-c is already built (cache the .dylib)
+2. If not, clone and build mlx-c from source
+3. Copy libmlxc.dylib (and libmlx.dylib if needed) to a known location
+4. Bun's `dlopen` loads from that location
+
+```typescript
+// src/core/ffi.ts
+import { dlopen, FFIType } from "bun:ffi";
+import { resolve } from "path";
+
+const DYLIB_PATH = resolve(__dirname, "../../native/lib/libmlxc.dylib");
+
+const lib = dlopen(DYLIB_PATH, {
+  // Array creation
+  mlx_zeros: {
+    args: [FFIType.ptr, FFIType.ptr, FFIType.i32, FFIType.i32, FFIType.ptr],
+    returns: FFIType.i32,
+  },
+  // ... all other symbols
+});
+
+export const ffi = lib.symbols;
+```
+
+### Finding the built libraries
+
+After building mlx-c:
+- `libmlxc.dylib` — the C API wrapper
+- `libmlx.dylib` — MLX core (fetched and built by mlx-c's CMake)
+
+Both need to be accessible at runtime. We'll either:
+- Bundle them in `packages/mlx-ts/native/lib/`
+- Or install them to a system location and use `@rpath`
+
+### Homebrew alternative
+
+If MLX or mlx-c becomes available via Homebrew in the future, we can simplify to:
 ```bash
-# If installed via pip
-MLX_PATH=$(python3 -c "import mlx; print(mlx.__path__[0])")
-
-# Headers are in the MLX repo
-# Library is at $MLX_PATH/lib/libmlx.dylib (or similar)
+brew install mlx-c
 ```
-
-### CMake configuration
-```cmake
-cmake_minimum_required(VERSION 3.20)
-project(mlx_wrapper)
-
-find_package(MLX REQUIRED)
-
-add_library(mlx_wrapper SHARED
-    mlx_wrapper.cpp
-)
-
-target_link_libraries(mlx_wrapper PRIVATE mlx)
-target_include_directories(mlx_wrapper PRIVATE ${MLX_INCLUDE_DIRS})
-
-# Output to a location Bun can find
-set_target_properties(mlx_wrapper PROPERTIES
-    LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib
-)
-```
+Until then, building from source is the reliable path.
