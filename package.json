@@ -12,7 +12,8 @@
     "test": "bun run --filter '*' test",
     "test:coverage": "bun run --filter '*' test:coverage",
     "build": "bun run --filter '*' build",
-    "validate": "bun run typecheck && bun run lint && bun run test",
+    "check:assertions": "bun run scripts/check-type-assertions.ts",
+    "validate": "bun run typecheck && bun run lint && bun run check:assertions && bun run test",
     "prepare": "bun run .hooks/install.ts"
   },
   "devDependencies": {

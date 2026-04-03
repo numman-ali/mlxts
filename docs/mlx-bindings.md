@@ -36,7 +36,7 @@ Layer 3:  TypeScript public API     (what users write)
           mx.matmul(a, b)
 
 Layer 2:  Bun FFI bridge            (loads .dylib, calls mlx-c functions)
-          ffi.mlx_matmul(res, a._ptr, b._ptr)
+          ffi.mlx_matmul(out, a._ctx, b._ctx, stream)
 
 Layer 1:  mlx-c                     (Apple's official C API)
           libmlxc.dylib → libmlx.dylib → Metal
@@ -51,7 +51,7 @@ Bun's FFI (`bun:ffi`) provides:
 - `dlopen(path, symbols)` — load a shared library and declare function signatures
 - `JSCallback` — create C-callable function pointers from JavaScript functions
 - `read.ptr()`, `read.i32()`, etc. — fast direct memory reads
-- Pointers as `number` (not BigInt) — avoids allocation overhead
+- Branded `Pointer` type — compile-time safety for native addresses
 
 Performance (measured on M4 Max, Bun 1.3.4):
 - Basic FFI call: ~8ns (negligible vs any ML operation)
@@ -65,33 +65,27 @@ Performance (measured on M4 Max, Bun 1.3.4):
 int mlx_matmul(mlx_array* res, mlx_array a, mlx_array b, mlx_stream s);
 ```
 
-Note the pattern: result is written to a pre-allocated output pointer. All ops follow this convention.
+Note the pattern: result is written to a pre-allocated output pointer (first arg). All ops follow this convention.
 
 **Layer 2 — Bun FFI:**
 ```typescript
-// src/core/ffi.ts
-import { dlopen, FFIType } from "bun:ffi";
-
-const lib = dlopen("libmlxc.dylib", {
-  mlx_matmul: {
-    args: [FFIType.ptr, FFIType.ptr, FFIType.ptr, FFIType.ptr],
-    returns: FFIType.i32,
-  },
-});
-
-export const ffi = lib.symbols;
+// src/core/ffi.ts — symbol declaration (part of the grouped constants)
+mlx_matmul: { args: [P, P, P, P], returns: I32 },
 ```
+
+All symbols are loaded via a single `dlopen` call with grouped constants spread in.
 
 **Layer 3 — TypeScript API:**
 ```typescript
-// src/core/ops.ts
-export function matmul(a: MxArray, b: MxArray): MxArray {
-  const result = MxArray.empty();
-  const status = ffi.mlx_matmul(result.ptr, a.ptr, b.ptr, defaultStream);
-  if (status !== 0) throw new MxError("matmul", status);
-  return result;
+// src/core/ops/linalg.ts
+export function matmul(a: MxArray, b: MxArray, stream?: S): MxArray {
+  const out = prepareOut();
+  checkStatus(ffi.mlx_matmul(out, a._ctx, b._ctx, s(stream)), "matmul");
+  return MxArray._fromCtx(readOut());
 }
 ```
+
+The `prepareOut()` / `readOut()` pair manages a shared 8-byte output buffer for the `mlx_array*` result pointer. `checkStatus()` throws a typed `MxError` on non-zero return codes.
 
 ## mlx-c API Surface
 
@@ -100,19 +94,24 @@ The following catalogs the mlx-c functions we need, verified against the v0.6.0 
 ### Priority 1 — Required for nanoGPT
 
 **Array lifecycle:**
-| mlx-c Function | Purpose |
-|---|---|
-| `mlx_array_new_data(res, data, shape, ndim, dtype)` | Create from data |
-| `mlx_zeros(res, shape, ndim, dtype, stream)` | Zero-filled array |
-| `mlx_ones(res, shape, ndim, dtype, stream)` | One-filled array |
-| `mlx_full(res, shape, ndim, val, dtype, stream)` | Constant-filled array |
-| `mlx_arange(res, start, stop, step, dtype, stream)` | Range array |
-| `mlx_array_shape(shape, ndim, a)` | Get shape |
-| `mlx_array_dtype(dtype, a)` | Get dtype |
-| `mlx_array_ndim(ndim, a)` | Get number of dimensions |
-| `mlx_array_size(size, a)` | Get total element count |
-| `mlx_array_eval(a)` | Force evaluation |
-| `mlx_array_free(a)` | Deallocate |
+| mlx-c Function | Signature | Purpose |
+|---|---|---|
+| `mlx_array_new_data` | `(data, shape, ndim, dtype) → mlx_array` | Create from data (returns by value) |
+| `mlx_zeros` | `(res*, shape, ndim, dtype, stream) → int` | Zero-filled array |
+| `mlx_ones` | `(res*, shape, ndim, dtype, stream) → int` | One-filled array |
+| `mlx_full` | `(res*, shape, ndim, val, dtype, stream) → int` | Constant-filled array |
+| `mlx_arange` | `(res*, start, stop, step, dtype, stream) → int` | Range array |
+| `mlx_array_shape` | `(a) → const int*` | Get shape (direct return, not output pointer) |
+| `mlx_array_dtype` | `(a) → mlx_dtype` | Get dtype (direct return) |
+| `mlx_array_ndim` | `(a) → size_t` | Get number of dimensions (direct return) |
+| `mlx_array_size` | `(a) → size_t` | Get total element count (direct return) |
+| `mlx_array_eval` | `(a) → int` | Force evaluation |
+| `mlx_array_free` | `(a) → int` | Deallocate |
+
+Note the two calling conventions:
+- **Creation functions** (e.g., `mlx_array_new_data`) return `mlx_array` by value — on ARM64, this is effectively a pointer return.
+- **Operations** (e.g., `mlx_zeros`) write results via `mlx_array*` output pointer (first argument) and return `int` (0 = success).
+- **Property getters** (e.g., `mlx_array_shape`, `mlx_array_ndim`) return values directly — no output pointer pattern.
 
 **Arithmetic:**
 | mlx-c Function | Purpose |
@@ -326,47 +325,48 @@ make -j$(sysctl -n hw.ncpu)
 # Output: libmlxc.dylib (links against libmlx.dylib)
 ```
 
-### Integration with mlx-ts
+### Integration with mlx-ts (implemented)
 
-Our build script will:
-1. Check if mlx-c is already built (cache the .dylib)
-2. If not, clone and build mlx-c from source
-3. Copy libmlxc.dylib (and libmlx.dylib if needed) to a known location
-4. Bun's `dlopen` loads from that location
+The build script (`packages/mlx-ts/scripts/build-native.ts`) automates the full pipeline:
+
+1. Resolves the Xcode SDK path (required for Metal compiler access)
+2. Runs `cmake configure` with `-DCMAKE_OSX_SYSROOT` pointing to the Xcode SDK
+3. Runs `cmake --build` to compile mlx-c (which fetches MLX automatically via FetchContent)
+4. Locates the built `.dylib` files in the CMake build tree
+5. Copies `libmlxc.dylib` and `libmlx.dylib` to `packages/mlx-ts/native/lib/`
+6. Fixes rpaths via `install_name_tool` so `libmlxc.dylib` finds `libmlx.dylib` at `@loader_path/`
+
+```bash
+# Build command
+cd packages/mlx-ts && bun run build:native
+```
+
+See [docs/setup.md](./setup.md) for full prerequisites (macOS 14+, Xcode 16+, Metal Toolchain, CMake 3.24+).
+
+### FFI loading
+
+All symbols are loaded via a single `dlopen` in `src/core/ffi.ts`:
 
 ```typescript
-// src/core/ffi.ts
 import { dlopen, FFIType } from "bun:ffi";
-import { resolve } from "path";
+import { resolve } from "node:path";
 
-const DYLIB_PATH = resolve(__dirname, "../../native/lib/libmlxc.dylib");
+const DYLIB_PATH = resolve(import.meta.dirname, "../../native/lib/libmlxc.dylib");
 
+// Symbols are grouped by category then spread into one dlopen call
 const lib = dlopen(DYLIB_PATH, {
-  // Array creation
-  mlx_zeros: {
-    args: [FFIType.ptr, FFIType.ptr, FFIType.i32, FFIType.i32, FFIType.ptr],
-    returns: FFIType.i32,
-  },
-  // ... all other symbols
+  ...ARRAY_LIFECYCLE_SYMBOLS,
+  ...ARITHMETIC_SYMBOLS,
+  ...REDUCTION_SYMBOLS,
+  // ... etc
 });
-
-export const ffi = lib.symbols;
 ```
 
-### Finding the built libraries
+### Pointer boundary discipline
 
-After building mlx-c:
-- `libmlxc.dylib` — the C API wrapper
-- `libmlx.dylib` — MLX core (fetched and built by mlx-c's CMake)
+Bun FFI uses a branded `Pointer` type (`{ __pointer__: null }`) that is distinct from `number` at the type level. This branded type lives at the FFI boundary only. Two helpers localize the boundary weirdness:
 
-Both need to be accessible at runtime. We'll either:
-- Bundle them in `packages/mlx-ts/native/lib/`
-- Or install them to a system location and use `@rpath`
+- `unwrapPointer(ptr, label)` — asserts a `Pointer | null` is non-null, throwing descriptively
+- `sizeToNumber(value, label)` — converts `number | bigint` size_t returns to plain `number`
 
-### Homebrew alternative
-
-If MLX or mlx-c becomes available via Homebrew in the future, we can simplify to:
-```bash
-brew install mlx-c
-```
-Until then, building from source is the reliable path.
+No code above the FFI layer needs to know about Bun's pointer branding.

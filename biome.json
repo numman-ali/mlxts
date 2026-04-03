@@ -12,14 +12,22 @@
       },
       "correctness": {
         "noUnusedVariables": "error",
-        "noUnusedImports": "error"
+        "noUnusedImports": "error",
+        "noUnusedFunctionParameters": "error"
       },
       "style": {
-        "noNonNullAssertion": "warn",
-        "useConst": "error"
+        "noNonNullAssertion": "error",
+        "useConst": "error",
+        "useImportType": "error",
+        "noEnum": "error"
       },
       "suspicious": {
-        "noExplicitAny": "warn"
+        "noExplicitAny": "error",
+        "noEvolvingTypes": "error",
+        "noTsIgnore": "error"
+      },
+      "performance": {
+        "noReExportAll": "warn"
       }
     }
   },
@@ -37,6 +45,33 @@
     }
   },
   "files": {
-    "includes": ["**/*.ts", "**/*.tsx", "**/*.js", "**/*.json"]
-  }
+    "includes": [
+      "**/*.ts",
+      "**/*.tsx",
+      "**/*.js",
+      "**/*.json",
+      "!packages/mlx-ts/native/build",
+      "!packages/mlx-ts/native/lib"
+    ]
+  },
+  "overrides": [
+    {
+      "includes": ["packages/mlx-ts/src/core/ffi.ts"],
+      "linter": {
+        "rules": {
+          "suspicious": { "noExplicitAny": "off" },
+          "style": { "noNonNullAssertion": "off" }
+        }
+      }
+    },
+    {
+      "includes": ["**/*.test.ts"],
+      "linter": {
+        "rules": {
+          "style": { "noNonNullAssertion": "warn" },
+          "suspicious": { "noExplicitAny": "warn" }
+        }
+      }
+    }
+  ]
 }

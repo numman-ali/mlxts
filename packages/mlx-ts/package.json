@@ -7,7 +7,7 @@
     "typecheck": "tsc --noEmit",
     "test": "bun test",
     "test:coverage": "bun test --coverage",
-    "build": "echo 'TODO: build native bindings'",
-    "build:native": "echo 'TODO: cmake build'"
+    "build": "bun run build:native",
+    "build:native": "bun run scripts/build-native.ts"
   }
 }

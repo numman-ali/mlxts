@@ -86,23 +86,31 @@ We don't modify mlx-c. We call it via FFI.
 
 **Key types**:
 ```typescript
-class MxArray {
-  // Wraps an opaque pointer to mlx_array (which wraps mlx::core::array*)
-  readonly shape: number[]
+class MxArray implements Disposable {
+  // Holds an opaque Pointer to mlx_array.ctx (Bun's branded Pointer type)
+  // The Pointer type is a boundary detail — hidden behind helper functions
+  readonly _ctx: Pointer
+
+  // Lazy cached property getters — read from C on first access
+  readonly shape: readonly number[]
   readonly dtype: DType
   readonly ndim: number
   readonly size: number
 
+  toTypedArray(): TypedArray  // row-major contiguous copy
   toList(): NestedArray<number>
   item(): number  // for scalar arrays
   asType(dtype: DType): MxArray
+
+  free(): void              // explicit cleanup
+  [Symbol.dispose](): void  // `using` support
 }
 
 // Operations are free functions (matches MLX's style)
-function matmul(a: MxArray, b: MxArray): MxArray
-function add(a: MxArray, b: MxArray): MxArray
-function reshape(a: MxArray, shape: number[]): MxArray
-// ... etc
+function matmul(a: MxArray, b: MxArray, stream?: Pointer): MxArray
+function add(a: MxArray, b: MxArray, stream?: Pointer): MxArray
+function reshape(a: MxArray, shape: number[], stream?: Pointer): MxArray
+// ... etc — all ops take optional stream parameter
 ```
 
 ### NN Layer (`packages/mlx-ts/src/nn/`)
@@ -164,12 +172,16 @@ All functions return `int` (0 = success). Error details go through `mlx_set_erro
 │             TypeScript (GC-managed)          │
 │                                              │
 │  MxArray {                                   │
-│    _ptr: number  ───────────────────────┐    │
+│    _ctx: Pointer  ──────────────────────┐    │
 │  }                                      │    │
 │                                         │    │
 │  FinalizationRegistry watches MxArray   │    │
 │  instances — calls mlx_array_free()     │    │
 │  when GC'd                              │    │
+│                                         │    │
+│  Explicit disposal via:                 │    │
+│    using arr = ...   (Symbol.dispose)   │    │
+│    arr.free()        (manual)           │    │
 └─────────────────────────────────────────┼────┘
                                           │
                                           ▼
@@ -179,7 +191,8 @@ All functions return `int` (0 = success). Error details go through `mlx_set_erro
 │  mlx_array { void* ctx; }                    │
 │  ctx → mlx::core::array* on the C++ side     │
 │                                              │
-│  mlx_array_new()  → allocates                │
+│  mlx_array_new()  → allocates (returns by    │
+│                     value on ARM64)          │
 │  mlx_array_free() → deallocates              │
 └──────────────────────────────────────────────┘
 ```
@@ -188,16 +201,23 @@ All functions return `int` (0 = success). Error details go through `mlx_set_erro
 1. Every `new` must have a matching `free`
 2. FinalizationRegistry provides a safety net, but don't rely on it for timely cleanup
 3. In hot loops (training), use explicit disposal via `using` declarations
-4. Pointers are JS `number` (not BigInt) — 52-bit address space fits in double mantissa
+4. Native handles in temporary variables (vector arrays, key splits, device handles) must use `try/finally` for cleanup
 
-### Bun FFI pointer details
+### Bun FFI pointer boundary
 
-Bun represents pointers as JavaScript `number`, not `BigInt`. This works because 64-bit ARM uses at most 52 bits of address space, and JS doubles have 53 bits of mantissa. This avoids BigInt allocation overhead in the hot path.
+Bun FFI uses a branded `Pointer` type — a compile-time brand (`{ __pointer__: null }`) distinct from plain `number`. This brand prevents accidentally mixing native addresses with regular numbers.
 
-Key operations:
-- `ptr(typedArray)` — get a pointer from a TypedArray
-- `toArrayBuffer(ptr, offset, length)` — create an ArrayBuffer viewing native memory
-- `read.i32(ptr, offset)`, `read.f64(ptr, offset)`, `read.ptr(ptr, offset)` — fast direct reads
+The Pointer brand stays at the FFI boundary. Two helpers in `ffi.ts` bridge the gap:
+- `unwrapPointer(ptr, label)` — narrows `Pointer | null` to `Pointer`, throwing if null
+- `sizeToNumber(value, label)` — converts `number | bigint` (from size_t returns) to `number`
+
+Higher-level code (ops, random, transforms) works with `Pointer` directly but never needs to assert or narrow it — the helpers handle that.
+
+Key FFI utilities (re-exported from `ffi.ts` with proper Pointer types):
+- `ptr(typedArray)` — get a `Pointer` from a TypedArray
+- `nativeSlice(ptr, offset, length)` — create an ArrayBuffer viewing native memory
+- `readI32(ptr, offset)` — read a 32-bit int from native memory
+- `readPtr(ptr, offset)` — read a pointer from native memory
 
 ## Autograd Design
 

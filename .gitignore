@@ -27,6 +27,7 @@ Thumbs.db
 
 # MLX native build artifacts
 packages/mlx-ts/native/build/
+packages/mlx-ts/native/lib/
 
 # Training artifacts
 checkpoints/

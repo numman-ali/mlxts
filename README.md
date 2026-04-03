@@ -34,13 +34,23 @@ nanogpt-ts/
 ## Requirements
 
 - macOS with Apple Silicon (M1/M2/M3/M4)
-- [Bun](https://bun.sh) runtime
-- MLX (installed via `pip install mlx` or built from source)
-- CMake (for building native bindings)
+- [Xcode](https://developer.apple.com/xcode/) 16+ with Metal Toolchain
+- [CMake](https://cmake.org/) 3.24+ (`brew install cmake`)
+- [Bun](https://bun.sh) 1.3+ runtime
+
+See [docs/setup.md](./docs/setup.md) for detailed setup instructions.
+
+## Quick Start
+
+```bash
+bun install
+cd packages/mlx-ts && bun run build:native  # builds MLX + mlx-c (~5-15 min first time)
+bun test                                     # run all tests
+```
 
 ## Status
 
-**Phase 0: Foundation** — Setting up project structure, documentation, and build plan.
+**Phase 1: Core Bindings** — Building mlx-ts FFI layer over Apple's MLX.
 
 See [PLAN.md](./PLAN.md) for the full roadmap.
 

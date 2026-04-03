@@ -10,7 +10,8 @@ Read docs/agentic-loop.md for the engineering workflow.
 
 ## Current Phase
 
-Phase 0: Foundation — documentation, planning, project structure.
+Phase 1: Core Bindings — complete. FFI layer, MxArray, ops, random, eval all working.
+Next: Phase 2 (Autograd) or Biome hardening.
 
 ## Quick Reference
 
@@ -18,4 +19,6 @@ Phase 0: Foundation — documentation, planning, project structure.
 - Test: `bun test`
 - Build native: `cd packages/mlx-ts && bun run build:native`
 - Typecheck: `bun run typecheck`
+- Lint: `bun run lint`
+- Full validation: `bun run validate` (typecheck + lint + test)
 

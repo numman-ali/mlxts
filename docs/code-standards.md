@@ -107,6 +107,8 @@ src/
 }
 ```
 
+A clean `bun run typecheck` is a required development gate, not optional polish. If the type checker is unhappy, the design is incomplete.
+
 ### Use the type system fully
 
 ```typescript
@@ -118,6 +120,16 @@ function zeros(shape: number[], dtype: DType = "float32"): MxArray;
 // Bad: stringly typed, no autocomplete, no safety
 function zeros(shape: number[], dtype: string): any;
 ```
+
+### Avoid type assertions
+
+Type assertions such as `value as SomeType` or `as unknown as` are a last resort, not a normal workflow.
+
+- Prefer narrowing, discriminated unions, typed helper functions, and precise return types.
+- If an assertion is unavoidable at the FFI boundary, isolate it in one tiny helper and explain why the boundary needs it.
+- Do not spread boundary assertions into higher-level tensor, nn, optimizer, or application code.
+- Never use a type assertion to silence a real type design problem.
+- **Enforced by:** `bun run check:assertions` scans production code for `as` casts (Biome has no rule for this). Non-null assertions (`!`) and `any` are enforced by Biome at `error` level, with overrides for `ffi.ts` (boundary) and test files.
 
 ### Prefer `readonly` for data that shouldn't change
 
@@ -143,7 +155,20 @@ function trainStep(model: GPT, batch: Batch): number {
 
 ### No `any` except at the FFI boundary
 
-The FFI layer (`ffi.ts`) may use `any` or type assertions where Bun's FFI types require it. Nowhere else. If you're tempted to use `any`, the type design needs improvement.
+The FFI layer (`ffi.ts`) may use `any` or a minimal, documented type assertion where Bun's FFI types require it. Nowhere else. If you're tempted to use either in normal code, the type design needs improvement.
+
+### Treat type assertions as a design smell
+
+- Avoid `as`, non-null assertions (`!`), and other type escape hatches in production code
+- If an assertion is truly unavoidable, isolate it at the FFI boundary and keep it local to the helper that needs it
+- Do not use type assertions to silence real uncertainty; improve the types, add validation, or narrow the value first
+- Prefer runtime checks that teach the type system something true over casts that merely quiet the compiler
+
+### Typecheck is part of the contract
+
+- `bun run typecheck` must pass before code is considered review-ready
+- Type errors are not "cleanup later" work; they mean the design contract is still incomplete
+- A passing test suite does not compensate for failing static types
 
 ## Comments
 
@@ -234,10 +259,20 @@ if (weight.shape[0] !== inputFeatures) {
 }
 ```
 
+## Review Checklist
+
+When reviewing code (whether written by a human or an agent), check for:
+
+- [ ] **"Where did we teach TypeScript the truth?"** — not just "did the compiler go green?" Types should express real invariants, not suppress inconvenient errors.
+- [ ] **No type assertions outside `ffi.ts`** — if `as` or `!` appears in ops, nn, or application code, the design is incomplete.
+- [ ] **ABI correctness** — FFI symbol declarations in `ffi.ts` must match the actual mlx-c header signatures. Creation functions return by value; operations use output pointers; property getters return directly.
+- [ ] **Resource cleanup** — every native handle temporary (`mlx_vector_array`, device handles, RNG key splits) uses `try/finally`.
+- [ ] **`bun run typecheck` passes** — code is not review-ready until static types are clean.
+- [ ] **Error messages are actionable** — include what was expected, what was received, and where.
+
 ## Git
 
 - Commit messages: imperative mood, explain why not what
 - One logical change per commit
 - Agents include `Co-Authored-By` in commit messages
 - Branch naming: `phase-1/core-bindings`, `phase-2/autograd`, etc.
-

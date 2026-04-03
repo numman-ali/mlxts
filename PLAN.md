@@ -30,7 +30,7 @@ We reject that. Our principles:
 
 ## Phase 0: Foundation
 
-**Status**: In progress
+**Status**: Complete
 
 **Goal**: Project structure, documentation, and a reviewed plan before any code is written.
 
@@ -136,10 +136,18 @@ We reject that. Our principles:
 **Deliverables**:
 
 - `packages/mlx-ts` with working core bindings
-- Can run: `const a = mx.ones([3, 3]); const b = mx.matmul(a, a); mx.eval(b); console.log(b.tolist())`
+- Can run: `const a = mx.ones([3, 3]); const b = mx.matmul(a, a); mx.eval(b); console.log(b.toList())`
 - All tests pass
 
-**Exit criteria**: Core tensor ops work on GPU from TypeScript. Memory is managed correctly.
+**Exit criteria** — Phase 1 is complete when all of the following are true:
+1. `bun run typecheck` passes with zero errors
+2. `bun test` passes all tests (75+ across 6 test files)
+3. `bun run lint` (Biome) passes clean
+4. FFI symbol declarations in `ffi.ts` are verified against mlx-c v0.6.0 headers
+5. No type assertions (`as`, `!`) exist outside the FFI boundary layer (`ffi.ts`)
+6. All native handle temporaries use `try/finally` for cleanup
+7. Explicit-dtype array creation and all scalar dtype paths are covered by tests
+8. Smoke test works: `mx.ones([3,3])` → `mx.matmul(a,a)` → `mx.eval(b)` → `b.toList()` returns `[[3,3,3],[3,3,3],[3,3,3]]`
 
 ---
 
@@ -370,13 +378,14 @@ A diffusion model developer should be able to depend on `mlx-ts` without knowing
 
 See [docs/agentic-loop.md](./docs/agentic-loop.md) for the full engineering workflow.
 
+| Role | Primary Responsibility | Strengths |
+| ---- | ---------------------- | --------- |
+| Planning / Architecture Agent | Architecture, planning, review, debugging | Deep reasoning, context management |
+| Implementation Agent | Bulk implementation, mechanical porting | Fast parallel execution, large codegen |
+| Independent Reviewer | Alternative review, research, validation | Fresh perspective from implementation author |
+| Human (Nomi) | Decision-making, direction, acceptance | Domain authority, final approval |
 
-| Agent        | Primary Role                              | Strengths                                         |
-| ------------ | ----------------------------------------- | ------------------------------------------------- |
-| Claude       | Architecture, planning, review, debugging | Deep reasoning, context management                |
-| Codex        | Bulk implementation, mechanical porting   | Fast parallel execution, large codegen            |
-| Gemini       | Alternative review, research, validation  | Different perspective, Google ecosystem knowledge |
-| Human (Nomi) | Decision-making, direction, acceptance    | Domain authority, final approval                  |
+The exact model or tool used for each role may change over time. The workflow matters more than the brand name.
 
 
 ## Principles

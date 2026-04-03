@@ -4,6 +4,8 @@
 
 This project is built using multiple AI coding agents in a structured, iterative loop. No single agent operates unchecked — every output is reviewed by a different agent or human before it ships.
 
+The exact model or tool used for each role may change over time. The workflow matters more than the brand name attached to any individual step.
+
 This document defines the process.
 
 ## The Loop
@@ -11,7 +13,7 @@ This document defines the process.
 ```
                     ┌──────────────────────┐
                     │    1. SPEC / PLAN     │
-                    │  (Human + Claude)     │
+                    │  (Human + Planner)    │
                     │                       │
                     │  Define what to build │
                     │  Design the approach  │
@@ -22,7 +24,7 @@ This document defines the process.
                                ▼
                     ┌──────────────────────┐
                     │    2. IMPLEMENT       │
-                    │  (Codex / Claude)     │
+                    │  (Implementation)     │
                     │                       │
                     │  Write code against   │
                     │  the spec             │
@@ -35,10 +37,10 @@ This document defines the process.
                     │    3. VALIDATE        │
                     │  (Automated)          │
                     │                       │
-                    │  Type check           │
+                    │  Type check first     │
                     │  Run tests            │
                     │  Lint                 │
-                    │  Build               │
+                    │  Build                │
                     └──────────┬───────────┘
                                │
                                ▼
@@ -81,27 +83,27 @@ This document defines the process.
 - Final approval on all merges
 - The only one who can change the plan
 
-### Claude — Architect / Reviewer
+### Planning / Architecture Agent
 
-- Primary: planning, architecture, design decisions
-- Secondary: implementation of complex/novel code
-- Review: code from Codex or Gemini
-- Debugging: diagnose issues that other agents can't resolve
+- Primary: planning, architecture, and design decisions
+- Secondary: implementation of complex or novel code
+- Review: code written by a different agent
+- Debugging: diagnose issues that other agents cannot resolve
 - Context keeper: maintains coherence across the project
 
-### Codex — Builder
+### Implementation Agent
 
 - Primary: bulk implementation, mechanical porting
 - Strengths: parallel execution, large file generation, repetitive patterns
 - Works best with: clear specs, defined interfaces, known patterns
 - Example tasks: "Implement these 50 C wrapper functions", "Port this Python module to TypeScript"
 
-### Gemini — Second Opinion
+### Independent Reviewer
 
 - Primary: independent review, alternative approaches
-- Strengths: different perspective from Claude, Google ecosystem knowledge
+- Strengths: a fresh perspective from the implementation author
 - Review: architecture decisions, API design
-- Research: MLX internals, Metal/GPU details, Gemma model specifics
+- Research: edge cases, API behavior, platform details
 
 ## Rules
 
@@ -119,6 +121,12 @@ Every piece of code or documentation that enters the project must be reviewed by
 - **No agent merges to main** — only human merges
 - **No agent deletes or overwrites** another agent's work without review
 - **Agents must document their reasoning** in commit messages and PR descriptions
+
+### Validation Gate
+
+- `bun run typecheck` must pass before work moves from implementation to review
+- Tests, lint, and build remain required, but type errors are treated as design failures, not cosmetic issues
+- Type assertions and `any` do not count as "fixing" a type problem unless they are isolated to a justified boundary such as FFI
 
 ### Spec-First Development
 
@@ -144,31 +152,29 @@ When agents disagree:
 ### Phase 1 (mlx-ts Core)
 
 ```
-Claude:  Design C wrapper API + TypeScript public API
-         ↓
-Codex:   Implement C wrapper functions (mechanical, parallelizable)
-Claude:  Implement TypeScript FFI layer + public API
-         ↓
-Bun:     typecheck + test (automated)
-         ↓
-Gemini:  Review API design, memory safety, edge cases
-         ↓
-Nomi:    Accept or request changes
+Planning agent:       Design C wrapper API + TypeScript public API
+                      ↓
+Implementation agent: Implement the bindings and public API
+                      ↓
+Automated validation: typecheck first, then tests/lint/build
+                      ↓
+Independent review:   Review API design, memory safety, edge cases
+                      ↓
+Nomi:                 Accept or request changes
 ```
 
 ### Phase 4 (nanoGPT)
 
 ```
-Claude:  Design model architecture + training loop
-         ↓
-Codex:   Implement model, data pipeline, training script
-         ↓
-Bun:     typecheck + test (automated)
-Claude:  Train on Shakespeare, analyze loss curves
-         ↓
-Gemini:  Review model correctness, suggest improvements
-         ↓
-Nomi:    Accept, evaluate generated text quality
+Planning agent:       Design model architecture + training loop
+                      ↓
+Implementation agent: Implement model, data pipeline, training script
+                      ↓
+Automated validation: typecheck first, then tests/lint/build
+                      ↓
+Independent review:   Review model correctness and suggest improvements
+                      ↓
+Nomi:                 Accept and evaluate generated text quality
 ```
 
 ## Anti-Patterns to Avoid
@@ -177,5 +183,5 @@ Nomi:    Accept, evaluate generated text quality
 - **Scope creep during implementation**: If an agent discovers the spec is insufficient, stop and update the spec first
 - **Agent echo chambers**: Don't use the same agent to write AND review
 - **Skipping validation**: Never skip typecheck/test "just this once"
+- **Using casts to dodge type errors**: Boundary-only assertions can be valid; broad "make TypeScript shut up" casting is not
 - **Over-planning**: Once a spec is approved, build it. Don't redesign in implementation.
-
