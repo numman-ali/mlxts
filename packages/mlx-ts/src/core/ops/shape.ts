@@ -121,6 +121,13 @@ export function takeAlongAxis(a: MxArray, indices: MxArray, axis: number, stream
   return MxArray._fromCtx(readOut());
 }
 
+/** Select elements from an array along a specific axis. */
+export function takeAxis(a: MxArray, indices: MxArray, axis: number, stream?: S): MxArray {
+  const out = prepareOut();
+  checkStatus(ffi.mlx_take_axis(out, a._ctx, indices._ctx, axis, s(stream)), "take_axis");
+  return MxArray._fromCtx(readOut());
+}
+
 /** Stop gradient propagation. */
 export function stopGradient(a: MxArray, stream?: S): MxArray {
   const out = prepareOut();

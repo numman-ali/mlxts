@@ -63,6 +63,11 @@ export function readOut(): Pointer {
   return unwrapPointer(readPtr(_outPtr, 0), "FFI operation result");
 }
 
+/** Read a pointer result from a local 8-byte mlx_array output buffer. */
+function readLocalOut(out: Pointer, label: string): Pointer {
+  return unwrapPointer(readPtr(out, 0), label);
+}
+
 // FinalizationRegistry is a safety net for missed explicit disposal.
 const registry = new FinalizationRegistry<Pointer>((ctx: Pointer) => {
   ffi.mlx_array_free(ctx);
@@ -419,12 +424,29 @@ export function arange(start: number, stop: number, step = 1, dtype: DType = "fl
   return MxArray._fromCtx(readOut());
 }
 
-/** Create an MxArray from JavaScript data. */
+/** Create an MxArray from a JavaScript number or array data. */
 export function array(
-  data: NumericArrayData | Float32Array | Int32Array | Uint8Array,
+  data: number | NumericArrayData | Float32Array | Int32Array | Uint8Array,
   dtype?: DType,
 ): MxArray {
+  if (typeof data === "number") {
+    return MxArray._fromCtx(createScalarHandle(data, dtype ?? "float32"));
+  }
   return MxArray.fromData(data, undefined, dtype);
+}
+
+/**
+ * Create a second owned handle to the same MLX array value.
+ *
+ * This preserves the array's value without aliasing the exact same `MxArray`
+ * object, which is useful for no-op layer paths that should not share manual
+ * disposal ownership with their inputs.
+ */
+export function retainArray(source: MxArray): MxArray {
+  const outBuf = new Uint8Array(8);
+  const out = ptr(outBuf);
+  checkStatus(ffi.mlx_array_set(out, source._ctx), "array_set");
+  return MxArray._fromCtx(readLocalOut(out, "retained array"));
 }
 
 function normalizeInput(

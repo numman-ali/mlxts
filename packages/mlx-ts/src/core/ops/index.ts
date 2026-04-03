@@ -3,6 +3,7 @@
  * @module
  */
 
+export type { Operand } from "./arithmetic";
 export {
   abs,
   add,
@@ -44,5 +45,6 @@ export {
   stack,
   stopGradient,
   takeAlongAxis,
+  takeAxis,
   transpose,
 } from "./shape";

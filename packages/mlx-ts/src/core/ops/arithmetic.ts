@@ -1,10 +1,14 @@
 /**
  * Element-wise arithmetic operations.
+ *
+ * Binary ops accept `MxArray | number` operands. Number operands are
+ * automatically coerced to scalar (0-dim) MxArrays and freed after the op.
+ *
  * @module
  */
 
 import type { Pointer } from "bun:ffi";
-import { MxArray, prepareOut, readOut } from "../array";
+import { array, MxArray, prepareOut, readOut } from "../array";
 import { defaultStream } from "../device";
 import { checkStatus } from "../error";
 import { ffi } from "../ffi";
@@ -12,55 +16,93 @@ import { ffi } from "../ffi";
 type S = Pointer | undefined;
 const s = (stream?: S) => stream ?? defaultStream();
 
+/** An operand that is either an MxArray or a JS number (coerced to scalar). */
+export type Operand = MxArray | number;
+
+/**
+ * Run a binary FFI op with automatic scalar coercion.
+ * Number operands are wrapped as 0-dim MxArrays and freed after the call.
+ */
+function withCoerced(
+  a: Operand,
+  b: Operand,
+  fn: (aArr: MxArray, bArr: MxArray) => MxArray,
+): MxArray {
+  const aIsNum = typeof a === "number";
+  const bIsNum = typeof b === "number";
+  const aArr = aIsNum ? array(a) : a;
+  const bArr = bIsNum ? array(b) : b;
+  try {
+    return fn(aArr, bArr);
+  } finally {
+    if (aIsNum) aArr.free();
+    if (bIsNum) bArr.free();
+  }
+}
+
 // --- Binary ops ---
 
-/** Element-wise addition. */
-export function add(a: MxArray, b: MxArray, stream?: S): MxArray {
-  const out = prepareOut();
-  checkStatus(ffi.mlx_add(out, a._ctx, b._ctx, s(stream)), "add");
-  return MxArray._fromCtx(readOut());
+/** Element-wise addition. Accepts MxArray or number operands. */
+export function add(a: Operand, b: Operand, stream?: S): MxArray {
+  return withCoerced(a, b, (aArr, bArr) => {
+    const out = prepareOut();
+    checkStatus(ffi.mlx_add(out, aArr._ctx, bArr._ctx, s(stream)), "add");
+    return MxArray._fromCtx(readOut());
+  });
 }
 
-/** Element-wise subtraction. */
-export function subtract(a: MxArray, b: MxArray, stream?: S): MxArray {
-  const out = prepareOut();
-  checkStatus(ffi.mlx_subtract(out, a._ctx, b._ctx, s(stream)), "subtract");
-  return MxArray._fromCtx(readOut());
+/** Element-wise subtraction. Accepts MxArray or number operands. */
+export function subtract(a: Operand, b: Operand, stream?: S): MxArray {
+  return withCoerced(a, b, (aArr, bArr) => {
+    const out = prepareOut();
+    checkStatus(ffi.mlx_subtract(out, aArr._ctx, bArr._ctx, s(stream)), "subtract");
+    return MxArray._fromCtx(readOut());
+  });
 }
 
-/** Element-wise multiplication. */
-export function multiply(a: MxArray, b: MxArray, stream?: S): MxArray {
-  const out = prepareOut();
-  checkStatus(ffi.mlx_multiply(out, a._ctx, b._ctx, s(stream)), "multiply");
-  return MxArray._fromCtx(readOut());
+/** Element-wise multiplication. Accepts MxArray or number operands. */
+export function multiply(a: Operand, b: Operand, stream?: S): MxArray {
+  return withCoerced(a, b, (aArr, bArr) => {
+    const out = prepareOut();
+    checkStatus(ffi.mlx_multiply(out, aArr._ctx, bArr._ctx, s(stream)), "multiply");
+    return MxArray._fromCtx(readOut());
+  });
 }
 
-/** Element-wise division. */
-export function divide(a: MxArray, b: MxArray, stream?: S): MxArray {
-  const out = prepareOut();
-  checkStatus(ffi.mlx_divide(out, a._ctx, b._ctx, s(stream)), "divide");
-  return MxArray._fromCtx(readOut());
+/** Element-wise division. Accepts MxArray or number operands. */
+export function divide(a: Operand, b: Operand, stream?: S): MxArray {
+  return withCoerced(a, b, (aArr, bArr) => {
+    const out = prepareOut();
+    checkStatus(ffi.mlx_divide(out, aArr._ctx, bArr._ctx, s(stream)), "divide");
+    return MxArray._fromCtx(readOut());
+  });
 }
 
-/** Element-wise power. */
-export function power(a: MxArray, b: MxArray, stream?: S): MxArray {
-  const out = prepareOut();
-  checkStatus(ffi.mlx_power(out, a._ctx, b._ctx, s(stream)), "power");
-  return MxArray._fromCtx(readOut());
+/** Element-wise power. Accepts MxArray or number operands. */
+export function power(a: Operand, b: Operand, stream?: S): MxArray {
+  return withCoerced(a, b, (aArr, bArr) => {
+    const out = prepareOut();
+    checkStatus(ffi.mlx_power(out, aArr._ctx, bArr._ctx, s(stream)), "power");
+    return MxArray._fromCtx(readOut());
+  });
 }
 
-/** Element-wise maximum of two arrays. */
-export function maximum(a: MxArray, b: MxArray, stream?: S): MxArray {
-  const out = prepareOut();
-  checkStatus(ffi.mlx_maximum(out, a._ctx, b._ctx, s(stream)), "maximum");
-  return MxArray._fromCtx(readOut());
+/** Element-wise maximum of two arrays. Accepts MxArray or number operands. */
+export function maximum(a: Operand, b: Operand, stream?: S): MxArray {
+  return withCoerced(a, b, (aArr, bArr) => {
+    const out = prepareOut();
+    checkStatus(ffi.mlx_maximum(out, aArr._ctx, bArr._ctx, s(stream)), "maximum");
+    return MxArray._fromCtx(readOut());
+  });
 }
 
-/** Element-wise minimum of two arrays. */
-export function minimum(a: MxArray, b: MxArray, stream?: S): MxArray {
-  const out = prepareOut();
-  checkStatus(ffi.mlx_minimum(out, a._ctx, b._ctx, s(stream)), "minimum");
-  return MxArray._fromCtx(readOut());
+/** Element-wise minimum of two arrays. Accepts MxArray or number operands. */
+export function minimum(a: Operand, b: Operand, stream?: S): MxArray {
+  return withCoerced(a, b, (aArr, bArr) => {
+    const out = prepareOut();
+    checkStatus(ffi.mlx_minimum(out, aArr._ctx, bArr._ctx, s(stream)), "minimum");
+    return MxArray._fromCtx(readOut());
+  });
 }
 
 // --- Unary ops ---

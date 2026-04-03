@@ -10,8 +10,10 @@ Read docs/agentic-loop.md for the engineering workflow.
 
 ## Current Phase
 
-Phase 1: Core Bindings — complete. FFI layer, MxArray, ops, random, eval all working.
-Next: Phase 2 (Autograd) or Biome hardening.
+Phase 1: Core Bindings — complete.
+Phase 2: Autograd — complete.
+Phase 3: Neural Network Layer — complete. Module, layers, losses, optimizers, nn.valueAndGrad.
+Next: Phase 4 (nanoGPT).
 
 ## Quick Reference
 

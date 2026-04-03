@@ -99,6 +99,8 @@ We reject that. Our principles:
 
 ## Phase 1: mlx-ts Core Bindings
 
+**Status**: Complete
+
 **Goal**: TypeScript can create arrays, run operations, and evaluate results on the GPU.
 
 **What this phase covers**:
@@ -154,6 +156,8 @@ We reject that. Our principles:
 
 ## Phase 2: Autograd
 
+**Status**: Complete
+
 **Goal**: `mx.grad()` and `mx.valueAndGrad()` work from TypeScript.
 
 **Why this is its own phase**: Autograd is the hardest part of the binding. MLX's grad traces through the C++ computation graph, but the loss function is defined in TypeScript. The FFI boundary must handle callbacks correctly.
@@ -190,51 +194,76 @@ We reject that. Our principles:
 
 ## Phase 3: Neural Network Layer
 
+**Status**: Complete
+
 **Goal**: A PyTorch-like nn.Module system in TypeScript, built on mlx-ts core.
 
 **What this phase covers**:
 
 ### 3a. Module system
 
-- Base `Module` class with parameter registration, tree traversal
-- `parameters()`, `update()`, `loadWeights()`, `saveWeights()`
-- Nested module support
+- Base `Module` class with property scanning (no registration), `#` private fields
+- `parameters()`, `trainableParameters()`, `update()` (recursive partial merge)
+- `freeze()`/`unfreeze()`, `train()`/`eval()` with recursive propagation
+- `nn.valueAndGrad` bridge: flatten params → Phase 2 autograd → unflatten grads
+- Tree utilities: `treeFlatten`, `treeUnflatten`, `treeMap`, `treeLeaves`
 
 ### 3b. Layers
 
-- `Linear` — fully connected layer
-- `Embedding` — token/position embeddings
-- `LayerNorm`, `RMSNorm` — normalization
-- `Dropout` — training regularization
-- `Conv1d`, `Conv2d` — convolutional layers (lower priority)
+- `Linear` — fully connected layer with optional bias
+- `Embedding` — token/position embeddings with `asLinear()` for weight tying
+- `LayerNorm` — layer normalization (composed from core ops)
+- `Dropout` — training regularization with eval-mode bypass
 
 ### 3c. Activations
 
-- `ReLU`, `GELU`, `SiLU`, `Sigmoid`, `Tanh`, `Softmax`
+- `gelu`, `relu`, `silu` — free functions (not Module subclasses)
 
 ### 3d. Losses
 
-- `crossEntropy` — the main one for language modeling
+- `crossEntropy` — classification loss with integer target validation
 - `mse` — mean squared error
 
 ### 3e. Optimizers
 
 - `SGD` with momentum and weight decay
-- `Adam`, `AdamW`
-- Learning rate schedules: cosine annealing, linear warmup
+- `AdamW` — Adam with decoupled weight decay
+- `Adam` — zero-weight-decay wrapper around AdamW
+- Failure-safe update with path-keyed gradient lookup
 
-### 3f. Tests
+### 3f. Core ops enhancements
 
-- Each layer: forward pass shape and value correctness
+- `array()` accepts `number` → creates scalar (0-dim) MxArray
+- Binary ops accept `MxArray | number` operands (scalar coercion)
+- `takeAxis` op for Embedding (via `mlx_take_axis` FFI symbol)
+
+### 3g. Tests
+
+- 219 tests across 19 files
+- Each layer: forward pass shape and value correctness, gradient flow
 - Each optimizer: parameter update matches hand calculation
-- End-to-end: train a 2-layer MLP on XOR (converges to 0 loss)
+- Constructor validation (positive dimensions, valid dropout p)
+- Integer dtype validation for Embedding and crossEntropy
+- End-to-end: 2-class MLP on XOR converges with crossEntropy (deterministic)
 
 **Deliverables**:
 
 - `packages/mlx-ts/src/nn/` and `packages/mlx-ts/src/optimizers/`
-- Can define, train, and evaluate a simple neural network in TypeScript
+- Can define, train, and evaluate a neural network in TypeScript
 
-**Exit criteria**: A small MLP trains to convergence on a toy problem.
+**Exit criteria** — Phase 3 is complete when all of the following are true:
+1. `bun run validate` passes (typecheck + lint + assertions + coverage)
+2. MLP trains to convergence on XOR with crossEntropy (loss < 0.05, 500 steps)
+3. Predictions match XOR truth table (argmax of 2-class logits)
+4. 97.91% line coverage, 95.89% function coverage
+
+**Explicitly deferred to later phases**:
+- `loadWeights()`, `saveWeights()` → Phase 5 (serialization)
+- `RMSNorm` → Phase 4 (when modern architectures need it)
+- `Conv1d`, `Conv2d` → when vision/audio models are targeted
+- Learning rate schedules → Phase 4 (cosine annealing)
+- Module[] (layer list) support → Phase 4 (transformer block arrays)
+- Sigmoid, Tanh, Softmax as nn.Module → already available as core op functions
 
 ---
 

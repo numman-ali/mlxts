@@ -183,3 +183,40 @@ describe("Factory functions", () => {
     a.free();
   });
 });
+
+describe("scalar array()", () => {
+  test("number creates 0-dim scalar", () => {
+    const a = array(5.0);
+    expect(a.shape).toEqual([]);
+    expect(a.ndim).toBe(0);
+    expect(a.dtype).toBe("float32");
+    a.eval();
+    expect(a.item()).toBeCloseTo(5.0, 5);
+    a.free();
+  });
+
+  test("number with explicit dtype", () => {
+    const a = array(7, "int32");
+    expect(a.shape).toEqual([]);
+    expect(a.dtype).toBe("int32");
+    a.eval();
+    expect(a.item()).toBe(7);
+    a.free();
+  });
+
+  test("negative number creates scalar", () => {
+    const a = array(-3.14);
+    expect(a.shape).toEqual([]);
+    a.eval();
+    expect(a.item()).toBeCloseTo(-3.14, 4);
+    a.free();
+  });
+
+  test("zero creates scalar", () => {
+    const a = array(0);
+    expect(a.shape).toEqual([]);
+    a.eval();
+    expect(a.item()).toBe(0);
+    a.free();
+  });
+});

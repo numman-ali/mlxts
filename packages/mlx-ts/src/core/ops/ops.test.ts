@@ -654,3 +654,97 @@ describe("Comparison ops", () => {
     result.free();
   });
 });
+
+// ---------------------------------------------------------------------------
+// Scalar-array coercion
+// ---------------------------------------------------------------------------
+
+describe("scalar coercion", () => {
+  test("add(array, number)", () => {
+    const a = array([1, 2, 3]);
+    const result = add(a, 10);
+    result.eval();
+    expect(result.toList()).toEqual([11, 12, 13]);
+    a.free();
+    result.free();
+  });
+
+  test("add(number, array)", () => {
+    const a = array([1, 2, 3]);
+    const result = add(5, a);
+    result.eval();
+    expect(result.toList()).toEqual([6, 7, 8]);
+    a.free();
+    result.free();
+  });
+
+  test("subtract(array, number)", () => {
+    const a = array([10, 20, 30]);
+    const result = subtract(a, 5);
+    result.eval();
+    expect(result.toList()).toEqual([5, 15, 25]);
+    a.free();
+    result.free();
+  });
+
+  test("multiply(array, number)", () => {
+    const a = array([1, 2, 3]);
+    const result = multiply(a, 0.5);
+    result.eval();
+    expect(result.toList()).toEqual([0.5, 1, 1.5]);
+    a.free();
+    result.free();
+  });
+
+  test("multiply(number, array)", () => {
+    const a = array([2, 4, 6]);
+    const result = multiply(2, a);
+    result.eval();
+    expect(result.toList()).toEqual([4, 8, 12]);
+    a.free();
+    result.free();
+  });
+
+  test("divide(array, number)", () => {
+    const a = array([10, 20, 30]);
+    const result = divide(a, 10);
+    result.eval();
+    expect(result.toList()).toEqual([1, 2, 3]);
+    a.free();
+    result.free();
+  });
+
+  test("power(array, number)", () => {
+    const a = array([2, 3, 4]);
+    const result = power(a, 2);
+    result.eval();
+    expect(result.toList()).toEqual([4, 9, 16]);
+    a.free();
+    result.free();
+  });
+
+  test("maximum(array, number)", () => {
+    const a = array([-1, 0, 5]);
+    const result = maximum(a, 0);
+    result.eval();
+    expect(result.toList()).toEqual([0, 0, 5]);
+    a.free();
+    result.free();
+  });
+
+  test("minimum(array, number)", () => {
+    const a = array([1, 10, 100]);
+    const result = minimum(a, 5);
+    result.eval();
+    expect(result.toList()).toEqual([1, 5, 5]);
+    a.free();
+    result.free();
+  });
+
+  test("add(number, number)", () => {
+    const result = add(3, 4);
+    result.eval();
+    expect(result.item()).toBe(7);
+    result.free();
+  });
+});

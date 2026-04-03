@@ -163,6 +163,15 @@ The FFI boundary package (`src/core/ffi/`) may use `any` or a minimal, documente
 - If an assertion is truly unavoidable, isolate it at the FFI boundary and keep it local to the helper that needs it
 - Do not use type assertions to silence real uncertainty; improve the types, add validation, or narrow the value first
 - Prefer runtime checks that teach the type system something true over casts that merely quiet the compiler
+- Use type guard functions (e.g., `isParameterTree()`) to narrow union types without `as` casts
+
+### nn module convention
+
+Public `MxArray` and `Module` fields are scanned as parameters by `Module.parameters()`. Internal state that is not a parameter (config values, caches, running statistics) must use JS `#` private fields or be a non-MxArray type. This ensures the property-scanning approach correctly identifies only learnable parameters.
+
+The scan keys are cached after the first parameter walk. Public parameter and sub-module fields therefore need to be assigned during construction or as class field initializers before the first call to `parameters()` / `trainableParameters()`.
+
+Shared public parameter aliases are not supported yet. Do not register the same logical parameter through multiple public fields until Phase 4 defines explicit weight-tying semantics for the parameter tree and optimizer layers.
 
 ### Typecheck is part of the contract
 

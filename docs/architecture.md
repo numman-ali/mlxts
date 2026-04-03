@@ -120,21 +120,32 @@ function reshape(a: MxArray, shape: number[], stream?: Pointer): MxArray
 
 **Key pattern**:
 ```typescript
-abstract class Module {
+abstract class Module implements Disposable {
   abstract forward(...args: MxArray[]): MxArray
 
-  parameters(): Map<string, MxArray>
-  update(params: Map<string, MxArray>): void
-  // ... tree traversal, serialization
+  parameters(): ParameterTree      // nested tree of MxArray leaves
+  trainableParameters(): ParameterTree  // excludes frozen keys
+  update(params: ParameterTree): void   // recursive partial merge
+  freeze(keys?: string[]): this
+  train(mode?: boolean): this
+  eval(): this
 }
 
+// ParameterTree = { [key: string]: MxArray | ParameterTree }
+// Module scans Object.keys(this) for MxArray and Module properties.
+// The key list is cached after the first scan, so public parameter and
+// sub-module fields must be established during construction.
+// Internal state uses #private fields (invisible to scanning).
+// Shared public parameter aliases are not supported yet; Phase 4 will
+// add explicit weight-tying semantics when the transformer output head lands.
+
 class Linear extends Module {
-  weight: MxArray
-  bias?: MxArray
+  weight: MxArray        // scanned as parameter
+  bias: MxArray | null   // null → skipped by scanner
 
   forward(x: MxArray): MxArray {
-    // x @ weight.T + bias — uses core bindings
-    return mx.add(mx.matmul(x, mx.transpose(this.weight)), this.bias)
+    // Binary ops accept number | MxArray for scalar coercion
+    return add(matmul(x, transpose(this.weight)), this.bias)
   }
 }
 ```

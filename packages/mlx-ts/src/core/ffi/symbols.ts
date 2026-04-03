@@ -262,6 +262,15 @@ export const CREATION_SYMBOLS = {
 } as const;
 
 // ---------------------------------------------------------------------------
+// Take / gather — index selection along an axis
+// ---------------------------------------------------------------------------
+
+export const TAKE_SYMBOLS = {
+  // int mlx_take_axis(res, a, indices, axis, stream)
+  mlx_take_axis: { args: [P, P, P, I32, P], returns: I32 },
+} as const;
+
+// ---------------------------------------------------------------------------
 // Random (random.h)
 // ---------------------------------------------------------------------------
 

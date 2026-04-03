@@ -16,6 +16,7 @@ export type { DeviceType } from "./core/device";
 export { getDefaultDevice, setDefaultDevice } from "./core/device";
 export type { DType } from "./core/dtype";
 export { MxError } from "./core/error";
+export type { Operand } from "./core/ops";
 // --- Operations ---
 export {
   abs,
@@ -64,6 +65,7 @@ export {
   // Reductions
   sum,
   takeAlongAxis,
+  takeAxis,
   tanh,
   transpose,
   where,
@@ -73,5 +75,25 @@ export {
 export * as random from "./core/random";
 // --- Transforms ---
 export { grad, mxEval, valueAndGrad } from "./core/transforms";
+// --- Neural network ---
+// biome-ignore lint/performance/noReExportAll: Intentional namespace re-export — matches MLX Python's nn.Module API pattern
+export * as nn from "./nn";
+// Flat convenience exports
+export {
+  crossEntropy,
+  Dropout,
+  Embedding,
+  gelu,
+  LayerNorm,
+  Linear,
+  Module,
+  mse,
+  relu,
+  silu,
+} from "./nn";
+// --- Optimizers ---
+// biome-ignore lint/performance/noReExportAll: Intentional namespace re-export — matches MLX Python's optimizers API pattern
+export * as optimizers from "./optimizers";
+export { Adam, AdamW, SGD } from "./optimizers";
 
 export const VERSION = "0.0.1";
