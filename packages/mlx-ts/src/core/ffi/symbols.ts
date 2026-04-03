@@ -1,8 +1,9 @@
 /**
- * FFI bindings to libmlxc.dylib.
+ * FFI symbol declarations for libmlxc.dylib.
  *
- * This is the sole point of contact with the native library. Every mlx-c
- * function used by mlx-ts is declared here and loaded via a single dlopen call.
+ * Each constant group maps to a domain in the mlx-c header structure
+ * (array.h, closure.h, transforms.h, vector.h, etc.). Groups are spread
+ * into a single dlopen call in lib.ts.
  *
  * Conventions (from mlx-c headers):
  * - Creation functions return `mlx_array` by value → FFIType.ptr
@@ -14,18 +15,7 @@
  * @module
  */
 
-import type { Pointer } from "bun:ffi";
-import {
-  ptr as bunPtr,
-  read as bunRead,
-  toArrayBuffer as bunToArrayBuffer,
-  CString,
-  dlopen,
-  FFIType,
-} from "bun:ffi";
-import { resolve } from "node:path";
-
-const DYLIB_PATH = resolve(import.meta.dirname, "../../native/lib/libmlxc.dylib");
+import { FFIType } from "bun:ffi";
 
 // --- Type shorthands for readability ---
 const {
@@ -39,14 +29,20 @@ const {
   u64_fast: U64_FAST,
 } = FFIType;
 
-// --- Symbol groups ---
+// ---------------------------------------------------------------------------
+// Error handling (error.h)
+// ---------------------------------------------------------------------------
 
-const ERROR_SYMBOLS = {
+export const ERROR_SYMBOLS = {
   // void mlx_set_error_handler(handler, data, dtor)
   mlx_set_error_handler: { args: [P, P, P], returns: VOID },
 } as const;
 
-const ARRAY_LIFECYCLE_SYMBOLS = {
+// ---------------------------------------------------------------------------
+// Array lifecycle (array.h)
+// ---------------------------------------------------------------------------
+
+export const ARRAY_LIFECYCLE_SYMBOLS = {
   // Returns mlx_array by value (ctx pointer)
   mlx_array_new: { args: [], returns: P },
   mlx_array_new_data: { args: [P, P, I32, I32], returns: P },
@@ -101,13 +97,21 @@ const ARRAY_LIFECYCLE_SYMBOLS = {
   mlx_array_tostring: { args: [P, P], returns: I32 },
 } as const;
 
-const STRING_SYMBOLS = {
+// ---------------------------------------------------------------------------
+// Strings (string.h)
+// ---------------------------------------------------------------------------
+
+export const STRING_SYMBOLS = {
   mlx_string_new: { args: [], returns: P },
   mlx_string_free: { args: [P], returns: I32 },
   mlx_string_data: { args: [P], returns: CSTRING },
 } as const;
 
-const DEVICE_SYMBOLS = {
+// ---------------------------------------------------------------------------
+// Device & stream (device.h, stream.h)
+// ---------------------------------------------------------------------------
+
+export const DEVICE_SYMBOLS = {
   mlx_device_new: { args: [], returns: P },
   mlx_device_new_type: { args: [I32, I32], returns: P },
   mlx_device_free: { args: [P], returns: I32 },
@@ -115,7 +119,7 @@ const DEVICE_SYMBOLS = {
   mlx_set_default_device: { args: [P], returns: I32 },
 } as const;
 
-const STREAM_SYMBOLS = {
+export const STREAM_SYMBOLS = {
   mlx_stream_new: { args: [], returns: P },
   mlx_stream_free: { args: [P], returns: I32 },
   mlx_default_cpu_stream_new: { args: [], returns: P },
@@ -125,17 +129,26 @@ const STREAM_SYMBOLS = {
   mlx_synchronize: { args: [P], returns: I32 },
 } as const;
 
-const VECTOR_SYMBOLS = {
+// ---------------------------------------------------------------------------
+// Vector containers (vector.h)
+// ---------------------------------------------------------------------------
+
+export const VECTOR_SYMBOLS = {
   mlx_vector_array_new: { args: [], returns: P },
   mlx_vector_array_new_data: { args: [P, U64_FAST], returns: P },
   mlx_vector_array_new_value: { args: [P], returns: P },
   mlx_vector_array_free: { args: [P], returns: I32 },
+  mlx_vector_array_set_value: { args: [P, P], returns: I32 },
   mlx_vector_array_append_value: { args: [P, P], returns: I32 },
   mlx_vector_array_size: { args: [P], returns: U64_FAST },
   mlx_vector_array_get: { args: [P, P, U64_FAST], returns: I32 },
 } as const;
 
-const ARITHMETIC_SYMBOLS = {
+// ---------------------------------------------------------------------------
+// Arithmetic operations (ops.h)
+// ---------------------------------------------------------------------------
+
+export const ARITHMETIC_SYMBOLS = {
   // int mlx_op(mlx_array* res, const mlx_array a, [const mlx_array b,] const mlx_stream s)
   mlx_add: { args: [P, P, P, P], returns: I32 },
   mlx_subtract: { args: [P, P, P, P], returns: I32 },
@@ -160,7 +173,11 @@ const ARITHMETIC_SYMBOLS = {
   mlx_cos: { args: [P, P, P], returns: I32 },
 } as const;
 
-const REDUCTION_SYMBOLS = {
+// ---------------------------------------------------------------------------
+// Reductions (ops.h)
+// ---------------------------------------------------------------------------
+
+export const REDUCTION_SYMBOLS = {
   // Full reduction: int mlx_sum(res, a, keepdims, stream)
   mlx_sum: { args: [P, P, BOOL, P], returns: I32 },
   mlx_sum_axis: { args: [P, P, I32, BOOL, P], returns: I32 },
@@ -183,7 +200,11 @@ const REDUCTION_SYMBOLS = {
   mlx_logsumexp_axes: { args: [P, P, P, U64_FAST, BOOL, P], returns: I32 },
 } as const;
 
-const SHAPE_SYMBOLS = {
+// ---------------------------------------------------------------------------
+// Shape operations (ops.h)
+// ---------------------------------------------------------------------------
+
+export const SHAPE_SYMBOLS = {
   // int mlx_reshape(res, a, shape, shape_num, stream)
   mlx_reshape: { args: [P, P, P, U64_FAST, P], returns: I32 },
   mlx_transpose: { args: [P, P, P], returns: I32 },
@@ -203,11 +224,19 @@ const SHAPE_SYMBOLS = {
   mlx_stop_gradient: { args: [P, P, P], returns: I32 },
 } as const;
 
-const LINALG_SYMBOLS = {
+// ---------------------------------------------------------------------------
+// Linear algebra (linalg.h)
+// ---------------------------------------------------------------------------
+
+export const LINALG_SYMBOLS = {
   mlx_matmul: { args: [P, P, P, P], returns: I32 },
 } as const;
 
-const COMPARISON_SYMBOLS = {
+// ---------------------------------------------------------------------------
+// Comparison operations (ops.h)
+// ---------------------------------------------------------------------------
+
+export const COMPARISON_SYMBOLS = {
   mlx_equal: { args: [P, P, P, P], returns: I32 },
   mlx_not_equal: { args: [P, P, P, P], returns: I32 },
   mlx_greater: { args: [P, P, P, P], returns: I32 },
@@ -217,7 +246,11 @@ const COMPARISON_SYMBOLS = {
   mlx_where: { args: [P, P, P, P, P], returns: I32 },
 } as const;
 
-const CREATION_SYMBOLS = {
+// ---------------------------------------------------------------------------
+// Array creation (ops.h)
+// ---------------------------------------------------------------------------
+
+export const CREATION_SYMBOLS = {
   // int mlx_zeros(res, shape, shape_num, dtype, stream)
   mlx_zeros: { args: [P, P, U64_FAST, I32, P], returns: I32 },
   mlx_ones: { args: [P, P, U64_FAST, I32, P], returns: I32 },
@@ -228,7 +261,11 @@ const CREATION_SYMBOLS = {
   mlx_take_along_axis: { args: [P, P, P, I32, P], returns: I32 },
 } as const;
 
-const RANDOM_SYMBOLS = {
+// ---------------------------------------------------------------------------
+// Random (random.h)
+// ---------------------------------------------------------------------------
+
+export const RANDOM_SYMBOLS = {
   mlx_random_seed: { args: [U64_FAST], returns: I32 },
   mlx_random_key: { args: [P, U64_FAST], returns: I32 },
   // mlx_random_split(res_0, res_1, key, stream)
@@ -242,96 +279,41 @@ const RANDOM_SYMBOLS = {
   mlx_random_bernoulli: { args: [P, P, P, U64_FAST, P, P], returns: I32 },
 } as const;
 
-const TRANSFORM_SYMBOLS = {
+// ---------------------------------------------------------------------------
+// Transforms (transforms.h)
+// ---------------------------------------------------------------------------
+
+export const TRANSFORM_SYMBOLS = {
   // int mlx_eval(const mlx_vector_array outputs)
   mlx_eval: { args: [P], returns: I32 },
   mlx_async_eval: { args: [P], returns: I32 },
 } as const;
 
-// --- Load library ---
-
-const lib = dlopen(DYLIB_PATH, {
-  ...ERROR_SYMBOLS,
-  ...ARRAY_LIFECYCLE_SYMBOLS,
-  ...STRING_SYMBOLS,
-  ...DEVICE_SYMBOLS,
-  ...STREAM_SYMBOLS,
-  ...VECTOR_SYMBOLS,
-  ...ARITHMETIC_SYMBOLS,
-  ...REDUCTION_SYMBOLS,
-  ...SHAPE_SYMBOLS,
-  ...LINALG_SYMBOLS,
-  ...COMPARISON_SYMBOLS,
-  ...CREATION_SYMBOLS,
-  ...RANDOM_SYMBOLS,
-  ...TRANSFORM_SYMBOLS,
-});
-
-/** All FFI symbols from libmlxc.dylib. */
-export const ffi = lib.symbols;
-
 // ---------------------------------------------------------------------------
-// Pointer utilities — re-exports with proper types
-// ---------------------------------------------------------------------------
-// We re-export Bun's FFI utilities using their native Pointer type throughout.
-// Numeric addresses returned by Bun are narrowed back to Pointer via a local
-// type guard so the brand does not leak through the rest of the codebase.
+// Closures (closure.h)
 // ---------------------------------------------------------------------------
 
-export type { Pointer };
+export const CLOSURE_SYMBOLS = {
+  // mlx_closure mlx_closure_new_func(int (*fun)(mlx_vector_array*, const mlx_vector_array))
+  mlx_closure_new_func: { args: [P], returns: P },
+  // int mlx_closure_apply(mlx_vector_array* res, mlx_closure cls, const mlx_vector_array input)
+  mlx_closure_apply: { args: [P, P, P], returns: I32 },
+  // int mlx_closure_free(mlx_closure cls)
+  mlx_closure_free: { args: [P], returns: I32 },
 
-type NativeBufferView = NodeJS.TypedArray | ArrayBufferLike | DataView;
+  // mlx_closure_value_and_grad lifecycle
+  mlx_closure_value_and_grad_new: { args: [], returns: P },
+  // int mlx_closure_value_and_grad_apply(res_values*, res_grads*, cls, input)
+  mlx_closure_value_and_grad_apply: { args: [P, P, P, P], returns: I32 },
+  mlx_closure_value_and_grad_free: { args: [P], returns: I32 },
+} as const;
 
-/** Get a native pointer from a TypedArray. */
-export function ptr(view: NativeBufferView, byteOffset?: number): Pointer {
-  return bunPtr(view, byteOffset);
-}
+// ---------------------------------------------------------------------------
+// Gradient transforms (transforms.h)
+// ---------------------------------------------------------------------------
 
-/** Read a pointer-sized value from native memory. */
-export function readPtr(address: Pointer, byteOffset: number): Pointer | null {
-  const rawAddress = bunRead.ptr(address, byteOffset);
-  return isPointer(rawAddress) ? rawAddress : null;
-}
-
-/** Read an i32 from native memory. */
-export function readI32(address: Pointer, byteOffset: number): number {
-  return bunRead.i32(address, byteOffset);
-}
-
-/** Create an ArrayBuffer viewing native memory. */
-export function nativeSlice(address: Pointer, byteOffset: number, byteLength: number): ArrayBuffer {
-  return bunToArrayBuffer(address, byteOffset, byteLength);
-}
-
-/** Convert a C string pointer to a JS string. */
-export function readCString(pointer: Pointer): string {
-  return new CString(pointer).toString();
-}
-
-/** Require a non-null native pointer from an FFI call. */
-export function unwrapPointer(pointer: Pointer | null, source: string): Pointer {
-  if (pointer === null) {
-    throw new Error(`${source} returned a null pointer`);
-  }
-  return pointer;
-}
-
-/** Convert a size_t-like return value to a safe JavaScript number. */
-export function sizeToNumber(value: number | bigint, source: string): number {
-  if (typeof value === "number") {
-    if (!Number.isSafeInteger(value) || value < 0) {
-      throw new RangeError(`${source} returned ${value}, which is not a safe non-negative integer`);
-    }
-    return value;
-  }
-
-  if (value > BigInt(Number.MAX_SAFE_INTEGER)) {
-    throw new RangeError(`${source} returned ${value}, which exceeds JS safe integer range`);
-  }
-
-  return Number(value);
-}
-
-function isPointer(address: number): address is Pointer {
-  return address !== 0;
-}
+export const GRAD_TRANSFORM_SYMBOLS = {
+  // int mlx_value_and_grad(mlx_closure_value_and_grad* res, const mlx_closure fun,
+  //                        const int* argnums, size_t argnums_num)
+  mlx_value_and_grad: { args: [P, P, P, U64_FAST], returns: I32 },
+} as const;

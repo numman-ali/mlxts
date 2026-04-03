@@ -129,7 +129,7 @@ Type assertions such as `value as SomeType` or `as unknown as` are a last resort
 - If an assertion is unavoidable at the FFI boundary, isolate it in one tiny helper and explain why the boundary needs it.
 - Do not spread boundary assertions into higher-level tensor, nn, optimizer, or application code.
 - Never use a type assertion to silence a real type design problem.
-- **Enforced by:** `bun run check:assertions` scans production code for `as` casts (Biome has no rule for this). Non-null assertions (`!`) and `any` are enforced by Biome at `error` level, with overrides for `ffi.ts` (boundary) and test files.
+- **Enforced by:** `bun run check:assertions` scans production code for `as` casts (Biome has no rule for this). Non-null assertions (`!`) and `any` are enforced by Biome at `error` level, with overrides for `src/core/ffi/` (boundary package) and test files.
 
 ### Prefer `readonly` for data that shouldn't change
 
@@ -155,7 +155,7 @@ function trainStep(model: GPT, batch: Batch): number {
 
 ### No `any` except at the FFI boundary
 
-The FFI layer (`ffi.ts`) may use `any` or a minimal, documented type assertion where Bun's FFI types require it. Nowhere else. If you're tempted to use either in normal code, the type design needs improvement.
+The FFI boundary package (`src/core/ffi/`) may use `any` or a minimal, documented type assertion where Bun's FFI types require it. Nowhere else. If you're tempted to use either in normal code, the type design needs improvement.
 
 ### Treat type assertions as a design smell
 
@@ -213,6 +213,15 @@ export class CausalSelfAttention extends Module {
 - Test file lives next to source: `linear.ts` → `linear.test.ts`
 - Test the public API, not internals
 - Each test should be understandable in isolation
+- Exported core functions need direct unit coverage, not just incidental coverage through smoke tests
+
+### Coverage is part of the contract
+
+- `mlx-ts` must stay at or above `95%` line coverage and `90%` function coverage
+- Enforced by: `bun run check:coverage`
+- `bun run validate` includes the coverage gate and is the standard pre-commit/review-ready path
+- Prefer tests that exercise real behavior, edge cases, and failure paths over tests written only to bump percentages
+- Dynamic paths count: default-device switching, autograd error propagation, shape/axis variants, and cleanup paths all need explicit coverage
 
 ### Test naming
 
@@ -264,10 +273,12 @@ if (weight.shape[0] !== inputFeatures) {
 When reviewing code (whether written by a human or an agent), check for:
 
 - [ ] **"Where did we teach TypeScript the truth?"** — not just "did the compiler go green?" Types should express real invariants, not suppress inconvenient errors.
-- [ ] **No type assertions outside `ffi.ts`** — if `as` or `!` appears in ops, nn, or application code, the design is incomplete.
-- [ ] **ABI correctness** — FFI symbol declarations in `ffi.ts` must match the actual mlx-c header signatures. Creation functions return by value; operations use output pointers; property getters return directly.
+- [ ] **No type assertions outside `src/core/ffi/`** — if `as` or `!` appears in ops, nn, or application code, the design is incomplete.
+- [ ] **ABI correctness** — FFI symbol declarations in `src/core/ffi/symbols.ts` must match the actual mlx-c header signatures. Creation functions return by value; operations use output pointers; property getters return directly.
 - [ ] **Resource cleanup** — every native handle temporary (`mlx_vector_array`, device handles, RNG key splits) uses `try/finally`.
 - [ ] **`bun run typecheck` passes** — code is not review-ready until static types are clean.
+- [ ] **`bun run check:coverage` passes** — `mlx-ts` stays at or above `95%` lines and `90%` funcs.
+- [ ] **Unit tests cover exported behavior directly** — don’t rely on one or two broad smoke tests to “accidentally” hit important branches.
 - [ ] **Error messages are actionable** — include what was expected, what was received, and where.
 
 ## Git

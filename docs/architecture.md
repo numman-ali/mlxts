@@ -207,13 +207,13 @@ All functions return `int` (0 = success). Error details go through `mlx_set_erro
 
 Bun FFI uses a branded `Pointer` type — a compile-time brand (`{ __pointer__: null }`) distinct from plain `number`. This brand prevents accidentally mixing native addresses with regular numbers.
 
-The Pointer brand stays at the FFI boundary. Two helpers in `ffi.ts` bridge the gap:
+The Pointer brand stays at the FFI boundary. Two helpers in `src/core/ffi/pointer.ts` bridge the gap:
 - `unwrapPointer(ptr, label)` — narrows `Pointer | null` to `Pointer`, throwing if null
 - `sizeToNumber(value, label)` — converts `number | bigint` (from size_t returns) to `number`
 
 Higher-level code (ops, random, transforms) works with `Pointer` directly but never needs to assert or narrow it — the helpers handle that.
 
-Key FFI utilities (re-exported from `ffi.ts` with proper Pointer types):
+Key FFI utilities (re-exported from `src/core/ffi/` with proper Pointer types):
 - `ptr(typedArray)` — get a `Pointer` from a TypedArray
 - `nativeSlice(ptr, offset, length)` — create an ArrayBuffer viewing native memory
 - `readI32(ptr, offset)` — read a 32-bit int from native memory

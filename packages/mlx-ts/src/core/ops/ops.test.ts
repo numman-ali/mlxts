@@ -5,26 +5,44 @@ import {
   abs,
   add,
   argmax,
+  argmin,
+  astype,
+  broadcastTo,
   concatenate,
   divide,
   equal,
+  erf,
   exp,
   expandDims,
+  flatten,
   greater,
+  greaterEqual,
+  less,
+  lessEqual,
   log,
+  logsumexp,
   matmul,
   max,
+  maximum,
   mean,
   min,
+  minimum,
   multiply,
   negative,
+  notEqual,
+  power,
+  reciprocal,
   reshape,
+  sigmoid,
   softmax,
   sqrt,
+  square,
   squeeze,
   stack,
   subtract,
   sum,
+  takeAlongAxis,
+  tanh,
   transpose,
   where,
 } from "./index";
@@ -134,6 +152,81 @@ describe("Arithmetic ops", () => {
     b.free();
     c.free();
   });
+
+  test("power raises each element", () => {
+    const a = array([2, 3]);
+    const b = array([3, 2]);
+    const c = power(a, b);
+    c.eval();
+    expect(c.toList()).toEqual([8, 9]);
+    a.free();
+    b.free();
+    c.free();
+  });
+
+  test("maximum and minimum choose element-wise extrema", () => {
+    const a = array([1, 5, -1]);
+    const b = array([2, 4, 0]);
+    const hi = maximum(a, b);
+    const lo = minimum(a, b);
+    hi.eval();
+    lo.eval();
+    expect(hi.toList()).toEqual([2, 5, 0]);
+    expect(lo.toList()).toEqual([1, 4, -1]);
+    a.free();
+    b.free();
+    hi.free();
+    lo.free();
+  });
+
+  test("square multiplies values by themselves", () => {
+    const a = array([-2, 3]);
+    const b = square(a);
+    b.eval();
+    expect(b.toList()).toEqual([4, 9]);
+    a.free();
+    b.free();
+  });
+
+  test("sigmoid maps zero to one half", () => {
+    const a = array([0]);
+    const b = sigmoid(a);
+    b.eval();
+    expect(b.item()).toBeCloseTo(0.5, 5);
+    a.free();
+    b.free();
+  });
+
+  test("erf maps zero to zero", () => {
+    const a = array([0]);
+    const b = erf(a);
+    b.eval();
+    expect(b.item()).toBeCloseTo(0, 5);
+    a.free();
+    b.free();
+  });
+
+  test("reciprocal returns one over each value", () => {
+    const a = array([2, 4], "float32");
+    const b = reciprocal(a);
+    b.eval();
+    const list = b.toList() as number[];
+    expect(list[0]).toBeCloseTo(0.5, 5);
+    expect(list[1]).toBeCloseTo(0.25, 5);
+    a.free();
+    b.free();
+  });
+
+  test("tanh matches expected values", () => {
+    const a = array([0, 1], "float32");
+    const b = tanh(a);
+    b.eval();
+    const list = b.toList() as number[];
+    expect(list[0]).toBeCloseTo(0, 5);
+    expect(list[1]).toBeCloseTo(Math.tanh(1), 5);
+    a.free();
+    b.free();
+  });
 });
 
 describe("Linalg ops", () => {
@@ -225,11 +318,36 @@ describe("Reduction ops", () => {
     mn.free();
   });
 
+  test("max and min along an axis", () => {
+    const a = array([
+      [1, 5, 2],
+      [3, 4, 0],
+    ]);
+    const maxByRow = max(a, 1);
+    const minByColumn = min(a, 0);
+    maxByRow.eval();
+    minByColumn.eval();
+    expect(maxByRow.toList()).toEqual([5, 4]);
+    expect(minByColumn.toList()).toEqual([1, 4, 0]);
+    a.free();
+    maxByRow.free();
+    minByColumn.free();
+  });
+
   test("argmax", () => {
     const a = array([3, 1, 4, 1, 5]);
     const idx = argmax(a);
     idx.eval();
     expect(idx.item()).toBe(4); // index of 5
+    a.free();
+    idx.free();
+  });
+
+  test("argmin", () => {
+    const a = array([3, 1, 4, 1, 5]);
+    const idx = argmin(a);
+    idx.eval();
+    expect(idx.item()).toBe(1);
     a.free();
     idx.free();
   });
@@ -241,6 +359,37 @@ describe("Reduction ops", () => {
     ]);
     const b = sum(a, 0, true);
     expect(b.shape).toEqual([1, 2]);
+    a.free();
+    b.free();
+  });
+
+  test("sum and mean across multiple axes", () => {
+    const a = array([
+      [
+        [1, 2],
+        [3, 4],
+      ],
+      [
+        [5, 6],
+        [7, 8],
+      ],
+    ]);
+    const summed = sum(a, [0, 2]);
+    const averaged = mean(a, [0, 1]);
+    summed.eval();
+    averaged.eval();
+    expect(summed.toList()).toEqual([14, 22]);
+    expect(averaged.toList()).toEqual([4, 5]);
+    a.free();
+    summed.free();
+    averaged.free();
+  });
+
+  test("logsumexp stays numerically stable", () => {
+    const a = array([0, 0], "float32");
+    const b = logsumexp(a);
+    b.eval();
+    expect(b.item()).toBeCloseTo(Math.log(2), 5);
     a.free();
     b.free();
   });
@@ -297,9 +446,35 @@ describe("Shape ops", () => {
     b.free();
   });
 
+  test("transpose with axes permutes dimensions explicitly", () => {
+    const a = array([
+      [
+        [1, 2],
+        [3, 4],
+      ],
+    ]);
+    const b = transpose(a, [1, 2, 0]);
+    expect(b.shape).toEqual([2, 2, 1]);
+    b.eval();
+    expect(b.toList()).toEqual([
+      [[1], [2]],
+      [[3], [4]],
+    ]);
+    a.free();
+    b.free();
+  });
+
   test("squeeze removes size-1 dims", () => {
     const a = ones([1, 3, 1]);
     const b = squeeze(a);
+    expect(b.shape).toEqual([3]);
+    a.free();
+    b.free();
+  });
+
+  test("squeeze removes a specific axis", () => {
+    const a = ones([1, 3]);
+    const b = squeeze(a, 0);
     expect(b.shape).toEqual([3]);
     a.free();
     b.free();
@@ -314,6 +489,49 @@ describe("Shape ops", () => {
     a.free();
     b.free();
     c.free();
+  });
+
+  test("broadcastTo expands singleton dimensions", () => {
+    const a = array([[1], [2], [3]]);
+    const b = broadcastTo(a, [3, 2]);
+    b.eval();
+    expect(b.toList()).toEqual([
+      [1, 1],
+      [2, 2],
+      [3, 3],
+    ]);
+    a.free();
+    b.free();
+  });
+
+  test("astype changes the visible dtype", () => {
+    const a = array([1, 2, 3], "int32");
+    const b = astype(a, "float32");
+    expect(b.dtype).toBe("float32");
+    a.free();
+    b.free();
+  });
+
+  test("flatten merges a range of axes", () => {
+    const a = array([
+      [
+        [1, 2],
+        [3, 4],
+      ],
+      [
+        [5, 6],
+        [7, 8],
+      ],
+    ]);
+    const b = flatten(a, 1, 2);
+    expect(b.shape).toEqual([2, 4]);
+    b.eval();
+    expect(b.toList()).toEqual([
+      [1, 2, 3, 4],
+      [5, 6, 7, 8],
+    ]);
+    a.free();
+    b.free();
   });
 
   test("concatenate", () => {
@@ -341,6 +559,29 @@ describe("Shape ops", () => {
     b.free();
     c.free();
   });
+
+  test("takeAlongAxis gathers by index", () => {
+    const a = array([
+      [10, 11, 12],
+      [20, 21, 22],
+    ]);
+    const indices = array(
+      [
+        [2, 1],
+        [0, 2],
+      ],
+      "int32",
+    );
+    const gathered = takeAlongAxis(a, indices, 1);
+    gathered.eval();
+    expect(gathered.toList()).toEqual([
+      [12, 11],
+      [20, 22],
+    ]);
+    a.free();
+    indices.free();
+    gathered.free();
+  });
 });
 
 describe("Comparison ops", () => {
@@ -356,6 +597,17 @@ describe("Comparison ops", () => {
     c.free();
   });
 
+  test("notEqual", () => {
+    const a = array([1, 2, 3]);
+    const b = array([1, 0, 3]);
+    const c = notEqual(a, b);
+    c.eval();
+    expect(c.toList()).toEqual([0, 1, 0]);
+    a.free();
+    b.free();
+    c.free();
+  });
+
   test("greater", () => {
     const a = array([3, 1, 2]);
     const b = array([2, 2, 2]);
@@ -365,6 +617,25 @@ describe("Comparison ops", () => {
     a.free();
     b.free();
     c.free();
+  });
+
+  test("greaterEqual, less, and lessEqual", () => {
+    const a = array([1, 2, 3]);
+    const b = array([1, 3, 2]);
+    const ge = greaterEqual(a, b);
+    const lt = less(a, b);
+    const le = lessEqual(a, b);
+    ge.eval();
+    lt.eval();
+    le.eval();
+    expect(ge.toList()).toEqual([1, 0, 1]);
+    expect(lt.toList()).toEqual([0, 1, 0]);
+    expect(le.toList()).toEqual([1, 1, 0]);
+    a.free();
+    b.free();
+    ge.free();
+    lt.free();
+    le.free();
   });
 
   test("where", () => {

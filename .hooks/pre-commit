@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Pre-commit hook: runs the agentic engineering validation pipeline
-# Tied to the project's quality gates — lint, typecheck, tests, format check
+# Pre-commit hook: runs the full validation pipeline
+# Tied to the project's quality gates — lint, typecheck, assertions, and coverage-backed tests
 #
 # This hook enforces the "validate before commit" step of the agentic loop.
 # See docs/agentic-loop.md for context.
@@ -17,43 +17,14 @@ echo ""
 echo -e "${BOLD}nanogpt-ts pre-commit validation${NC}"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
-FAILED=0
-
-# Step 1: Lint + format check (biome check runs formatter, linter, and import sorting)
-echo -e "\n${BOLD}[1/3]${NC} Checking lint and formatting..."
-if bun run biome check . 2>/dev/null; then
-  echo -e "  ${GREEN}✓${NC} Lint and formatting OK"
-else
-  echo -e "  ${RED}✗${NC} Lint/format issues found. Run: bun run lint:fix"
-  FAILED=1
-fi
-
-# Step 2: Type check (catches type errors across the monorepo)
-echo -e "\n${BOLD}[2/3]${NC} Type checking..."
-if bun run typecheck 2>/dev/null; then
-  echo -e "  ${GREEN}✓${NC} Types OK"
-else
-  echo -e "  ${RED}✗${NC} Type errors found. Run: bun run typecheck"
-  FAILED=1
-fi
-
-# Step 3: Tests (catches regressions)
-echo -e "\n${BOLD}[3/3]${NC} Running tests..."
-if bun test 2>/dev/null; then
-  echo -e "  ${GREEN}✓${NC} Tests OK"
-else
-  echo -e "  ${RED}✗${NC} Test failures. Run: bun test"
-  FAILED=1
-fi
-
-# Summary
-echo ""
-echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-if [ $FAILED -ne 0 ]; then
-  echo -e "${RED}${BOLD}Commit blocked.${NC} Fix the issues above and try again."
-  echo -e "${YELLOW}Tip:${NC} Run 'bun run validate' to check everything locally."
-  exit 1
-else
+echo -e "\n${BOLD}[1/1]${NC} Running full validation..."
+if bun run validate; then
   echo -e "${GREEN}${BOLD}All checks passed.${NC} Committing."
   exit 0
 fi
+
+echo ""
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo -e "${RED}${BOLD}Commit blocked.${NC} Fix the issues above and try again."
+echo -e "${YELLOW}Tip:${NC} Run 'bun run validate' to check everything locally."
+exit 1

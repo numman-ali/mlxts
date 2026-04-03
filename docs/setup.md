@@ -82,7 +82,8 @@ bun run build:native
 bun run validate
 ```
 
-This runs typecheck + lint + tests across all packages.
+This runs typecheck + lint + assertion checks + coverage-backed tests across all packages.
+It also enforces the `mlx-ts` coverage gate: `95%` lines and `90%` functions.
 
 ## Build details
 

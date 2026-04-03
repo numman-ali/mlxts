@@ -56,7 +56,7 @@
   },
   "overrides": [
     {
-      "includes": ["packages/mlx-ts/src/core/ffi.ts"],
+      "includes": ["packages/mlx-ts/src/core/ffi/**"],
       "linter": {
         "rules": {
           "suspicious": { "noExplicitAny": "off" },

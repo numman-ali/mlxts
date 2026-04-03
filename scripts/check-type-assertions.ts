@@ -9,7 +9,7 @@
  * - `as const` and `as const satisfies` (TypeScript const assertions)
  * - Import/export aliases (`import { x as y }`, `export * as ns`)
  * - Lines inside comments (// or /* *\/)
- * - Files: ffi.ts (FFI boundary), *.test.ts (tests)
+ * - Files: src/core/ffi/ (FFI boundary package), *.test.ts (tests)
  *
  * Exit code 0 = clean, 1 = violations found.
  */
@@ -17,7 +17,7 @@
 import { Glob } from "bun";
 
 const SCAN_DIR = "packages/mlx-ts/src";
-const EXCLUDED_FILES = /\/(ffi\.ts|.*\.test\.ts)$/;
+const EXCLUDED_FILES = /\/(ffi\/.*\.ts|.*\.test\.ts)$/;
 
 // Match ` as <type>` but not `as const`, import/export aliases, or comments
 const TYPE_ASSERTION_RE = /\bas\s+(?!const\b)[A-Za-z]/;
@@ -56,7 +56,7 @@ if (violations.length > 0) {
   for (const v of violations) {
     console.error(`  ${v}`);
   }
-  console.error("\nType assertions (as SomeType) are not allowed outside ffi.ts.");
+  console.error("\nType assertions (as SomeType) are not allowed outside src/core/ffi/.");
   console.error("Use runtime checks, type narrowing, or improve the type design instead.");
   process.exit(1);
 } else {

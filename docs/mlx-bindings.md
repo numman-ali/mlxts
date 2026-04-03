@@ -69,7 +69,7 @@ Note the pattern: result is written to a pre-allocated output pointer (first arg
 
 **Layer 2 — Bun FFI:**
 ```typescript
-// src/core/ffi.ts — symbol declaration (part of the grouped constants)
+// src/core/ffi/symbols.ts — symbol declaration (part of the grouped constants)
 mlx_matmul: { args: [P, P, P, P], returns: I32 },
 ```
 
@@ -231,12 +231,14 @@ Each closure supports:
 
 2. We wrap it as a JSCallback with the signature mlx-c expects:
    const cb = new JSCallback(
-     (inputs: Pointer) => { /* unwrap inputs, call lossFn, wrap outputs */ },
-     { args: [FFIType.ptr], returns: FFIType.ptr }
+     (outVec: Pointer | null, inVec: Pointer | null) => {
+       /* unwrap inputs, call lossFn, write one result into outVec, return 0/1 */
+     },
+     { args: [FFIType.ptr, FFIType.ptr], returns: FFIType.i32 }
    );
 
 3. Create an mlx_closure from the JSCallback:
-   mlx_closure_new_func(&closure, cb.ptr)
+   const closure = mlx_closure_new_func(cb.ptr)
 
 4. Create the value_and_grad transform:
    mlx_value_and_grad(&vag, closure, argnums, num_argnums)
@@ -345,7 +347,7 @@ See [docs/setup.md](./setup.md) for full prerequisites (macOS 14+, Xcode 16+, Me
 
 ### FFI loading
 
-All symbols are loaded via a single `dlopen` in `src/core/ffi.ts`:
+All symbols are loaded via a single `dlopen` in `src/core/ffi/lib.ts`:
 
 ```typescript
 import { dlopen, FFIType } from "bun:ffi";

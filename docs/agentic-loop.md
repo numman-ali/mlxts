@@ -38,9 +38,10 @@ This document defines the process.
                     │  (Automated)          │
                     │                       │
                     │  Type check first     │
-                    │  Run tests            │
+                    │  Run coverage-backed  │
+                    │  tests                │
                     │  Lint                 │
-                    │  Build                │
+                    │  Build when relevant  │
                     └──────────┬───────────┘
                                │
                                ▼
@@ -125,6 +126,9 @@ Every piece of code or documentation that enters the project must be reviewed by
 ### Validation Gate
 
 - `bun run typecheck` must pass before work moves from implementation to review
+- `bun run validate` is the standard gate: typecheck, lint, assertion checks, and coverage-backed tests
+- Pre-commit should call `bun run validate` directly rather than maintaining a weaker parallel checklist
+- `mlx-ts` coverage must stay at or above `95%` lines and `90%` functions
 - Tests, lint, and build remain required, but type errors are treated as design failures, not cosmetic issues
 - Type assertions and `any` do not count as "fixing" a type problem unless they are isolated to a justified boundary such as FFI
 
@@ -183,5 +187,6 @@ Nomi:                 Accept and evaluate generated text quality
 - **Scope creep during implementation**: If an agent discovers the spec is insufficient, stop and update the spec first
 - **Agent echo chambers**: Don't use the same agent to write AND review
 - **Skipping validation**: Never skip typecheck/test "just this once"
+- **Treating smoke tests as full coverage**: Coverage should come from direct unit tests of exported behavior and failure modes, not incidental execution
 - **Using casts to dodge type errors**: Boundary-only assertions can be valid; broad "make TypeScript shut up" casting is not
 - **Over-planning**: Once a spec is approved, build it. Don't redesign in implementation.

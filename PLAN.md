@@ -109,7 +109,7 @@ We reject that. Our principles:
 - Bun build script that compiles mlx-c and produces libmlxc.dylib
 - CI-like validation script (typecheck + test)
 
-### 1b. Bun FFI bindings (`src/core/ffi.ts`)
+### 1b. Bun FFI bindings (`src/core/ffi/`)
 
 - Load libmlxc.dylib via Bun's `dlopen`
 - Map mlx-c functions to TypeScript with correct types
@@ -143,11 +143,12 @@ We reject that. Our principles:
 1. `bun run typecheck` passes with zero errors
 2. `bun test` passes all tests (75+ across 6 test files)
 3. `bun run lint` (Biome) passes clean
-4. FFI symbol declarations in `ffi.ts` are verified against mlx-c v0.6.0 headers
-5. No type assertions (`as`, `!`) exist outside the FFI boundary layer (`ffi.ts`)
-6. All native handle temporaries use `try/finally` for cleanup
-7. Explicit-dtype array creation and all scalar dtype paths are covered by tests
-8. Smoke test works: `mx.ones([3,3])` → `mx.matmul(a,a)` → `mx.eval(b)` → `b.toList()` returns `[[3,3,3],[3,3,3],[3,3,3]]`
+4. `bun run check:coverage` passes for `mlx-ts` at `95%` lines and `90%` functions
+5. FFI symbol declarations in `src/core/ffi/symbols.ts` are verified against mlx-c v0.6.0 headers
+6. No type assertions (`as`, `!`) exist outside the FFI boundary package (`src/core/ffi/`)
+7. All native handle temporaries use `try/finally` for cleanup
+8. Explicit-dtype array creation and all scalar dtype paths are covered by direct unit tests
+9. Smoke test works: `mx.ones([3,3])` → `mx.matmul(a,a)` → `mx.eval(b)` → `b.toList()` returns `[[3,3,3],[3,3,3],[3,3,3]]`
 
 ---
 
@@ -396,4 +397,3 @@ The exact model or tool used for each role may change over time. The workflow ma
 4. **Agent review** — No agent's output merges without review by a different agent
 5. **Incremental delivery** — Each phase produces something that works
 6. **Education first** — Code clarity trumps cleverness
-

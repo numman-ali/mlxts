@@ -72,6 +72,6 @@ export {
 // biome-ignore lint/performance/noReExportAll: Intentional namespace re-export — matches MLX Python's mx.random.normal() API pattern
 export * as random from "./core/random";
 // --- Transforms ---
-export { mxEval } from "./core/transforms";
+export { grad, mxEval, valueAndGrad } from "./core/transforms";
 
 export const VERSION = "0.0.1";
