@@ -1,0 +1,15 @@
+{
+  "name": "nanogpt",
+  "version": "0.0.1",
+  "type": "module",
+  "main": "src/index.ts",
+  "dependencies": {
+    "mlx-ts": "workspace:*"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "bun test",
+    "test:coverage": "bun test --coverage",
+    "build": "echo 'TODO: build'"
+  }
+}

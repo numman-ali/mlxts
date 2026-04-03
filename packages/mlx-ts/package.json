@@ -1,0 +1,13 @@
+{
+  "name": "mlx-ts",
+  "version": "0.0.1",
+  "type": "module",
+  "main": "src/index.ts",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "bun test",
+    "test:coverage": "bun test --coverage",
+    "build": "echo 'TODO: build native bindings'",
+    "build:native": "echo 'TODO: cmake build'"
+  }
+}

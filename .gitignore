@@ -1,0 +1,41 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+build/
+*.dylib
+*.so
+*.o
+
+# Bun
+bun.lockb
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Environment
+.env
+.env.local
+
+# MLX native build artifacts
+packages/mlx-ts/native/build/
+
+# Training artifacts
+checkpoints/
+*.safetensors
+*.bin
+
+# Data
+data/
+!examples/data/
+
+# Coverage
+coverage/
