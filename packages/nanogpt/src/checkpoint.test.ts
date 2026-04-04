@@ -1,6 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import { full, treeFlatten, treeUnflatten } from "@mlxts/core";
+import { prepareData } from "@mlxts/data";
 import { AdamW } from "@mlxts/optimizers";
+import { CharTokenizer } from "@mlxts/tokenizers";
 import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
@@ -12,11 +14,9 @@ import {
   saveCheckpoint,
 } from "./checkpoint";
 import { GPT_TINY, resolveConfig } from "./config";
-import { prepareData } from "./data";
 import { GPT } from "./model/gpt";
 import { initializeGPT } from "./model/init";
 import { createDefaultAdamW } from "./optimizer-defaults";
-import { CharTokenizer } from "./tokenizer";
 import { train } from "./train";
 
 function createCheckpointFixture() {
@@ -55,8 +55,8 @@ describe("checkpoint", () => {
       const loaded = loadCheckpoint(checkpointPath);
       expect(loaded.version).toBe(2);
       expect(loaded.step).toBe(5);
-      expect(loaded.config).toEqual(config);
-      expect(loaded.tokenizer.chars).toEqual(tokenizer.vocab);
+      expect(loaded.metadata.config).toEqual(config);
+      expect(loaded.metadata.tokenizer.chars).toEqual(tokenizer.vocab);
 
       const parameterKeys = Object.keys(loaded.parameters);
       expect(parameterKeys.length).toBeGreaterThan(0);
@@ -312,16 +312,18 @@ describe("checkpoint", () => {
       version: 2,
       kind: "snapshot",
       step: 0,
-      config: {
-        nLayer: 1,
-        nHead: 1,
-        nEmbd: 1,
-        blockSize: 1,
-        dropout: 0,
-        gradientCheckpointing: false,
-        vocabSize: 1,
+      metadata: {
+        config: {
+          nLayer: 1,
+          nHead: 1,
+          nEmbd: 1,
+          blockSize: 1,
+          dropout: 0,
+          gradientCheckpointing: false,
+          vocabSize: 1,
+        },
+        tokenizer: { chars: ["a"] },
       },
-      tokenizer: { chars: ["a"] },
       parameters: {},
     };
 
@@ -335,17 +337,20 @@ describe("checkpoint", () => {
 
     writeFileSync(
       join(checkpointPath, "manifest.json"),
-      JSON.stringify({ ...baseManifest, tokenizer: [] }),
+      JSON.stringify({ ...baseManifest, metadata: { ...baseManifest.metadata, tokenizer: [] } }),
       "utf-8",
     );
-    expect(() => loadCheckpoint(checkpointPath)).toThrow("tokenizer: expected an object");
+    expect(() => loadCheckpoint(checkpointPath)).toThrow("metadata.tokenizer: expected an object");
 
     writeFileSync(
       join(checkpointPath, "manifest.json"),
-      JSON.stringify({ ...baseManifest, config: "bad-config" }),
+      JSON.stringify({
+        ...baseManifest,
+        metadata: { ...baseManifest.metadata, config: "bad-config" },
+      }),
       "utf-8",
     );
-    expect(() => loadCheckpoint(checkpointPath)).toThrow("config: expected an object");
+    expect(() => loadCheckpoint(checkpointPath)).toThrow("metadata.config: expected an object");
   });
 
   test("loadCheckpoint rejects tensor metadata that exceeds tensors.bin", () => {
@@ -358,16 +363,18 @@ describe("checkpoint", () => {
         version: 2,
         kind: "snapshot",
         step: 0,
-        config: {
-          nLayer: 1,
-          nHead: 1,
-          nEmbd: 1,
-          blockSize: 1,
-          dropout: 0,
-          gradientCheckpointing: false,
-          vocabSize: 1,
+        metadata: {
+          config: {
+            nLayer: 1,
+            nHead: 1,
+            nEmbd: 1,
+            blockSize: 1,
+            dropout: 0,
+            gradientCheckpointing: false,
+            vocabSize: 1,
+          },
+          tokenizer: { chars: ["a"] },
         },
-        tokenizer: { chars: ["a"] },
         parameters: {
           weight: { shape: [1], dtype: "float32", offset: 0, byteLength: 4 },
         },
@@ -388,16 +395,18 @@ describe("checkpoint", () => {
       version: 2,
       kind: "resume",
       step: 3,
-      config: {
-        nLayer: 1,
-        nHead: 1,
-        nEmbd: 1,
-        blockSize: 1,
-        dropout: 0,
-        gradientCheckpointing: false,
-        vocabSize: 1,
+      metadata: {
+        config: {
+          nLayer: 1,
+          nHead: 1,
+          nEmbd: 1,
+          blockSize: 1,
+          dropout: 0,
+          gradientCheckpointing: false,
+          vocabSize: 1,
+        },
+        tokenizer: { chars: ["a"] },
       },
-      tokenizer: { chars: ["a"] },
       parameters: {},
     };
 
@@ -637,16 +646,18 @@ describe("checkpoint", () => {
     const baseManifest = {
       version: 2,
       step: 0,
-      config: {
-        nLayer: 1,
-        nHead: 1,
-        nEmbd: 1,
-        blockSize: 1,
-        dropout: 0,
-        gradientCheckpointing: false,
-        vocabSize: 1,
+      metadata: {
+        config: {
+          nLayer: 1,
+          nHead: 1,
+          nEmbd: 1,
+          blockSize: 1,
+          dropout: 0,
+          gradientCheckpointing: false,
+          vocabSize: 1,
+        },
+        tokenizer: { chars: ["a"] },
       },
-      tokenizer: { chars: ["a"] },
       parameters: {},
     };
 

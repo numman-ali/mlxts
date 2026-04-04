@@ -384,22 +384,23 @@ Extract these packages from the existing codebase (see migration table in ecosys
 
 | Package | Source | What moves |
 |---------|--------|-----------|
-| `@mlxts/core` | All of `mlx-ts/` | MxArray, FFI, ops, transforms, fast fused ops, device, memory, random, I/O, dtype, tree utils, shape utils, error types |
-| `@mlxts/nn` | `mlx-ts/src/nn/` | Module, Linear, Embedding, LayerNorm, Dropout, activations, losses |
-| `@mlxts/optimizers` | `mlx-ts/src/optimizers/` | Adam, AdamW, SGD, optimizer base, LR schedules |
-| `@mlxts/train` | `nanogpt/src/train.ts`, `checkpoint.ts` | Training loop, checkpoint, gradient utilities |
-| `@mlxts/data` | `nanogpt/src/data.ts` | Text data loading, batching |
-| `@mlxts/tokenizers` | `nanogpt/src/tokenizer.ts` | Character tokenizer (BPE comes in Phase 7) |
+| `@mlxts/core` | Legacy MLX monolith | MxArray, FFI, ops, transforms, fast fused ops, device, memory, random, I/O, dtype, tree utils, shape utils, error types |
+| `@mlxts/nn` | Legacy nn layer | Module, Linear, Embedding, LayerNorm, Dropout, activations, losses |
+| `@mlxts/optimizers` | Legacy optimizer layer | Adam, AdamW, SGD, optimizer base, LR schedules |
+| `@mlxts/train` | Former generic pieces of `nanogpt/src/train.ts` and `checkpoint.ts` | Training loop, checkpoint, gradient utilities, typed checkpoint metadata, reusable step orchestration |
+| `@mlxts/data` | Former `nanogpt/src/data.ts` | Text data loading, batching |
+| `@mlxts/tokenizers` | Former `nanogpt/src/tokenizer.ts` | Character tokenizer (BPE comes in Phase 7) |
 
 This extraction is now real, not hypothetical:
 
 - `@mlxts/core`, `@mlxts/nn`, `@mlxts/optimizers`, `@mlxts/train`, `@mlxts/data`, and `@mlxts/tokenizers` exist as workspace packages
 - `packages/core` owns the native MLX build and the canonical FFI/runtime surface
-- `packages/mlx-ts` remains temporarily as a compatibility shim while the extracted packages settle
+- `packages/nanogpt` now consumes the extracted packages directly and is being reduced to a thin GPT-specific validation fixture
 
 ### 5c. Package-first validation posture
 
 - `packages/nanogpt` remains a temporary validation fixture while the reusable packages stabilize
+- `@mlxts/train`, `@mlxts/data`, and `@mlxts/tokenizers` are the sole implementations of generic training/data/tokenizer behavior; `packages/nanogpt` only wraps them for GPT-specific flows
 - `bun run check:file-lines` enforces the 500-line cap for canonical `@mlxts/*` production files
 - Coverage, runtime-review, type-assertion, and tensor-lifetime gates recognize the extracted package layout
 - `docs/reviews/phase-5-restructure.md` records the runtime-sensitive package extraction work

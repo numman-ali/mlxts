@@ -18,6 +18,15 @@ compatibility shim has been removed. The deferred work is a later dedicated
 examples pass, including a ground-up nanoGPT rewrite and eventual deletion of
 the temporary `packages/nanogpt` fixture once replacement surfaces are ready.
 
+The current checkpointing, data, tokenizer, and step-orchestration direction is
+now package-canonical: `@mlxts/train`, `@mlxts/data`, and `@mlxts/tokenizers`
+own the reusable implementations, while `packages/nanogpt` carries only GPT-
+specific adapters and the operator-facing validation harness.
+
+As part of that cutover, the former fixture-local files `packages/nanogpt/src/data.ts`
+and `packages/nanogpt/src/tokenizer.ts` were deleted after their package-owned
+equivalents became the sole implementations.
+
 The review is intentionally incremental. The `Files Reviewed` section is updated
 as runtime-sensitive files move or split, and the evidence sections are
 refreshed as the migration reaches new validation checkpoints.
@@ -67,7 +76,9 @@ refreshed as the migration reaches new validation checkpoints.
 - `packages/nanogpt/src/model/mlp.ts`
 - `packages/nanogpt/src/model/transformer-block.ts`
 - `packages/nanogpt/src/optimizer-defaults.ts`
+- `packages/nanogpt/src/run/acceptance.ts`
 - `packages/nanogpt/src/safetensors.ts`
+- `packages/nanogpt/src/tokenizer.ts`
 - `packages/nanogpt/src/train.ts`
 - `packages/nn/src/activations.ts`
 - `packages/nn/src/checkpoint.ts`
@@ -94,6 +105,7 @@ refreshed as the migration reaches new validation checkpoints.
 - `packages/train/src/index.ts`
 - `packages/train/src/loop.ts`
 - `packages/train/src/schedule.ts`
+- `packages/train/src/step.ts`
 
 ## Tensor Lifetime Audit
 
@@ -112,9 +124,10 @@ Current evidence:
 - `bun run validate` passes on the current package-first layout
 - `cd packages/core && bun test` passes after splitting `array.ts` and `transforms.ts`
 - `cd packages/train && bun test` passes after extracting the generic training
-  schedule, loop, gradient, and checkpoint surfaces
+  schedule, loop, gradient, checkpoint, and step-orchestration surfaces
 - `cd packages/nanogpt && bun test` passes after rewiring the temporary fixture
-  directly onto `@mlxts/core`, `@mlxts/nn`, and `@mlxts/optimizers`
+  directly onto `@mlxts/core`, `@mlxts/nn`, `@mlxts/optimizers`,
+  `@mlxts/train`, `@mlxts/data`, and `@mlxts/tokenizers`
 - `bun run check:file-lines` passes for the canonical `@mlxts/*` package sources
 
 Throughput-sensitive long-run evidence for the legacy `packages/nanogpt`
@@ -130,9 +143,9 @@ before the Phase 5 migration is considered complete.
 
 - Runtime-sensitive file moves can accidentally hide tensor lifetimes if large
   files are split without preserving ownership clarity.
-- Rewiring the temporary `packages/nanogpt` fixture directly onto the extracted
-  packages touches training, checkpoint, and generation paths that still carry
-  the long-run operational surface.
+- Rewiring the temporary `packages/nanogpt` fixture onto generic checkpoint
+  metadata and package-owned training helpers touches training, checkpoint, and
+  generation paths that still carry the long-run operational surface.
 - The `packages/nanogpt` fixture is no longer the primary Phase 5 target, so
   example and operator docs still need a dedicated cleanup pass to match the new
   package-first direction.

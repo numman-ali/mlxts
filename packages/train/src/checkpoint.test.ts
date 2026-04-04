@@ -73,6 +73,42 @@ describe("checkpoint", () => {
     }
   });
 
+  test("loadCheckpoint can decode typed metadata with a reader callback", () => {
+    const model = new TinyModel(2, 3);
+    const path = checkpointPath("train-typed-metadata");
+
+    try {
+      saveCheckpoint({
+        model,
+        kind: "snapshot",
+        metadata: { name: "typed", version: 2 },
+        path,
+        step: 8,
+      });
+
+      const loaded = loadCheckpoint(path, (metadata) => {
+        if (
+          typeof metadata !== "object" ||
+          metadata === null ||
+          !("name" in metadata) ||
+          !("version" in metadata)
+        ) {
+          throw new Error("metadata must include name and version");
+        }
+        const { name, version } = metadata;
+        if (typeof name !== "string" || typeof version !== "number") {
+          throw new Error("metadata must include a string name and numeric version");
+        }
+        return { name, version };
+      });
+
+      expect(loaded.metadata.name).toBe("typed");
+      expect(loaded.metadata.version).toBe(2);
+    } finally {
+      freeTreeArrays(model);
+    }
+  });
+
   test("applyCheckpoint restores parameter values and disposes replaced arrays", () => {
     const source = new TinyModel(4, 6);
     const target = new TinyModel(1, 1);

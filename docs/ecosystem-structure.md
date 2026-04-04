@@ -26,8 +26,9 @@ The package-first Phase 5 extraction is already underway in the repo today.
 - `@mlxts/core`, `@mlxts/nn`, `@mlxts/optimizers`, `@mlxts/train`,
   `@mlxts/data`, and `@mlxts/tokenizers` all exist as workspace packages
 - `packages/core` owns the native MLX build and the canonical FFI/runtime layer
-- `packages/nanogpt` remains as a temporary validation fixture until a later
-  dedicated examples repo and rewritten examples surface exist
+- `packages/nanogpt` now consumes the extracted packages directly and remains a
+  temporary GPT-specific validation fixture until a later dedicated examples
+  repo and rewritten examples surface exist
 
 ---
 
@@ -115,7 +116,7 @@ Model-agnostic training loop, checkpointing, gradient utilities.
 
 **Dependencies:** `@mlxts/core`, `@mlxts/nn`, `@mlxts/optimizers`
 
-**Source origin:** Extracted from the model-agnostic parts of the former `packages/nanogpt/src/train.ts` and `packages/nanogpt/src/checkpoint.ts`.
+**Source origin:** Extracted from the model-agnostic parts of the former `packages/nanogpt/src/train.ts` and `packages/nanogpt/src/checkpoint.ts`. The package now also owns the canonical metadata-driven checkpoint format and reusable step-orchestration helpers used by the temporary GPT fixture.
 
 #### `@mlxts/data`
 
@@ -130,7 +131,7 @@ Dataset loading, batching, and preprocessing.
 
 **Dependencies:** `@mlxts/core`
 
-**Source origin:** Extracted from the former `packages/nanogpt/src/data.ts` and now lives in `packages/data/src/text.ts`.
+**Source origin:** Extracted from the former `packages/nanogpt/src/data.ts` and now lives in `packages/data/src/text.ts`. `packages/nanogpt` imports these helpers directly rather than carrying a second copy.
 
 ---
 
@@ -150,7 +151,7 @@ Fast tokenization with support for HuggingFace tokenizer formats.
 
 **Dependencies:** `@mlxts/core` (minimal — mostly standalone)
 
-**Source origin:** Extracted from the former `packages/nanogpt/src/tokenizer.ts`. The package exists today with the char tokenizer; broader tokenizer formats are future work.
+**Source origin:** Extracted from the former `packages/nanogpt/src/tokenizer.ts`. The package exists today with the char tokenizer and is now the sole implementation used by the temporary GPT fixture; broader tokenizer formats are future work.
 
 #### `@mlxts/hub`
 
@@ -515,11 +516,11 @@ work is deferred unless a row says otherwise.
 | Legacy nn layer | `packages/nn/src/` | `@mlxts/nn` |
 | Legacy module checkpoint helper | `packages/nn/src/checkpoint.ts` | `@mlxts/nn` |
 | Legacy optimizer layer | `packages/optimizers/src/` | `@mlxts/optimizers` |
-| `packages/nanogpt/src/train.ts` | `packages/train/src/loop.ts` + `packages/train/src/schedule.ts` + `packages/train/src/gradients.ts` | `@mlxts/train` |
+| `packages/nanogpt/src/train.ts` | `packages/train/src/loop.ts` + `packages/train/src/schedule.ts` + `packages/train/src/gradients.ts` + `packages/train/src/step.ts` | `@mlxts/train` |
 | `packages/nanogpt/src/checkpoint.ts` | `packages/train/src/checkpoint.ts` + `packages/train/src/checkpoint-*.ts` | `@mlxts/train` |
 | `packages/nanogpt/src/safetensors.ts` | `packages/hub/src/safetensors.ts` | `@mlxts/hub` |
-| `packages/nanogpt/src/data.ts` | `packages/data/src/text.ts` | `@mlxts/data` |
-| `packages/nanogpt/src/tokenizer.ts` | `packages/tokenizers/src/char.ts` | `@mlxts/tokenizers` |
+| Former `packages/nanogpt/src/data.ts` | `packages/data/src/text.ts` | `@mlxts/data` |
+| Former `packages/nanogpt/src/tokenizer.ts` | `packages/tokenizers/src/char.ts` | `@mlxts/tokenizers` |
 | `packages/nanogpt/src/model/` | `packages/nanogpt/src/model/` for now; later dedicated examples repo | Temporary validation fixture |
 | `packages/nanogpt/src/config.ts` | `packages/nanogpt/src/config.ts` for now; later dedicated examples repo | Temporary validation fixture |
 | `packages/nanogpt/src/cli.ts` | `packages/nanogpt/src/cli.ts` for now; later dedicated examples repo | Temporary validation fixture |

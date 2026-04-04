@@ -1,13 +1,13 @@
 import { describe, expect, test } from "bun:test";
 import { full, type MxArray, random, treeFlatten } from "@mlxts/core";
+import { prepareData } from "@mlxts/data";
 import { Module } from "@mlxts/nn";
 import { AdamW } from "@mlxts/optimizers";
+import { CharTokenizer } from "@mlxts/tokenizers";
 
 import { GPT_TINY, resolveConfig } from "./config";
-import { prepareData } from "./data";
 import { GPT } from "./model/gpt";
 import { initializeGPT } from "./model/init";
-import { CharTokenizer } from "./tokenizer";
 import { getLearningRate, type TrainConfig, type TrainEvent, train } from "./train";
 
 function baseTrainConfig(): TrainConfig {

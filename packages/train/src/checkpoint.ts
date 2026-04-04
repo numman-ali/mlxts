@@ -37,6 +37,9 @@ export type {
   SaveCheckpointOptions,
 } from "./checkpoint-types";
 
+/** Runtime reader for typed checkpoint metadata. */
+export type CheckpointMetadataReader<TMetadata> = (value: unknown) => TMetadata;
+
 function sameShape(left: readonly number[], right: readonly number[]): boolean {
   if (left.length !== right.length) {
     return false;
@@ -143,7 +146,15 @@ export function saveCheckpoint<TMetadata>(options: SaveCheckpointOptions<TMetada
 }
 
 /** Load a generic checkpoint directory into memory. */
-export function loadCheckpoint(path: string): CheckpointData {
+export function loadCheckpoint(path: string): CheckpointData;
+export function loadCheckpoint<TMetadata>(
+  path: string,
+  readMetadata: CheckpointMetadataReader<TMetadata>,
+): CheckpointData<TMetadata>;
+export function loadCheckpoint<TMetadata>(
+  path: string,
+  readMetadata?: CheckpointMetadataReader<TMetadata>,
+): CheckpointData<TMetadata | unknown> {
   const manifest = readManifest(path);
   const tensorBytes = new Uint8Array(readFileSync(join(path, TENSOR_DATA_FILENAME)));
   const parameters: Record<string, CheckpointTensor> = {};
@@ -152,10 +163,11 @@ export function loadCheckpoint(path: string): CheckpointData {
     parameters[key] = readTensorSlice(key, meta, tensorBytes);
   }
 
-  const checkpoint: CheckpointData = {
+  const metadata = readMetadata === undefined ? manifest.metadata : readMetadata(manifest.metadata);
+  const checkpoint: CheckpointData<TMetadata | unknown> = {
     version: CHECKPOINT_VERSION,
     kind: manifest.kind,
-    metadata: manifest.metadata,
+    metadata,
     step: manifest.step,
     parameters,
   };

@@ -18,7 +18,9 @@ import {
   setMemoryLimitBytes,
   setWiredLimitBytes,
 } from "@mlxts/core";
+import { loadText, prepareData } from "@mlxts/data";
 import type { AdamW } from "@mlxts/optimizers";
+import { CharTokenizer } from "@mlxts/tokenizers";
 import { mkdirSync } from "fs";
 import { join } from "path";
 
@@ -36,14 +38,12 @@ import {
   type ModelPreset,
   resolveConfig,
 } from "./config";
-import { loadText, prepareData } from "./data";
 import { type GenerateConfig, generate } from "./generate";
 import { GPT } from "./model/gpt";
 import { initializeGPT } from "./model/init";
 import { createDefaultAdamW } from "./optimizer-defaults";
 import { type RunControlCommand, readRunControl } from "./run/files";
 import { saveModelSafetensors } from "./safetensors";
-import { CharTokenizer } from "./tokenizer";
 import { type TrainConfig, type TrainEvent, train } from "./train";
 
 const USER_ERROR_EXIT_CODE = 1;
@@ -571,9 +571,10 @@ async function createResumedTrainingSession(
     );
   }
 
-  const presetName = inferPresetName(checkpoint.config);
+  const checkpointConfig = checkpoint.metadata.config;
+  const presetName = inferPresetName(checkpointConfig);
   const trainConfig = trainConfigFromFlags(
-    trainDefaultsForConfig(checkpoint.config),
+    trainDefaultsForConfig(checkpointConfig),
     flags,
     checkpoint.step,
   );
@@ -581,10 +582,10 @@ async function createResumedTrainingSession(
 
   const dataPath = flags.get("data");
   const text = await loadText(dataPath !== undefined ? { path: dataPath } : {});
-  const tokenizer = CharTokenizer.fromVocab(checkpoint.tokenizer.chars);
+  const tokenizer = CharTokenizer.fromVocab(checkpoint.metadata.tokenizer.chars);
   tokenizer.encode(text);
 
-  const model = new GPT(checkpoint.config);
+  const model = new GPT(checkpointConfig);
   applyCheckpoint(model, checkpoint);
   const optimizer = restoreAdamWFromCheckpoint(optimizerData);
 
@@ -592,7 +593,7 @@ async function createResumedTrainingSession(
     model,
     optimizer,
     tokenizer,
-    config: checkpoint.config,
+    config: checkpointConfig,
     trainConfig,
     presetName,
     text,
@@ -606,16 +607,17 @@ async function createWarmStartTrainingSession(
   flags: Map<string, string>,
 ): Promise<TrainingSession> {
   const checkpoint = loadCheckpoint(checkpointPath);
-  const presetName = inferPresetName(checkpoint.config);
-  const trainConfig = trainConfigFromFlags(trainDefaultsForConfig(checkpoint.config), flags);
+  const checkpointConfig = checkpoint.metadata.config;
+  const presetName = inferPresetName(checkpointConfig);
+  const trainConfig = trainConfigFromFlags(trainDefaultsForConfig(checkpointConfig), flags);
   random.seed(trainConfig.seed);
 
   const dataPath = flags.get("data");
   const text = await loadText(dataPath !== undefined ? { path: dataPath } : {});
-  const tokenizer = CharTokenizer.fromVocab(checkpoint.tokenizer.chars);
+  const tokenizer = CharTokenizer.fromVocab(checkpoint.metadata.tokenizer.chars);
   tokenizer.encode(text);
 
-  const model = new GPT(checkpoint.config);
+  const model = new GPT(checkpointConfig);
   applyCheckpoint(model, checkpoint);
   const optimizer = createDefaultAdamW(trainConfig.learningRate, trainConfig.weightDecay);
 
@@ -623,7 +625,7 @@ async function createWarmStartTrainingSession(
     model,
     optimizer,
     tokenizer,
-    config: checkpoint.config,
+    config: checkpointConfig,
     trainConfig,
     presetName,
     text,
@@ -1304,8 +1306,8 @@ function runGenerate(flags: Map<string, string>): void {
   }
 
   const data = loadCheckpoint(checkpoint);
-  const tokenizer = CharTokenizer.fromVocab(data.tokenizer.chars);
-  const model = new GPT(data.config);
+  const tokenizer = CharTokenizer.fromVocab(data.metadata.tokenizer.chars);
+  const model = new GPT(data.metadata.config);
 
   try {
     applyCheckpoint(model, data);
@@ -1314,7 +1316,7 @@ function runGenerate(flags: Map<string, string>): void {
       maxNewTokens: getNumberFlag(flags, "max-tokens", 500),
       temperature: getNumberFlag(flags, "temperature", 0.8),
     };
-    const text = generate(model, data.config, tokenizer, prompt, config);
+    const text = generate(model, data.metadata.config, tokenizer, prompt, config);
 
     if (flags.has("json")) {
       emitJson({
@@ -1346,7 +1348,7 @@ async function runExport(flags: Map<string, string>): Promise<void> {
   }
 
   const checkpoint = loadCheckpoint(checkpointPath);
-  const model = new GPT(checkpoint.config);
+  const model = new GPT(checkpoint.metadata.config);
   try {
     applyCheckpoint(model, checkpoint);
     await saveModelSafetensors(model, outputPath, {

@@ -1,7 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
   applyCheckpoint,
-  CharTokenizer,
   estimateParameterCount,
   GPT,
   GPT_SMALL,
@@ -26,10 +25,6 @@ describe("nanogpt public API", () => {
   test("presets are exported", () => {
     expect(GPT_TINY).toBeDefined();
     expect(GPT_SMALL).toBeDefined();
-  });
-
-  test("CharTokenizer is exported", () => {
-    expect(CharTokenizer).toBeDefined();
   });
 
   test("resolveConfig is exported", () => {

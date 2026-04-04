@@ -1,12 +1,12 @@
 #!/usr/bin/env bun
 
+import { CharTokenizer } from "@mlxts/tokenizers";
 import { readFileSync } from "fs";
 import { resolve } from "path";
 import { applyCheckpoint, loadCheckpoint } from "../checkpoint";
 import { estimateParameterCount, GPT_SMALL, GPT_TINY, resolveConfig } from "../config";
 import { generate } from "../generate";
 import { GPT } from "../model/gpt";
-import { CharTokenizer } from "../tokenizer";
 import {
   DEFAULT_STALL_TIMEOUT_SECONDS,
   deriveOperatorHealth,
@@ -585,13 +585,13 @@ export async function main(argv = process.argv): Promise<void> {
   const checkpointPath = checkpointPathFromStatus(status);
 
   const checkpoint = loadCheckpoint(checkpointPath);
-  const tokenizer = CharTokenizer.fromVocab(checkpoint.tokenizer.chars);
-  const model = new GPT(checkpoint.config);
+  const tokenizer = CharTokenizer.fromVocab(checkpoint.metadata.tokenizer.chars);
+  const model = new GPT(checkpoint.metadata.config);
 
   try {
     model.eval();
     applyCheckpoint(model, checkpoint);
-    const sample = generate(model, checkpoint.config, tokenizer, samplePrompt(tokenizer), {
+    const sample = generate(model, checkpoint.metadata.config, tokenizer, samplePrompt(tokenizer), {
       maxNewTokens: 200,
       temperature: 0.8,
     });

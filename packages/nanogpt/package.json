@@ -8,8 +8,11 @@
   },
   "dependencies": {
     "@mlxts/core": "workspace:*",
+    "@mlxts/data": "workspace:*",
     "@mlxts/nn": "workspace:*",
-    "@mlxts/optimizers": "workspace:*"
+    "@mlxts/optimizers": "workspace:*",
+    "@mlxts/tokenizers": "workspace:*",
+    "@mlxts/train": "workspace:*"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",

@@ -1,32 +1,28 @@
 /**
- * GPT training loop with gradient accumulation and cosine LR schedule.
+ * GPT-specific training wrapper over @mlxts/train.
  *
- * Designed as a structured API: the train() function accepts an event
- * callback, returns a summary, and leaves rendering concerns to the CLI.
+ * nanogpt keeps the GPT loss, eval policy, and event surface local while
+ * delegating gradient preparation and loop orchestration to the canonical
+ * training package.
  *
  * @module
  */
 
-import {
-  add,
-  type MxArray,
-  multiply,
-  mxEval,
-  type ParameterTree,
-  random,
-  reshape,
-  square,
-  sum,
-  synchronize,
-  treeFlatten,
-  treeLeaves,
-  treeUnflatten,
-} from "@mlxts/core";
+import { type MxArray, mxEval, type ParameterTree, random, reshape } from "@mlxts/core";
+import { createRandomSource, getBatch } from "@mlxts/data";
 import { crossEntropy, valueAndGrad as moduleValueAndGrad } from "@mlxts/nn";
 import type { AdamW } from "@mlxts/optimizers";
+import {
+  applyGradientStep,
+  freeGradientTree,
+  getLearningRate as getSharedLearningRate,
+  materializeTrainingState,
+  type TrainLoopOptions,
+  trainLoop,
+  validateTrainLoopConfig,
+} from "@mlxts/train";
 
 import type { GPTConfig } from "./config";
-import { createRandomSource, getBatch } from "./data";
 import type { GPT } from "./model/gpt";
 import { createDefaultAdamW } from "./optimizer-defaults";
 
@@ -81,18 +77,20 @@ export interface TrainSummary {
   lastValLoss: number | null;
 }
 
+type LossAndGradFn = (input: MxArray, target: MxArray) => [MxArray, ParameterTree];
+type StepResult = {
+  loss: number;
+  tokensPerSec: number;
+};
+
+type EvalResult = {
+  trainLoss: number;
+  valLoss: number;
+};
+
 /** Cosine decay with linear warmup. */
 export function getLearningRate(step: number, config: TrainConfig): number {
-  if (step < config.warmupSteps) {
-    return config.learningRate * (step / config.warmupSteps);
-  }
-  if (step >= config.maxSteps) {
-    return config.minLearningRate;
-  }
-
-  const decayRatio = (step - config.warmupSteps) / (config.maxSteps - config.warmupSteps);
-  const coeff = 0.5 * (1 + Math.cos(Math.PI * decayRatio));
-  return config.minLearningRate + coeff * (config.learningRate - config.minLearningRate);
+  return getSharedLearningRate(step, config);
 }
 
 function restoreTrainingMode(model: GPT, wasTraining: boolean): void {
@@ -135,27 +133,17 @@ function readPositiveFinite(value: number, name: string): void {
 }
 
 function validateTrainConfig(config: TrainConfig): void {
-  readIntegerAtLeast(config.startStep, 0, "startStep", "a non-negative integer");
-  readIntegerAtLeast(config.maxSteps, 1, "maxSteps", "> 0");
+  validateTrainLoopConfig(config);
   readIntegerAtLeast(config.batchSize, 1, "batchSize", "> 0");
-  readPositiveFinite(config.learningRate, "learningRate");
   readFiniteAtLeast(config.weightDecay, 0, "weightDecay", ">= 0");
-  readIntegerAtLeast(config.warmupSteps, 0, "warmupSteps", ">= 0");
-  if (config.warmupSteps >= config.maxSteps) {
-    throw new Error("TrainConfig: warmupSteps must be < maxSteps");
-  }
-  if ((config.startStep ?? 0) >= config.maxSteps) {
-    throw new Error("TrainConfig: startStep must be < maxSteps");
-  }
-  readPositiveFinite(config.minLearningRate, "minLearningRate");
   readIntegerAtLeast(config.gradAccumSteps, 1, "gradAccumSteps", ">= 1");
-  readIntegerAtLeast(config.evalInterval, 1, "evalInterval", "> 0");
   readIntegerAtLeast(config.evalSteps, 1, "evalSteps", "> 0");
-  readIntegerAtLeast(config.logInterval, 1, "logInterval", "> 0");
   if (config.maxGradNorm !== null) {
     readPositiveFinite(config.maxGradNorm, "maxGradNorm");
   }
-  if (!Number.isFinite(config.seed)) throw new Error("TrainConfig: seed must be a finite number");
+  if (!Number.isFinite(config.seed)) {
+    throw new Error("TrainConfig: seed must be a finite number");
+  }
 }
 
 function validateTokenSplitLength(
@@ -171,158 +159,10 @@ function validateTokenSplitLength(
   }
 }
 
-/** Free all MxArray leaves in a gradient tree. */
-function freeGradTree(tree: ParameterTree): void {
-  for (const [, value] of treeFlatten(tree)) {
-    value.free();
-  }
-}
-
-function evalGradTree(tree: ParameterTree): void {
-  const leaves = treeLeaves(tree);
-  if (leaves.length > 0) {
-    mxEval(...leaves);
-  }
-}
-
-type LossAndGradFn = (input: MxArray, target: MxArray) => [MxArray, ParameterTree];
-type FlatGradientEntry = [path: string[], value: MxArray];
-type StepResult = {
-  loss: number;
-  tokensPerSec: number;
-};
-
-function formatGradientPath(path: readonly string[]): string {
-  return path.length === 0 ? "<root>" : path.join(".");
-}
-
-function pathKey(path: readonly string[]): string {
-  return path.join(".");
-}
-
-function assertMatchingGradientEntries(
-  left: readonly FlatGradientEntry[],
-  right: readonly FlatGradientEntry[],
-  context: string,
-): void {
-  if (left.length !== right.length) {
-    throw new Error(`${context}: gradient tree leaf counts do not match`);
-  }
-
-  for (let index = 0; index < left.length; index++) {
-    const leftEntry = left[index];
-    const rightEntry = right[index];
-    if (leftEntry === undefined || rightEntry === undefined) {
-      throw new Error(`${context}: missing gradient leaf at index ${index}`);
-    }
-    if (pathKey(leftEntry[0]) !== pathKey(rightEntry[0])) {
-      throw new Error(
-        `${context}: gradient path mismatch at index ${index} (${formatGradientPath(leftEntry[0])} vs ${formatGradientPath(rightEntry[0])})`,
-      );
-    }
-  }
-}
-
-function mapGradientEntries(
-  entries: readonly FlatGradientEntry[],
-  mapper: (value: MxArray, path: readonly string[]) => MxArray,
-  context: string,
-): FlatGradientEntry[] {
-  const mapped: FlatGradientEntry[] = [];
-  try {
-    for (const [path, value] of entries) {
-      mapped.push([[...path], mapper(value, path)]);
-    }
-    return mapped;
-  } catch (error) {
-    for (const [, value] of mapped) {
-      value.free();
-    }
-    throw new Error(
-      error instanceof Error ? `${context}: ${error.message}` : `${context}: ${String(error)}`,
-    );
-  }
-}
-
-function gradientEntriesToTree(entries: FlatGradientEntry[], context: string): ParameterTree {
-  try {
-    return treeUnflatten(entries);
-  } catch (error) {
-    for (const [, value] of entries) {
-      value.free();
-    }
-    throw new Error(
-      error instanceof Error ? `${context}: ${error.message}` : `${context}: ${String(error)}`,
-    );
-  }
-}
-
-function accumulateGradients(accumulated: ParameterTree, next: ParameterTree): ParameterTree {
-  const accumulatedEntries = treeFlatten(accumulated);
-  const nextEntries = treeFlatten(next);
-  assertMatchingGradientEntries(accumulatedEntries, nextEntries, "train.accumulateGradients");
-
-  const summedEntries: FlatGradientEntry[] = [];
-  try {
-    for (let index = 0; index < accumulatedEntries.length; index++) {
-      const accumulatedEntry = accumulatedEntries[index];
-      const nextEntry = nextEntries[index];
-      if (accumulatedEntry === undefined || nextEntry === undefined) {
-        throw new Error(`missing gradient leaf at index ${index}`);
-      }
-      summedEntries.push([[...accumulatedEntry[0]], add(accumulatedEntry[1], nextEntry[1])]);
-    }
-  } catch (error) {
-    for (const [, value] of summedEntries) {
-      value.free();
-    }
-    throw new Error(
-      error instanceof Error
-        ? `train.accumulateGradients: ${error.message}`
-        : `train.accumulateGradients: ${String(error)}`,
-    );
-  }
-
-  return gradientEntriesToTree(summedEntries, "train.accumulateGradients");
-}
-
-function scaleGradientTree(tree: ParameterTree, factor: number): ParameterTree {
-  if (factor === 1) {
-    return tree;
-  }
-
-  const entries = treeFlatten(tree);
-  const scaledEntries = mapGradientEntries(
-    entries,
-    (grad) => multiply(grad, factor),
-    "train.scaleGradientTree",
-  );
-  return gradientEntriesToTree(scaledEntries, "train.scaleGradientTree");
-}
-
-function gradientNorm(tree: ParameterTree): number {
-  let totalSquared = 0;
-  for (const grad of treeLeaves(tree)) {
-    using squared = square(grad);
-    using squaredSum = sum(squared);
-    mxEval(squaredSum);
-    totalSquared += squaredSum.item();
-  }
-  return Math.sqrt(totalSquared);
-}
-
 function assertFiniteValue(value: number, context: string): void {
   if (!Number.isFinite(value)) {
     throw new Error(`${context}: encountered non-finite value (${String(value)})`);
   }
-}
-
-function materializeStepState(model: GPT, optimizer: AdamW): void {
-  const arrays = [...treeLeaves(model.parameters()), ...optimizer.stateArrays()];
-  if (arrays.length > 0) {
-    mxEval(...arrays);
-  }
-  synchronize();
 }
 
 function takeMicroStep(
@@ -342,95 +182,18 @@ function takeMicroStep(
     if (gradients === null) {
       throw new Error("train: lossAndGrad produced no gradients");
     }
-    evalGradTree(gradients);
     const lossValue = loss.item();
     assertFiniteValue(lossValue, "train");
-    const result = { lossValue, gradients };
+    const stepResult = { lossValue, gradients };
     gradients = null;
-    return result;
+    return stepResult;
   } finally {
     loss?.free();
     if (gradients !== null) {
-      freeGradTree(gradients);
+      freeGradientTree(gradients);
     }
     input.free();
     target.free();
-  }
-}
-
-function accumulateMicroSteps(
-  lossAndGrad: LossAndGradFn,
-  trainTokens: Int32Array,
-  config: GPTConfig,
-  trainConfig: TrainConfig,
-  nextRandom: () => number,
-): { averageLoss: number; gradients: ParameterTree } {
-  let accumulatedGrads: ParameterTree | null = null;
-  let preparedGradients: ParameterTree | null = null;
-  let totalLoss = 0;
-
-  try {
-    for (let microStep = 0; microStep < trainConfig.gradAccumSteps; microStep++) {
-      const { lossValue, gradients } = takeMicroStep(
-        lossAndGrad,
-        trainTokens,
-        trainConfig.batchSize,
-        config.blockSize,
-        nextRandom,
-      );
-      totalLoss += lossValue;
-      if (accumulatedGrads === null) {
-        accumulatedGrads = gradients;
-        continue;
-      }
-
-      try {
-        const combined = accumulateGradients(accumulatedGrads, gradients);
-        freeGradTree(accumulatedGrads);
-        freeGradTree(gradients);
-        accumulatedGrads = combined;
-      } catch (error) {
-        freeGradTree(accumulatedGrads);
-        freeGradTree(gradients);
-        accumulatedGrads = null;
-        throw error;
-      }
-    }
-
-    if (accumulatedGrads === null) {
-      throw new Error("train: gradient accumulation produced no gradients");
-    }
-
-    preparedGradients = accumulatedGrads;
-    accumulatedGrads = null;
-    if (trainConfig.gradAccumSteps > 1) {
-      const scaledGradients = scaleGradientTree(preparedGradients, 1 / trainConfig.gradAccumSteps);
-      freeGradTree(preparedGradients);
-      preparedGradients = scaledGradients;
-    }
-
-    const norm = gradientNorm(preparedGradients);
-    assertFiniteValue(norm, "train: gradient norm");
-    if (trainConfig.maxGradNorm !== null && norm > 0 && norm > trainConfig.maxGradNorm) {
-      const clippedGradients = scaleGradientTree(preparedGradients, trainConfig.maxGradNorm / norm);
-      freeGradTree(preparedGradients);
-      preparedGradients = clippedGradients;
-    }
-
-    evalGradTree(preparedGradients);
-
-    return {
-      averageLoss: totalLoss / trainConfig.gradAccumSteps,
-      gradients: preparedGradients,
-    };
-  } catch (error) {
-    if (accumulatedGrads !== null) {
-      freeGradTree(accumulatedGrads);
-    }
-    if (preparedGradients !== null) {
-      freeGradTree(preparedGradients);
-    }
-    throw error;
   }
 }
 
@@ -442,23 +205,31 @@ function runTrainingStep(
   trainTokens: Int32Array,
   nextRandom: () => number,
   lossAndGrad: LossAndGradFn,
+  learningRate: number,
 ): StepResult {
   const stepStart = performance.now();
-  const { averageLoss, gradients } = accumulateMicroSteps(
-    lossAndGrad,
-    trainTokens,
-    config,
-    trainConfig,
-    nextRandom,
-  );
+  optimizer.setLearningRate(learningRate);
 
-  try {
-    optimizer.update(model, gradients);
-  } finally {
-    freeGradTree(gradients);
-  }
+  const { averageLoss } = applyGradientStep({
+    gradAccumSteps: trainConfig.gradAccumSteps,
+    maxGradNorm: trainConfig.maxGradNorm,
+    takeMicroStep() {
+      return takeMicroStep(
+        lossAndGrad,
+        trainTokens,
+        trainConfig.batchSize,
+        config.blockSize,
+        nextRandom,
+      );
+    },
+    applyGradients(gradients: ParameterTree) {
+      optimizer.update(model, gradients);
+    },
+    materialize() {
+      materializeTrainingState(model, optimizer);
+    },
+  });
 
-  materializeStepState(model, optimizer);
   const stepEnd = performance.now();
   return {
     loss: averageLoss,
@@ -466,66 +237,6 @@ function runTrainingStep(
       (trainConfig.batchSize * config.blockSize * trainConfig.gradAccumSteps) /
       ((stepEnd - stepStart) / 1000),
   };
-}
-
-function maybeReportStep(
-  step: number,
-  trainConfig: TrainConfig,
-  learningRate: number,
-  stepResult: StepResult,
-  onEvent?: (event: TrainEvent) => void,
-): void {
-  if (step % trainConfig.logInterval !== 0) {
-    return;
-  }
-
-  onEvent?.({
-    type: "step",
-    step,
-    loss: stepResult.loss,
-    learningRate,
-    tokensPerSec: stepResult.tokensPerSec,
-  });
-}
-
-function evaluateIfDue(
-  step: number,
-  model: GPT,
-  config: GPTConfig,
-  trainConfig: TrainConfig,
-  trainTokens: Int32Array,
-  valTokens: Int32Array,
-  nextRandom: () => number,
-  onEvent?: (event: TrainEvent) => void,
-): { trainLoss: number; valLoss: number } | null {
-  if (step % trainConfig.evalInterval !== 0) {
-    return null;
-  }
-
-  const trainLoss = estimateLoss(
-    model,
-    trainTokens,
-    config,
-    trainConfig.batchSize,
-    trainConfig.evalSteps,
-    nextRandom,
-    (completed, total) => {
-      onEvent?.({ type: "progress", phase: "eval", split: "train", step, completed, total });
-    },
-  );
-  const valLoss = estimateLoss(
-    model,
-    valTokens,
-    config,
-    trainConfig.batchSize,
-    trainConfig.evalSteps,
-    nextRandom,
-    (completed, total) => {
-      onEvent?.({ type: "progress", phase: "eval", split: "val", step, completed, total });
-    },
-  );
-  onEvent?.({ type: "eval", step, trainLoss, valLoss });
-  return { trainLoss, valLoss };
 }
 
 function estimateLoss(
@@ -586,7 +297,6 @@ export function train(options: TrainOptions): TrainSummary {
   const optimizer =
     options.optimizer ?? createDefaultAdamW(trainConfig.learningRate, trainConfig.weightDecay);
   const ownsOptimizer = options.optimizer === undefined;
-  const startStep = trainConfig.startStep ?? 0;
   const wasTraining = model.isTraining;
   model.train();
 
@@ -605,50 +315,92 @@ export function train(options: TrainOptions): TrainSummary {
   let lastStepLoss: number | null = null;
   let lastTrainLoss: number | null = null;
   let lastValLoss: number | null = null;
-  let completedSteps = startStep;
 
   try {
-    for (let step = startStep + 1; step <= trainConfig.maxSteps; step++) {
-      const learningRate = getLearningRate(step, trainConfig);
-      optimizer.setLearningRate(learningRate);
-
-      const stepResult = runTrainingStep(
-        model,
-        optimizer,
-        config,
-        trainConfig,
-        trainTokens,
-        trainRandom,
-        lossAndGrad,
-      );
-      lastStepLoss = stepResult.loss;
-      completedSteps = step;
-
-      maybeReportStep(step, trainConfig, learningRate, stepResult, onEvent);
-
-      const evaluation = evaluateIfDue(
-        step,
-        model,
-        config,
-        trainConfig,
-        trainTokens,
-        valTokens,
-        evalRandom,
-        onEvent,
-      );
-      if (evaluation !== null) {
-        lastTrainLoss = evaluation.trainLoss;
-        lastValLoss = evaluation.valLoss;
-      }
-
-      if (shouldStop?.() === true) {
-        break;
-      }
+    const loopOptions: TrainLoopOptions<StepResult, EvalResult> = {
+      config: trainConfig,
+      schedule(step: number) {
+        return getSharedLearningRate(step, trainConfig);
+      },
+      runStep(_step: number, learningRate: number) {
+        const result = runTrainingStep(
+          model,
+          optimizer,
+          config,
+          trainConfig,
+          trainTokens,
+          trainRandom,
+          lossAndGrad,
+          learningRate,
+        );
+        lastStepLoss = result.loss;
+        return result;
+      },
+      evaluate(step: number): EvalResult {
+        const result = {
+          trainLoss: estimateLoss(
+            model,
+            trainTokens,
+            config,
+            trainConfig.batchSize,
+            trainConfig.evalSteps,
+            evalRandom,
+            (completed, total) => {
+              onEvent?.({
+                type: "progress",
+                phase: "eval",
+                split: "train",
+                step,
+                completed,
+                total,
+              });
+            },
+          ),
+          valLoss: estimateLoss(
+            model,
+            valTokens,
+            config,
+            trainConfig.batchSize,
+            trainConfig.evalSteps,
+            evalRandom,
+            (completed, total) => {
+              onEvent?.({ type: "progress", phase: "eval", split: "val", step, completed, total });
+            },
+          ),
+        };
+        lastTrainLoss = result.trainLoss;
+        lastValLoss = result.valLoss;
+        return result;
+      },
+      onStep(step: number, learningRate: number, result: StepResult) {
+        onEvent?.({
+          type: "step",
+          step,
+          loss: result.loss,
+          learningRate,
+          tokensPerSec: result.tokensPerSec,
+        });
+      },
+      onEval(step: number, result: EvalResult) {
+        onEvent?.({
+          type: "eval",
+          step,
+          trainLoss: result.trainLoss,
+          valLoss: result.valLoss,
+        });
+      },
+      onDone(totalSteps: number) {
+        onEvent?.({ type: "done", totalSteps });
+      },
+    };
+    if (shouldStop !== undefined) {
+      loopOptions.shouldStop = shouldStop;
     }
 
-    onEvent?.({ type: "done", totalSteps: completedSteps });
+    const totalSteps = trainLoop(loopOptions);
+
     return {
-      totalSteps: completedSteps,
+      totalSteps,
       lastStepLoss,
       lastTrainLoss,
       lastValLoss,

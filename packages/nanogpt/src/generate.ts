@@ -19,9 +19,10 @@ import {
   squeeze,
   takeAxis,
 } from "@mlxts/core";
+import type { CharTokenizer } from "@mlxts/tokenizers";
+
 import type { GPTConfig } from "./config";
 import type { GPT } from "./model/gpt";
-import type { CharTokenizer } from "./tokenizer";
 
 /** Generation configuration. */
 export interface GenerateConfig {

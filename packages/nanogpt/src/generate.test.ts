@@ -1,11 +1,11 @@
 import { describe, expect, test } from "bun:test";
 import { array, random, reshape } from "@mlxts/core";
+import { CharTokenizer } from "@mlxts/tokenizers";
 
 import { GPT_TINY, resolveConfig } from "./config";
 import { generate, generateTokens } from "./generate";
 import { GPT } from "./model/gpt";
 import { initializeGPT } from "./model/init";
-import { CharTokenizer } from "./tokenizer";
 
 const TEXT = "abcdefghijklmnopqrstuvwxyz ";
 const TOKENIZER = CharTokenizer.fromText(TEXT);

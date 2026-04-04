@@ -1,9 +1,9 @@
 import { afterEach, describe, expect, test } from "bun:test";
+import { CharTokenizer } from "@mlxts/tokenizers";
 import { spawnSync } from "child_process";
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join, resolve } from "path";
-import { CharTokenizer } from "../tokenizer";
 import {
   main as acceptanceMain,
   assertCompletedStatus,

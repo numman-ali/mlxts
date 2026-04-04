@@ -1,5 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { loadSafetensors } from "@mlxts/core";
+import { prepareData } from "@mlxts/data";
+import { CharTokenizer } from "@mlxts/tokenizers";
 import { spawnSync } from "child_process";
 import { mkdtempSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
@@ -7,11 +9,9 @@ import { join } from "path";
 
 import { saveCheckpoint } from "./checkpoint";
 import { GPT_TINY, resolveConfig } from "./config";
-import { prepareData } from "./data";
 import { GPT } from "./model/gpt";
 import { initializeGPT } from "./model/init";
 import { createDefaultAdamW } from "./optimizer-defaults";
-import { CharTokenizer } from "./tokenizer";
 import { train } from "./train";
 
 function runCli(args: string[]) {

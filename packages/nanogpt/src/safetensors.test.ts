@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
+import { CharTokenizer } from "@mlxts/tokenizers";
 import { mkdtempSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
@@ -6,7 +7,6 @@ import { GPT_TINY, resolveConfig } from "./config";
 import { GPT } from "./model/gpt";
 import { initializeGPT } from "./model/init";
 import { loadModelSafetensors, saveModelSafetensors } from "./safetensors";
-import { CharTokenizer } from "./tokenizer";
 
 const tempDirectories: string[] = [];
 

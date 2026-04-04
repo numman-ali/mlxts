@@ -8,7 +8,12 @@
  */
 
 // Checkpoint
-export type { AdamWOptimizerCheckpoint, CheckpointData, CheckpointKind } from "./checkpoint";
+export type {
+  AdamWOptimizerCheckpoint,
+  CheckpointData,
+  CheckpointKind,
+  GPTCheckpointMetadata,
+} from "./checkpoint";
 export {
   applyCheckpoint,
   loadCheckpoint,
@@ -18,8 +23,6 @@ export {
 // Config
 export type { GPTConfig, ModelPreset } from "./config";
 export { estimateParameterCount, GPT_SMALL, GPT_TINY, resolveConfig } from "./config";
-// Data
-export { getBatch, loadText, prepareData } from "./data";
 // Generation
 export type { GenerateConfig } from "./generate";
 export { generate, generateTokens } from "./generate";
@@ -28,8 +31,6 @@ export { GPT } from "./model/gpt";
 export { initializeGPT } from "./model/init";
 // Interop
 export { loadModelSafetensors, saveModelSafetensors } from "./safetensors";
-// Tokenizer
-export { CharTokenizer } from "./tokenizer";
 // Training
 export type { TrainConfig, TrainEvent, TrainOptions, TrainSummary } from "./train";
 export { getLearningRate, train } from "./train";

@@ -2,6 +2,7 @@ export type {
   AdamWOptimizerCheckpoint,
   CheckpointData,
   CheckpointKind,
+  CheckpointMetadataReader,
   CheckpointTensor,
   ParameterizedModel,
   SaveCheckpointOptions,
@@ -25,3 +26,9 @@ export type { TrainLoopConfig, TrainLoopOptions } from "./loop";
 export { trainLoop, validateTrainLoopConfig } from "./loop";
 export type { LearningRateConfig, LearningRateSchedule } from "./schedule";
 export { getLearningRate, validateLearningRateConfig, warmupCosineSchedule } from "./schedule";
+export type {
+  ApplyGradientStepOptions,
+  GradientMicroStepResult,
+  OptimizerStateOwner,
+} from "./step";
+export { applyGradientStep, materializeTrainingState } from "./step";
