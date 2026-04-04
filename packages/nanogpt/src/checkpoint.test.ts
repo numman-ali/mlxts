@@ -65,6 +65,30 @@ describe("checkpoint", () => {
     }
   });
 
+  test("saveCheckpoint supports best checkpoints without optimizer state", () => {
+    const { tokenizer, config, model } = createCheckpointFixture();
+    const directory = createCheckpointDirectory("nanogpt-best-checkpoint");
+    const checkpointPath = join(directory, "best");
+
+    try {
+      saveCheckpoint({
+        model,
+        kind: "best",
+        config,
+        step: 7,
+        tokenizer,
+        path: checkpointPath,
+      });
+
+      const loaded = loadCheckpoint(checkpointPath);
+      expect(loaded.kind).toBe("best");
+      expect(loaded.step).toBe(7);
+      expect(loaded.optimizer).toBeUndefined();
+    } finally {
+      model[Symbol.dispose]();
+    }
+  });
+
   test("saveCheckpoint can replace an existing checkpoint path without leaving it unreadable", () => {
     const { tokenizer, config, model } = createCheckpointFixture();
     const directory = createCheckpointDirectory("nanogpt-checkpoint-replace");
@@ -399,7 +423,7 @@ describe("checkpoint", () => {
       "utf-8",
     );
     expect(() => loadCheckpoint(checkpointPath)).toThrow(
-      "snapshot checkpoints must not include optimizer",
+      "snapshot/best checkpoints must not include optimizer",
     );
 
     writeFileSync(
@@ -471,7 +495,7 @@ describe("checkpoint", () => {
           tokenizer,
           path: checkpointPath,
         }),
-      ).toThrow("snapshot checkpoints must not include optimizer state");
+      ).toThrow("snapshot/best checkpoints must not include optimizer state");
 
       optimizer.restore({
         kind: "adamw",
@@ -584,7 +608,7 @@ describe("checkpoint", () => {
           tokenizer,
           path: join(directory, "snapshot-with-optimizer"),
         }),
-      ).toThrow("snapshot checkpoints must not");
+      ).toThrow("snapshot/best checkpoints must not");
 
       expect(() =>
         saveCheckpoint({

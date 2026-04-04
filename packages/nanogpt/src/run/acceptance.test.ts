@@ -129,6 +129,9 @@ describe("acceptance soak stability", () => {
       new Map([
         ["data", dataPath],
         ["memory-limit-mb", "2048"],
+        ["gradient-checkpointing", "false"],
+        ["early-stop-patience", "6"],
+        ["early-stop-min-delta", "0.05"],
       ]),
     );
 
@@ -137,6 +140,12 @@ describe("acceptance soak stability", () => {
       expect(args).toContain(resolve(process.cwd(), dataPath));
       expect(args).toContain("--memory-limit-mb");
       expect(args).toContain("2048");
+      expect(args).toContain("--gradient-checkpointing");
+      expect(args).toContain("false");
+      expect(args).toContain("--early-stop-patience");
+      expect(args).toContain("6");
+      expect(args).toContain("--early-stop-min-delta");
+      expect(args).toContain("0.05");
       expect(args).toContain("--stall-timeout-sec");
       expect(args).toContain("600");
       expect(args).toContain("--max-steps");
@@ -158,6 +167,40 @@ describe("acceptance soak stability", () => {
     expect(options.parameterCount).toBeGreaterThan(0);
     expect(options.maxSlopeMbPerEvent).toBe(8);
     expect(options.stallTimeoutSeconds).toBe(600);
+    expect(options.args).toContain("--early-stop-patience");
+    expect(options.args).toContain("none");
+  });
+
+  test("acceptance defaults enable early stopping and prefer best-checkpoint metrics", () => {
+    const options = readRunOptions(new Map([["preset", "gpt-tiny"]]));
+    expect(options.args).toContain("--early-stop-patience");
+    expect(options.args).toContain("8");
+    expect(options.args).toContain("--early-stop-min-delta");
+    expect(options.args).toContain("0.02");
+
+    expect(
+      finalLossFromStatus({
+        runId: "run-1",
+        state: "stopped",
+        startedAt: "now",
+        updatedAt: "now",
+        supervisorHeartbeatAt: "now",
+        bestValLoss: 1.23,
+        earlyStopReason: "plateaued",
+      }),
+    ).toBe(1.23);
+
+    expect(
+      checkpointPathFromStatus({
+        runId: "run-1",
+        state: "stopped",
+        startedAt: "now",
+        updatedAt: "now",
+        supervisorHeartbeatAt: "now",
+        bestCheckpoint: "/tmp/best",
+        earlyStopReason: "plateaued",
+      }),
+    ).toBe("/tmp/best");
   });
 
   test("samplePrompt prefers newline and otherwise falls back to the first vocab item", () => {
@@ -259,6 +302,17 @@ describe("acceptance soak stability", () => {
       }),
     ).toThrow("ended in state failed");
 
+    expect(() =>
+      assertCompletedStatus("run-plateau", {
+        runId: "run-plateau",
+        state: "stopped",
+        startedAt: "now",
+        updatedAt: "now",
+        supervisorHeartbeatAt: "now",
+        earlyStopReason: "validation loss plateaued",
+      }),
+    ).not.toThrow();
+
     expect(
       finalLossFromStatus({
         runId: "run-2",
@@ -297,7 +351,7 @@ describe("acceptance soak stability", () => {
         updatedAt: "now",
         supervisorHeartbeatAt: "now",
       }),
-    ).toThrow("resume checkpoint");
+    ).toThrow("without a checkpoint");
   });
 
   test("accepts stable throughput and memory behavior", () => {

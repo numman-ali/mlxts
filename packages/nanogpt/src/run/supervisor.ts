@@ -40,6 +40,13 @@ function readNumber(value: unknown): number | undefined {
   return typeof value === "number" && Number.isFinite(value) ? value : undefined;
 }
 
+function readNullableNumber(value: unknown): number | null | undefined {
+  if (value === null) {
+    return null;
+  }
+  return readNumber(value);
+}
+
 function readString(value: unknown): string | undefined {
   return typeof value === "string" ? value : undefined;
 }
@@ -144,6 +151,7 @@ function markProgress(status: RunStatus, event: Record<string, unknown>): RunSta
 
 function applyStartEvent(status: RunStatus, event: Record<string, unknown>): RunStatus {
   const next = markProgress(trainerStatusUpdate(status, event), event);
+  const earlyStopPatience = readNullableNumber(event.earlyStopPatience);
   return {
     ...next,
     state: "running",
@@ -156,6 +164,9 @@ function applyStartEvent(status: RunStatus, event: Record<string, unknown>): Run
     warmupSteps: readNumber(event.warmupSteps) ?? status.warmupSteps,
     step: readNumber(event.startStep) ?? status.step,
     resumeFrom: readString(event.resumeFrom) ?? status.resumeFrom,
+    earlyStopPatience:
+      earlyStopPatience === undefined ? status.earlyStopPatience : earlyStopPatience,
+    earlyStopMinDelta: readNumber(event.earlyStopMinDelta) ?? status.earlyStopMinDelta,
     activeMemoryBytes: readNumber(event.activeMemoryBytes) ?? status.activeMemoryBytes,
     cacheMemoryBytes: readNumber(event.cacheMemoryBytes) ?? status.cacheMemoryBytes,
     peakMemoryBytes: readNumber(event.peakMemoryBytes) ?? status.peakMemoryBytes,
@@ -214,6 +225,37 @@ function applyCheckpointEvent(status: RunStatus, event: Record<string, unknown>)
   };
 }
 
+function applyBestCheckpointEvent(status: RunStatus, event: Record<string, unknown>): RunStatus {
+  const next = markProgress(trainerStatusUpdate(status, event), event);
+  return {
+    ...next,
+    step: readNumber(event.step) ?? status.step,
+    bestValLoss: readNumber(event.valLoss) ?? status.bestValLoss,
+    bestCheckpointStep: readNumber(event.step) ?? status.bestCheckpointStep,
+    bestCheckpoint: readString(event.path) ?? status.bestCheckpoint,
+    earlyStopConsecutiveBadEvals: 0,
+    earlyStopReason: undefined,
+  };
+}
+
+function applyEarlyStopEvent(status: RunStatus, event: Record<string, unknown>): RunStatus {
+  const next = markProgress(trainerStatusUpdate(status, event), event);
+  const earlyStopPatience = readNullableNumber(event.patience);
+  return {
+    ...next,
+    step: readNumber(event.step) ?? status.step,
+    bestValLoss: readNumber(event.bestValLoss) ?? status.bestValLoss,
+    bestCheckpointStep: readNumber(event.bestCheckpointStep) ?? status.bestCheckpointStep,
+    bestCheckpoint: readString(event.bestCheckpointPath) ?? status.bestCheckpoint,
+    earlyStopPatience:
+      earlyStopPatience === undefined ? status.earlyStopPatience : earlyStopPatience,
+    earlyStopMinDelta: readNumber(event.minDelta) ?? status.earlyStopMinDelta,
+    earlyStopConsecutiveBadEvals:
+      readNumber(event.consecutiveBadEvals) ?? status.earlyStopConsecutiveBadEvals,
+    earlyStopReason: readString(event.reason) ?? status.earlyStopReason,
+  };
+}
+
 function applyControlEvent(status: RunStatus, event: Record<string, unknown>): RunStatus {
   const next = markProgress(supervisorStatusUpdate(status, event), event);
   const command = readString(event.command);
@@ -249,8 +291,12 @@ function updateStatusFromEvent(status: RunStatus, event: Record<string, unknown>
       return applyProgressEvent(status, event);
     case "checkpoint":
       return applyCheckpointEvent(status, event);
+    case "best-checkpoint":
+      return applyBestCheckpointEvent(status, event);
     case "control":
       return applyControlEvent(status, event);
+    case "early-stop":
+      return applyEarlyStopEvent(status, event);
     case "done":
       return applyDoneEvent(status, event);
     default:

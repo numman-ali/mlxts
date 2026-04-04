@@ -225,6 +225,64 @@ describe("run manager", () => {
     expect("signal" in statusPayload).toBe(true);
   }, 60_000);
 
+  test("status reports best-checkpoint and early-stop details for auto-stopped runs", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "nanogpt-run-early-stop-"));
+    const dataPath = join(directory, "train.txt");
+    writeFileSync(dataPath, "abcdefghijklmnopqrstuvwxyz ".repeat(120), "utf-8");
+
+    const runId = `manager-early-stop-${Date.now()}`;
+    CREATED_RUNS.add(runId);
+
+    const startResult = runManager([
+      "start",
+      "--name",
+      runId,
+      "--preset",
+      "gpt-tiny",
+      "--data",
+      dataPath,
+      "--max-steps",
+      "10",
+      "--batch-size",
+      "1",
+      "--grad-accum",
+      "1",
+      "--eval-interval",
+      "1",
+      "--eval-steps",
+      "1",
+      "--log-interval",
+      "1",
+      "--snapshot-interval",
+      "0",
+      "--resume-interval",
+      "0",
+      "--early-stop-patience",
+      "1",
+      "--early-stop-min-delta",
+      "10",
+    ]);
+    expect(startResult.status).toBe(0);
+
+    const stopped = await waitForStatus(
+      runId,
+      (status) => status.state === "stopped" && status.earlyStopReason !== undefined,
+    );
+    expect(stopped.bestCheckpoint).toBeDefined();
+    expect(stopped.bestCheckpointStep).toBe(1);
+    expect(stopped.bestValLoss).toBeDefined();
+
+    const statusResult = runManager(["status", "--name", runId, "--json"]);
+    expect(statusResult.status).toBe(0);
+    const payload: unknown = JSON.parse(statusResult.stdout.trim());
+    if (typeof payload !== "object" || payload === null || Array.isArray(payload)) {
+      throw new Error("expected manager status JSON object");
+    }
+    expect("bestCheckpoint" in payload ? payload.bestCheckpoint : undefined).toBeDefined();
+    expect("bestCheckpointStep" in payload ? payload.bestCheckpointStep : undefined).toBe(1);
+    expect("earlyStopReason" in payload ? payload.earlyStopReason : undefined).toBeDefined();
+  }, 60_000);
+
   test("status reports operator health for dead supervisor runs", () => {
     const runId = `manager-health-${Date.now()}`;
     CREATED_RUNS.add(runId);
@@ -302,4 +360,48 @@ describe("run manager", () => {
     expect(result.status).toBe(1);
     expect(result.stderr).toContain("unknown flag");
   });
+
+  test("start accepts gradient checkpointing overrides and surfaces them in status", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "nanogpt-run-gc-"));
+    const dataPath = join(directory, "train.txt");
+    writeFileSync(dataPath, "abcdefghijklmnopqrstuvwxyz ".repeat(120), "utf-8");
+
+    const runId = `manager-gc-${Date.now()}`;
+    CREATED_RUNS.add(runId);
+
+    const startResult = runManager([
+      "start",
+      "--name",
+      runId,
+      "--preset",
+      "gpt-tiny",
+      "--gradient-checkpointing",
+      "true",
+      "--data",
+      dataPath,
+      "--max-steps",
+      "2",
+      "--batch-size",
+      "1",
+      "--grad-accum",
+      "1",
+      "--eval-interval",
+      "1",
+      "--eval-steps",
+      "1",
+      "--log-interval",
+      "1",
+      "--snapshot-interval",
+      "1",
+      "--resume-interval",
+      "1",
+    ]);
+    expect(startResult.status).toBe(0);
+
+    const completed = await waitForStatus(
+      runId,
+      (status) => status.state === "completed" && status.step === 2,
+    );
+    expect(completed.config?.gradientCheckpointing).toBe(true);
+  }, 60_000);
 });

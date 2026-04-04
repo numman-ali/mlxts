@@ -23,6 +23,7 @@ import {
 
 const TRAIN_FLAG_ALLOWLIST = new Set([
   "preset",
+  "gradient-checkpointing",
   "data",
   "max-steps",
   "batch-size",
@@ -43,6 +44,8 @@ const TRAIN_FLAG_ALLOWLIST = new Set([
   "resume-interval",
   "sample-interval",
   "sample-tokens",
+  "early-stop-patience",
+  "early-stop-min-delta",
   "memory-limit-mb",
   "cache-limit-mb",
   "wired-limit-mb",
@@ -74,6 +77,7 @@ Usage:
 
 Notes:
   start/resume accept --stall-timeout-sec <seconds> (default 600)
+  train flags also accept --early-stop-patience <n|none> and --early-stop-min-delta <n>
   cancel is best-effort and may lose work since the latest resume checkpoint
 `;
 }
@@ -324,15 +328,22 @@ type StatusPayload = {
   lastStepLoss?: number | undefined;
   lastTrainLoss?: number | undefined;
   lastValLoss?: number | undefined;
+  bestValLoss?: number | undefined;
   lastTokensPerSec?: number | undefined;
   latestCheckpoint?: string | undefined;
   latestSnapshotCheckpoint?: string | undefined;
   latestResumeCheckpoint?: string | undefined;
+  bestCheckpoint?: string | undefined;
+  bestCheckpointStep?: number | undefined;
   latestCheckpointKind?: string | undefined;
   activeMemoryBytes?: number | undefined;
   cacheMemoryBytes?: number | undefined;
   peakMemoryBytes?: number | undefined;
   memoryLimitBytes?: number | undefined;
+  earlyStopPatience?: number | null | undefined;
+  earlyStopMinDelta?: number | undefined;
+  earlyStopConsecutiveBadEvals?: number | undefined;
+  earlyStopReason?: string | undefined;
   exitCode?: number | null | undefined;
   signal?: string | null | undefined;
   supervisorAlive?: boolean | undefined;
@@ -373,15 +384,22 @@ function createStatusPayload(runId: string): StatusPayload {
     lastStepLoss: status.lastStepLoss,
     lastTrainLoss: status.lastTrainLoss,
     lastValLoss: status.lastValLoss,
+    bestValLoss: status.bestValLoss,
     lastTokensPerSec: status.lastTokensPerSec,
     latestCheckpoint: status.latestCheckpoint ?? readLatestCheckpoint(directory),
     latestSnapshotCheckpoint: status.latestSnapshotCheckpoint,
     latestResumeCheckpoint: status.latestResumeCheckpoint,
+    bestCheckpoint: status.bestCheckpoint,
+    bestCheckpointStep: status.bestCheckpointStep,
     latestCheckpointKind: status.latestCheckpointKind,
     activeMemoryBytes: status.activeMemoryBytes,
     cacheMemoryBytes: status.cacheMemoryBytes,
     peakMemoryBytes: status.peakMemoryBytes,
     memoryLimitBytes: status.memoryLimitBytes,
+    earlyStopPatience: status.earlyStopPatience,
+    earlyStopMinDelta: status.earlyStopMinDelta,
+    earlyStopConsecutiveBadEvals: status.earlyStopConsecutiveBadEvals,
+    earlyStopReason: status.earlyStopReason,
     exitCode: status.exitCode,
     signal: status.signal,
     supervisorAlive: health.supervisorAlive,
@@ -416,16 +434,39 @@ function formatTokensPerSec(value: number | undefined): string {
   return value === undefined ? "-" : Math.round(value).toLocaleString();
 }
 
-function formatStatusPayload(payload: StatusPayload): string {
-  return `${[
+function formatEarlyStopPatience(value: number | null | undefined): string {
+  if (value === undefined) {
+    return "-";
+  }
+  return value === null ? "disabled" : String(value);
+}
+
+function formatOperatorHealthLine(payload: StatusPayload): string {
+  const supervisor = payload.supervisorAlive ? "alive" : "dead";
+  const trainer = payload.trainerAlive ? "alive" : "dead";
+  return `  operator: ${payload.operatorHealth ?? "-"} (supervisor ${supervisor}, trainer ${trainer})`;
+}
+
+function formatBestValLine(payload: StatusPayload): string {
+  return `  best val: ${formatOptionalNumber(payload.bestValLoss)}  best step: ${payload.bestCheckpointStep ?? "-"}`;
+}
+
+function formatEarlyStopLine(payload: StatusPayload): string {
+  return `  early stop: ${formatEarlyStopPatience(payload.earlyStopPatience)}  min delta: ${formatOptionalNumber(payload.earlyStopMinDelta)}`;
+}
+
+function statusLines(payload: StatusPayload): string[] {
+  return [
     `Run ${payload.runId}`,
     `  state: ${payload.state}`,
-    `  operator: ${payload.operatorHealth ?? "-"} (supervisor ${payload.supervisorAlive ? "alive" : "dead"}, trainer ${payload.trainerAlive ? "alive" : "dead"})`,
+    formatOperatorHealthLine(payload),
     `  step: ${payload.step ?? "-"} / ${payload.maxSteps ?? "-"}`,
     `  batch: ${payload.batchSize ?? "-"}  grad accum: ${payload.gradAccumSteps ?? "-"}  gradient checkpointing: ${formatGradientCheckpointing(payload.config)}`,
     `  stall timeout: ${payload.stallTimeoutSeconds ?? "-"}s`,
     `  loss: ${formatOptionalNumber(payload.lastStepLoss)}  val: ${formatOptionalNumber(payload.lastValLoss)}`,
+    formatBestValLine(payload),
     `  tokens/sec: ${formatTokensPerSec(payload.lastTokensPerSec)}`,
+    formatEarlyStopLine(payload),
     `  active memory: ${formatMemoryBytes(payload.activeMemoryBytes)}`,
     `  cache memory: ${formatMemoryBytes(payload.cacheMemoryBytes)}`,
     `  peak memory: ${formatMemoryBytes(payload.peakMemoryBytes)}`,
@@ -433,7 +474,13 @@ function formatStatusPayload(payload: StatusPayload): string {
     `  process: ${payload.processState ?? "-"}`,
     `  exit: ${payload.exitCode ?? "-"}  signal: ${payload.signal ?? "-"}`,
     `  latest checkpoint: ${payload.latestCheckpoint ?? "-"}`,
-  ].join("\n")}\n`;
+    `  best checkpoint: ${payload.bestCheckpoint ?? "-"}`,
+    `  early-stop reason: ${payload.earlyStopReason ?? "-"}`,
+  ];
+}
+
+function formatStatusPayload(payload: StatusPayload): string {
+  return `${statusLines(payload).join("\n")}\n`;
 }
 
 function printStatus(runId: string, asJson: boolean): void {

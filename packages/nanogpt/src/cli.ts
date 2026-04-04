@@ -51,6 +51,7 @@ class UserError extends Error {}
 
 const TRAIN_FLAG_ALLOWLIST = new Set([
   "preset",
+  "gradient-checkpointing",
   "data",
   "max-steps",
   "batch-size",
@@ -71,6 +72,8 @@ const TRAIN_FLAG_ALLOWLIST = new Set([
   "resume-interval",
   "sample-interval",
   "sample-tokens",
+  "early-stop-patience",
+  "early-stop-min-delta",
   "memory-limit-mb",
   "cache-limit-mb",
   "wired-limit-mb",
@@ -106,6 +109,20 @@ type TrainingSession = {
   resumeStep: number;
   checkpointSource?: string;
 };
+
+function getBooleanFlag(flags: Map<string, string>, key: string): boolean | undefined {
+  const raw = flags.get(key);
+  if (raw === undefined) {
+    return undefined;
+  }
+  if (raw === "true") {
+    return true;
+  }
+  if (raw === "false") {
+    return false;
+  }
+  throw new UserError(`Flag --${key} must be "true" or "false"`);
+}
 
 function parseArgs(argv: string[]): { command: string; flags: Map<string, string> } {
   const command = argv[2] ?? "help";
@@ -180,6 +197,43 @@ function getNullablePositiveNumberFlag(
   return parsed;
 }
 
+function getNullableNonNegativeIntegerFlag(
+  flags: Map<string, string>,
+  key: string,
+  fallback: number | null,
+): number | null {
+  const raw = flags.get(key);
+  if (raw === undefined) {
+    return fallback;
+  }
+  if (raw === "none" || raw === "null") {
+    return null;
+  }
+
+  const parsed = Number(raw);
+  if (!Number.isInteger(parsed) || parsed < 0) {
+    throw new UserError(`Flag --${key} must be a non-negative integer or "none"`);
+  }
+  return parsed;
+}
+
+function getNonNegativeNumberFlag(
+  flags: Map<string, string>,
+  key: string,
+  fallback: number,
+): number {
+  const raw = flags.get(key);
+  if (raw === undefined) {
+    return fallback;
+  }
+
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed) || parsed < 0) {
+    throw new UserError(`Flag --${key} must be a non-negative number`);
+  }
+  return parsed;
+}
+
 const PRESETS: Record<string, ModelPreset> = {
   "gpt-tiny": GPT_TINY,
   "gpt-small": GPT_SMALL,
@@ -242,7 +296,28 @@ function checkpointPath(
   kind: CheckpointKind,
   step: number,
 ): string {
+  if (kind === "best") {
+    return join(directory, `${presetName}-best`);
+  }
   return join(directory, `${presetName}-${kind}-step-${step}`);
+}
+
+function createAutoTrainingPolicy(
+  flags: Map<string, string>,
+  checkpointDir: string | undefined,
+  presetName: string,
+): AutoTrainingPolicy {
+  return {
+    patience: getNullableNonNegativeIntegerFlag(flags, "early-stop-patience", 8),
+    minDelta: getNonNegativeNumberFlag(flags, "early-stop-min-delta", 0.02),
+    bestValLoss: null,
+    bestCheckpointStep: null,
+    bestCheckpointPath:
+      checkpointDir === undefined
+        ? undefined
+        : checkpointPath(checkpointDir, presetName, "best", 0),
+    consecutiveBadEvals: 0,
+  };
 }
 
 function samplePrompt(tokenizer: CharTokenizer): string {
@@ -261,6 +336,8 @@ Usage:
 Train options:
   --preset <name>            Model preset: gpt-tiny (default), gpt-small
                              gpt-small enables gradient checkpointing by default
+  --gradient-checkpointing <true|false>
+                             Override the preset's gradient checkpointing setting
   --data <path>              Path to training text file (default: cached/downloaded Shakespeare)
   --max-steps <n>            Maximum training steps (default: preset-specific safe default)
   --batch-size <n>           Batch size (default: preset-specific safe default)
@@ -273,6 +350,9 @@ Train options:
   --checkpoint-dir <path>    Directory for periodic/final checkpoints (default: .nanogpt-checkpoints)
   --snapshot-interval <n>    Save snapshot checkpoints every N eval steps (default: 250)
   --resume-interval <n>      Save resumable checkpoints every N eval steps (default: 1000)
+  --early-stop-patience <n|none>
+                             Stop after N evals without meaningful val-loss improvement (default: 8)
+  --early-stop-min-delta <n> Minimum val-loss improvement required to reset patience (default: 0.02)
   --memory-limit-mb <n>      Set the MLX allocator memory limit in MB
   --cache-limit-mb <n>       Set the MLX allocator cache limit in MB
   --wired-limit-mb <n>       Set the MLX wired-memory limit in MB
@@ -306,6 +386,8 @@ Usage:
 Options:
   --preset <name>            Model preset: gpt-tiny (default), gpt-small
                              gpt-small enables gradient checkpointing by default
+  --gradient-checkpointing <true|false>
+                             Override the preset's gradient checkpointing setting
   --data <path>              Path to training text file (default: cached/downloaded Shakespeare)
   --max-steps <n>            Maximum training steps (default: preset-specific safe default)
   --batch-size <n>           Batch size (default: preset-specific safe default)
@@ -321,6 +403,9 @@ Options:
   --resume-interval <n>      Save resumable checkpoints every N eval steps (default: 1000)
   --sample-interval <n>      Emit a generated sample every N training steps (default: 0 for plain train, snapshot interval for supervised runs)
   --sample-tokens <n>        Number of tokens to generate per sample (default: 200)
+  --early-stop-patience <n|none>
+                             Stop after N evals without meaningful val-loss improvement (default: 8)
+  --early-stop-min-delta <n> Minimum val-loss improvement required to reset patience (default: 0.02)
   --memory-limit-mb <n>      Set the MLX allocator memory limit in MB
   --cache-limit-mb <n>       Set the MLX allocator cache limit in MB
   --wired-limit-mb <n>       Set the MLX wired-memory limit in MB
@@ -390,6 +475,17 @@ function formatEvalEvent(event: Extract<TrainEvent, { type: "eval" }>): string {
     .padStart(7)}  ${event.valLoss.toFixed(4).padStart(7)}\n`;
 }
 
+function applyPresetOverrides(preset: ModelPreset, flags: Map<string, string>): ModelPreset {
+  const gradientCheckpointing = getBooleanFlag(flags, "gradient-checkpointing");
+  if (gradientCheckpointing === undefined) {
+    return preset;
+  }
+  return {
+    ...preset,
+    gradientCheckpointing,
+  };
+}
+
 function parsePreset(flags: Map<string, string>): { name: string; preset: ModelPreset } {
   const presetName = getFlag(flags, "preset", "gpt-tiny");
   const preset = presetName === undefined ? undefined : PRESETS[presetName];
@@ -399,7 +495,7 @@ function parsePreset(flags: Map<string, string>): { name: string; preset: ModelP
     );
   }
 
-  return { name: presetName, preset };
+  return { name: presetName, preset: applyPresetOverrides(preset, flags) };
 }
 
 function trainConfigFromFlags(
@@ -540,8 +636,7 @@ function inferPresetName(config: ReturnType<typeof resolveConfig>): string {
     config.nHead === GPT_TINY.nHead &&
     config.nEmbd === GPT_TINY.nEmbd &&
     config.blockSize === GPT_TINY.blockSize &&
-    config.dropout === GPT_TINY.dropout &&
-    config.gradientCheckpointing === (GPT_TINY.gradientCheckpointing === true)
+    config.dropout === GPT_TINY.dropout
   ) {
     return "gpt-tiny";
   }
@@ -550,8 +645,7 @@ function inferPresetName(config: ReturnType<typeof resolveConfig>): string {
     config.nHead === GPT_SMALL.nHead &&
     config.nEmbd === GPT_SMALL.nEmbd &&
     config.blockSize === GPT_SMALL.blockSize &&
-    config.dropout === GPT_SMALL.dropout &&
-    config.gradientCheckpointing === (GPT_SMALL.gradientCheckpointing === true)
+    config.dropout === GPT_SMALL.dropout
   ) {
     return "gpt-small";
   }
@@ -569,6 +663,16 @@ type CheckpointPolicy = {
 type SamplingPolicy = {
   every: number;
   maxNewTokens: number;
+};
+
+type AutoTrainingPolicy = {
+  patience: number | null;
+  minDelta: number;
+  bestValLoss: number | null;
+  bestCheckpointStep: number | null;
+  bestCheckpointPath?: string | undefined;
+  consecutiveBadEvals: number;
+  stopReason?: string | undefined;
 };
 
 function readTelemetry(): TelemetrySnapshot {
@@ -698,6 +802,51 @@ function emitSample(
   process.stderr.write(`\n--- Sample @ step ${step} ---\n${sample}\n`);
 }
 
+function emitBestCheckpoint(
+  useJson: boolean,
+  step: number,
+  valLoss: number,
+  path: string | undefined,
+): void {
+  if (useJson) {
+    emitJson({
+      type: "best-checkpoint",
+      step,
+      valLoss,
+      path,
+    });
+    return;
+  }
+
+  process.stderr.write(
+    `  best checkpoint: val ${valLoss.toFixed(4)} at step ${step}${path === undefined ? "" : ` -> ${path}`}\n`,
+  );
+}
+
+function emitEarlyStop(
+  useJson: boolean,
+  step: number,
+  reason: string,
+  autoTrainingPolicy: AutoTrainingPolicy,
+): void {
+  if (useJson) {
+    emitJson({
+      type: "early-stop",
+      step,
+      reason,
+      bestValLoss: autoTrainingPolicy.bestValLoss,
+      bestCheckpointStep: autoTrainingPolicy.bestCheckpointStep,
+      bestCheckpointPath: autoTrainingPolicy.bestCheckpointPath,
+      patience: autoTrainingPolicy.patience,
+      minDelta: autoTrainingPolicy.minDelta,
+      consecutiveBadEvals: autoTrainingPolicy.consecutiveBadEvals,
+    });
+    return;
+  }
+
+  process.stderr.write(`  early stop: ${reason}\n`);
+}
+
 function validateTrainSourceFlags(flags: Map<string, string>): {
   resumePath?: string;
   warmStartPath?: string;
@@ -707,9 +856,12 @@ function validateTrainSourceFlags(flags: Map<string, string>): {
   if (resumePath !== undefined && warmStartPath !== undefined) {
     throw new UserError("Flags --resume and --warm-start are mutually exclusive");
   }
-  if ((resumePath !== undefined || warmStartPath !== undefined) && flags.has("preset")) {
+  if (
+    (resumePath !== undefined || warmStartPath !== undefined) &&
+    (flags.has("preset") || flags.has("gradient-checkpointing"))
+  ) {
     throw new UserError(
-      "Flag --preset cannot be combined with --resume/--warm-start; checkpoint config is authoritative",
+      "Flags --preset/--gradient-checkpointing cannot be combined with --resume/--warm-start; checkpoint config is authoritative",
     );
   }
   const resolved: { resumePath?: string; warmStartPath?: string } = {};
@@ -762,6 +914,7 @@ function announceTrainingSession(
   session: TrainingSession,
   checkpointPolicy: CheckpointPolicy,
   samplingPolicy: SamplingPolicy,
+  autoTrainingPolicy: AutoTrainingPolicy,
   useJson: boolean,
   parameterCount: number,
 ): void {
@@ -786,6 +939,8 @@ function announceTrainingSession(
       resumeEvery: checkpointPolicy.resumeEvery,
       sampleEvery: samplingPolicy.every,
       sampleTokens: samplingPolicy.maxNewTokens,
+      earlyStopPatience: autoTrainingPolicy.patience,
+      earlyStopMinDelta: autoTrainingPolicy.minDelta,
       pid: process.pid,
       activeMemoryBytes: telemetry.activeBytes,
       cacheMemoryBytes: telemetry.cacheBytes,
@@ -807,6 +962,13 @@ function announceTrainingSession(
   process.stderr.write(
     `Sample output: ${samplingPolicy.every > 0 ? `every ${samplingPolicy.every} step(s), ${samplingPolicy.maxNewTokens} tokens` : "disabled"}\n\n`,
   );
+  process.stderr.write(
+    `Auto stop: ${
+      autoTrainingPolicy.patience === null
+        ? "disabled"
+        : `patience ${autoTrainingPolicy.patience} eval(s), min delta ${autoTrainingPolicy.minDelta}`
+    }\n\n`,
+  );
   if (session.checkpointSource !== undefined) {
     const modeLabel = session.resumeStep > 0 ? "Resuming" : "Warm-starting";
     process.stderr.write(
@@ -819,10 +981,19 @@ function announceTrainingSession(
 function createTrainEventHandler(options: {
   checkpointPolicy: CheckpointPolicy;
   samplingPolicy: SamplingPolicy;
+  autoTrainingPolicy: AutoTrainingPolicy;
+  requestAutoStop: (reason: string) => void;
   useJson: boolean;
   session: TrainingSession;
 }): (event: TrainEvent) => void {
-  const { checkpointPolicy, samplingPolicy, session, useJson } = options;
+  const {
+    checkpointPolicy,
+    samplingPolicy,
+    autoTrainingPolicy,
+    requestAutoStop,
+    session,
+    useJson,
+  } = options;
   const { config, model, optimizer, presetName, tokenizer } = session;
 
   function checkpointKindForStep(step: number): CheckpointKind | undefined {
@@ -899,10 +1070,72 @@ function createTrainEventHandler(options: {
     emitSample(session, event.step, samplingPolicy.maxNewTokens, useJson);
   }
 
+  function maybeSaveBestCheckpoint(event: TrainEvent): void {
+    if (event.type !== "eval") {
+      return;
+    }
+
+    const bestValLoss = autoTrainingPolicy.bestValLoss;
+    const improved =
+      bestValLoss === null || event.valLoss <= bestValLoss - autoTrainingPolicy.minDelta;
+    if (!improved) {
+      return;
+    }
+
+    autoTrainingPolicy.bestValLoss = event.valLoss;
+    autoTrainingPolicy.bestCheckpointStep = event.step;
+    autoTrainingPolicy.consecutiveBadEvals = 0;
+    autoTrainingPolicy.stopReason = undefined;
+
+    if (autoTrainingPolicy.bestCheckpointPath !== undefined) {
+      saveCheckpoint({
+        model,
+        kind: "best",
+        config,
+        step: event.step,
+        tokenizer,
+        path: autoTrainingPolicy.bestCheckpointPath,
+      });
+    }
+
+    emitBestCheckpoint(useJson, event.step, event.valLoss, autoTrainingPolicy.bestCheckpointPath);
+  }
+
+  function maybeRequestEarlyStop(event: TrainEvent): void {
+    if (event.type !== "eval" || autoTrainingPolicy.patience === null) {
+      return;
+    }
+    if (autoTrainingPolicy.bestCheckpointStep === event.step) {
+      return;
+    }
+
+    autoTrainingPolicy.consecutiveBadEvals += 1;
+    if (autoTrainingPolicy.consecutiveBadEvals < autoTrainingPolicy.patience) {
+      return;
+    }
+
+    const bestStep =
+      autoTrainingPolicy.bestCheckpointStep === null
+        ? "unknown"
+        : String(autoTrainingPolicy.bestCheckpointStep);
+    const bestVal =
+      autoTrainingPolicy.bestValLoss === null
+        ? "unknown"
+        : autoTrainingPolicy.bestValLoss.toFixed(4);
+    const reason =
+      `validation loss did not improve by at least ${autoTrainingPolicy.minDelta} for ` +
+      `${autoTrainingPolicy.consecutiveBadEvals} eval(s); best ${bestVal} at step ${bestStep}`;
+    autoTrainingPolicy.stopReason = reason;
+    emitEarlyStop(useJson, event.step, reason, autoTrainingPolicy);
+    requestAutoStop(reason);
+  }
+
   return (event: TrainEvent): void => {
     emitEventOutput(event);
+    maybeSaveBestCheckpoint(event);
     maybeSavePeriodicCheckpoint(event);
     maybeEmitPeriodicSample(event);
+    maybeRequestEarlyStop(event);
   };
 }
 
@@ -927,6 +1160,7 @@ function emitTrainingSample(
 function emitStoppedRun(
   finalPath: string,
   summary: ReturnType<typeof train>,
+  autoTrainingPolicy: AutoTrainingPolicy,
   useJson: boolean,
 ): void {
   if (useJson) {
@@ -934,12 +1168,20 @@ function emitStoppedRun(
       type: "stopped",
       path: finalPath,
       summary,
+      reason: autoTrainingPolicy.stopReason,
+      bestValLoss: autoTrainingPolicy.bestValLoss,
+      bestCheckpointStep: autoTrainingPolicy.bestCheckpointStep,
+      bestCheckpointPath: autoTrainingPolicy.bestCheckpointPath,
     });
     return;
   }
 
   process.stderr.write(
-    `\nTraining stopped cleanly at step ${summary.totalSteps}. Final checkpoint: ${finalPath}\n`,
+    `\nTraining stopped cleanly at step ${summary.totalSteps}. Final checkpoint: ${finalPath}${
+      autoTrainingPolicy.stopReason === undefined
+        ? ""
+        : `\nReason: ${autoTrainingPolicy.stopReason}`
+    }\n`,
   );
 }
 
@@ -976,17 +1218,34 @@ async function runTrain(flags: Map<string, string>): Promise<void> {
         : 0,
     maxNewTokens: getNumberFlag(flags, "sample-tokens", 200),
   };
+  const autoTrainingPolicy = createAutoTrainingPolicy(flags, checkpointDir, presetName);
   const parameterCount = estimateParameterCount(config);
   const { trainTokens, valTokens } = prepareData(tokenizer.encode(text), 0.9);
   const stopController = createStopController(useJson, runDir);
+  let autoStopRequested = false;
 
   mkdirSync(checkpointDir ?? ".nanogpt-checkpoints", { recursive: true });
   applyRuntimeLimits(flags);
-  announceTrainingSession(session, checkpointPolicy, samplingPolicy, useJson, parameterCount);
+  announceTrainingSession(
+    session,
+    checkpointPolicy,
+    samplingPolicy,
+    autoTrainingPolicy,
+    useJson,
+    parameterCount,
+  );
   const onEvent = createTrainEventHandler({
     useJson,
     checkpointPolicy,
     samplingPolicy,
+    autoTrainingPolicy,
+    requestAutoStop(reason) {
+      if (autoStopRequested) {
+        return;
+      }
+      autoStopRequested = true;
+      autoTrainingPolicy.stopReason = reason;
+    },
     session,
   });
 
@@ -999,7 +1258,7 @@ async function runTrain(flags: Map<string, string>): Promise<void> {
       valTokens,
       optimizer,
       onEvent,
-      shouldStop: stopController.shouldStop,
+      shouldStop: () => stopController.shouldStop() || autoStopRequested,
     });
 
     const controlCommand = stopController.command();
@@ -1025,7 +1284,7 @@ async function runTrain(flags: Map<string, string>): Promise<void> {
     });
     emitCheckpoint(useJson, summary.totalSteps, "resume", finalPath, maybeClearAllocatorCache());
     if (summary.totalSteps < trainConfig.maxSteps) {
-      emitStoppedRun(finalPath, summary, useJson);
+      emitStoppedRun(finalPath, summary, autoTrainingPolicy, useJson);
       return;
     }
     emitTrainingSample(session, finalPath, summary, useJson);

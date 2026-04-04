@@ -98,6 +98,7 @@ const ACCEPTANCE_DEFAULTS: Record<PresetName, AcceptanceDefaults> = {
 const ACCEPTANCE_FLAG_ALLOWLIST = new Set([
   "mode",
   "preset",
+  "gradient-checkpointing",
   "name",
   "poll-seconds",
   "loss-target",
@@ -117,6 +118,8 @@ const ACCEPTANCE_FLAG_ALLOWLIST = new Set([
   "min-lr",
   "snapshot-interval",
   "resume-interval",
+  "early-stop-patience",
+  "early-stop-min-delta",
   "stall-timeout-sec",
   "data",
   "memory-limit-mb",
@@ -444,6 +447,13 @@ export function buildManagerArgs(
     String(getNumberFlag(flags, "stall-timeout-sec", defaults.stallTimeoutSeconds)),
   ];
 
+  const gradientCheckpointing = getFlag(flags, "gradient-checkpointing");
+  if (gradientCheckpointing !== undefined) {
+    args.push("--gradient-checkpointing", gradientCheckpointing);
+  }
+  appendOptionalArg(args, flags, "early-stop-patience");
+  appendOptionalArg(args, flags, "early-stop-min-delta");
+
   const dataPath = flags.get("data");
   if (dataPath !== undefined) {
     args.push("--data", resolve(process.cwd(), dataPath));
@@ -474,6 +484,13 @@ export function readRunOptions(flags: Map<string, string>): AcceptanceRunOptions
   );
   const modelPreset = presetName === "gpt-small" ? GPT_SMALL : GPT_TINY;
   const parameterCount = estimateParameterCount(resolveConfig(modelPreset, 65));
+  const managerFlags = new Map(flags);
+  if (!managerFlags.has("early-stop-patience")) {
+    managerFlags.set("early-stop-patience", mode === "acceptance" ? "8" : "none");
+  }
+  if (mode === "acceptance" && !managerFlags.has("early-stop-min-delta")) {
+    managerFlags.set("early-stop-min-delta", "0.02");
+  }
 
   return {
     presetName,
@@ -486,7 +503,7 @@ export function readRunOptions(flags: Map<string, string>): AcceptanceRunOptions
     maxSlopeMbPerEvent,
     stallTimeoutSeconds,
     parameterCount,
-    args: buildManagerArgs(presetName, runId, defaults, flags),
+    args: buildManagerArgs(presetName, runId, defaults, managerFlags),
   };
 }
 
@@ -495,13 +512,16 @@ export function assertCompletedStatus(runId: string, status: RunStatus): void {
     const reason = status.stallReason === undefined ? "unknown stall reason" : status.stallReason;
     throw new Error(`Acceptance run ${runId} stalled: ${reason}`);
   }
+  if (status.state === "stopped" && status.earlyStopReason !== undefined) {
+    return;
+  }
   if (status.state !== "completed") {
     throw new Error(`Acceptance run ${runId} ended in state ${status.state}`);
   }
 }
 
 export function finalLossFromStatus(status: RunStatus): number {
-  const finalLoss = status.lastValLoss ?? status.lastStepLoss;
+  const finalLoss = status.bestValLoss ?? status.lastValLoss ?? status.lastStepLoss;
   if (finalLoss === undefined) {
     throw new Error("Acceptance run completed without a final recorded loss");
   }
@@ -509,9 +529,10 @@ export function finalLossFromStatus(status: RunStatus): number {
 }
 
 export function checkpointPathFromStatus(status: RunStatus): string {
-  const checkpointPath = status.latestResumeCheckpoint ?? status.latestCheckpoint;
+  const checkpointPath =
+    status.bestCheckpoint ?? status.latestResumeCheckpoint ?? status.latestCheckpoint;
   if (checkpointPath === undefined) {
-    throw new Error("Acceptance run completed without a resume checkpoint");
+    throw new Error("Acceptance run completed without a checkpoint");
   }
   return checkpointPath;
 }

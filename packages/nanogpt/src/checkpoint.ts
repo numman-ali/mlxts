@@ -21,7 +21,7 @@ import type { CharTokenizer } from "./tokenizer";
 const CHECKPOINT_VERSION = 2;
 const MANIFEST_FILENAME = "manifest.json";
 const TENSOR_DATA_FILENAME = "tensors.bin";
-export type CheckpointKind = "snapshot" | "resume";
+export type CheckpointKind = "snapshot" | "resume" | "best";
 
 type SupportedCheckpointDType =
   | "bool"
@@ -373,7 +373,7 @@ function readManifest(path: string): CheckpointManifest {
   }
 
   const kind = readString(parsed.kind, "checkpoint manifest kind");
-  if (kind !== "snapshot" && kind !== "resume") {
+  if (kind !== "snapshot" && kind !== "resume" && kind !== "best") {
     throw new Error(`checkpoint manifest kind "${kind}" is unsupported`);
   }
 
@@ -392,9 +392,12 @@ function readManifest(path: string): CheckpointManifest {
   if (manifest.kind === "resume" && manifest.optimizer === undefined) {
     throw new Error("checkpoint manifest: resume checkpoints require optimizer metadata");
   }
-  if (manifest.kind === "snapshot" && manifest.optimizer !== undefined) {
+  if (
+    (manifest.kind === "snapshot" || manifest.kind === "best") &&
+    manifest.optimizer !== undefined
+  ) {
     throw new Error(
-      "checkpoint manifest: snapshot checkpoints must not include optimizer metadata",
+      "checkpoint manifest: snapshot/best checkpoints must not include optimizer metadata",
     );
   }
   if (manifest.optimizer !== undefined && manifest.optimizer.step !== manifest.step) {
@@ -670,8 +673,8 @@ export function saveCheckpoint(options: SaveCheckpointOptions): void {
   if (kind === "resume" && optimizer === undefined) {
     throw new Error("saveCheckpoint: resume checkpoints require optimizer state");
   }
-  if (kind === "snapshot" && optimizer !== undefined) {
-    throw new Error("saveCheckpoint: snapshot checkpoints must not include optimizer state");
+  if ((kind === "snapshot" || kind === "best") && optimizer !== undefined) {
+    throw new Error("saveCheckpoint: snapshot/best checkpoints must not include optimizer state");
   }
   if (optimizer !== undefined && optimizer.step !== step) {
     throw new Error(

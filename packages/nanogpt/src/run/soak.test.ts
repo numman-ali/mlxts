@@ -28,6 +28,8 @@ describe("soak runner", () => {
     expect(args).toContain("8");
     expect(args).toContain("--stall-timeout-sec");
     expect(args).toContain("600");
+    expect(args).toContain("--early-stop-patience");
+    expect(args).toContain("none");
     expect(args).toContain("--throughput-window");
     expect(args).toContain("5");
   });
@@ -36,6 +38,12 @@ describe("soak runner", () => {
     const args = buildAcceptanceArgs([
       "--preset",
       "gpt-tiny",
+      "--gradient-checkpointing",
+      "true",
+      "--early-stop-patience",
+      "4",
+      "--early-stop-min-delta",
+      "0.05",
       "--max-steps",
       "1000",
       "--log-interval",
@@ -47,14 +55,23 @@ describe("soak runner", () => {
     ]);
 
     const maxStepsIndex = args.indexOf("--max-steps");
+    const gradientCheckpointingIndex = args.indexOf("--gradient-checkpointing");
     const logIntervalIndex = args.indexOf("--log-interval");
     const throughputWindowIndex = args.indexOf("--throughput-window");
     const minRatioIndex = args.indexOf("--min-throughput-ratio");
+    const earlyStopPatienceIndex = args.indexOf("--early-stop-patience");
+    const earlyStopMinDeltaIndex = args.indexOf("--early-stop-min-delta");
 
     expect(maxStepsIndex).toBeGreaterThan(-1);
     expect(args[maxStepsIndex + 1]).toBe("1000");
+    expect(gradientCheckpointingIndex).toBeGreaterThan(-1);
+    expect(args[gradientCheckpointingIndex + 1]).toBe("true");
     expect(logIntervalIndex).toBeGreaterThan(-1);
     expect(args[logIntervalIndex + 1]).toBe("20");
+    expect(earlyStopPatienceIndex).toBeGreaterThan(-1);
+    expect(args[earlyStopPatienceIndex + 1]).toBe("4");
+    expect(earlyStopMinDeltaIndex).toBeGreaterThan(-1);
+    expect(args[earlyStopMinDeltaIndex + 1]).toBe("0.05");
     expect(throughputWindowIndex).toBeGreaterThan(-1);
     expect(args[throughputWindowIndex + 1]).toBe("7");
     expect(minRatioIndex).toBeGreaterThan(-1);

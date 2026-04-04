@@ -115,6 +115,7 @@ export function buildAcceptanceArgs(args: string[]): string[] {
     args,
     new Set([
       "preset",
+      "gradient-checkpointing",
       "name",
       "poll-seconds",
       "throughput-window",
@@ -127,6 +128,8 @@ export function buildAcceptanceArgs(args: string[]): string[] {
       "warmup-steps",
       "snapshot-interval",
       "resume-interval",
+      "early-stop-patience",
+      "early-stop-min-delta",
       "min-throughput-ratio",
       "max-slope-mb-per-event",
       "stall-timeout-sec",
@@ -152,6 +155,7 @@ export function buildAcceptanceArgs(args: string[]): string[] {
   withDefaultFlag(forwarded, "warmup-steps", defaults.warmupSteps);
   withDefaultFlag(forwarded, "snapshot-interval", defaults.snapshotInterval);
   withDefaultFlag(forwarded, "resume-interval", defaults.resumeInterval);
+  withDefaultFlag(forwarded, "early-stop-patience", "none");
   withDefaultFlag(forwarded, "throughput-window", defaultThroughputWindow(maxSteps, logInterval));
   withDefaultFlag(forwarded, "min-throughput-ratio", defaults.minThroughputRatio);
   withDefaultFlag(forwarded, "max-slope-mb-per-event", defaults.maxSlopeMbPerEvent);

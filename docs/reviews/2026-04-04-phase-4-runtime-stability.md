@@ -10,6 +10,10 @@ The latest follow-up also covers the removal of the shared FFI output buffer pat
 
 The current follow-up also covers the supervised soak wrapper itself. A live `gpt-small` soak run exposed that the default throughput window expected more logged step events than the default `50`-step soak can emit. The review for this change focused on making the acceptance math self-consistent with the actual log cadence rather than silently weakening the soak criteria.
 
+The latest follow-up also adds an explicit gradient-checkpointing override through the training and supervised-run surfaces. The goal of this review was to make performance experiments honest: the same `gpt-small` architecture can now be benchmarked with checkpointing on or off without inventing fake presets or mutating the training loop itself.
+
+The current follow-up also covers auto-training behavior for longer quality runs. The runtime-sensitive review for this change focused on two operator guarantees: the system should preserve the best observed validation checkpoint even if later checkpoints regress, and it should be able to stop on a validation plateau using explicit patience and minimum-improvement rules instead of a human tailing the event log and guessing.
+
 ## Files Reviewed
 
 - `packages/nanogpt/src/model/causal-self-attention.ts`
@@ -83,6 +87,9 @@ The same audit was applied to the new checkpoint and soak surfaces:
 - gradient checkpointing should only wrap training-time execution, not eval
 - long-run operator code must stay under package source and emit enough structured evidence to debug throughput, memory, and checkpoint health
 - soak acceptance math must derive its default throughput window from the number of step events the configured `maxSteps` and `logInterval` can actually produce
+- gradient-checkpointing overrides must be applied when resolving the fresh model config, while resume and warm-start paths keep checkpoint config authoritative
+- quality-oriented training should promote validation winners into a stable best-checkpoint path and keep that separate from the latest resume/snapshot checkpoint
+- early stopping must be driven by explicit patience and minimum-delta rules at the operator layer, so stochastic validation noise does not immediately terminate a run
 
 ## Memory / Performance Evidence
 
@@ -98,6 +105,9 @@ The concrete follow-up evidence for this pass is:
 - targeted review of the fast fused layer-norm path and comparison-scalar coercion semantics
 - a corrected `gpt-small` 50-step soak run that now completes successfully with a self-consistent throughput window
 - a corrected `gpt-small` 250-step soak run that completed cleanly with flat active memory (~1.03 GB), stable throughput (~8.6k tok/s early vs ~7.9k tok/s late), and a final validation loss of about `2.448`
+- focused tests proving the new gradient-checkpointing override is honored by `nanogpt train` and survives the supervised manager / soak / acceptance wrapper path
+- a 10,000-step `gpt-small` quality run in the faster non-checkpointing configuration, which showed exactly why best-checkpoint tracking matters: validation improved to roughly `1.494` around step `2700`, then later regressed while the text still looked compelling to a human reader
+- targeted tests proving the new `best` checkpoint kind, structured `best-checkpoint` / `early-stop` events, and patience-based stopping behavior across the CLI, manager, acceptance, and soak surfaces
 
 ## Independent Review
 
@@ -108,5 +118,6 @@ Codex performed this review as the independent reviewer for the runtime-sensitiv
 - The long-run soak ladder still needs to stay green after the runtime fixes land; a review artifact is necessary but not sufficient.
 - The soak wrapper now judges the `50`-step rung correctly, but longer rungs still need to keep earning trust through actual supervised evidence rather than inherited confidence from shorter runs.
 - Compiled training-state capture is still a follow-on optimization path. The repo now exposes compile/checkpoint primitives cleanly, but the training loop should only adopt more aggressive compilation after the new benchmark and soak evidence stays healthy.
+- The current early-stop defaults are intentionally conservative, but they still sit on top of a small-sample validation estimate. If we want even more trustworthy auto-stop behavior for larger or noisier corpora, the next step is to pair patience with more stable evaluation windows or a smoothed validation metric.
 - Broader `mlx-c` family coverage should continue to be evaluated deliberately rather than symbol-by-symbol.
 - If future runtime incidents show the same class of failure, the next fix should strengthen the static checker or benchmark coverage rather than only patching the local code again.

@@ -67,15 +67,22 @@ export type RunStatus = {
   lastStepLoss?: number | undefined;
   lastTrainLoss?: number | undefined;
   lastValLoss?: number | undefined;
+  bestValLoss?: number | undefined;
   lastTokensPerSec?: number | undefined;
   latestCheckpoint?: string | undefined;
   latestSnapshotCheckpoint?: string | undefined;
   latestResumeCheckpoint?: string | undefined;
+  bestCheckpoint?: string | undefined;
+  bestCheckpointStep?: number | undefined;
   latestCheckpointKind?: string | undefined;
   activeMemoryBytes?: number | undefined;
   cacheMemoryBytes?: number | undefined;
   peakMemoryBytes?: number | undefined;
   memoryLimitBytes?: number | undefined;
+  earlyStopPatience?: number | null | undefined;
+  earlyStopMinDelta?: number | undefined;
+  earlyStopConsecutiveBadEvals?: number | undefined;
+  earlyStopReason?: string | undefined;
   exitCode?: number | null | undefined;
   signal?: string | null | undefined;
   resumeFrom?: string | undefined;
@@ -223,6 +230,23 @@ function readOptionalNullableNumber(value: unknown): number | null | undefined {
   return readOptionalNumber(value);
 }
 
+function readOptionalNullableNonNegativeInteger(
+  value: unknown,
+  context: string,
+): number | null | undefined {
+  if (value === null) {
+    return null;
+  }
+  const number = readOptionalNumber(value);
+  if (number === undefined) {
+    return undefined;
+  }
+  if (!Number.isInteger(number) || number < 0) {
+    throw new Error(`${context}: expected a non-negative integer`);
+  }
+  return number;
+}
+
 function readStringArray(value: unknown, context: string): string[] {
   if (!Array.isArray(value)) {
     throw new Error(`${context}: expected a string array`);
@@ -341,15 +365,25 @@ export function readRunStatus(runDirectory: string): RunStatus {
     lastStepLoss: readOptionalNumber(raw.lastStepLoss),
     lastTrainLoss: readOptionalNumber(raw.lastTrainLoss),
     lastValLoss: readOptionalNumber(raw.lastValLoss),
+    bestValLoss: readOptionalNumber(raw.bestValLoss),
     lastTokensPerSec: readOptionalNumber(raw.lastTokensPerSec),
     latestCheckpoint: readOptionalString(raw.latestCheckpoint),
     latestSnapshotCheckpoint: readOptionalString(raw.latestSnapshotCheckpoint),
     latestResumeCheckpoint: readOptionalString(raw.latestResumeCheckpoint),
+    bestCheckpoint: readOptionalString(raw.bestCheckpoint),
+    bestCheckpointStep: readOptionalNumber(raw.bestCheckpointStep),
     latestCheckpointKind: readOptionalString(raw.latestCheckpointKind),
     activeMemoryBytes: readOptionalNumber(raw.activeMemoryBytes),
     cacheMemoryBytes: readOptionalNumber(raw.cacheMemoryBytes),
     peakMemoryBytes: readOptionalNumber(raw.peakMemoryBytes),
     memoryLimitBytes: readOptionalNumber(raw.memoryLimitBytes),
+    earlyStopPatience: readOptionalNullableNonNegativeInteger(
+      raw.earlyStopPatience,
+      "status.earlyStopPatience",
+    ),
+    earlyStopMinDelta: readOptionalNumber(raw.earlyStopMinDelta),
+    earlyStopConsecutiveBadEvals: readOptionalNumber(raw.earlyStopConsecutiveBadEvals),
+    earlyStopReason: readOptionalString(raw.earlyStopReason),
     exitCode: readOptionalNullableNumber(raw.exitCode),
     signal: raw.signal === null ? null : readOptionalString(raw.signal),
     resumeFrom: readOptionalString(raw.resumeFrom),

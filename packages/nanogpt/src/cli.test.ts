@@ -138,6 +138,8 @@ describe("nanogpt CLI", () => {
     const result = runCli(["train", "--help"]);
     expect(result.status).toBe(0);
     expect(result.stdout).toContain("--max-grad-norm");
+    expect(result.stdout).toContain("--gradient-checkpointing");
+    expect(result.stdout).toContain("--early-stop-patience");
     expect(result.stdout).toContain("--sample-interval");
     expect(result.stdout).not.toContain("--temperature");
   });
@@ -257,6 +259,108 @@ describe("nanogpt CLI", () => {
     expect(lines.some((line) => line.type === "checkpoint")).toBe(true);
     expect(lines.some((line) => line.type === "sample")).toBe(true);
     expect(lines.some((line) => line.type === "checkpoint" && line.kind === "resume")).toBe(true);
+  });
+
+  test("train --json tracks best checkpoints and stops early on validation plateau", () => {
+    const directory = mkdtempSync(join(tmpdir(), "nanogpt-cli-early-stop-"));
+    const dataPath = join(directory, "tiny.txt");
+    const checkpointDir = join(directory, "checkpoints");
+    writeFileSync(dataPath, "abcdefghijklmnopqrstuvwxyz ".repeat(120), "utf-8");
+
+    const result = runCli([
+      "train",
+      "--data",
+      dataPath,
+      "--max-steps",
+      "10",
+      "--batch-size",
+      "1",
+      "--grad-accum",
+      "1",
+      "--eval-interval",
+      "1",
+      "--eval-steps",
+      "1",
+      "--log-interval",
+      "1",
+      "--snapshot-interval",
+      "0",
+      "--resume-interval",
+      "0",
+      "--early-stop-patience",
+      "1",
+      "--early-stop-min-delta",
+      "10",
+      "--checkpoint-dir",
+      checkpointDir,
+      "--json",
+    ]);
+
+    expect(result.status).toBe(0);
+    const lines = result.stdout
+      .trim()
+      .split("\n")
+      .filter((line) => line.length > 0)
+      .map(parseJsonLine);
+
+    expect(lines.some((line) => line.type === "best-checkpoint")).toBe(true);
+    expect(lines.some((line) => line.type === "early-stop")).toBe(true);
+    const stoppedEvent = lines.find((line) => line.type === "stopped");
+    expect(stoppedEvent).toBeDefined();
+    expect(stoppedEvent?.reason).toContain("validation loss did not improve");
+    expect(typeof stoppedEvent?.bestCheckpointPath).toBe("string");
+    const summary = stoppedEvent?.summary;
+    if (typeof summary !== "object" || summary === null || Array.isArray(summary)) {
+      throw new Error("expected stopped summary object");
+    }
+    expect("totalSteps" in summary ? summary.totalSteps : undefined).toBe(2);
+  });
+
+  test("train applies the gradient checkpointing override to the resolved config", () => {
+    const directory = mkdtempSync(join(tmpdir(), "nanogpt-cli-gc-"));
+    const dataPath = join(directory, "tiny.txt");
+    writeFileSync(dataPath, "abcdefghijklmnopqrstuvwxyz ".repeat(120), "utf-8");
+
+    const result = runCli([
+      "train",
+      "--preset",
+      "gpt-tiny",
+      "--gradient-checkpointing",
+      "true",
+      "--data",
+      dataPath,
+      "--max-steps",
+      "1",
+      "--batch-size",
+      "1",
+      "--grad-accum",
+      "1",
+      "--eval-interval",
+      "1",
+      "--eval-steps",
+      "1",
+      "--log-interval",
+      "1",
+      "--checkpoint-dir",
+      join(directory, "checkpoints"),
+      "--json",
+    ]);
+
+    expect(result.status).toBe(0);
+    const startLine = result.stdout
+      .trim()
+      .split("\n")
+      .map(parseJsonLine)
+      .find((line) => line.type === "start");
+
+    expect(startLine).toBeDefined();
+    const config = startLine?.config;
+    expect(typeof config).toBe("object");
+    expect(config).not.toBeNull();
+    if (typeof config !== "object" || config === null) {
+      throw new Error("expected start event config object");
+    }
+    expect("gradientCheckpointing" in config ? config.gradientCheckpointing : undefined).toBe(true);
   });
 
   test("train --json emits samples when --sample-interval is set", () => {
