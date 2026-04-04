@@ -8,6 +8,8 @@ The same review now also covers the fused fast-attention migration, module-backe
 
 The latest follow-up also covers the removal of the shared FFI output buffer pattern, explicit disposal on transform-returning helpers, the fast fused layer-norm path, and model-weight safetensors interop.
 
+The current follow-up also covers the supervised soak wrapper itself. A live `gpt-small` soak run exposed that the default throughput window expected more logged step events than the default `50`-step soak can emit. The review for this change focused on making the acceptance math self-consistent with the actual log cadence rather than silently weakening the soak criteria.
+
 ## Files Reviewed
 
 - `packages/nanogpt/src/model/causal-self-attention.ts`
@@ -80,6 +82,7 @@ The same audit was applied to the new checkpoint and soak surfaces:
 - module-backed checkpoint transforms must restore original parameter handles in `finally`
 - gradient checkpointing should only wrap training-time execution, not eval
 - long-run operator code must stay under package source and emit enough structured evidence to debug throughput, memory, and checkpoint health
+- soak acceptance math must derive its default throughput window from the number of step events the configured `maxSteps` and `logInterval` can actually produce
 
 ## Memory / Performance Evidence
 
@@ -93,6 +96,8 @@ The concrete follow-up evidence for this pass is:
 - a static validation gate for suspicious anonymous tensor intermediates
 - direct round-trip coverage for safetensors weight export/import
 - targeted review of the fast fused layer-norm path and comparison-scalar coercion semantics
+- a corrected `gpt-small` 50-step soak run that now completes successfully with a self-consistent throughput window
+- a corrected `gpt-small` 250-step soak run that completed cleanly with flat active memory (~1.03 GB), stable throughput (~8.6k tok/s early vs ~7.9k tok/s late), and a final validation loss of about `2.448`
 
 ## Independent Review
 
@@ -101,6 +106,7 @@ Codex performed this review as the independent reviewer for the runtime-sensitiv
 ## Remaining Risks / Follow-ups
 
 - The long-run soak ladder still needs to stay green after the runtime fixes land; a review artifact is necessary but not sufficient.
+- The soak wrapper now judges the `50`-step rung correctly, but longer rungs still need to keep earning trust through actual supervised evidence rather than inherited confidence from shorter runs.
 - Compiled training-state capture is still a follow-on optimization path. The repo now exposes compile/checkpoint primitives cleanly, but the training loop should only adopt more aggressive compilation after the new benchmark and soak evidence stays healthy.
 - Broader `mlx-c` family coverage should continue to be evaluated deliberately rather than symbol-by-symbol.
 - If future runtime incidents show the same class of failure, the next fix should strengthen the static checker or benchmark coverage rather than only patching the local code again.

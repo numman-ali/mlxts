@@ -96,6 +96,20 @@ function withDefaultFlag(args: string[], key: string, value: string): void {
   }
 }
 
+function readPositiveIntegerFlag(args: string[], key: string, fallback: string): number {
+  const raw = readFlag(args, key) ?? fallback;
+  const value = Number(raw);
+  if (!Number.isInteger(value) || value <= 0) {
+    throw new Error(`soak: --${key} must be a positive integer`);
+  }
+  return value;
+}
+
+function defaultThroughputWindow(maxSteps: number, logInterval: number): string {
+  const emittedStepEvents = Math.max(1, Math.floor(maxSteps / logInterval));
+  return String(Math.max(1, Math.min(25, Math.floor(emittedStepEvents / 2))));
+}
+
 export function buildAcceptanceArgs(args: string[]): string[] {
   validateAllowedFlags(
     args,
@@ -126,6 +140,8 @@ export function buildAcceptanceArgs(args: string[]): string[] {
   const preset = readPreset(args);
   const defaults = SOAK_DEFAULTS[preset];
   const forwarded = [...args];
+  const maxSteps = readPositiveIntegerFlag(forwarded, "max-steps", defaults.maxSteps);
+  const logInterval = readPositiveIntegerFlag(forwarded, "log-interval", defaults.logInterval);
 
   withDefaultFlag(forwarded, "max-steps", defaults.maxSteps);
   withDefaultFlag(forwarded, "batch-size", defaults.batchSize);
@@ -136,6 +152,7 @@ export function buildAcceptanceArgs(args: string[]): string[] {
   withDefaultFlag(forwarded, "warmup-steps", defaults.warmupSteps);
   withDefaultFlag(forwarded, "snapshot-interval", defaults.snapshotInterval);
   withDefaultFlag(forwarded, "resume-interval", defaults.resumeInterval);
+  withDefaultFlag(forwarded, "throughput-window", defaultThroughputWindow(maxSteps, logInterval));
   withDefaultFlag(forwarded, "min-throughput-ratio", defaults.minThroughputRatio);
   withDefaultFlag(forwarded, "max-slope-mb-per-event", defaults.maxSlopeMbPerEvent);
   withDefaultFlag(forwarded, "stall-timeout-sec", defaults.stallTimeoutSeconds);

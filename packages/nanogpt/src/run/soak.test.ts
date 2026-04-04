@@ -28,6 +28,8 @@ describe("soak runner", () => {
     expect(args).toContain("8");
     expect(args).toContain("--stall-timeout-sec");
     expect(args).toContain("600");
+    expect(args).toContain("--throughput-window");
+    expect(args).toContain("5");
   });
 
   test("buildAcceptanceArgs preserves explicit overrides", () => {
@@ -36,15 +38,25 @@ describe("soak runner", () => {
       "gpt-tiny",
       "--max-steps",
       "1000",
+      "--log-interval",
+      "20",
+      "--throughput-window",
+      "7",
       "--min-throughput-ratio",
       "0.8",
     ]);
 
     const maxStepsIndex = args.indexOf("--max-steps");
+    const logIntervalIndex = args.indexOf("--log-interval");
+    const throughputWindowIndex = args.indexOf("--throughput-window");
     const minRatioIndex = args.indexOf("--min-throughput-ratio");
 
     expect(maxStepsIndex).toBeGreaterThan(-1);
     expect(args[maxStepsIndex + 1]).toBe("1000");
+    expect(logIntervalIndex).toBeGreaterThan(-1);
+    expect(args[logIntervalIndex + 1]).toBe("20");
+    expect(throughputWindowIndex).toBeGreaterThan(-1);
+    expect(args[throughputWindowIndex + 1]).toBe("7");
     expect(minRatioIndex).toBeGreaterThan(-1);
     expect(args[minRatioIndex + 1]).toBe("0.8");
   });
