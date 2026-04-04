@@ -16,8 +16,19 @@
 1. **One scope, many packages.** Every package is `@mlxts/<name>`. Users install only what they need.
 2. **Layers, not monoliths.** Each package has a single concern. Dependencies flow downward.
 3. **MLX-native throughout.** All packages use MxArray directly. No abstraction layers between your code and Metal.
-4. **Examples are products.** Every example must actually run, train, and produce results. They are not stubs.
+4. **Examples are separate products.** Rich end-to-end examples should live in a dedicated examples repo once the package ecosystem is stable. This monorepo keeps only the minimum fixtures needed to validate the package surfaces.
 5. **Extensible via FFI.** Custom Metal kernels, C/Rust extensions, and new ops can be added and composed with existing infrastructure.
+
+## Current Implementation State
+
+The package-first Phase 5 extraction is already underway in the repo today.
+
+- `@mlxts/core`, `@mlxts/nn`, `@mlxts/optimizers`, `@mlxts/train`,
+  `@mlxts/data`, and `@mlxts/tokenizers` all exist as workspace packages
+- `packages/core` owns the native MLX build and the canonical FFI/runtime layer
+- `packages/mlx-ts` remains as a temporary compatibility shim
+- `packages/nanogpt` remains as a temporary validation fixture until a later
+  dedicated examples repo and rewritten examples surface exist
 
 ---
 
@@ -47,7 +58,7 @@ The foundation of the mlxts ecosystem. Contains the MxArray tensor type, all ops
 
 **Dependencies:** None. This is a leaf package.
 
-**Source origin:** The entirety of current `packages/mlx-ts/` — FFI, array, ops, transforms, fast, device, memory, metal, random, io, dtype, tree utils, shape utils, error types.
+**Source origin:** Extracted from the former `packages/mlx-ts` monolith and now lives in `packages/core/`.
 
 ---
 
@@ -71,7 +82,7 @@ Neural network layers, Module system, activations, losses.
 
 **Dependencies:** `@mlxts/core` — nn modules import MxArray and ops directly.
 
-**Source origin:** Current `packages/mlx-ts/src/nn/` and attention code from `packages/nanogpt/src/model/causal-self-attention.ts`.
+**Source origin:** Extracted from the former `packages/mlx-ts/src/nn/`. Model-specific attention code remains outside this package for now.
 
 #### `@mlxts/optimizers`
 
@@ -85,7 +96,7 @@ Gradient-based optimizers and learning rate schedules.
 
 **Dependencies:** `@mlxts/core`, `@mlxts/nn` — `Optimizer.update()` accepts `Module` for parameter extraction.
 
-**Source origin:** Current `packages/mlx-ts/src/optimizers/` plus LR scheduling from `packages/nanogpt/src/train.ts`.
+**Source origin:** Extracted from the former `packages/mlx-ts/src/optimizers/`. Generic learning-rate schedule helpers now live in `@mlxts/train`.
 
 ---
 
@@ -97,16 +108,15 @@ Model-agnostic training loop, checkpointing, gradient utilities.
 
 | Concern | What it provides |
 |---------|-----------------|
-| Training loop | `train()` function with callbacks, gradient accumulation, NaN detection |
-| Checkpointing | `saveCheckpoint`, `loadCheckpoint`, `applyCheckpoint` (atomic, validated) |
-| Gradient utils | `clipGradNorm`, `accumulateGradients`, `scaleGradientTree` |
-| Mixed precision | Precision context, dtype casting utilities |
-| Metrics | `TrainEvent` discriminated union, step timing, memory telemetry |
-| Config | `TrainConfig` base type, validation |
+| Training loop | `trainLoop()` with explicit config validation and callbacks |
+| Checkpointing | `saveCheckpoint`, `loadCheckpoint`, `applyCheckpoint`, optimizer restore helpers |
+| Gradient utils | `accumulateGradients`, `clipGradientTree`, `scaleGradientTree`, norm/eval/free helpers |
+| Schedules | `warmupCosineSchedule`, `getLearningRate`, schedule validation |
+| Config | `TrainLoopConfig`, `TrainLoopOptions`, learning-rate config types |
 
 **Dependencies:** `@mlxts/core`, `@mlxts/nn`, `@mlxts/optimizers`
 
-**Source origin:** Model-agnostic parts of current `packages/nanogpt/src/train.ts`, `packages/nanogpt/src/checkpoint.ts`.
+**Source origin:** Extracted from the model-agnostic parts of the former `packages/nanogpt/src/train.ts` and `packages/nanogpt/src/checkpoint.ts`.
 
 #### `@mlxts/data`
 
@@ -121,7 +131,7 @@ Dataset loading, batching, and preprocessing.
 
 **Dependencies:** `@mlxts/core`
 
-**Source origin:** Current `packages/nanogpt/src/data.ts` generalized.
+**Source origin:** Extracted from the former `packages/nanogpt/src/data.ts` and now lives in `packages/data/src/text.ts`.
 
 ---
 
@@ -141,7 +151,7 @@ Fast tokenization with support for HuggingFace tokenizer formats.
 
 **Dependencies:** `@mlxts/core` (minimal — mostly standalone)
 
-**Source origin:** Current `packages/nanogpt/src/tokenizer.ts` (char tokenizer) plus new BPE implementation.
+**Source origin:** Extracted from the former `packages/nanogpt/src/tokenizer.ts`. The package exists today with the char tokenizer; broader tokenizer formats are future work.
 
 #### `@mlxts/hub`
 
@@ -312,48 +322,23 @@ Command-line tools for the mlxts ecosystem.
 
 ---
 
-## Examples Directory
+## Examples Strategy
 
-Examples are complete, runnable applications that showcase the ecosystem. They are not library packages — they are user-facing educational projects.
+Rich end-to-end examples are intentionally deferred to a dedicated examples repo
+once the core package ecosystem is broader and more stable.
 
-nanoGPT is a workspace package (has its own `package.json` for dependency resolution) but is NOT published to npm. It imports from `@mlxts/*` like any user would.
+For now the monorepo keeps only one transitional consumer:
 
 ```
-examples/
-  nanogpt/                    # The original reference GPT
-    package.json              # Workspace package — NOT published to npm
-    README.md                 # Educational walkthrough
-    train.ts                  # Train GPT on Shakespeare
-    generate.ts               # Generate text from trained model
-    config.ts                 # GPT-tiny and GPT-small presets
-    run/                      # Supervised run manager, soak, and acceptance infra
-      manager.ts              #   (operational tooling for the example)
-      supervisor.ts
-      acceptance.ts
-      soak.ts
-
-  llama-chat/                 # Load and chat with LLaMA
-    README.md
-    chat.ts                   # Interactive chat with a local LLaMA model
-
-  lora-finetune/              # Fine-tune a model with LoRA
-    README.md
-    finetune.ts               # LoRA fine-tuning on custom data
-    merge.ts                  # Merge adapters and export
-
-  stable-diffusion/           # Image generation (Phase 10)
-    README.md
-    generate.ts               # Generate images from text prompts
-
-  whisper/                    # Speech recognition (Phase 10)
-    README.md
-    transcribe.ts             # Transcribe audio files
-
-  custom-model/               # Implement a research paper
-    README.md                 # "How to implement a custom architecture"
-    model.ts                  # Example custom transformer variant
-    train.ts                  # Train it using @mlxts/train
+packages/
+  nanogpt/                    # Temporary validation fixture, not a publish target
+    src/
+      run/                    # Supervised run manager, soak, and acceptance infra
+      bench/                  # Memory and throughput checks
 ```
+
+That fixture is still useful for validation, but it is not the long-term
+canonical example strategy.
 
 ---
 
@@ -428,11 +413,11 @@ mlxts/                                # Monorepo root
       package.json
       src/
         index.ts
-        train.ts                      # Training loop
-        checkpoint.ts                 # Save/load/apply checkpoints
-        gradient.ts                   # Gradient accumulation, clipping, scaling
-        metrics.ts                    # TrainEvent, telemetry
-        config.ts                     # TrainConfig base type
+        loop.ts                       # Training loop orchestration
+        schedule.ts                   # Learning-rate schedules
+        gradients.ts                  # Gradient accumulation, clipping, scaling
+        checkpoint.ts                 # Public checkpoint surface
+        checkpoint-*.ts               # Manifest / serialization / I/O helpers
 
     tokenizers/                       # @mlxts/tokenizers
       package.json
@@ -447,83 +432,24 @@ mlxts/                                # Monorepo root
       package.json
       src/
         index.ts
-        dataset.ts                    # Dataset interface
         text.ts                       # Text data loading/batching
-        collation.ts                  # Batching, padding
+        # Dataset abstractions can arrive later if a second consumer needs them
 
-    hub/                              # @mlxts/hub
+    mlx-ts/                           # Temporary compatibility shim
       package.json
       src/
         index.ts
-        client.ts                     # HuggingFace Hub REST client
-        safetensors.ts                # safetensors parser
-        gguf.ts                       # GGUF parser
-        config.ts                     # HF config.json parsing
-        cache.ts                      # Local model cache
-        convert.ts                    # Weight name mapping
 
-    transformers/                     # @mlxts/transformers
+    nanogpt/                          # Temporary validation fixture
       package.json
       src/
-        index.ts
-        auto.ts                       # AutoModel, AutoTokenizer dispatch
-        generate.ts                   # Generation with KV cache
-        models/
-          gpt2.ts                     # GPT-2 family
-          llama.ts                    # LLaMA family
-          mistral.ts                  # Mistral family
-          phi.ts                      # Phi family
-          gemma.ts                    # Gemma family
-
-    lora/                             # @mlxts/lora
-      package.json
-      src/
-        index.ts
-        lora.ts                       # LoRA layer injection
-        qlora.ts                      # QLoRA (quantized LoRA)
-        merge.ts                      # Merge adapters
-        config.ts                     # LoRAConfig
-
-    serve/                            # @mlxts/serve
-      package.json
-      src/
-        index.ts
-        server.ts                     # Bun.serve() with OpenAI-compat API
-        kv-cache.ts                   # KV cache management
-        batching.ts                   # Continuous batching
-        streaming.ts                  # SSE token streaming
-
-    quantize/                         # @mlxts/quantize
-      package.json
-      src/
-        index.ts
-        quantize.ts                   # Quantization routines
-        gguf-export.ts                # GGUF file creation
-        calibrate.ts                  # Calibration dataset
-
-    eval/                             # @mlxts/eval
-      package.json
-      src/
-        index.ts
-        harness.ts                    # Eval harness runner
-        tasks/                        # Individual benchmark tasks
-        metrics.ts                    # Metric computation
-
-    cli/                              # @mlxts/cli
-      package.json
-      src/
-        index.ts
-        commands/                     # Subcommand implementations
-
-  examples/
-    nanogpt/                          # The reference GPT application
-    llama-chat/                       # Chat with LLaMA
-    lora-finetune/                    # Fine-tuning example
-    custom-model/                     # Research paper implementation example
+        run/
+        bench/
 
   scripts/                            # Validation gates (repo-level)
     check-coverage.ts
     check-type-assertions.ts
+    check-file-lines.ts
     check-runtime-review.ts
     check-visible-tensor-lifetimes.ts
 
@@ -567,7 +493,10 @@ mlxts/                                # Monorepo root
 
 ---
 
-## Migration from Current Structure
+## Migration Snapshot
+
+The rows below describe the current package extraction state. Future example
+work is deferred unless a row says otherwise.
 
 | Current location | Destination | Package |
 |-----------------|-------------|---------|
@@ -588,28 +517,21 @@ mlxts/                                # Monorepo root
 | `packages/mlx-ts/src/core/random.ts` | `packages/core/src/random.ts` | `@mlxts/core` |
 | `packages/mlx-ts/src/core/io.ts` | `packages/core/src/io.ts` | `@mlxts/core` |
 | `packages/mlx-ts/src/utils/tree.ts` | `packages/core/src/tree.ts` | `@mlxts/core` |
-| `packages/mlx-ts/src/utils/format-shape.ts` | `packages/core/src/shape.ts` | `@mlxts/core` |
+| `packages/mlx-ts/src/utils/format-shape.ts` | `packages/core/src/format-shape.ts` | `@mlxts/core` |
 | `packages/mlx-ts/src/nn/` | `packages/nn/src/` | `@mlxts/nn` |
 | `packages/mlx-ts/src/nn/checkpoint.ts` | `packages/nn/src/checkpoint.ts` | `@mlxts/nn` |
 | `packages/mlx-ts/src/optimizers/` | `packages/optimizers/src/` | `@mlxts/optimizers` |
-| `packages/nanogpt/src/train.ts` | `packages/train/src/train.ts` | `@mlxts/train` |
-| `packages/nanogpt/src/checkpoint.ts` | `packages/train/src/checkpoint.ts` | `@mlxts/train` |
+| `packages/nanogpt/src/train.ts` | `packages/train/src/loop.ts` + `packages/train/src/schedule.ts` + `packages/train/src/gradients.ts` | `@mlxts/train` |
+| `packages/nanogpt/src/checkpoint.ts` | `packages/train/src/checkpoint.ts` + `packages/train/src/checkpoint-*.ts` | `@mlxts/train` |
 | `packages/nanogpt/src/safetensors.ts` | `packages/hub/src/safetensors.ts` | `@mlxts/hub` |
 | `packages/nanogpt/src/data.ts` | `packages/data/src/text.ts` | `@mlxts/data` |
 | `packages/nanogpt/src/tokenizer.ts` | `packages/tokenizers/src/char.ts` | `@mlxts/tokenizers` |
-| `packages/nanogpt/src/model/mlp.ts` | `examples/nanogpt/model/mlp.ts` | Example app |
-| `packages/nanogpt/src/model/transformer-block.ts` | `examples/nanogpt/model/transformer-block.ts` | Example app |
-| `packages/nanogpt/src/model/causal-self-attention.ts` | `examples/nanogpt/model/causal-self-attention.ts` | Example app |
-| `packages/nanogpt/src/model/init.ts` | `examples/nanogpt/model/init.ts` | Example app |
-| `packages/nanogpt/src/config.ts` | `examples/nanogpt/config.ts` | Example app |
-| `packages/nanogpt/src/cli.ts` | `examples/nanogpt/cli.ts` | Example app |
-| `packages/nanogpt/src/generate.ts` | `examples/nanogpt/generate.ts` | Example app |
-| `packages/nanogpt/src/optimizer-defaults.ts` | `examples/nanogpt/optimizer-defaults.ts` | Example app |
-| `packages/nanogpt/src/run/files.ts` | `examples/nanogpt/run/files.ts` | Example app |
-| `packages/nanogpt/src/run/supervisor.ts` | `examples/nanogpt/run/supervisor.ts` | Example app |
-| `packages/nanogpt/src/run/acceptance.ts` | `examples/nanogpt/run/acceptance.ts` | Example app |
-| `packages/nanogpt/src/run/soak.ts` | `examples/nanogpt/run/soak.ts` | Example app |
-| `packages/nanogpt/src/bench/` | `examples/nanogpt/bench/` | Example app |
+| `packages/nanogpt/src/model/` | `packages/nanogpt/src/model/` for now; later dedicated examples repo | Temporary validation fixture |
+| `packages/nanogpt/src/config.ts` | `packages/nanogpt/src/config.ts` for now; later dedicated examples repo | Temporary validation fixture |
+| `packages/nanogpt/src/cli.ts` | `packages/nanogpt/src/cli.ts` for now; later dedicated examples repo | Temporary validation fixture |
+| `packages/nanogpt/src/generate.ts` | `packages/nanogpt/src/generate.ts` for now; later dedicated examples repo | Temporary validation fixture |
+| `packages/nanogpt/src/run/` | `packages/nanogpt/src/run/` for now; later dedicated examples repo | Temporary validation fixture |
+| `packages/nanogpt/src/bench/` | `packages/nanogpt/src/bench/` for now; later dedicated examples repo | Temporary validation fixture |
 | All `*.test.ts` files | Move with their source file | (same as source) |
 
 ---
@@ -618,7 +540,7 @@ mlxts/                                # Monorepo root
 
 - **If it has no consumer yet, don't create it.** Packages are extracted when a second consumer needs them, not when we can imagine one.
 - **`@mlxts/core` contains everything MLX-related:** FFI, array, ops, transforms, device, memory, random, I/O, fast fused ops. This is one package because MLX is one coherent system — splitting it would create artificial boundaries.
-- **Phase 5 creates:** `core`, `nn`, `optimizers`, `train`, `data`, `tokenizers`. These have a proven consumer: the nanoGPT example.
+- **Phase 5 creates:** `core`, `nn`, `optimizers`, `train`, `data`, `tokenizers`. These are already extracted, with the temporary nanoGPT fixture still acting as the validation harness while the package surfaces settle.
 - **Phase 7 creates:** `hub`, `transformers`. These appear when pretrained model loading lands.
 - **Phase 8 creates:** `lora`, `align`. These appear when fine-tuning lands.
 - **Phase 9 creates:** `serve`, `quantize`. These appear when inference serving lands.

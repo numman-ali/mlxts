@@ -15,7 +15,7 @@ The goal is not to replicate Python's entire ML ecosystem line-for-line. It is t
 - One canonical way to do each thing
 - Every package is a product, not a prototype
 
-**Current state**: Phase 4 (nanoGPT) is in progress. The core compute layer (@mlxts/core), neural network primitives (@mlxts/nn), and optimizers (@mlxts/optimizers) exist as working code inside the monorepo under their pre-rename names (mlx-ts). The @mlxts/* npm scope and package extraction happen in Phase 5-6.
+**Current state**: The repo is in a package-first Phase 5 posture. `@mlxts/core`, `@mlxts/nn`, `@mlxts/optimizers`, `@mlxts/train`, `@mlxts/data`, and `@mlxts/tokenizers` all exist as extracted workspace packages. `packages/mlx-ts` remains a temporary compatibility shim, and `packages/nanogpt` remains a temporary validation fixture while the reusable package surfaces settle and a later dedicated examples repo is designed.
 
 **Prior art**: @frost-beta/mlx provides Node.js MLX bindings with a camelCase API. Transformers.js v4 (Feb 2026) provides inference at ~60 tok/s on M4 via WebGPU. mlxts differentiates on training capability, native MLX performance, and a complete ecosystem -- not just inference.
 
@@ -57,7 +57,7 @@ The goal is not to replicate Python's entire ML ecosystem line-for-line. It is t
 
 | Python Package | What It Does | mlxts Equivalent | Phase | Status | Notes |
 |---|---|---|---|---|---|
-| **HF Trainer** | High-level training loop with logging, checkpointing, eval | @mlxts/train | 5 | Planned | Phase 4 has a hand-written training loop in nanogpt. The training loop and checkpoint code extract into @mlxts/train in Phase 5. A reusable Trainer abstraction matures as patterns stabilize across multiple model types. |
+| **HF Trainer** | High-level training loop with logging, checkpointing, eval | @mlxts/train | 5 (exists) | Exists | `@mlxts/train` now holds the extracted schedule, loop, gradient, and checkpoint primitives. The reusable surface is intentionally explicit and composable rather than a magic base class. |
 | **HF Accelerate** | Multi-GPU/multi-node training orchestration | Not applicable | -- | Not planned | mlxts targets single Apple Silicon machines. See Section 4. |
 | **DeepSpeed** | Distributed training, ZeRO optimizer, model parallelism | Not applicable | -- | Not planned | Multi-node distributed training is out of scope. See Section 4. |
 | **FSDP** | Fully Sharded Data Parallelism | Not applicable | -- | Not planned | Single-machine focus. See Section 4. |
@@ -75,10 +75,10 @@ The goal is not to replicate Python's entire ML ecosystem line-for-line. It is t
 
 | Python Package | What It Does | mlxts Equivalent | Phase | Status | Notes |
 |---|---|---|---|---|---|
-| **HF tokenizers** | Fast BPE/WordPiece/Unigram tokenization (Rust backend) | @mlxts/tokenizers | 7 | Planned | Phase 4 uses a character-level tokenizer. Phase 7 adds tokenizer.json parsing to load HuggingFace tokenizer definitions directly. No need to rewrite the Rust tokenizer -- we parse its output format. |
+| **HF tokenizers** | Fast BPE/WordPiece/Unigram tokenization (Rust backend) | @mlxts/tokenizers | 5-7 | Partial | The package exists today with the extracted character tokenizer. HuggingFace `tokenizer.json` parsing and broader tokenizer formats remain Phase 7 work. |
 | **tiktoken** | OpenAI's BPE tokenizer | @mlxts/tokenizers | 7 | Planned | tiktoken's BPE vocabulary can be loaded and applied in TypeScript. The encoding logic is straightforward BPE merge. |
 | **SentencePiece** | Google's subword tokenizer | @mlxts/tokenizers | 7 | Planned | SentencePiece model files can be parsed. Many models that "use SentencePiece" actually ship HF tokenizer.json files, which we already plan to support. |
-| **HF Datasets** | Dataset loading, streaming, preprocessing | @mlxts/data | 5 | Planned | Phase 4 has a simple data pipeline (text file, batched windows). The text data loading extracts into @mlxts/data in Phase 5. Structured dataset loading (HF Hub REST API, Parquet) comes in Phase 8. |
+| **HF Datasets** | Dataset loading, streaming, preprocessing | @mlxts/data | 5 (exists) | Exists | `@mlxts/data` now holds the extracted text-data loading and batching helpers. Structured dataset loading (HF Hub REST API, Parquet) still comes later. |
 | **Data Collators** | Batch assembly, padding, masking | @mlxts/data | 5+ | Planned | Collation logic lives in the data pipeline. Padding and attention mask generation are part of the training infrastructure. |
 
 ### 2g. Inference and Serving
@@ -434,9 +434,9 @@ The goal is that steps 1-2 (understanding what exists and what's novel) take min
 | @mlxts/core | 4 | Exists | MLX (via mlx-c FFI). Includes MxArray, ops, autograd (grad, valueAndGrad), random, eval. |
 | @mlxts/nn | 4 | Exists | @mlxts/core |
 | @mlxts/optimizers | 4 | Exists | @mlxts/core, @mlxts/nn |
-| @mlxts/train | 5 | Planned | @mlxts/nn, @mlxts/optimizers, @mlxts/data |
-| @mlxts/data | 5 | Planned | @mlxts/core |
-| @mlxts/tokenizers | 5 | Planned | (pure TypeScript, char tokenizer; BPE in Phase 7) |
+| @mlxts/train | 5 | Exists | @mlxts/core, @mlxts/nn, @mlxts/optimizers |
+| @mlxts/data | 5 | Exists | @mlxts/core |
+| @mlxts/tokenizers | 5 | Exists (char tokenizer) | (mostly standalone today; broader tokenizer formats in Phase 7) |
 | @mlxts/hub | 7 | Planned | @mlxts/core (HF Hub REST client, safetensors, GGUF header parsing) |
 | @mlxts/transformers | 7 | Planned | @mlxts/nn, @mlxts/hub, @mlxts/tokenizers |
 | @mlxts/lora | 8 | Planned | @mlxts/nn, @mlxts/train, @mlxts/transformers |

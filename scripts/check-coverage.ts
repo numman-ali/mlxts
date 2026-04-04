@@ -30,7 +30,8 @@ type FileCoverage = {
 };
 
 type PackageConfig = {
-  name: string;
+  label: string;
+  sourceDir: string;
   cwd: string;
   coverageDir: string;
   thresholds?: {
@@ -44,16 +45,41 @@ const PROJECT_ROOT = join(import.meta.dirname, "..");
 
 const PACKAGES: PackageConfig[] = [
   {
-    name: "mlx-ts",
-    cwd: join(PROJECT_ROOT, "packages", "mlx-ts"),
-    coverageDir: join(PROJECT_ROOT, "coverage", "mlx-ts"),
+    label: "@mlxts/core",
+    sourceDir: "core",
+    cwd: join(PROJECT_ROOT, "packages", "core"),
+    coverageDir: join(PROJECT_ROOT, "coverage", "core"),
     thresholds: { lines: 95, functions: 90, branches: 85 },
   },
   {
-    name: "nanogpt",
-    cwd: join(PROJECT_ROOT, "packages", "nanogpt"),
-    coverageDir: join(PROJECT_ROOT, "coverage", "nanogpt"),
-    thresholds: { lines: 90, functions: 85, branches: 85 },
+    label: "@mlxts/nn",
+    sourceDir: "nn",
+    cwd: join(PROJECT_ROOT, "packages", "nn"),
+    coverageDir: join(PROJECT_ROOT, "coverage", "nn"),
+  },
+  {
+    label: "@mlxts/optimizers",
+    sourceDir: "optimizers",
+    cwd: join(PROJECT_ROOT, "packages", "optimizers"),
+    coverageDir: join(PROJECT_ROOT, "coverage", "optimizers"),
+  },
+  {
+    label: "@mlxts/train",
+    sourceDir: "train",
+    cwd: join(PROJECT_ROOT, "packages", "train"),
+    coverageDir: join(PROJECT_ROOT, "coverage", "train"),
+  },
+  {
+    label: "@mlxts/data",
+    sourceDir: "data",
+    cwd: join(PROJECT_ROOT, "packages", "data"),
+    coverageDir: join(PROJECT_ROOT, "coverage", "data"),
+  },
+  {
+    label: "@mlxts/tokenizers",
+    sourceDir: "tokenizers",
+    cwd: join(PROJECT_ROOT, "packages", "tokenizers"),
+    coverageDir: join(PROJECT_ROOT, "coverage", "tokenizers"),
   },
 ];
 
@@ -144,7 +170,7 @@ function parseLcov(lcovPath: string): { files: FileCoverage[]; totals: CoverageT
 function isPackageSourceFile(pkg: PackageConfig, filePath: string): boolean {
   const normalized = filePath.replaceAll("\\", "/");
   const isSourcePath =
-    normalized.startsWith("src/") || normalized.includes(`/packages/${pkg.name}/src/`);
+    normalized.startsWith("src/") || normalized.includes(`/packages/${pkg.sourceDir}/src/`);
   if (!isSourcePath) {
     return false;
   }
@@ -196,7 +222,7 @@ function runCoverage(pkg: PackageConfig): { files: FileCoverage[]; totals: Cover
 
   const lcovPath = join(pkg.coverageDir, "lcov.info");
   if (!existsSync(lcovPath)) {
-    throw new Error(`Coverage report not found for ${pkg.name}: ${lcovPath}`);
+    throw new Error(`Coverage report not found for ${pkg.label}: ${lcovPath}`);
   }
 
   const parsed = parseLcov(lcovPath);
@@ -217,7 +243,7 @@ function printSummary(pkg: PackageConfig, totals: CoverageTotals): void {
 
   console.log("");
   console.log(
-    `${pkg.name} coverage: ${linePercent.toFixed(2)}% lines, ${functionPercent.toFixed(2)}% funcs (${gateLabel})`,
+    `${pkg.label} coverage: ${linePercent.toFixed(2)}% lines, ${functionPercent.toFixed(2)}% funcs (${gateLabel})`,
   );
   if (hasBranchData) {
     console.log(`Branch coverage: ${branchPercent.toFixed(2)}%`);

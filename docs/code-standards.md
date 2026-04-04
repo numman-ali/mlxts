@@ -97,6 +97,13 @@ src/
 └── index.ts        # Public API surface
 ```
 
+### File size
+
+- Canonical production source files must stay at or under 500 physical lines
+- Tests are excluded from that cap
+- If a file grows past the cap, split it by responsibility rather than adding another scroll-length blob
+- During the Phase 5 migration, the hard gate applies to the canonical `@mlxts/*` package sources; temporary migration surfaces such as `packages/mlx-ts` and `packages/nanogpt` are exempt until they are deleted or rewritten
+
 ## TypeScript Practices
 
 ### Strict mode, always

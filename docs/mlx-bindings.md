@@ -348,20 +348,20 @@ make -j$(sysctl -n hw.ncpu)
 # Output: libmlxc.dylib (links against libmlx.dylib)
 ```
 
-### Integration with mlx-ts (implemented)
+### Integration with mlxts (implemented)
 
-The build script (`packages/mlx-ts/scripts/build-native.ts`) automates the full pipeline:
+The build script (`packages/core/scripts/build-native.ts`) automates the full pipeline:
 
 1. Resolves the Xcode SDK path (required for Metal compiler access)
 2. Runs `cmake configure` with `-DCMAKE_OSX_SYSROOT` pointing to the Xcode SDK
 3. Runs `cmake --build` to compile mlx-c (which fetches MLX automatically via FetchContent)
 4. Locates the built `.dylib` files in the CMake build tree
-5. Copies `libmlxc.dylib` and `libmlx.dylib` to `packages/mlx-ts/native/lib/`
+5. Copies `libmlxc.dylib` and `libmlx.dylib` to `packages/core/native/lib/`
 6. Fixes rpaths via `install_name_tool` so `libmlxc.dylib` finds `libmlx.dylib` at `@loader_path/`
 
 ```bash
 # Build command
-cd packages/mlx-ts && bun run build:native
+cd packages/core && bun run build:native
 ```
 
 See [docs/setup.md](./setup.md) for full prerequisites (macOS 14+, Xcode 16+, Metal Toolchain, CMake 3.24+).

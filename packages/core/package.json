@@ -1,0 +1,13 @@
+{
+  "name": "@mlxts/core",
+  "version": "0.0.1",
+  "type": "module",
+  "main": "src/index.ts",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "bun test",
+    "test:coverage": "bun test --coverage",
+    "build": "bun run build:native",
+    "build:native": "bun run scripts/build-native.ts"
+  }
+}

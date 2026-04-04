@@ -8,7 +8,7 @@ The exact model or tool used for each role may change over time. The workflow ma
 
 This document defines the process.
 
-Runtime-sensitive code gets stricter handling than ordinary feature work. If a change touches production code in `packages/mlx-ts/src/core/`, `packages/mlx-ts/src/nn/`, `packages/mlx-ts/src/optimizers/`, or `packages/nanogpt/src/`, the change is not review-ready until it has:
+Runtime-sensitive code gets stricter handling than ordinary feature work. If a change touches production code in `packages/core/src/`, `packages/nn/src/`, `packages/optimizers/src/`, `packages/train/src/`, `packages/data/src/`, `packages/tokenizers/src/`, or the temporary transitional surfaces in `packages/mlx-ts/src/` or `packages/nanogpt/src/`, the change is not review-ready until it has:
 
 - a line-by-line runtime audit
 - an independent review by a different agent or human
@@ -139,13 +139,13 @@ Every piece of code or documentation that enters the project must be reviewed by
 - `bun run check:runtime-review` enforces the review artifact requirement for runtime-sensitive diffs and verifies that the artifact names the changed runtime-sensitive files
 - `bun run check:coverage` remains truthful about branch data: it enforces branch thresholds only when LCOV reports them, and otherwise says branch data was unavailable
 - Pre-commit should call `bun run validate` directly rather than maintaining a weaker parallel checklist
-- `mlx-ts` coverage must stay at or above `95%` lines and `90%` functions
-- `nanogpt` coverage must stay at or above `90%` lines and `85%` functions
-- Agents should prefer the smallest meaningful Bun test run while iterating locally, for example `bun test packages/mlx-ts/src/core/fast.test.ts`, before moving back to `bun run validate`
+- `@mlxts/core` coverage must stay at or above `95%` lines and `90%` functions
+- The extracted auxiliary packages currently report coverage without hard thresholds while the migration settles
+- Agents should prefer the smallest meaningful Bun test run while iterating locally, for example `bun test packages/core/src/fast.test.ts`, before moving back to `bun run validate`
 - Tests, lint, and build remain required, but type errors are treated as design failures, not cosmetic issues
 - Type assertions and `any` do not count as "fixing" a type problem unless they are isolated to a justified boundary such as FFI
 - Acceptance runs for `gpt-tiny` and `gpt-small` are scripted separately from `validate`; they are part of phase sign-off, not pre-commit
-- Long unattended training is validated through the supervised `run:nanogpt` path, not ad hoc one-shot scripts outside the package source tree
+- Long unattended training is validated through the supervised `run:nanogpt` path while the temporary validation fixture still exists, not ad hoc one-shot scripts outside the package source tree
 - Runtime-sensitive changes must leave an explicit review record in `docs/reviews/`, including tensor-lifetime notes, the exact files reviewed, and remaining risks
 - If a serious incident is fixed, the same change must also add a preventive rule, test, benchmark, or validation gate so the lesson becomes part of the repo
 - Benchmarks and soak runs stay outside `validate`, but they are still required evidence before long unattended training is considered trustworthy again

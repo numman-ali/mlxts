@@ -39,6 +39,8 @@ checkpoints/
 
 # Data
 data/
+!packages/data/
+!packages/data/**
 !examples/data/
 
 # Coverage

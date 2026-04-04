@@ -17,7 +17,12 @@
 import { Glob } from "bun";
 import ts from "typescript";
 
-const SOURCE_GLOBS = ["packages/*/src/**/*.ts", "packages/*/src/**/*.tsx"];
+const SOURCE_GLOBS = [
+  "packages/*/src/**/*.ts",
+  "packages/*/src/**/*.tsx",
+  "examples/*/src/**/*.ts",
+  "examples/*/src/**/*.tsx",
+];
 const EXCLUDED_FILES = /packages\/[^/]+\/src\/core\/ffi\/.*\.tsx?$|.*\.test\.tsx?$/;
 
 const violations: string[] = [];

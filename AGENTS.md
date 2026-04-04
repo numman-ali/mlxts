@@ -33,7 +33,7 @@ See [docs/code-standards.md](./docs/code-standards.md) for the full code standar
 - `bun run typecheck` is a required validation gate, not optional cleanup
 - `bun run check:runtime-review` is required whenever runtime-sensitive production files change; the diff must include a review artifact under `docs/reviews/` and that artifact's `Files Reviewed` section must name the changed runtime-sensitive files
 - `bun run check:tensor-lifetimes` is an AST-based static backstop for the anonymous-intermediate leak class; when a new tensor-producing primitive is added, update the canonical tracked-op list in `scripts/`
-- `bun run check:coverage` is a required quality gate for the production packages: `mlx-ts` (`95%` lines, `90%` functions) and `nanogpt` (`90%` lines, `85%` functions). Branch thresholds are enforced only when LCOV provides branch counters; otherwise the script says branch data was unavailable
+- `bun run check:coverage` is a required quality gate for the canonical extracted package `@mlxts/core` (`95%` lines, `90%` functions). The newly extracted auxiliary packages, including `@mlxts/train`, currently report coverage without hard thresholds while the migration settles. Branch thresholds are enforced only when LCOV provides branch counters; otherwise the script says branch data was unavailable
 - Prefer direct unit coverage of exported behavior and dynamic failure paths over broad smoke-only tests
 - The repo is forward-moving and canonical: do not add legacy compatibility code, fallback modes, or stale docs for APIs we no longer want to carry
 - If a surface is no longer part of the intended product, delete it instead of preserving it behind flags or compatibility layers
@@ -41,8 +41,8 @@ See [docs/code-standards.md](./docs/code-standards.md) for the full code standar
 - FFI result pointers must use per-call `OutSlot`-style ownership. Do not reintroduce shared reusable output buffers.
 - Transform-returning helpers should be explicitly disposable when they hold native resources beyond a single call.
 - If a serious runtime, memory, or performance incident is fixed, the same change must also add a preventive rule, test, benchmark, or validation gate.
-- Long-running GPT training is an operational product surface, not an ad hoc script. Unattended or resumable runs must go through `packages/nanogpt/src/run/` and the `bun run run:nanogpt ...` manager flow.
-- Non-trivial operator logic belongs under package source, not loose root scripts. Improve the canonical package-owned surface instead of adding a side path.
+- `packages/nanogpt/` is currently a temporary validation fixture during the package extraction, not the long-term canonical product surface. Prefer improving the reusable `@mlxts/*` packages over deepening the temporary app.
+- Non-trivial operator logic belongs under canonical package-owned surfaces, not loose root scripts. Avoid creating new permanent product contracts on top of temporary migration code.
 - Snapshot checkpoints and resume checkpoints are both canonical, but they serve different purposes: snapshots are lightweight model saves, resume checkpoints carry optimizer state for exact continuation.
 - **Code must be self-documenting**: names, types, and structure carry meaning. Comments explain *why*, never *what*.
 - **Human readability is a first-class concern**: every function should be immediately understandable to a TypeScript developer unfamiliar with this codebase.
@@ -149,6 +149,6 @@ This project uses multiple AI agents in a structured loop. See [docs/agentic-loo
 
 Runtime-sensitive changes add one more requirement: they need a review artifact under `docs/reviews/` that records the files reviewed, tensor-lifetime audit, memory/performance evidence, independent review, and remaining risks. The `Files Reviewed` section must list the exact changed runtime-sensitive files.
 
-For long-running training, `bun run run:nanogpt ...` is the canonical operator surface. Do not add
-alternate legacy scripts, one-off daemon paths, or undocumented checkpoint flows; if the supervised
-run manager is not good enough, improve it directly and delete the stale path.
+For now, `packages/nanogpt/` remains a validation fixture rather than the long-term operator
+surface. Do not create new permanent product contracts on top of it; the package ecosystem is the
+primary deliverable, and polished examples move to a dedicated examples repo later.

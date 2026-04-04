@@ -159,13 +159,17 @@ The key design point is that stop/resume is checkpoint-driven, not process-magic
 
 The engineering implication is just as important as the operator experience: this surface is production code. Changes to it need the same runtime review, tests, and evidence as tensor or optimizer code.
 
+For now this operator flow still lives in `packages/nanogpt` as a temporary
+validation fixture. The behavior is canonical even though the package location
+is not the long-term end state.
+
 ---
 
 ## TUI Surface — The Training Dashboard (Future)
 
 **Users**: Developers who want a richer view during training — live loss curves, GPU utilization, sample outputs.
 
-**When**: Post-Phase 5. Builds on CLI infrastructure.
+**When**: After the package-first Phase 5 transition settles. Builds on CLI infrastructure.
 
 ### Principles
 

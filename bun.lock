@@ -10,15 +10,75 @@
         "typescript": "^6.0.2",
       },
     },
+    "examples/nanogpt": {
+      "name": "nanogpt-example",
+      "version": "0.0.1",
+      "bin": {
+        "nanogpt": "src/cli.ts",
+      },
+      "dependencies": {
+        "@mlxts/core": "workspace:*",
+        "@mlxts/data": "workspace:*",
+        "@mlxts/nn": "workspace:*",
+        "@mlxts/optimizers": "workspace:*",
+        "@mlxts/tokenizers": "workspace:*",
+        "mlx-ts": "workspace:*",
+      },
+    },
+    "packages/core": {
+      "name": "@mlxts/core",
+      "version": "0.0.1",
+    },
+    "packages/data": {
+      "name": "@mlxts/data",
+      "version": "0.0.1",
+      "dependencies": {
+        "@mlxts/core": "workspace:*",
+      },
+    },
     "packages/mlx-ts": {
       "name": "mlx-ts",
       "version": "0.0.1",
+      "dependencies": {
+        "@mlxts/core": "workspace:*",
+        "@mlxts/nn": "workspace:*",
+        "@mlxts/optimizers": "workspace:*",
+      },
     },
     "packages/nanogpt": {
       "name": "nanogpt",
       "version": "0.0.1",
       "dependencies": {
         "mlx-ts": "workspace:*",
+      },
+    },
+    "packages/nn": {
+      "name": "@mlxts/nn",
+      "version": "0.0.1",
+      "dependencies": {
+        "@mlxts/core": "workspace:*",
+        "@mlxts/optimizers": "workspace:*",
+      },
+    },
+    "packages/optimizers": {
+      "name": "@mlxts/optimizers",
+      "version": "0.0.1",
+      "dependencies": {
+        "@mlxts/core": "workspace:*",
+        "@mlxts/nn": "workspace:*",
+      },
+    },
+    "packages/tokenizers": {
+      "name": "@mlxts/tokenizers",
+      "version": "0.0.1",
+    },
+    "packages/train": {
+      "name": "@mlxts/train",
+      "version": "0.0.1",
+      "dependencies": {
+        "@mlxts/core": "workspace:*",
+        "@mlxts/nn": "workspace:*",
+        "@mlxts/optimizers": "workspace:*",
       },
     },
   },
@@ -41,6 +101,18 @@
 
     "@biomejs/cli-win32-x64": ["@biomejs/cli-win32-x64@2.4.10", "", { "os": "win32", "cpu": "x64" }, "sha512-aW/JU5GuyH4uxMrNYpoC2kjaHlyJGLgIa3XkhPEZI0uKhZhJZU8BuEyJmvgzSPQNGozBwWjC972RaNdcJ9KyJg=="],
 
+    "@mlxts/core": ["@mlxts/core@workspace:packages/core"],
+
+    "@mlxts/data": ["@mlxts/data@workspace:packages/data"],
+
+    "@mlxts/nn": ["@mlxts/nn@workspace:packages/nn"],
+
+    "@mlxts/optimizers": ["@mlxts/optimizers@workspace:packages/optimizers"],
+
+    "@mlxts/tokenizers": ["@mlxts/tokenizers@workspace:packages/tokenizers"],
+
+    "@mlxts/train": ["@mlxts/train@workspace:packages/train"],
+
     "@types/bun": ["@types/bun@1.3.11", "", { "dependencies": { "bun-types": "1.3.11" } }, "sha512-5vPne5QvtpjGpsGYXiFyycfpDF2ECyPcTSsFBMa0fraoxiQyMJ3SmuQIGhzPg2WJuWxVBoxWJ2kClYTcw/4fAg=="],
 
     "@types/node": ["@types/node@25.5.2", "", { "dependencies": { "undici-types": "~7.18.0" } }, "sha512-tO4ZIRKNC+MDWV4qKVZe3Ql/woTnmHDr5JD8UI5hn2pwBrHEwOEMZK7WlNb5RKB6EoJ02gwmQS9OrjuFnZYdpg=="],
@@ -50,6 +122,8 @@
     "mlx-ts": ["mlx-ts@workspace:packages/mlx-ts"],
 
     "nanogpt": ["nanogpt@workspace:packages/nanogpt"],
+
+    "nanogpt-example": ["nanogpt-example@workspace:examples/nanogpt"],
 
     "typescript": ["typescript@6.0.2", "", { "bin": { "tsc": "bin/tsc", "tsserver": "bin/tsserver" } }, "sha512-bGdAIrZ0wiGDo5l8c++HWtbaNCWTS4UTv7RaTH/ThVIgjkveJt83m74bBHMJkuCbslY8ixgLBVZJIOiQlQTjfQ=="],
 

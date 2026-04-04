@@ -360,27 +360,27 @@ Token Embedding + Position Embedding
 - Runtime-sensitive diffs leave a review artifact under `docs/reviews/` and pass `bun run check:runtime-review`
 - Generated text is recognizably English and vaguely Shakespearean
 
-**Post-Phase-4 posture**: Phase 4 completion triggers the ecosystem restructure. The proven code from `mlx-ts` and `nanogpt` becomes the foundation for the `@mlxts/*` package family. nanoGPT moves to `examples/nanogpt/` as the reference application.
+**Post-Phase-4 posture**: Phase 4 completion triggers the ecosystem restructure. The proven code from `mlx-ts` and `nanogpt` becomes the foundation for the `@mlxts/*` package family. nanoGPT remains a temporary in-repo validation fixture during extraction; richer examples move to a dedicated examples repo later.
 
 ---
 
 ## Phase 5: Ecosystem Restructure
 
-**Goal**: Rename to mlxts. Extract `@mlxts/*` packages. Reorganize code. All existing functionality preserved with zero regression.
+**Goal**: Adopt the `mlxts` package identity inside the monorepo, extract the canonical `@mlxts/*` packages, and make the repo truthful about the package-first transition. Full example rewrites are intentionally deferred until the ecosystem is more complete.
 
 See [docs/ecosystem-structure.md](./docs/ecosystem-structure.md) for the complete package map and migration table.
 
 **What this phase covers**:
 
-### 5a. Identity
+### 5a. Identity and repo contract
 
-- Register `@mlxts` npm scope
-- Rename repo from `nanogpt-ts` to `mlxts`
-- Update all docs, CLAUDE.md, AGENTS.md, README
+- Root workspace adopts the `mlxts` identity
+- Docs, validation gates, and runtime-review rules reflect the new package layout
+- External repo rename and npm publishing can trail the internal package extraction
 
-### 5b. Extract core packages
+### 5b. Extract canonical packages
 
-Create these packages from the existing codebase (see migration table in ecosystem-structure.md):
+Extract these packages from the existing codebase (see migration table in ecosystem-structure.md):
 
 | Package | Source | What moves |
 |---------|--------|-----------|
@@ -391,29 +391,40 @@ Create these packages from the existing codebase (see migration table in ecosyst
 | `@mlxts/data` | `nanogpt/src/data.ts` | Text data loading, batching |
 | `@mlxts/tokenizers` | `nanogpt/src/tokenizer.ts` | Character tokenizer (BPE comes in Phase 7) |
 
-### 5c. Move nanoGPT to examples
+This extraction is now real, not hypothetical:
 
-- `nanogpt/src/model/` → `examples/nanogpt/model/`
-- `nanogpt/src/config.ts` → `examples/nanogpt/config.ts`
-- `nanogpt/src/cli.ts` → `examples/nanogpt/cli.ts`
-- `nanogpt/src/generate.ts` → `examples/nanogpt/generate.ts`
-- `nanogpt/src/run/` → `examples/nanogpt/run/`
-- `nanogpt/src/bench/` → `examples/nanogpt/bench/`
-- All imports updated to `@mlxts/*`
-- The example must run end-to-end: train gpt-tiny, generate text
+- `@mlxts/core`, `@mlxts/nn`, `@mlxts/optimizers`, `@mlxts/train`, `@mlxts/data`, and `@mlxts/tokenizers` exist as workspace packages
+- `packages/core` owns the native MLX build and the canonical FFI/runtime surface
+- `packages/mlx-ts` remains temporarily as a compatibility shim while the extracted packages settle
+
+### 5c. Package-first validation posture
+
+- `packages/nanogpt` remains a temporary validation fixture while the reusable packages stabilize
+- `bun run check:file-lines` enforces the 500-line cap for canonical `@mlxts/*` production files
+- Coverage, runtime-review, type-assertion, and tensor-lifetime gates recognize the extracted package layout
+- `docs/reviews/phase-5-restructure.md` records the runtime-sensitive package extraction work
+- Phase 5 success is defined by clean package surfaces and truthful repo docs, not by forcing a premature in-repo example rewrite
 
 ### 5d. Validation
 
 - `bun run validate` passes across entire monorepo
-- All existing tests pass in new locations
-- Coverage thresholds maintained
-- `examples/nanogpt/` trains gpt-tiny and generates text
-- Zero functionality regression
+- Each extracted package typechecks and tests independently
+- `bun run check:file-lines` passes
+- Runtime review stays in place for the extracted package surfaces
+- The temporary shim and fixture are explicitly documented as transitional surfaces
+
+### 5e. What comes next
+
+- Keep hardening the extracted packages and their docs until the temporary shim and fixture can be deleted cleanly
+- Continue using `packages/nanogpt` as a validation harness in the meantime
+- Design the dedicated examples repo later, including a ground-up nanoGPT rewrite once the ecosystem surface is broader and more stable
 
 **Exit criteria**:
 - See [gates-and-milestones.md](./docs/gates-and-milestones.md#phase-5-ecosystem-restructure)
-- gpt-tiny training throughput within 5% of Phase 4 baseline
-- Each package's tests pass independently (not just monorepo-level)
+- Canonical `@mlxts/*` packages exist and pass their package-local tests
+- `bun run validate` and `bun run check:file-lines` pass
+- Runtime review artifacts and top-level docs accurately describe the package-first state
+- `packages/mlx-ts` and `packages/nanogpt` are clearly marked as temporary transitional surfaces rather than long-term end states
 
 ---
 
@@ -541,7 +552,7 @@ LLaMA first, done right, then expand:
 ### 7d. Examples
 
 - `examples/llama-chat/` — interactive chat with a local LLaMA model
-- Update `examples/nanogpt/` to use `@mlxts/transformers` if applicable
+- The later dedicated examples repo can adopt `@mlxts/transformers` where it improves the rewritten examples
 
 **Exit criteria**: See [gates-and-milestones.md](./docs/gates-and-milestones.md#phase-7-model-architectures).
 

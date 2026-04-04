@@ -28,7 +28,7 @@ These gates are non-negotiable at every phase boundary. Code does not advance un
 | Error quality | Manual review | Every user-facing error includes: context, expected vs actual, and an actionable hint |
 | JSDoc coverage | Manual review | Every public API has at least a one-line JSDoc |
 | No dead code | Manual review | No stale compatibility layers, unused exports, or commented-out code |
-| Examples run | `bun run` each example | Every example in `examples/` executes successfully end-to-end |
+| Runnable reference surfaces | `bun run` each committed example or validation fixture | Every committed end-to-end reference surface executes successfully |
 
 ### Operational Gates (for phases with training/inference)
 
@@ -61,33 +61,30 @@ These gates are non-negotiable at every phase boundary. Code does not advance un
 
 ## Phase 5: Ecosystem Restructure
 
-**Goal:** Rename to mlxts. Extract packages. Reorganize code. All existing functionality preserved.
+**Goal:** Extract the canonical `@mlxts/*` packages, stabilize the package-first repo contract, and keep the temporary legacy surfaces clearly labeled until they can be replaced or deleted.
 
-### Milestone: "Same code, new structure, all tests pass"
+### Milestone: "Canonical packages extracted, validated, and documented"
 
 | Criterion | How to verify |
 |-----------|--------------|
-| Repo renamed to `mlxts` | GitHub repo name |
-| npm scope `@mlxts/*` registered | `npm access ls-packages @mlxts` |
-| `@mlxts/core` exists with types, backend interface, tree utils | Package has tests, typecheck passes |
-| `@mlxts/core` exists with MxArray, ops, transforms, FFI | All existing mlx-ts tests pass |
+| Root workspace and docs use the `mlxts` package identity | Manual review |
+| `@mlxts/core` exists with MxArray, ops, transforms, FFI, and native build ownership | `cd packages/core && bun test` and `cd packages/core && bun run build:native` |
 | `@mlxts/nn` exists with Module, layers, losses, activations | All existing nn tests pass |
 | `@mlxts/optimizers` exists with Adam, AdamW, SGD | All existing optimizer tests pass |
 | `@mlxts/train` exists with training loop, checkpointing | All existing train tests pass |
 | `@mlxts/data` exists with text data loading | All existing data tests pass |
 | `@mlxts/tokenizers` exists with char tokenizer | All existing tokenizer tests pass |
-| `examples/nanogpt/` runs end-to-end | Train gpt-tiny, generate text |
 | `bun run validate` passes across entire monorepo | Run it |
-| gpt-tiny training throughput within 5% of Phase 4 baseline | Benchmark before/after restructure |
 | Each package's tests pass independently, not just monorepo-level | `cd packages/<pkg> && bun test` for each |
-| All imports in `examples/nanogpt/` resolve to `@mlxts/*` packages | Grep for old import paths |
-| Zero functionality regression | Full test suite passes |
-| Coverage thresholds maintained | `bun run check:coverage` |
-| All docs updated to reference new package names | Manual review |
-| Import paths in examples use `@mlxts/*` | Grep for old paths |
+| Canonical package sources honor the 500-line cap | `bun run check:file-lines` |
+| Coverage thresholds match the current package-first gate | `bun run check:coverage` |
+| `packages/mlx-ts` is documented as a temporary compatibility shim | Manual review |
+| `packages/nanogpt` is documented as a temporary validation fixture | Manual review |
+| Runtime-sensitive extraction work has a review artifact | `bun run check:runtime-review` |
+| All top-level docs describe the package-first state consistently | Manual review |
 
 ### What "done" looks like
-A developer runs `bun install`, opens `examples/nanogpt/train.ts`, sees imports from `@mlxts/core`, `@mlxts/nn`, `@mlxts/train` — and the training runs exactly as before.
+A developer runs `bun install`, opens `packages/core/src/index.ts` and `packages/train/src/index.ts`, sees the canonical `@mlxts/*` package surfaces, and `bun run validate` passes. The old `packages/mlx-ts` and `packages/nanogpt` surfaces are still present only as clearly documented transitional fixtures.
 
 ---
 

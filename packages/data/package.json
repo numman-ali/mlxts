@@ -1,0 +1,14 @@
+{
+  "name": "@mlxts/data",
+  "version": "0.0.1",
+  "type": "module",
+  "main": "src/index.ts",
+  "dependencies": {
+    "@mlxts/core": "workspace:*"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "bun test",
+    "test:coverage": "bun test --coverage"
+  }
+}

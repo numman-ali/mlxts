@@ -14,11 +14,18 @@ const SOURCE_GLOBS = [
   "packages/mlx-ts/src/core/**/*.ts",
   "packages/mlx-ts/src/nn/**/*.ts",
   "packages/mlx-ts/src/optimizers/**/*.ts",
+  "packages/core/src/**/*.ts",
+  "packages/nn/src/**/*.ts",
+  "packages/optimizers/src/**/*.ts",
+  "packages/train/src/**/*.ts",
+  "packages/data/src/**/*.ts",
+  "packages/tokenizers/src/**/*.ts",
   "packages/nanogpt/src/**/*.ts",
+  "examples/nanogpt/src/**/*.ts",
 ];
 
 const EXCLUDED_FILE_RE =
-  /\.test\.tsx?$|packages\/nanogpt\/src\/run\/acceptance\.ts$|packages\/nanogpt\/src\/run\/soak\.ts$|packages\/nanogpt\/src\/bench\/memory\.ts$/;
+  /\.test\.tsx?$|(?:packages\/nanogpt|examples\/nanogpt)\/src\/run\/acceptance\.ts$|(?:packages\/nanogpt|examples\/nanogpt)\/src\/run\/soak\.ts$|(?:packages\/nanogpt|examples\/nanogpt)\/src\/bench\/memory\.ts$/;
 
 const EXCLUDED_CALLEE_BASES = new Set([
   "Array",

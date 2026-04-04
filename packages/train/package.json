@@ -1,0 +1,16 @@
+{
+  "name": "@mlxts/train",
+  "version": "0.0.1",
+  "type": "module",
+  "main": "src/index.ts",
+  "dependencies": {
+    "@mlxts/core": "workspace:*",
+    "@mlxts/nn": "workspace:*",
+    "@mlxts/optimizers": "workspace:*"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "bun test",
+    "test:coverage": "bun test --coverage"
+  }
+}

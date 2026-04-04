@@ -4,23 +4,21 @@
 
 ```
 ┌─────────────────────────────────────────────────────────┐
-│                    nanogpt-ts                            │
+│                        mlxts                            │
 │                                                         │
 │  ┌───────────────────────────────────────────────────┐  │
-│  │                 nanogpt (Phase 4)                 │  │
-│  │  GPT model, training loop, tokenizer, generation  │  │
+│  │      Canonical @mlxts/* package surfaces          │  │
+│  │      train, data, tokenizers                      │  │
 │  └────────────────────────┬──────────────────────────┘  │
 │                           │ uses                        │
 │  ┌────────────────────────┴──────────────────────────┐  │
-│  │              mlx-ts nn layer (Phase 3)            │  │
-│  │  Module, Linear, LayerNorm, Embedding, AdamW      │  │
-│  │  (pure TypeScript — no native code)               │  │
+│  │          @mlxts/nn + @mlxts/optimizers            │  │
+│  │      Pure TypeScript framework layer              │  │
 │  └────────────────────────┬──────────────────────────┘  │
 │                           │ uses                        │
 │  ┌────────────────────────┴──────────────────────────┐  │
-│  │           mlx-ts core bindings (Phase 1-2)        │  │
-│  │  array, ops, autograd, random, eval               │  │
-│  │  (TypeScript API over FFI)                        │  │
+│  │                 @mlxts/core                       │  │
+│  │      MxArray, ops, autograd, FFI, native build    │  │
 │  └────────────────────────┬──────────────────────────┘  │
 │                           │ Bun FFI (dlopen + JSCallback)│
 └───────────────────────────┼─────────────────────────────┘
@@ -37,6 +35,10 @@
               │  GPU kernels for Apple Si   │
               └────────────────────────────┘
 ```
+
+`packages/mlx-ts` currently survives as a temporary compatibility shim, and
+`packages/nanogpt` survives as a temporary validation fixture. They are not the
+canonical architecture target anymore; the extracted `@mlxts/*` packages are.
 
 ### Why mlx-c instead of a custom C wrapper?
 
@@ -76,7 +78,7 @@ We don't modify MLX. We bind to it.
 
 We don't modify mlx-c. We call it via FFI.
 
-### Core Bindings (`packages/mlx-ts/src/core/`)
+### Core Bindings (`@mlxts/core` / `packages/core/src/`)
 - Loads libmlxc.dylib via Bun FFI (`dlopen`)
 - Wraps opaque pointers in TypeScript classes
 - Manages memory via FinalizationRegistry + explicit disposal
@@ -113,7 +115,7 @@ function reshape(a: MxArray, shape: number[], stream?: Pointer): MxArray
 // ... etc — all ops take optional stream parameter
 ```
 
-### NN Layer (`packages/mlx-ts/src/nn/`)
+### NN Layer (`@mlxts/nn` / `packages/nn/src/`)
 - Pure TypeScript (no native code)
 - Calls into core bindings for all tensor operations
 - Provides familiar Module-based API (like PyTorch/MLX Python)
@@ -151,14 +153,27 @@ class Linear extends Module {
 }
 ```
 
-### nanoGPT (`packages/nanogpt/`)
-- Pure TypeScript, depends only on mlx-ts
-- Implements GPT-2 architecture
-- Training loop, data loading, text generation
-- Configurable model sizes
-- Canonical long-run operator surface under `src/run/` for supervised start/status/stop/resume flows
+### Training and Utility Packages
 
-`mlx-ts` remains the reusable foundation. `nanogpt` is the reference model/application layer built on top of it. Reusable model families should move into their own package only when there is a second real consumer or a second model family that justifies the split.
+- `@mlxts/train` holds the extracted training schedule, loop, gradient, and
+  checkpoint primitives
+- `@mlxts/data` holds the extracted text-data loading and batching helpers
+- `@mlxts/tokenizers` currently holds the extracted char tokenizer and package
+  surface for broader tokenizer work later
+
+These packages are now the canonical reusable layer above `@mlxts/core`,
+`@mlxts/nn`, and `@mlxts/optimizers`.
+
+### Transitional Surfaces
+
+- `packages/mlx-ts` is a temporary compatibility shim so old imports can resolve
+  while the package extraction settles
+- `packages/nanogpt` is a temporary validation fixture that still carries the
+  supervised run manager and acceptance harness
+
+The operator semantics in `packages/nanogpt/src/run/` are still important, but
+the package location is transitional. Rich examples and a ground-up nanoGPT
+rewrite are deferred to a later dedicated examples effort.
 
 ## Memory Management
 
