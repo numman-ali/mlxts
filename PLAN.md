@@ -2,9 +2,29 @@
 
 ## Vision
 
-Build a complete, GPU-accelerated ML training stack in TypeScript for Apple Silicon — from MLX bindings through to a working GPT that trains on a MacBook.
+Build **mlxts** (`@mlxts/*`) — a complete, GPU-accelerated ML ecosystem in TypeScript for Apple Silicon, powered by MLX.
 
-**Non-goal (for now)**: Performance parity with Python MLX. The priority is correctness, clarity, and education.
+TypeScript-native MLX stack for training, fine-tuning, serving, and evaluating ML models on Apple Silicon. Designed for human readability, agentic development, and modular extensibility.
+
+**Competitive context:** Transformers.js v4 provides inference on WebGPU at ~60 tok/s on M4. Our differentiator is training, fine-tuning, and native MLX performance — not just inference.
+
+**Prior art:** @frost-beta/mlx provides Node.js MLX bindings. mlxts is Bun-native, training-capable, and aims for a complete ecosystem.
+
+**Non-goal:** Performance parity with Python at every layer. The priority is correctness, clarity, and developer experience. Performance follows from correct abstractions — MLX and Metal do the heavy lifting.
+
+### Planning Documents
+
+This file is the roadmap. Detailed designs live in separate docs:
+
+| Document | Purpose |
+|----------|---------|
+| [docs/ecosystem-structure.md](./docs/ecosystem-structure.md) | Complete package map, repo layout, migration table |
+| [docs/future-backends.md](./docs/future-backends.md) | Multi-backend vision (WebGPU, CUDA) — not part of current plan |
+| [docs/python-equivalence-map.md](./docs/python-equivalence-map.md) | Python ML ecosystem → mlxts mapping |
+| [docs/gates-and-milestones.md](./docs/gates-and-milestones.md) | Exit criteria for every phase |
+| [docs/architecture.md](./docs/architecture.md) | System architecture and layer responsibilities |
+| [docs/code-standards.md](./docs/code-standards.md) | Code quality, naming, structure, testing standards |
+| [docs/agentic-loop.md](./docs/agentic-loop.md) | Multi-agent engineering workflow |
 
 ## Design Philosophy
 
@@ -340,93 +360,341 @@ Token Embedding + Position Embedding
 - Runtime-sensitive diffs leave a review artifact under `docs/reviews/` and pass `bun run check:runtime-review`
 - Generated text is recognizably English and vaguely Shakespearean
 
-**Post-Phase-4 package posture**:
-- `mlx-ts` remains the reusable foundation
-- `nanogpt` remains the reference GPT application and operator surface
-- Reusable model-family code should move into its own package only when a second consumer or second model family makes that split worthwhile
-
-**Post-Phase-4 runtime posture**:
-- Fused fast attention and gradient-checkpointed transformer blocks are the canonical GPT hot path
-- Runtime-sensitive changes must pass the visible-lifetime and review-artifact gates
-- Long-run trust is earned through `bench:memory`, the supervised soak ladder, and then loss-targeted acceptance
-- The supervised run protocol uses atomic file-backed status/control writes, and `stalled` is treated as a terminal operator failure until a human resumes or restarts the run
-- Operator surfaces should expose semantic sample output alongside scalar metrics so humans can judge learning progress, not just loss curves
+**Post-Phase-4 posture**: Phase 4 completion triggers the ecosystem restructure. The proven code from `mlx-ts` and `nanogpt` becomes the foundation for the `@mlxts/*` package family. nanoGPT moves to `examples/nanogpt/` as the reference application.
 
 ---
 
-## Phase 5: Polish and Publish
+## Phase 5: Ecosystem Restructure
 
-**Goal**: Make this usable and educational for others.
+**Goal**: Rename to mlxts. Extract `@mlxts/*` packages. Reorganize code. All existing functionality preserved with zero regression.
+
+See [docs/ecosystem-structure.md](./docs/ecosystem-structure.md) for the complete package map and migration table.
 
 **What this phase covers**:
 
-- npm packages: `mlx-ts`, `nanogpt-ts`
-- API documentation (TypeDoc)
+### 5a. Identity
+
+- Register `@mlxts` npm scope
+- Rename repo from `nanogpt-ts` to `mlxts`
+- Update all docs, CLAUDE.md, AGENTS.md, README
+
+### 5b. Extract core packages
+
+Create these packages from the existing codebase (see migration table in ecosystem-structure.md):
+
+| Package | Source | What moves |
+|---------|--------|-----------|
+| `@mlxts/core` | All of `mlx-ts/` | MxArray, FFI, ops, transforms, fast fused ops, device, memory, random, I/O, dtype, tree utils, shape utils, error types |
+| `@mlxts/nn` | `mlx-ts/src/nn/` | Module, Linear, Embedding, LayerNorm, Dropout, activations, losses |
+| `@mlxts/optimizers` | `mlx-ts/src/optimizers/` | Adam, AdamW, SGD, optimizer base, LR schedules |
+| `@mlxts/train` | `nanogpt/src/train.ts`, `checkpoint.ts` | Training loop, checkpoint, gradient utilities |
+| `@mlxts/data` | `nanogpt/src/data.ts` | Text data loading, batching |
+| `@mlxts/tokenizers` | `nanogpt/src/tokenizer.ts` | Character tokenizer (BPE comes in Phase 7) |
+
+### 5c. Move nanoGPT to examples
+
+- `nanogpt/src/model/` → `examples/nanogpt/model/`
+- `nanogpt/src/config.ts` → `examples/nanogpt/config.ts`
+- `nanogpt/src/cli.ts` → `examples/nanogpt/cli.ts`
+- `nanogpt/src/generate.ts` → `examples/nanogpt/generate.ts`
+- `nanogpt/src/run/` → `examples/nanogpt/run/`
+- `nanogpt/src/bench/` → `examples/nanogpt/bench/`
+- All imports updated to `@mlxts/*`
+- The example must run end-to-end: train gpt-tiny, generate text
+
+### 5d. Validation
+
+- `bun run validate` passes across entire monorepo
+- All existing tests pass in new locations
+- Coverage thresholds maintained
+- `examples/nanogpt/` trains gpt-tiny and generates text
+- Zero functionality regression
+
+**Exit criteria**:
+- See [gates-and-milestones.md](./docs/gates-and-milestones.md#phase-5-ecosystem-restructure)
+- gpt-tiny training throughput within 5% of Phase 4 baseline
+- Each package's tests pass independently (not just monorepo-level)
+
+---
+
+## Phase 6: Publish Core Packages
+
+**Goal**: First npm publish. TypeDoc. CI. The world can `bun add @mlxts/core @mlxts/nn`.
+
+**What this phase covers**:
+
+### 6a. npm publishing
+
+- Publish `@mlxts/core`, `@mlxts/nn`, `@mlxts/optimizers`, `@mlxts/train`, `@mlxts/data`, `@mlxts/tokenizers`
+- Semver versioning with changesets
+- `package.json` `exports` field for clean import paths
+- Build step for type declarations
+
+### 6b. Documentation
+
+- TypeDoc API docs published and hosted
+- Quick-start guide: "Hello Tensor in 10 lines"
+- README with clear value prop, install instructions, examples
+
+### 6c. Educational content (can trail npm publish)
+
 - Educational walkthrough: "Building GPT from scratch in TypeScript"
-- Example: fine-tune a small model
-- Benchmarks: mlx-ts vs Python MLX for common operations
-- CI: GitHub Actions (macOS Apple Silicon runners)
+- Benchmarks: mlxts vs Python MLX for core ops (matmul, softmax, attention, training step)
+- Published results with methodology
+
+### 6d. CI
+
+- GitHub Actions on Apple Silicon runners (M-series)
+- Full `bun run validate` on every push
+- Publish workflow triggered on tagged releases
+
+### 6e. Community
+
+- CONTRIBUTING.md
+- Issue templates
+- Discussion board or Discord
+
+**Exit criteria**: See [gates-and-milestones.md](./docs/gates-and-milestones.md#phase-6-publish-core-packages).
 
 ---
 
-## Phase 6: mlx-vlm-ts (Future)
+## Phase 6.5: Modern Transformer Primitives
 
-**Goal**: Vision-language model support using mlx-ts.
-
-**Scope TBD** — depends on what emerges from Phases 1-5.
-
-Potential directions:
-
-- Port mlx-vlm to TypeScript
-- Support Gemma 4 multimodal models
-- Image preprocessing pipeline in TypeScript
-
----
-
-## Phase 7: Repository Separation
-
-**Goal**: Split the monorepo into independent repositories, each with its own identity, releases, and community.
-
-**Why**: During development, a monorepo is the right call — tight coupling, atomic changes, one CI pipeline. But the packages we're building serve fundamentally different audiences at different layers:
-
-| Layer | Package | Audience | Lifecycle |
-|-------|---------|----------|-----------|
-| **Primitive** | `mlx-ts` | Any TS developer doing ML on Apple Silicon | Slow, stable, foundational |
-| **Framework** | `nanogpt-ts` | Educators, learners, GPT experimenters | Moderate, educational |
-| **Application** | `mlx-vlm-ts` | VLM researchers and builders | Fast-moving, experimental |
-
-A diffusion model developer should be able to depend on `mlx-ts` without knowing nanoGPT exists. A learner should be able to study nanoGPT without wading through FFI binding code. Separate repos make this possible.
+**Goal**: The nn and ops layers have everything modern architectures need.
 
 **What this phase covers**:
 
-### 7a. Stabilize public APIs
-- Freeze mlx-ts public API surface (semver 1.0)
-- Document breaking change policy
-- Ensure nanogpt depends on published mlx-ts, not workspace link
+### 6.5a. Fast ops from mlx-c
 
-### 7b. Extract repositories
-- `mlx-ts` → own GitHub repo with:
-  - Independent CI/CD (build, test, publish to npm)
-  - Dedicated README, contributing guide, issue templates
-  - npm package `mlx-ts`
-- `nanogpt-ts` → own GitHub repo with:
-  - Depends on published `mlx-ts` from npm
-  - Dedicated README with educational focus
-  - Example scripts and walkthroughs
-- Future: `mlx-vlm-ts` → own repo when ready
+- Bind `mlx_fast_rms_norm`, `mlx_fast_rope` from mlx-c
+- Implement `RMSNorm` and `RoPE` (Rotary Position Embeddings) nn modules
 
-### 7c. Cross-repo development workflow
-- Contribution guide: how to develop mlx-ts and nanogpt together (npm link / workspace override)
-- CI: nanogpt tests run against mlx-ts main branch (catch breakage early)
-- Release coordination: mlx-ts releases trigger nanogpt compatibility checks
+### 6.5b. Modern attention and activations
 
-### 7d. Archive monorepo
-- This monorepo becomes a historical reference or redirects to individual repos
-- Alternatively: keep as an umbrella with git submodules (lower maintenance)
+- Grouped-Query Attention (GQA) module
+- SwiGLU activation
 
-**Exit criteria**: Each package lives in its own repo, publishes independently to npm, and has its own CI. Cross-repo development workflow is documented and tested.
+### 6.5c. Additional ops
 
-**When to trigger this phase**: When mlx-ts API has been stable for at least 2 weeks and nanogpt trains successfully using only the published npm package.
+- `sort`, `topk`, `repeat`/`tile`
+
+### 6.5d. Dtype and I/O
+
+- float16/bfloat16 safetensors I/O support
+
+### 6.5e. Quantization bindings
+
+- Bind `mlx_quantize`/`mlx_dequantize` from mlx-c
+
+**Exit criteria**:
+- RMSNorm + RoPE + GQA modules tested
+- float16 I/O works
+- quantize/dequantize works
+
+**Note**: Must complete before Phase 7 begins.
+
+---
+
+## Phase 7: Model Architectures
+
+**Goal**: Load and run pretrained LLaMA, Mistral, Gemma, Phi. The `@mlxts/transformers` package.
+
+See [docs/python-equivalence-map.md](./docs/python-equivalence-map.md) for the full Python → mlxts mapping.
+
+**What this phase covers**:
+
+### 7a. Hub integration (`@mlxts/hub`)
+
+- HuggingFace Hub REST client (download models, datasets)
+- safetensors reader/writer (native via mlx-c or pure TS)
+- GGUF header/metadata parsing only. Tensor dequantization (15+ quant formats) deferred to Phase 9.
+- `config.json` and `tokenizer.json` parsing
+- Local model cache with integrity checking
+- HF → mlxts weight name mapping
+
+### 7b. Tokenizers (`@mlxts/tokenizers` expansion)
+
+- ByteLevel BPE from `tokenizer.json` (covers LLaMA/Mistral/GPT-2). Full 5-stage HF tokenizer pipeline is future work.
+- Batch encode/decode with offset tracking
+
+### 7c. Model architectures (`@mlxts/transformers`)
+
+- Config-driven architecture dispatch: `model_type` in config.json → model class
+- KV cache for efficient autoregressive generation
+- Generation utilities: temperature, top-k, top-p, min-p, repetition penalty
+- Model families (each ~200-400 lines):
+
+LLaMA first, done right, then expand:
+
+| Family | Priority | Why |
+|--------|----------|-----|
+| LLaMA | Highest | Most popular open model family — get this right first |
+| Mistral | High | Shares LLaMA architecture, efficient, widely deployed |
+| Phi | Medium | Small, fast, great for local |
+| Gemma | Medium | Google's open models |
+| Qwen | Medium | Strong multilingual |
+| GPT-2 | Already done | From nanoGPT |
+
+- `AutoModel.fromPretrained(modelId)` auto-dispatch
+- `AutoTokenizer.fromPretrained(modelId)`
+
+### 7d. Examples
+
+- `examples/llama-chat/` — interactive chat with a local LLaMA model
+- Update `examples/nanogpt/` to use `@mlxts/transformers` if applicable
+
+**Exit criteria**: See [gates-and-milestones.md](./docs/gates-and-milestones.md#phase-7-model-architectures).
+
+---
+
+## Phase 8: Fine-Tuning
+
+**Goal**: LoRA fine-tuning, DPO alignment, dataset loading. A TS developer can fine-tune a model on their own data.
+
+**What this phase covers**:
+
+### 8a. LoRA (`@mlxts/lora`)
+
+- Low-rank adapter injection for any `Linear` layer
+- `applyLoRA(model, config)` — wrap target layers
+- `mergeLoRA(model)` — merge adapters back into weights (zero inference overhead)
+- `LoRAConfig` — target layers, rank, alpha, dropout
+- QLoRA (quantized base model + fp16 adapters) — requires `@mlxts/quantize`
+
+### 8b. Alignment (`@mlxts/align`)
+
+- SFT trainer (supervised fine-tuning)
+- DPO trainer (Direct Preference Optimization — simpler than PPO, better results)
+- Preference pair data formatting
+- Chat template support for instruction tuning
+
+### 8c. Data expansion (`@mlxts/data`)
+
+- HuggingFace Datasets format loading
+- Conversation/chat formatting
+- Instruction tuning data collation
+
+### 8d. Examples
+
+- `examples/lora-finetune/` — fine-tune LLaMA on custom data, merge, generate
+
+**Exit criteria**: See [gates-and-milestones.md](./docs/gates-and-milestones.md#phase-8-fine-tuning).
+
+---
+
+## Phase 9: Inference and Serving
+
+**Goal**: Production-quality inference server. Quantized inference. Any OpenAI-compatible client can connect.
+
+**What this phase covers**:
+
+### 9a. Quantization (`@mlxts/quantize`)
+
+- 4-bit and 8-bit quantization via MLX native `mx.quantize`/`mx.dequantize`
+- GGUF tensor dequantization (15+ quant formats, moved from Phase 7)
+- GGUF export (create GGUF files from mlxts models)
+- Calibration dataset support for quantization quality
+- Quantized inference at full speed
+
+### 9b. KV cache and efficient generation
+
+- KV cache for autoregressive generation (prerequisite for serving)
+- PagedAttention-style cache management is a major engineering effort. Start with simple KV cache, optimize later.
+
+### 9c. Serving (`@mlxts/serve`)
+
+- OpenAI-compatible API: `/v1/chat/completions`, `/v1/completions`, `/v1/embeddings`
+- `Bun.serve()` — no Express, no Node HTTP
+- Server-sent events for token streaming
+- KV cache management for concurrent requests
+- Continuous batching (serve multiple requests)
+- Model loading/unloading without restart
+
+### 9d. CLI expansion (`@mlxts/cli`)
+
+- `mlxts serve --model Llama-3.2-1B --quantize 4bit`
+- `mlxts convert --source hf --model meta-llama/Llama-3.2-1B`
+- `mlxts quantize --model ./my-model --bits 4`
+- `mlxts download --model meta-llama/Llama-3.2-1B`
+
+**Exit criteria**: See [gates-and-milestones.md](./docs/gates-and-milestones.md#phase-9-inference-and-serving).
+
+---
+
+## Phase 10: Diffusion and Multi-Modal
+
+**Goal**: Image generation, speech recognition, vision-language models.
+
+**What this phase covers**:
+
+### 10a. Whisper (`@mlxts/audio`) — speech recognition
+
+- Whisper speech recognition (smallest scope — one model family)
+- Audio I/O (mel spectrograms, resampling)
+- `examples/whisper/` — transcribe audio
+
+### 10b. Diffusion (`@mlxts/diffusion`)
+
+- Requires UNet, VAE, noise schedulers
+- Noise schedulers: DDPM, DDIM, DPM-Solver, Euler
+- UNet2D architecture
+- VAE (Variational Autoencoder)
+- `StableDiffusionPipeline` — text to image
+- ControlNet support
+- `examples/stable-diffusion/` — generate images from text
+
+### 10c. Vision-Language (VLM)
+
+- Requires vision encoder + LLM integration
+- VLM support via `@mlxts/transformers` (LLaVA, PaliGemma)
+- Image preprocessing pipeline
+
+**Exit criteria**: See [gates-and-milestones.md](./docs/gates-and-milestones.md#phase-10-diffusion-and-multi-modal).
+
+---
+
+## Phase 11: Future — Multi-Backend (if warranted)
+
+If demand warrants, the package structure supports adding secondary backends (WebGPU for browser, CUDA via libtorch shim). This is not part of the current plan. See [docs/future-backends.md](./docs/future-backends.md) for the vision and technical analysis.
+
+---
+
+## Phase 12: Evaluation and Benchmarks
+
+**Goal**: Standardized model evaluation. Reproducible benchmarks. Credibility.
+
+**What this phase covers**:
+
+### 12a. Eval harness (`@mlxts/eval`)
+
+- 6 core benchmark tasks: MMLU, HellaSwag, ARC, WinoGrande, TruthfulQA, GSM8K
+- `LM` interface: `loglikelihood`, `generate`, `loglikelihood_rolling`
+- JSON result output for comparison
+- `mlxts eval --model Llama-3.2-1B --tasks mmlu,hellaswag`
+
+### 12b. Cross-validation
+
+- Results match Python lm-eval-harness within 1% for same model
+- Published methodology
+
+**Exit criteria**: See [gates-and-milestones.md](./docs/gates-and-milestones.md#phase-12-evaluation-and-benchmarks).
+
+---
+
+## North Star: "Implement Any Paper"
+
+The ecosystem is complete when a TypeScript developer can:
+
+1. **Implement a custom model architecture** using `@mlxts/nn` building blocks
+2. **Train it** using `@mlxts/train`
+3. **Fine-tune a pretrained model** using `@mlxts/lora`
+4. **Serve it** using `@mlxts/serve`
+5. **Evaluate it** using `@mlxts/eval`
+6. **Add custom Metal kernels** via FFI and compose them with existing ops
+7. **Do all of the above without leaving TypeScript**
+8. **Read the code and understand how it works**
+
+See [gates-and-milestones.md](./docs/gates-and-milestones.md#ultimate-milestone-implement-any-paper) for how we test this.
 
 ---
 
@@ -443,6 +711,7 @@ See [docs/agentic-loop.md](./docs/agentic-loop.md) for the full engineering work
 
 The exact model or tool used for each role may change over time. The workflow matters more than the brand name.
 
+---
 
 ## Principles
 
@@ -452,3 +721,8 @@ The exact model or tool used for each role may change over time. The workflow ma
 4. **Agent review** — No agent's output merges without review by a different agent
 5. **Incremental delivery** — Each phase produces something that works
 6. **Education first** — Code clarity trumps cleverness
+7. **MLX-native everywhere** — No abstraction layers between your code and the GPU
+8. **Modular by default** — Every package earns its place by having a real consumer
+9. **Interoperable** — Load HF models, serve OpenAI-compatible APIs, read community formats
+10. **One person, many agents** — Decision quality and architectural coherence over headcount
+11. **Known risks documented** — Bun FFI bugs and mlx-c pre-1.0 instability are tracked, not ignored

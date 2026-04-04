@@ -1,0 +1,360 @@
+# Gates and Milestones
+
+Every phase has exit criteria — concrete, testable conditions that prove the work is done. This document defines them.
+
+---
+
+## Quality Gates (Apply to Every Phase)
+
+These gates are non-negotiable at every phase boundary. Code does not advance until all pass.
+
+### Code Quality Gates
+
+| Gate | Command | What it checks |
+|------|---------|---------------|
+| Type safety | `bun run typecheck` | Zero TypeScript errors in strict mode |
+| Lint | `bun run lint` | Biome passes clean with `--error-on-warnings` |
+| Type assertions | `bun run check:assertions` | No `as` or `!` outside FFI boundary (AST-checked) |
+| Tensor lifetimes | `bun run check:tensor-lifetimes` | No anonymous disposable intermediates in nested calls |
+| Runtime review | `bun run check:runtime-review` | Runtime-sensitive diffs have review artifacts |
+| Coverage | `bun run check:coverage` | Package-specific line/function/branch thresholds |
+| Full validation | `bun run validate` | All of the above in sequence |
+
+### Architectural Gates
+
+| Gate | How to verify | What it ensures |
+|------|--------------|----------------|
+| Human readability | Manual review by a different agent or human | A TS developer unfamiliar with the code can understand any function within 30 seconds |
+| Error quality | Manual review | Every user-facing error includes: context, expected vs actual, and an actionable hint |
+| JSDoc coverage | Manual review | Every public API has at least a one-line JSDoc |
+| No dead code | Manual review | No stale compatibility layers, unused exports, or commented-out code |
+| Examples run | `bun run` each example | Every example in `examples/` executes successfully end-to-end |
+
+### Operational Gates (for phases with training/inference)
+
+| Gate | Command | What it checks |
+|------|---------|---------------|
+| Memory stability | `bun run bench:memory` | No unbounded memory growth over repeated operations |
+| Soak test | `bun run soak:<preset>` | Throughput stable, memory stable over sustained runs |
+| Acceptance | `bun run acceptance:<preset>` | Loss reaches target, generation produces coherent output |
+
+---
+
+## Phase 4: nanoGPT (Current)
+
+**Status:** In progress. Codex is handling implementation.
+
+### Milestone: "GPT trains on Shakespeare and generates text"
+
+| Criterion | How to verify |
+|-----------|--------------|
+| `bun run validate` passes | Run it |
+| gpt-tiny trains to <1.5 val loss | `bun run acceptance:gpt-tiny` |
+| gpt-small has a loss-targeted acceptance run | `bun run acceptance:gpt-small` |
+| Generated text is recognizably English and vaguely Shakespearean | Manual inspection of sample output |
+| Supervised long runs use `bun run run:nanogpt ...` | Verify soak ladder: 50 → 250 → 1000 → 5000 steps |
+| Runtime review artifact exists for hot-path changes | `bun run check:runtime-review` |
+| Checkpoint save is atomic | Code review: write-to-temp, rename |
+| NaN loss detection stops training | Test coverage |
+
+---
+
+## Phase 5: Ecosystem Restructure
+
+**Goal:** Rename to mlxts. Extract packages. Reorganize code. All existing functionality preserved.
+
+### Milestone: "Same code, new structure, all tests pass"
+
+| Criterion | How to verify |
+|-----------|--------------|
+| Repo renamed to `mlxts` | GitHub repo name |
+| npm scope `@mlxts/*` registered | `npm access ls-packages @mlxts` |
+| `@mlxts/core` exists with types, backend interface, tree utils | Package has tests, typecheck passes |
+| `@mlxts/core` exists with MxArray, ops, transforms, FFI | All existing mlx-ts tests pass |
+| `@mlxts/nn` exists with Module, layers, losses, activations | All existing nn tests pass |
+| `@mlxts/optimizers` exists with Adam, AdamW, SGD | All existing optimizer tests pass |
+| `@mlxts/train` exists with training loop, checkpointing | All existing train tests pass |
+| `@mlxts/data` exists with text data loading | All existing data tests pass |
+| `@mlxts/tokenizers` exists with char tokenizer | All existing tokenizer tests pass |
+| `examples/nanogpt/` runs end-to-end | Train gpt-tiny, generate text |
+| `bun run validate` passes across entire monorepo | Run it |
+| gpt-tiny training throughput within 5% of Phase 4 baseline | Benchmark before/after restructure |
+| Each package's tests pass independently, not just monorepo-level | `cd packages/<pkg> && bun test` for each |
+| All imports in `examples/nanogpt/` resolve to `@mlxts/*` packages | Grep for old import paths |
+| Zero functionality regression | Full test suite passes |
+| Coverage thresholds maintained | `bun run check:coverage` |
+| All docs updated to reference new package names | Manual review |
+| Import paths in examples use `@mlxts/*` | Grep for old paths |
+
+### What "done" looks like
+A developer runs `bun install`, opens `examples/nanogpt/train.ts`, sees imports from `@mlxts/core`, `@mlxts/nn`, `@mlxts/train` — and the training runs exactly as before.
+
+---
+
+## Phase 6: Publish Core Packages
+
+**Goal:** First npm publish. TypeDoc. CI. The world can `bun add @mlxts/core @mlxts/nn`.
+
+### Milestone: "External developers can install and use mlxts"
+
+| Criterion | How to verify |
+|-----------|--------------|
+| `@mlxts/core`, `@mlxts/nn`, `@mlxts/optimizers` on npm | `npm view @mlxts/core` |
+| Semver versioning with changesets | `changeset status` |
+| TypeDoc API docs published | URL accessible |
+| GitHub Actions CI on Apple Silicon runners | CI green on push |
+| README with quick-start example | Manual review |
+| `bun add @mlxts/core @mlxts/nn` works from a fresh project | Test in isolated directory |
+| Educational walkthrough: "Building GPT from scratch in TypeScript" | Published (blog or repo doc) |
+| Benchmarks: mlxts vs Python MLX for core ops | Results documented |
+| Contributing guide | CONTRIBUTING.md exists |
+| Consider publishing unscoped `mlxts` package that re-exports core + nn + optimizers for beginners | Evaluate ergonomics vs namespace clarity |
+
+---
+
+## Phase 6.5: Modern Transformer Primitives
+
+**Goal:** The nn and ops layers have everything modern architectures need.
+
+### Milestone: "Ready for LLaMA"
+
+| Criterion | How to verify |
+|-----------|--------------|
+| RMSNorm module implemented and tested | Test: matches manual computation |
+| RoPE module implemented and tested | Test: rotary embeddings produce correct positional encoding |
+| Grouped-Query Attention (GQA) module works | Test: forward pass with different num_kv_heads < num_heads |
+| SwiGLU activation works | Test: matches manual gate * silu(x) computation |
+| sort and topk ops bound from mlx-c | Test: sort returns correct order, topk returns correct k elements |
+| float16/bfloat16 safetensors I/O | Test: save float16 model, reload, verify values |
+| mlx_quantize/mlx_dequantize bound | Test: quantize to 4-bit, dequantize, verify approximate values |
+| `bun run validate` passes | Run it |
+
+**Must complete before Phase 7 begins.**
+
+---
+
+## Phase 7: Model Architectures
+
+**Goal:** Load and run pretrained LLaMA, Mistral, etc. The `@mlxts/transformers` package.
+
+### Milestone: "Load a HuggingFace model and generate text"
+
+| Criterion | How to verify |
+|-----------|--------------|
+| `@mlxts/hub` downloads from HuggingFace Hub | Test: download a small model |
+| `@mlxts/hub` parses `config.json` and `tokenizer.json` | Test: parse known configs |
+| `@mlxts/hub` loads safetensors weights into mlxts arrays | Test: load and verify shapes/dtypes |
+| `@mlxts/tokenizers` implements ByteLevel BPE from `tokenizer.json` (covers LLaMA/Mistral/GPT-2) | Test: encode/decode matches Python tokenizer output |
+| `@mlxts/transformers` implements LLaMA architecture | Test: forward pass matches MLX Python output for same weights |
+| KV cache works for efficient generation | Test: generate 100 tokens, verify speed improvement vs no cache |
+| `AutoModel.fromPretrained("mlx-community/Llama-3.2-1B")` works | End-to-end test |
+| At least 3 model architectures supported | LLaMA, Mistral, Phi or Gemma |
+| Generation quality: coherent multi-sentence output | Manual inspection |
+| `examples/llama-chat/` runs interactively | Demo it |
+| GGUF header/metadata parsing works | Test: parse GGUF file, extract model config and tensor info |
+
+### What "done" looks like
+A developer writes:
+```typescript
+import { AutoModel, AutoTokenizer } from '@mlxts/transformers';
+const model = await AutoModel.fromPretrained('mlx-community/Llama-3.2-1B');
+const tokenizer = await AutoTokenizer.fromPretrained('mlx-community/Llama-3.2-1B');
+const output = model.generate(tokenizer.encode('Hello, world!'), { maxTokens: 100 });
+console.log(tokenizer.decode(output));
+```
+And it works. On their Mac. From TypeScript.
+
+---
+
+## Phase 8: Fine-Tuning
+
+**Goal:** LoRA fine-tuning, DPO alignment, dataset loading.
+
+### Milestone: "Fine-tune a model on custom data"
+
+| Criterion | How to verify |
+|-----------|--------------|
+| `@mlxts/lora` implements LoRA adapter injection | Test: inject LoRA into LLaMA, verify parameter count reduction |
+| LoRA training converges on a small task | Test: fine-tune on a 1000-example dataset, verify loss decreases |
+| LoRA merge produces a standalone model | Test: merge adapters, verify generation quality matches |
+| `@mlxts/align` implements DPO trainer | Test: DPO loss decreases on preference pairs |
+| `@mlxts/data` supports HuggingFace datasets format | Test: load a dataset from Hub |
+| Chat template support for instruction tuning | Test: format conversations correctly |
+| `examples/lora-finetune/` runs end-to-end | Fine-tune, merge, generate |
+| Memory fits within 64GB for 1B-3B parameter models with LoRA | Measure peak memory |
+| QLoRA works with 4-bit base model | Test: load quantized model, apply LoRA, train |
+
+### What "done" looks like
+A developer fine-tunes LLaMA-3.2-1B on their custom dataset using 4 lines of config and `mlxts train --lora`, then merges the adapter and serves the result.
+
+---
+
+## Phase 9a: Quantization
+
+**Goal:** Quantize and dequantize models. GGUF tensor support.
+
+### Milestone: "Quantize a model to 4-bit and run it"
+
+| Criterion | How to verify |
+|-----------|--------------|
+| `@mlxts/quantize` quantizes a model to 4-bit | Test: quantized model produces reasonable output |
+| Dequantization works for inference | Test: dequantized weights are approximately correct |
+| GGUF tensor dequantization works | Test: load Q4_K_M tensors, dequantize, verify values |
+| Quantized inference performance | Benchmark: tokens/sec for quantized vs full-precision |
+
+---
+
+## Phase 9b: KV Cache and Generation Optimization
+
+**Goal:** Efficient inference with KV caching.
+
+> **Note:** PagedAttention-style cache management is a major engineering effort. Start with simple sequential KV cache.
+
+### Milestone: "Fast generation with KV cache"
+
+| Criterion | How to verify |
+|-----------|--------------|
+| Simple sequential KV cache works | Test: generate 100 tokens, verify speed improvement vs no cache |
+| KV cache memory is bounded | Test: generate 2048 tokens without unbounded memory growth |
+| Batch generation works | Test: generate for multiple sequences in parallel |
+
+---
+
+## Phase 9c: Serving
+
+**Goal:** Production-quality inference server with OpenAI-compatible API.
+
+### Milestone: "Serve a model with an OpenAI-compatible API"
+
+| Criterion | How to verify |
+|-----------|--------------|
+| `@mlxts/serve` starts a server on `Bun.serve()` | Test: server responds to health check |
+| `/v1/chat/completions` endpoint works | Test: curl request returns valid response |
+| `/v1/completions` endpoint works | Test: completion request returns text |
+| `/v1/embeddings` endpoint works | Test: embedding request returns vector |
+| Streaming responses (SSE) | Test: stream tokens one at a time |
+| `mlxts serve --model mlx-community/Llama-3.2-1B` works | End-to-end demo |
+| Ollama-compatible API (same as OpenAI compat) | Test: Ollama client can connect |
+| Model loading/unloading | Test: switch models without restart |
+
+### What "done" looks like
+`mlxts serve --model Llama-3.2-1B --quantize 4bit` starts a server. Any OpenAI-compatible client (Cursor, Continue, LangChain.js, etc.) connects and gets fast, streaming responses.
+
+---
+
+## Phase 10a: Whisper
+
+**Goal:** Speech recognition on Apple Silicon.
+
+### Milestone: "Transcribe audio from TypeScript"
+
+| Criterion | How to verify |
+|-----------|--------------|
+| `@mlxts/audio` implements Whisper architecture | Test: forward pass produces logits |
+| Audio preprocessing (mel spectrogram) works | Test: process a WAV file, verify spectrogram shape |
+| Transcription produces correct text | Test: transcribe a 30-second audio clip, compare to known transcript |
+| `examples/whisper/` runs | Transcribe a known audio file |
+
+---
+
+## Phase 10b: Diffusion
+
+**Goal:** Image generation on Apple Silicon.
+
+### Milestone: "Generate an image from a text prompt"
+
+| Criterion | How to verify |
+|-----------|--------------|
+| `@mlxts/diffusion` implements Stable Diffusion pipeline | Test: generate a 512x512 image |
+| DDIM and Euler schedulers work | Test: different schedulers produce valid images |
+| Image preprocessing pipeline | Test: load, resize, normalize images |
+| `examples/stable-diffusion/` runs | Generate an image from "a cat sitting on a laptop" |
+
+---
+
+## Phase 10c: Vision-Language Models
+
+**Goal:** Multi-modal understanding.
+
+### Milestone: "Describe an image from TypeScript"
+
+| Criterion | How to verify |
+|-----------|--------------|
+| VLM support (LLaVA or PaliGemma) | Test: describe an image |
+| Image+text prompting works | Test: answer a question about an image |
+| `examples/vlm/` runs | Describe a known image, verify coherent output |
+
+---
+
+## Phase 11: Multi-Backend (Future)
+
+Phase 11 (multi-backend) is future work. See docs/future-backends.md. No gates defined until a go/no-go decision is made.
+
+---
+
+## Phase 12: Evaluation and Benchmarks
+
+**Goal:** Standardized model evaluation. Credibility through reproducible benchmarks.
+
+### Milestone: "Evaluate any model on standard benchmarks"
+
+| Criterion | How to verify |
+|-----------|--------------|
+| `@mlxts/eval` implements 6 core tasks | MMLU, HellaSwag, ARC, WinoGrande, TruthfulQA, GSM8K |
+| Evaluation results match Python lm-eval-harness within 5% or directionally consistent (exact match unlikely due to floating-point and tokenizer differences) | Cross-validate on same model |
+| `mlxts eval --model Llama-3.2-1B --tasks mmlu,hellaswag` works | End-to-end |
+| JSON result output for comparison | Structured results file |
+| Benchmark suite for mlxts vs Python MLX core ops | Published results |
+
+---
+
+## Ultimate Milestone: "Implement Any Paper"
+
+This is the north star. The ecosystem is complete when:
+
+| Criterion | What it proves |
+|-----------|---------------|
+| A developer can implement a custom model architecture using `@mlxts/nn` building blocks | The nn layer is general enough |
+| A developer can train it using `@mlxts/train` | The training infra is model-agnostic |
+| A developer can fine-tune a pretrained model using `@mlxts/lora` | Fine-tuning works across architectures |
+| A developer can serve it using `@mlxts/serve` | The serving layer is model-agnostic |
+| A developer can evaluate it using `@mlxts/eval` | Evaluation is standardized |
+| A developer can add custom Metal kernels via FFI and compose them with existing ops | The extension story works |
+| A developer can do all of the above without leaving TypeScript | No Python required |
+| A developer can read the code and understand how it works | Human readability maintained |
+
+### How to Test This Milestone
+
+Create `examples/custom-model/`:
+1. Pick a recent paper with a novel architecture element (e.g., a new attention mechanism, a new normalization technique, a novel positional encoding)
+2. Implement it using only `@mlxts/*` packages
+3. Train it on a standard dataset
+4. Evaluate it on benchmarks
+5. Serve it via API
+
+If a developer can follow the example and do the same for a different paper, the ecosystem is working.
+
+---
+
+## Gate Enforcement
+
+### Automated (CI)
+- `bun run validate` runs on every push
+- Coverage thresholds enforced per package
+- Type assertion check prevents `as` leaking out of FFI
+- Tensor lifetime check prevents anonymous intermediate leaks
+
+### Semi-Automated (Agent Review)
+- Runtime review artifacts required for hot-path changes
+- No agent's output ships without review by a different agent or human
+- Error message quality reviewed manually
+
+### Manual (Human Decision)
+- Phase transitions require Nomi's explicit approval
+- Example quality assessed by actually running them
+- "Can a TS developer understand this?" assessed by fresh-eyes review
+
+### Skill-Based (Future)
+- Create a Claude Code skill that, given a user intent ("I want to fine-tune LLaMA on my data"), produces the correct mlxts code using the right packages
+- The skill references canonical examples and API docs
+- If the skill can't produce working code, the API or docs need improvement
