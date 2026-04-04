@@ -115,6 +115,9 @@ export const DEVICE_SYMBOLS = {
   mlx_device_new: { args: [], returns: P },
   mlx_device_new_type: { args: [I32, I32], returns: P },
   mlx_device_free: { args: [P], returns: I32 },
+  mlx_device_get_type: { args: [P, P], returns: I32 },
+  mlx_device_is_available: { args: [P, P], returns: I32 },
+  mlx_device_count: { args: [P, I32], returns: I32 },
   mlx_get_default_device: { args: [P], returns: I32 },
   mlx_set_default_device: { args: [P], returns: I32 },
 } as const;
@@ -222,6 +225,10 @@ export const SHAPE_SYMBOLS = {
   mlx_flatten: { args: [P, P, I32, I32, P], returns: I32 },
   mlx_contiguous: { args: [P, P, BOOL, P], returns: I32 },
   mlx_stop_gradient: { args: [P, P, P], returns: I32 },
+  // int mlx_tril(res, x, k, stream)
+  mlx_tril: { args: [P, P, I32, P], returns: I32 },
+  // int mlx_triu(res, x, k, stream)
+  mlx_triu: { args: [P, P, I32, P], returns: I32 },
 } as const;
 
 // ---------------------------------------------------------------------------
@@ -286,6 +293,45 @@ export const RANDOM_SYMBOLS = {
   mlx_random_uniform: { args: [P, P, P, P, U64_FAST, I32, P, P], returns: I32 },
   // mlx_random_bernoulli(res, p, shape, shape_num, key, stream)
   mlx_random_bernoulli: { args: [P, P, P, U64_FAST, P, P], returns: I32 },
+  // mlx_random_categorical(res, logits, axis, key, stream)
+  mlx_random_categorical: { args: [P, P, I32, P, P], returns: I32 },
+} as const;
+
+// ---------------------------------------------------------------------------
+// Memory and profiling controls (memory.h, metal.h)
+// ---------------------------------------------------------------------------
+
+export const MEMORY_SYMBOLS = {
+  mlx_clear_cache: { args: [], returns: I32 },
+  mlx_get_active_memory: { args: [P], returns: I32 },
+  mlx_get_cache_memory: { args: [P], returns: I32 },
+  mlx_get_memory_limit: { args: [P], returns: I32 },
+  mlx_get_peak_memory: { args: [P], returns: I32 },
+  mlx_reset_peak_memory: { args: [], returns: I32 },
+  mlx_set_cache_limit: { args: [P, U64_FAST], returns: I32 },
+  mlx_set_memory_limit: { args: [P, U64_FAST], returns: I32 },
+  mlx_set_wired_limit: { args: [P, U64_FAST], returns: I32 },
+} as const;
+
+export const METAL_SYMBOLS = {
+  mlx_metal_is_available: { args: [P], returns: I32 },
+  mlx_metal_start_capture: { args: [CSTRING], returns: I32 },
+  mlx_metal_stop_capture: { args: [], returns: I32 },
+} as const;
+
+// ---------------------------------------------------------------------------
+// Fast operations (fast.h)
+// ---------------------------------------------------------------------------
+
+export const FAST_SYMBOLS = {
+  mlx_fast_scaled_dot_product_attention: {
+    args: [P, P, P, P, F32, CSTRING, P, P, P],
+    returns: I32,
+  },
+  mlx_fast_layer_norm: {
+    args: [P, P, P, P, F32, P],
+    returns: I32,
+  },
 } as const;
 
 // ---------------------------------------------------------------------------
@@ -296,6 +342,12 @@ export const TRANSFORM_SYMBOLS = {
   // int mlx_eval(const mlx_vector_array outputs)
   mlx_eval: { args: [P], returns: I32 },
   mlx_async_eval: { args: [P], returns: I32 },
+  mlx_checkpoint: { args: [P, P], returns: I32 },
+  mlx_compile: { args: [P, P, BOOL], returns: I32 },
+  mlx_detail_compile_clear_cache: { args: [], returns: I32 },
+  mlx_disable_compile: { args: [], returns: I32 },
+  mlx_enable_compile: { args: [], returns: I32 },
+  mlx_set_compile_mode: { args: [I32], returns: I32 },
 } as const;
 
 // ---------------------------------------------------------------------------

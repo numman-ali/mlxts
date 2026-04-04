@@ -83,7 +83,39 @@ bun run validate
 ```
 
 This runs typecheck + lint + assertion checks + coverage-backed tests across all packages.
-It also enforces the `mlx-ts` coverage gate: `95%` lines and `90%` functions.
+It enforces the package coverage gates too: `mlx-ts` at `95%` lines / `90%` functions and `nanogpt` at `90%` lines / `85%` functions.
+
+Longer acceptance runs are separate on purpose:
+
+```bash
+bun run acceptance:gpt-tiny
+bun run acceptance:gpt-small
+```
+
+Before an overnight run, use the shorter runtime checks:
+
+```bash
+bun run bench:memory
+bun run soak:gpt-tiny
+bun run soak:gpt-small
+```
+
+For overnight or laptop-safe long runs, use the detached supervisor:
+
+```bash
+bun run run:nanogpt start --preset gpt-small --max-steps 5000
+bun run run:nanogpt status --name <run-id>
+bun run run:nanogpt watch --name <run-id> --interval 600
+bun run run:nanogpt stop --name <run-id>
+bun run run:nanogpt resume --from <run-id> --max-steps 10000
+```
+
+This supervised path is the canonical long-run surface. It writes a run-local directory under `.nanogpt-runs/` with structured events, status snapshots, stderr logs, and checkpoint directories.
+
+Checkpoint kinds are explicit:
+
+- `*-snapshot-step-N/` stores model/config/tokenizer for frequent saves
+- `*-resume-step-N/` additionally stores optimizer state for exact continuation
 
 ## Build details
 

@@ -12,11 +12,8 @@ import { add } from "../core/ops/arithmetic";
 import { matmul } from "../core/ops/linalg";
 import { transpose } from "../core/ops/shape";
 import * as random from "../core/random";
+import { formatShape } from "../utils/format-shape";
 import { Module } from "./module";
-
-function formatShape(shape: readonly number[]): string {
-  return shape.length === 0 ? "[]" : `[${shape.join(", ")}]`;
-}
 
 /** Fully connected layer: `y = x @ weight.T + bias`. */
 export class Linear extends Module {

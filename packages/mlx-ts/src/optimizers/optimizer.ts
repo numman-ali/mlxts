@@ -59,6 +59,19 @@ export abstract class Optimizer implements Disposable {
   /** Per-parameter optimizer state (m, v for Adam; velocity for SGD). */
   protected state: Map<string, StateEntry> = new Map();
 
+  protected exportStateSnapshot(): Record<string, StateEntry> {
+    const snapshot: Record<string, StateEntry> = {};
+    for (const [key, entry] of this.state.entries()) {
+      snapshot[key] = entry;
+    }
+    return snapshot;
+  }
+
+  protected replaceStateSnapshot(nextState: Record<string, StateEntry>): void {
+    this[Symbol.dispose]();
+    this.state = new Map(Object.entries(nextState));
+  }
+
   private preserveInactiveState(parameterKeys: ReadonlySet<string>): Map<string, StateEntry> {
     const nextState = new Map<string, StateEntry>();
     for (const [key, entry] of this.state.entries()) {

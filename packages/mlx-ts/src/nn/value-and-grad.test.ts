@@ -1,6 +1,8 @@
 import { describe, expect, test } from "bun:test";
 
 import { array, MxArray } from "../core/array";
+import { synchronize } from "../core/device";
+import { clearMemoryCache, getActiveMemoryBytes } from "../core/memory";
 import { add, multiply } from "../core/ops/arithmetic";
 import { sum } from "../core/ops/reduction";
 import { mxEval } from "../core/transforms";
@@ -52,6 +54,25 @@ class NestedModel extends Module {
   }
 }
 
+class ModuleArrayModel extends Module {
+  layers: SimpleModel[];
+
+  constructor() {
+    super();
+    this.layers = [new SimpleModel(), new SimpleModel()];
+  }
+
+  forward(x: MxArray): MxArray {
+    const firstLayer = this.layers[0];
+    const secondLayer = this.layers[1];
+    if (firstLayer === undefined || secondLayer === undefined) {
+      throw new Error("ModuleArrayModel: expected two layers");
+    }
+    using first = firstLayer.forward(x);
+    return secondLayer.forward(first);
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Gradient tree structure
 // ---------------------------------------------------------------------------
@@ -88,6 +109,27 @@ describe("nn.valueAndGrad — structure", () => {
     expect(Object.keys(grads)).toEqual(["inner"]);
     const innerGrads = grads.inner as ParameterTree;
     expect(Object.keys(innerGrads)).toEqual(["weight"]);
+
+    mxEval(loss);
+    loss.free();
+    for (const [, g] of treeFlatten(grads)) g.free();
+    x.free();
+    model[Symbol.dispose]();
+  });
+
+  test("Module[] models produce numeric-keyed gradient subtrees", () => {
+    const model = new ModuleArrayModel();
+    const lossFn = (x: MxArray) => sum(model.forward(x));
+    const vgFn = valueAndGrad(model, lossFn);
+
+    const x = array([1.0, 1.0]);
+    const [loss, grads] = vgFn(x);
+
+    expect(Object.keys(grads)).toEqual(["layers"]);
+    const layerGrads = grads.layers as ParameterTree;
+    expect(Object.keys(layerGrads)).toEqual(["0", "1"]);
+    expect(Object.keys(layerGrads["0"] as ParameterTree)).toEqual(["weight"]);
+    expect(Object.keys(layerGrads["1"] as ParameterTree)).toEqual(["weight"]);
 
     mxEval(loss);
     loss.free();
@@ -149,6 +191,31 @@ describe("nn.valueAndGrad — correctness", () => {
     wGrad.free();
     bGrad.free();
     x.free();
+    model[Symbol.dispose]();
+  });
+
+  test("the same transformed function can be called repeatedly", () => {
+    const model = new TwoParamModel();
+    const lossFn = (x: MxArray) => sum(model.forward(x));
+    const vgFn = valueAndGrad(model, lossFn);
+
+    const firstInput = array([3.0]);
+    const secondInput = array([4.0]);
+    const [firstLoss, firstGrads] = vgFn(firstInput);
+    const [secondLoss, secondGrads] = vgFn(secondInput);
+
+    mxEval(firstLoss, secondLoss, secondGrads.weight as MxArray, secondGrads.bias as MxArray);
+    expect(firstLoss.item()).toBeCloseTo(7, 2);
+    expect(secondLoss.item()).toBeCloseTo(9, 2);
+    expect((secondGrads.weight as MxArray).toList()).toEqual([4]);
+    expect((secondGrads.bias as MxArray).toList()).toEqual([1]);
+
+    firstLoss.free();
+    secondLoss.free();
+    for (const [, g] of treeFlatten(firstGrads)) g.free();
+    for (const [, g] of treeFlatten(secondGrads)) g.free();
+    firstInput.free();
+    secondInput.free();
     model[Symbol.dispose]();
   });
 });
@@ -238,6 +305,57 @@ describe("nn.valueAndGrad — edge cases", () => {
     mxEval(loss);
     loss.free();
     for (const [, g] of treeFlatten(grads)) g.free();
+    x.free();
+    model[Symbol.dispose]();
+  });
+
+  test("changing the trainable structure after creating the transform throws clearly", () => {
+    const model = new TwoParamModel();
+    const lossFn = (x: MxArray) => sum(model.forward(x));
+    const vgFn = valueAndGrad(model, lossFn);
+
+    const firstInput = array([3.0]);
+    const [firstLoss, firstGrads] = vgFn(firstInput);
+    model.freeze(["bias"]);
+
+    const secondInput = array([3.0]);
+    expect(() => vgFn(secondInput)).toThrow("trainable parameter structure changed");
+
+    firstLoss.free();
+    for (const [, g] of treeFlatten(firstGrads)) {
+      g.free();
+    }
+    firstInput.free();
+    secondInput.free();
+    model[Symbol.dispose]();
+  });
+
+  test("repeated calls do not grow active memory for a tiny model", () => {
+    synchronize();
+    clearMemoryCache();
+
+    const model = new SimpleModel();
+    const lossFn = (x: MxArray) => sum(model.forward(x));
+    const vgFn = valueAndGrad(model, lossFn);
+    const x = array([1.0, 2.0]);
+
+    mxEval(...treeFlatten(model.parameters()).map(([, value]) => value));
+    synchronize();
+    const baseline = getActiveMemoryBytes();
+
+    for (let index = 0; index < 5; index++) {
+      const [loss, grads] = vgFn(x);
+      mxEval(loss, ...treeFlatten(grads).map(([, value]) => value));
+      loss.free();
+      for (const [, g] of treeFlatten(grads)) {
+        g.free();
+      }
+    }
+
+    synchronize();
+    clearMemoryCache();
+    expect(getActiveMemoryBytes()).toBeLessThanOrEqual(baseline + 64);
+
     x.free();
     model[Symbol.dispose]();
   });

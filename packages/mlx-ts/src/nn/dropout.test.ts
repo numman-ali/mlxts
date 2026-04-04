@@ -6,6 +6,11 @@ import { mxEval } from "../core/transforms";
 import { Dropout } from "./dropout";
 
 describe("Dropout", () => {
+  test("probability getter returns the configured value", () => {
+    using dropout = new Dropout(0.25);
+    expect(dropout.probability).toBe(0.25);
+  });
+
   test("eval mode returns same values (identity)", () => {
     using dropout = new Dropout(0.5);
     dropout.eval();
@@ -58,6 +63,26 @@ describe("Dropout", () => {
     // Use a wide margin for stochastic test stability.
     expect(zeroCount).toBeGreaterThan(10);
     expect(nonZeroCount).toBeGreaterThan(10);
+
+    x.free();
+    out.free();
+  });
+
+  test("training mode scales kept values by inverse keep probability", () => {
+    random.seed(7);
+    using dropout = new Dropout(0.25);
+    dropout.train();
+
+    const x = ones([256]);
+    const out = dropout.forward(x);
+    mxEval(out);
+
+    const values = out.toList() as number[];
+    const kept = values.filter((value) => value !== 0);
+    expect(kept.length).toBeGreaterThan(0);
+    for (const value of kept) {
+      expect(value).toBeCloseTo(1 / (1 - 0.25), 5);
+    }
 
     x.free();
     out.free();

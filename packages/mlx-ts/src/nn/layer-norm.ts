@@ -10,13 +10,9 @@
 
 import type { MxArray } from "../core/array";
 import { ones, zeros } from "../core/array";
-import { add, divide, multiply, sqrt, square, subtract } from "../core/ops/arithmetic";
-import { mean } from "../core/ops/reduction";
+import { layerNorm as fastLayerNorm } from "../core/fast";
+import { formatShape } from "../utils/format-shape";
 import { Module } from "./module";
-
-function formatShape(shape: readonly number[]): string {
-  return shape.length === 0 ? "[]" : `[${shape.join(", ")}]`;
-}
 
 /** Layer normalization over the last axis. */
 export class LayerNorm extends Module {
@@ -49,21 +45,6 @@ export class LayerNorm extends Module {
       );
     }
 
-    // mu = mean(x, axis=-1, keepdims=true)
-    using mu = mean(x, -1, true);
-    // centered = x - mu
-    using centered = subtract(x, mu);
-    // variance = mean(centered^2, axis=-1, keepdims=true)
-    using centeredSq = square(centered);
-    using variance = mean(centeredSq, -1, true);
-    // stdInv = 1 / sqrt(variance + eps)
-    using varPlusEps = add(variance, this.#eps);
-    using std = sqrt(varPlusEps);
-    using stdInv = divide(1.0, std);
-    // normalized = centered * stdInv
-    using normalized = multiply(centered, stdInv);
-    // output = weight * normalized + bias
-    using scaled = multiply(this.weight, normalized);
-    return add(scaled, this.bias);
+    return fastLayerNorm(x, this.weight, this.bias, { eps: this.#eps });
   }
 }

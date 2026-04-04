@@ -8,7 +8,17 @@ import { add, log, multiply, subtract } from "./ops/arithmetic";
 import { matmul } from "./ops/linalg";
 import { mean, softmax, sum } from "./ops/reduction";
 import { stopGradient } from "./ops/shape";
-import { grad, mxEval, valueAndGrad } from "./transforms";
+import {
+  checkpoint,
+  clearCompileCache,
+  compile,
+  disableCompile,
+  enableCompile,
+  grad,
+  mxEval,
+  setCompileMode,
+  valueAndGrad,
+} from "./transforms";
 
 describe("transforms", () => {
   test("eval forces computation of a single array", () => {
@@ -44,6 +54,63 @@ describe("transforms", () => {
 
   test("eval with no arguments is a no-op", () => {
     mxEval(); // should not throw
+  });
+
+  test("compile returns a callable single-output transform", () => {
+    const compiled = compile((x: MxArray) => add(x, 1));
+
+    const x = array([1, 2, 3], "float32");
+    const y = compiled(x);
+    mxEval(y);
+
+    expect(y.toList()).toEqual([2, 3, 4]);
+
+    x.free();
+    y.free();
+  });
+
+  test("compile transforms can be explicitly disposed", () => {
+    using compiled = compile((x: MxArray) => add(x, 1));
+    using x = array([1], "float32");
+    using y = compiled(x);
+    mxEval(y);
+    expect(y.item()).toBe(2);
+
+    compiled[Symbol.dispose]();
+    expect(() => compiled(x)).toThrow("disposed");
+  });
+
+  test("checkpointed functions still differentiate correctly", () => {
+    const checkpointed = checkpoint((x: MxArray) => sum(multiply(x, x)));
+    const gradFn = grad((x: MxArray) => checkpointed(x));
+
+    const x = array([3.0], "float32");
+    const g = gradFn(x);
+    mxEval(g);
+
+    expect(g.toList()).toEqual([6]);
+
+    x.free();
+    g.free();
+  });
+
+  test("checkpoint transforms can be explicitly disposed", () => {
+    using checkpointed = checkpoint((x: MxArray) => sum(multiply(x, x)));
+    using x = array([2], "float32");
+    using y = checkpointed(x);
+    mxEval(y);
+    expect(y.item()).toBe(4);
+
+    checkpointed[Symbol.dispose]();
+    expect(() => checkpointed(x)).toThrow("disposed");
+  });
+
+  test("compile controls are callable", () => {
+    clearCompileCache();
+    setCompileMode("no_fuse");
+    disableCompile();
+    enableCompile();
+    setCompileMode("enabled");
   });
 });
 
@@ -177,6 +244,17 @@ describe("valueAndGrad", () => {
     g.free();
   });
 
+  test("grad transforms can be explicitly disposed", () => {
+    using transform = grad((x: MxArray) => sum(multiply(x, x)));
+    using x = array([3], "float32");
+    using gradient = transform(x);
+    mxEval(gradient);
+    expect(gradient.toList()).toEqual([6]);
+
+    transform[Symbol.dispose]();
+    expect(() => transform(x)).toThrow("disposed");
+  });
+
   test("gradient through matmul", () => {
     // f(W) = sum(W @ x) where x is fixed
     // d/dW sum(W @ x) = ones @ x^T (each row of grad = x^T)
@@ -225,6 +303,23 @@ describe("valueAndGrad", () => {
     x.free();
     value.free();
     gradient.free();
+  });
+
+  test("valueAndGrad transforms can be explicitly disposed", () => {
+    using transform = valueAndGrad((x: MxArray) => sum(multiply(x, x)));
+    using x = array([4], "float32");
+    const [value, gradient] = transform(x);
+    try {
+      mxEval(value, gradient);
+      expect(value.item()).toBeCloseTo(16, 5);
+      expect(gradient.toList()).toEqual([8]);
+    } finally {
+      value.free();
+      gradient.free();
+    }
+
+    transform[Symbol.dispose]();
+    expect(() => transform(x)).toThrow("disposed");
   });
 
   test("single argnum returns bare MxArray gradient", () => {

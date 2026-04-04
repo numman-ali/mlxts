@@ -84,10 +84,16 @@ mx.eval(output);
 nanogpt train
 
 # Advanced — every knob is available
-nanogpt train --dataset shakespeare --model gpt2-small --lr 3e-4 --batch-size 32 --max-steps 5000
+nanogpt train --preset gpt-small --data ./data/shakespeare.txt --lr 3e-4 --batch-size 2 --grad-accum 8 --max-steps 5000
 ```
 
 **Structured output.** Human-readable by default, machine-parseable with `--json`. Scripts and CI can consume the output reliably.
+
+**Long-run control is explicit.** Overnight training is supervised through a run-local directory with structured events, status snapshots, and checkpointed stop/resume. We do not rely on hidden daemons or ad hoc shell state.
+
+**Operational evidence matters.** A long-run training surface is not trustworthy just because it prints loss. It needs memory, throughput, checkpoint, and stop/resume signals that let an operator decide what to do next without guessing.
+
+**Semantic progress matters too.** Loss curves are necessary, but they are not the whole story. Training and acceptance surfaces should make it easy to inspect occasional generated samples so a human can see whether the model is actually learning language-like structure.
 
 **Respect the terminal.** Detect terminal width. Use color only when stdout is a TTY. Support `NO_COLOR`. Never break pipe chains.
 
@@ -100,12 +106,15 @@ nanogpt train --dataset shakespeare --model gpt2-small --lr 3e-4 --batch-size 32
 - Config files override defaults; flags override config files; env vars are a last resort
 - No interactive prompts in non-TTY environments
 - Errors go to stderr, results go to stdout
+- Long-running training commands emit enough structured telemetry to diagnose throughput drift, memory pressure, checkpoint health, and stop/resume state
+- Long-running training and acceptance flows should expose occasional generated samples so semantic progress is visible alongside scalar metrics
+- Overnight or resumable training should go through the canonical `bun run run:nanogpt ...` manager flow, not loose root scripts or one-off shell wrappers
 
 ### Example of what good looks like
 
 ```bash
-$ nanogpt train --dataset shakespeare --model gpt2-tiny
-Training gpt2-tiny on shakespeare (1.1M chars)
+$ nanogpt train --preset gpt-tiny
+Training gpt-tiny on Shakespeare
 
   Step    Loss    LR        Tokens/sec
   ──────────────────────────────────────
@@ -115,13 +124,40 @@ Training gpt2-tiny on shakespeare (1.1M chars)
   ...
   5000    1.42    1.2e-5    12,290
 
-Training complete. Checkpoint saved: checkpoints/gpt2-tiny-step5000.safetensors
+Training complete. Resume checkpoint saved: .nanogpt-checkpoints/gpt-tiny-resume-step-5000/
 
-$ nanogpt generate --checkpoint checkpoints/gpt2-tiny-step5000.safetensors --prompt "To be or"
+$ nanogpt generate --checkpoint .nanogpt-checkpoints/gpt-tiny-resume-step-5000 --prompt "To be or"
 To be or not to be, that is the question—
 Whether 'tis nobler in the mind to suffer
 The slings and arrows of outrageous fortune...
 ```
+
+### Overnight operator flow
+
+```bash
+$ bun run run:nanogpt start --preset gpt-small --max-steps 5000
+Started run 2026-04-04T01-14-53-gpt-small
+
+$ bun run run:nanogpt status --name 2026-04-04T01-14-53-gpt-small
+Run 2026-04-04T01-14-53-gpt-small
+  state: running
+  step: 750 / 5000
+  loss: 2.8100  val: 2.7900
+  tokens/sec: 4,100
+  active memory: 2,048 MB
+  cache memory: 3,072 MB
+  latest checkpoint: .nanogpt-runs/.../checkpoints/gpt-small-snapshot-step-750
+
+$ bun run run:nanogpt stop --name 2026-04-04T01-14-53-gpt-small
+Requested stop for run 2026-04-04T01-14-53-gpt-small
+
+$ bun run run:nanogpt resume --from 2026-04-04T01-14-53-gpt-small --max-steps 10000
+Started run 2026-04-04T04-00-00-gpt-small
+```
+
+The key design point is that stop/resume is checkpoint-driven, not process-magic. A stop request is acknowledged in the run directory, the trainer exits cleanly, and resume restarts from the latest resumable checkpoint.
+
+The engineering implication is just as important as the operator experience: this surface is production code. Changes to it need the same runtime review, tests, and evidence as tensor or optimizer code.
 
 ---
 
@@ -144,7 +180,7 @@ The slings and arrows of outrageous fortune...
 ```
 ┌─ nanogpt training ──────────────────────────────────┐
 │                                                      │
-│  Model: gpt2-small (124M params)                     │
+│  Model: gpt-small                                    │
 │  Dataset: openwebtext (9B tokens)                    │
 │  Step: 2,340 / 50,000  ████████░░░░░░░░░ 4.7%       │
 │                                                      │

@@ -13,7 +13,7 @@ import type { Pointer } from "bun:ffi";
 import { defaultStream } from "./device";
 import { DTYPE_BYTE_SIZE, DTYPE_TO_MLX, type DType, MLX_TO_DTYPE } from "./dtype";
 import { checkStatus, initializeErrorHandler } from "./error";
-import { ffi, nativeSlice, ptr, readI32, readPtr, sizeToNumber, unwrapPointer } from "./ffi";
+import { ffi, nativeSlice, OutSlot, ptr, readI32, sizeToNumber, unwrapPointer } from "./ffi";
 
 // Ensure error handler is registered before any array operations.
 initializeErrorHandler();
@@ -41,31 +41,35 @@ type DirectTypedArray =
   | Uint8Array
   | Uint16Array
   | Uint32Array;
+type SupportedTypedArray =
+  | Float32Array
+  | Float64Array
+  | Int8Array
+  | Int16Array
+  | Int32Array
+  | Uint8Array
+  | Uint16Array
+  | Uint32Array;
 type NormalizedInput = {
   inferredDtype: DType;
   inferredShape: number[];
   values: number[];
 };
+type TypedArrayMatcher = {
+  dtype: DirectDataDType;
+  is: (value: unknown) => value is SupportedTypedArray;
+};
 
-// Operations write their results into an `mlx_array*`, which is a pointer to an
-// 8-byte struct containing the native context pointer.
-const _outBuf = new Uint8Array(8);
-const _outPtr = ptr(_outBuf);
-
-/** Prepare the shared output buffer for an mlx-c call. */
-export function prepareOut(): Pointer {
-  _outBuf.fill(0);
-  return _outPtr;
+/** Read an FFI pointer result written into a temporary output slot. */
+export function readResultPointer(label: string, invoke: (out: Pointer) => void): Pointer {
+  const slot = new OutSlot();
+  invoke(slot.prepare());
+  return slot.read(label);
 }
 
-/** Read the result pointer from the shared output buffer. */
-export function readOut(): Pointer {
-  return unwrapPointer(readPtr(_outPtr, 0), "FFI operation result");
-}
-
-/** Read a pointer result from a local 8-byte mlx_array output buffer. */
-function readLocalOut(out: Pointer, label: string): Pointer {
-  return unwrapPointer(readPtr(out, 0), label);
+/** Read an FFI array result written into a temporary output slot. */
+export function readResultArray(label: string, invoke: (out: Pointer) => void): MxArray {
+  return MxArray._fromCtx(readResultPointer(label, invoke));
 }
 
 // FinalizationRegistry is a safety net for missed explicit disposal.
@@ -101,7 +105,7 @@ export class MxArray implements Disposable {
 
   /** Create an array from JavaScript numbers or a supported TypedArray. */
   static fromData(
-    data: NumericArrayData | Float32Array | Int32Array | Uint8Array,
+    data: NumericArrayData | SupportedTypedArray,
     shape?: number[],
     dtype?: DType,
   ): MxArray {
@@ -334,9 +338,9 @@ export class MxArray implements Disposable {
 
   /** Cast the array to a different dtype. */
   asType(dtype: DType): MxArray {
-    const out = prepareOut();
-    checkStatus(ffi.mlx_astype(out, this._ctx, DTYPE_TO_MLX[dtype], defaultStream()), "astype");
-    return MxArray._fromCtx(readOut());
+    return readResultArray("astype", (out) => {
+      checkStatus(ffi.mlx_astype(out, this._ctx, DTYPE_TO_MLX[dtype], defaultStream()), "astype");
+    });
   }
 
   /** Whether this array has already been disposed. */
@@ -362,53 +366,53 @@ export class MxArray implements Disposable {
 
   /** Make the array contiguous in row-major order. */
   private _makeContiguous(): MxArray {
-    const out = prepareOut();
-    checkStatus(ffi.mlx_contiguous(out, this._ctx, false, defaultStream()), "contiguous");
-    return MxArray._fromCtx(readOut());
+    return readResultArray("contiguous", (out) => {
+      checkStatus(ffi.mlx_contiguous(out, this._ctx, false, defaultStream()), "contiguous");
+    });
   }
 }
 
 /** Create an array filled with zeros. */
 export function zeros(shape: number[], dtype: DType = "float32"): MxArray {
   const shapeArray = new Int32Array(shape);
-  const out = prepareOut();
-  checkStatus(
-    ffi.mlx_zeros(out, ptr(shapeArray), shape.length, DTYPE_TO_MLX[dtype], defaultStream()),
-    "zeros",
-  );
-  return MxArray._fromCtx(readOut());
+  return readResultArray("zeros", (out) => {
+    checkStatus(
+      ffi.mlx_zeros(out, ptr(shapeArray), shape.length, DTYPE_TO_MLX[dtype], defaultStream()),
+      "zeros",
+    );
+  });
 }
 
 /** Create an array filled with ones. */
 export function ones(shape: number[], dtype: DType = "float32"): MxArray {
   const shapeArray = new Int32Array(shape);
-  const out = prepareOut();
-  checkStatus(
-    ffi.mlx_ones(out, ptr(shapeArray), shape.length, DTYPE_TO_MLX[dtype], defaultStream()),
-    "ones",
-  );
-  return MxArray._fromCtx(readOut());
+  return readResultArray("ones", (out) => {
+    checkStatus(
+      ffi.mlx_ones(out, ptr(shapeArray), shape.length, DTYPE_TO_MLX[dtype], defaultStream()),
+      "ones",
+    );
+  });
 }
 
 /** Create an array filled with a constant value. */
 export function full(shape: number[], value: number, dtype: DType = "float32"): MxArray {
   const shapeArray = new Int32Array(shape);
   const valueHandle = createScalarHandle(value, dtype);
-  const out = prepareOut();
 
   try {
-    checkStatus(
-      ffi.mlx_full(
-        out,
-        ptr(shapeArray),
-        shape.length,
-        valueHandle,
-        DTYPE_TO_MLX[dtype],
-        defaultStream(),
-      ),
-      "full",
-    );
-    return MxArray._fromCtx(readOut());
+    return readResultArray("full", (out) => {
+      checkStatus(
+        ffi.mlx_full(
+          out,
+          ptr(shapeArray),
+          shape.length,
+          valueHandle,
+          DTYPE_TO_MLX[dtype],
+          defaultStream(),
+        ),
+        "full",
+      );
+    });
   } finally {
     ffi.mlx_array_free(valueHandle);
   }
@@ -416,17 +420,17 @@ export function full(shape: number[], value: number, dtype: DType = "float32"): 
 
 /** Create an array with evenly spaced values. */
 export function arange(start: number, stop: number, step = 1, dtype: DType = "float32"): MxArray {
-  const out = prepareOut();
-  checkStatus(
-    ffi.mlx_arange(out, start, stop, step, DTYPE_TO_MLX[dtype], defaultStream()),
-    "arange",
-  );
-  return MxArray._fromCtx(readOut());
+  return readResultArray("arange", (out) => {
+    checkStatus(
+      ffi.mlx_arange(out, start, stop, step, DTYPE_TO_MLX[dtype], defaultStream()),
+      "arange",
+    );
+  });
 }
 
 /** Create an MxArray from a JavaScript number or array data. */
 export function array(
-  data: number | NumericArrayData | Float32Array | Int32Array | Uint8Array,
+  data: number | NumericArrayData | SupportedTypedArray,
   dtype?: DType,
 ): MxArray {
   if (typeof data === "number") {
@@ -443,39 +447,51 @@ export function array(
  * disposal ownership with their inputs.
  */
 export function retainArray(source: MxArray): MxArray {
-  const outBuf = new Uint8Array(8);
-  const out = ptr(outBuf);
-  checkStatus(ffi.mlx_array_set(out, source._ctx), "array_set");
-  return MxArray._fromCtx(readLocalOut(out, "retained array"));
+  return readResultArray("retained array", (out) => {
+    checkStatus(ffi.mlx_array_set(out, source._ctx), "array_set");
+  });
 }
 
-function normalizeInput(
-  data: NumericArrayData | Float32Array | Int32Array | Uint8Array,
+const TYPED_ARRAY_MATCHERS: readonly TypedArrayMatcher[] = [
+  { dtype: "float32", is: (value): value is Float32Array => value instanceof Float32Array },
+  { dtype: "float64", is: (value): value is Float64Array => value instanceof Float64Array },
+  { dtype: "int8", is: (value): value is Int8Array => value instanceof Int8Array },
+  { dtype: "int16", is: (value): value is Int16Array => value instanceof Int16Array },
+  { dtype: "int32", is: (value): value is Int32Array => value instanceof Int32Array },
+  { dtype: "uint8", is: (value): value is Uint8Array => value instanceof Uint8Array },
+  { dtype: "uint16", is: (value): value is Uint16Array => value instanceof Uint16Array },
+  { dtype: "uint32", is: (value): value is Uint32Array => value instanceof Uint32Array },
+];
+
+function isSupportedTypedArray(value: unknown): value is SupportedTypedArray {
+  return TYPED_ARRAY_MATCHERS.some((matcher) => matcher.is(value));
+}
+
+function normalizeTypedArrayInput(
+  data: SupportedTypedArray,
   shape?: number[],
   dtype?: DType,
 ): NormalizedInput {
-  if (data instanceof Float32Array) {
-    return {
-      values: Array.from(data),
-      inferredShape: shape ?? [data.length],
-      inferredDtype: dtype ?? "float32",
-    };
+  for (const matcher of TYPED_ARRAY_MATCHERS) {
+    if (matcher.is(data)) {
+      return {
+        values: Array.from(data),
+        inferredShape: shape ?? [data.length],
+        inferredDtype: dtype ?? matcher.dtype,
+      };
+    }
   }
 
-  if (data instanceof Int32Array) {
-    return {
-      values: Array.from(data),
-      inferredShape: shape ?? [data.length],
-      inferredDtype: dtype ?? "int32",
-    };
-  }
+  throw new Error("normalizeTypedArrayInput: unsupported typed array");
+}
 
-  if (data instanceof Uint8Array) {
-    return {
-      values: Array.from(data),
-      inferredShape: shape ?? [data.length],
-      inferredDtype: dtype ?? "uint8",
-    };
+function normalizeInput(
+  data: NumericArrayData | SupportedTypedArray,
+  shape?: number[],
+  dtype?: DType,
+): NormalizedInput {
+  if (isSupportedTypedArray(data)) {
+    return normalizeTypedArrayInput(data, shape, dtype);
   }
 
   const { flat, inferredShape } = flattenArray(data);

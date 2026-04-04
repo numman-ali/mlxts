@@ -1,7 +1,7 @@
 /**
  * End-to-end integration test: MLP trains to convergence on XOR.
  *
- * This exercises the exact training shape Phase 4 will use:
+ * This exercises the exact training shape the repo now uses:
  * integer targets, crossEntropy loss, multi-class logits, nn.valueAndGrad,
  * and optimizer parameter updates.
  */
@@ -51,7 +51,7 @@ describe("MLP convergence on XOR", () => {
     const Y = array([0, 1, 1, 0], "int32"); // Integer class labels
 
     const model = new MLP();
-    using optimizer = new SGD(0.1);
+    using optimizer = new SGD({ learningRate: 0.1 });
 
     const lossFn = (x: MxArray, y: MxArray) => crossEntropy(model.forward(x), y);
     const trainStep = valueAndGrad(model, lossFn);

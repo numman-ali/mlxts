@@ -6,20 +6,28 @@
   ],
   "scripts": {
     "typecheck": "bun run --filter '*' typecheck",
-    "lint": "biome check .",
+    "lint": "biome check --error-on-warnings .",
     "lint:fix": "biome check --write .",
     "format": "biome format --write .",
     "test": "bun run --filter '*' test",
     "test:coverage": "bun run --filter '*' test:coverage",
     "build": "bun run --filter '*' build",
     "check:assertions": "bun run scripts/check-type-assertions.ts",
+    "check:tensor-lifetimes": "bun run scripts/check-visible-tensor-lifetimes.ts",
+    "check:runtime-review": "bun run scripts/check-runtime-review.ts",
     "check:coverage": "bun run scripts/check-coverage.ts",
-    "validate": "bun run typecheck && bun run lint && bun run check:assertions && bun run check:coverage",
+    "bench:memory": "bun run packages/nanogpt/src/bench/memory.ts",
+    "soak:gpt-tiny": "bun run packages/nanogpt/src/run/soak.ts --preset gpt-tiny",
+    "soak:gpt-small": "bun run packages/nanogpt/src/run/soak.ts --preset gpt-small",
+    "acceptance:gpt-tiny": "bun run packages/nanogpt/src/run/acceptance.ts --preset gpt-tiny",
+    "acceptance:gpt-small": "bun run packages/nanogpt/src/run/acceptance.ts --preset gpt-small",
+    "run:nanogpt": "bun run packages/nanogpt/src/run/manager.ts",
+    "validate": "bun run typecheck && bun run lint && bun run check:assertions && bun run check:tensor-lifetimes && bun run check:runtime-review && bun run check:coverage",
     "prepare": "bun run .hooks/install.ts"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.4.10",
-    "bun-types": "^1.3.11",
+    "@types/bun": "^1.3.4",
     "typescript": "^6.0.2"
   }
 }

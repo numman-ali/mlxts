@@ -27,7 +27,7 @@ class TestModel extends Module {
 describe("SGD", () => {
   test("basic step: param -= lr * grad", () => {
     const model = new TestModel([10]);
-    const optimizer = new SGD(0.1);
+    const optimizer = new SGD({ learningRate: 0.1 });
 
     const grads = { weight: array([2]) };
     optimizer.update(model, grads);
@@ -48,7 +48,7 @@ describe("SGD", () => {
 
   test("momentum accumulates velocity across steps", () => {
     const model = new TestModel([10]);
-    const optimizer = new SGD(0.1, 0.9);
+    const optimizer = new SGD({ learningRate: 0.1, momentum: 0.9 });
 
     // Step 1: v = 0.9*0 + 2 = 2; param = 10 - 0.1*2 = 9.8
     const grads1 = { weight: array([2]) };
@@ -78,7 +78,7 @@ describe("SGD", () => {
 
   test("weight decay adds L2 penalty to gradient", () => {
     const model = new TestModel([10]);
-    const optimizer = new SGD(0.1, 0, 0.1);
+    const optimizer = new SGD({ learningRate: 0.1, weightDecay: 0.1 });
 
     // effectiveGrad = 1 + 0.1 * 10 = 2
     // param = 10 - 0.1 * 2 = 9.8
@@ -100,7 +100,7 @@ describe("SGD", () => {
 
   test("throws on gradient path mismatch", () => {
     const model = new TestModel([10]);
-    const optimizer = new SGD(0.1);
+    const optimizer = new SGD({ learningRate: 0.1 });
 
     const badGrads = { bogus: array([1]) };
     expect(() => optimizer.update(model, badGrads)).toThrow('no gradient for parameter "weight"');
@@ -116,7 +116,7 @@ describe("SGD", () => {
 
   test("dispose clears optimizer state", () => {
     const model = new TestModel([10]);
-    const optimizer = new SGD(0.1, 0.9);
+    const optimizer = new SGD({ learningRate: 0.1, momentum: 0.9 });
 
     const grads = { weight: array([2]) };
     optimizer.update(model, grads);

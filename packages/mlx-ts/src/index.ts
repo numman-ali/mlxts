@@ -13,10 +13,42 @@ export type { NestedArray } from "./core/array";
 export { arange, array, full, MxArray, ones, zeros } from "./core/array";
 export type { DeviceType } from "./core/device";
 // --- Device ---
-export { getDefaultDevice, setDefaultDevice } from "./core/device";
+export {
+  deviceCount,
+  getDefaultDevice,
+  isDeviceAvailable,
+  setDefaultDevice,
+  synchronize,
+} from "./core/device";
 export type { DType } from "./core/dtype";
+export { INTEGER_DTYPES, isIntegerDType } from "./core/dtype";
 export { MxError } from "./core/error";
-export type { Operand } from "./core/ops";
+export type {
+  FastLayerNormOptions,
+  ScaledDotProductAttentionMaskMode,
+  ScaledDotProductAttentionOptions,
+} from "./core/fast";
+// --- Fast fused operations ---
+// biome-ignore lint/performance/noReExportAll: Intentional namespace re-export — matches MLX Python's mx.fast API pattern
+export * as fast from "./core/fast";
+export { layerNorm as fastLayerNorm, scaledDotProductAttention } from "./core/fast";
+export type { LoadedSafetensors } from "./core/io";
+export { loadSafetensors, saveSafetensors } from "./core/io";
+export type { MemoryStats } from "./core/memory";
+export {
+  clearMemoryCache,
+  getActiveMemoryBytes,
+  getCacheMemoryBytes,
+  getMemoryLimitBytes,
+  getMemoryStats,
+  getPeakMemoryBytes,
+  resetPeakMemory,
+  setCacheLimitBytes,
+  setMemoryLimitBytes,
+  setWiredLimitBytes,
+} from "./core/memory";
+export { isMetalAvailable, startMetalCapture, stopMetalCapture } from "./core/metal";
+export type { Operand, SoftmaxOptions } from "./core/ops";
 // --- Operations ---
 export {
   abs,
@@ -24,7 +56,7 @@ export {
   add,
   argmax,
   argmin,
-  astype,
+  asType,
   broadcastTo,
   concatenate,
   divide,
@@ -56,6 +88,7 @@ export {
   reshape,
   sigmoid,
   softmax,
+  split,
   sqrt,
   square,
   squeeze,
@@ -68,13 +101,27 @@ export {
   takeAxis,
   tanh,
   transpose,
+  tril,
+  triu,
   where,
 } from "./core/ops";
 // --- Random ---
 // biome-ignore lint/performance/noReExportAll: Intentional namespace re-export — matches MLX Python's mx.random.normal() API pattern
 export * as random from "./core/random";
 // --- Transforms ---
-export { grad, mxEval, valueAndGrad } from "./core/transforms";
+export type { CompileMode } from "./core/transforms";
+export {
+  checkpoint,
+  clearCompileCache,
+  compile,
+  disableCompile,
+  enableCompile,
+  grad,
+  mxAsyncEval,
+  mxEval,
+  setCompileMode,
+  valueAndGrad,
+} from "./core/transforms";
 // --- Neural network ---
 // biome-ignore lint/performance/noReExportAll: Intentional namespace re-export — matches MLX Python's nn.Module API pattern
 export * as nn from "./nn";
@@ -91,9 +138,14 @@ export {
   relu,
   silu,
 } from "./nn";
+export type { AdamWCheckpoint } from "./optimizers";
 // --- Optimizers ---
 // biome-ignore lint/performance/noReExportAll: Intentional namespace re-export — matches MLX Python's optimizers API pattern
 export * as optimizers from "./optimizers";
 export { Adam, AdamW, SGD } from "./optimizers";
+export { formatShape } from "./utils/format-shape";
+// --- Tree utilities (for gradient manipulation in training loops) ---
+export type { FlatEntry, ParameterTree } from "./utils/tree";
+export { treeFlatten, treeLeaves, treeMap, treeUnflatten } from "./utils/tree";
 
 export const VERSION = "0.0.1";

@@ -3,6 +3,9 @@
   "version": "0.0.1",
   "type": "module",
   "main": "src/index.ts",
+  "bin": {
+    "nanogpt": "src/cli.ts"
+  },
   "dependencies": {
     "mlx-ts": "workspace:*"
   },
@@ -10,6 +13,11 @@
     "typecheck": "tsc --noEmit",
     "test": "bun test",
     "test:coverage": "bun test --coverage",
-    "build": "echo 'TODO: build'"
+    "build": "echo 'TODO: build'",
+    "bench:memory": "bun run src/bench/memory.ts",
+    "soak:tiny": "bun run src/run/soak.ts --preset gpt-tiny",
+    "soak:small": "bun run src/run/soak.ts --preset gpt-small",
+    "acceptance:tiny": "bun run src/run/acceptance.ts --preset gpt-tiny",
+    "acceptance:small": "bun run src/run/acceptance.ts --preset gpt-small"
   }
 }

@@ -29,6 +29,11 @@ export class Dropout extends Module {
     this.#p = p;
   }
 
+  /** Configured dropout probability. */
+  get probability(): number {
+    return this.#p;
+  }
+
   /**
    * Apply dropout.
    *

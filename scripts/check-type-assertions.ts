@@ -9,45 +9,55 @@
  * - `as const` and `as const satisfies` (TypeScript const assertions)
  * - Import/export aliases (`import { x as y }`, `export * as ns`)
  * - Lines inside comments (// or /* *\/)
- * - Files: src/core/ffi/ (FFI boundary package), *.test.ts (tests)
+ * - Files: any package `src/core/ffi/` boundary and `*.test.ts[x]` test files
  *
  * Exit code 0 = clean, 1 = violations found.
  */
 
 import { Glob } from "bun";
+import ts from "typescript";
 
-const SCAN_DIR = "packages/mlx-ts/src";
-const EXCLUDED_FILES = /\/(ffi\/.*\.ts|.*\.test\.ts)$/;
+const SOURCE_GLOBS = ["packages/*/src/**/*.ts", "packages/*/src/**/*.tsx"];
+const EXCLUDED_FILES = /packages\/[^/]+\/src\/core\/ffi\/.*\.tsx?$|.*\.test\.tsx?$/;
 
-// Match ` as <type>` but not `as const`, import/export aliases, or comments
-const TYPE_ASSERTION_RE = /\bas\s+(?!const\b)[A-Za-z]/;
-const COMMENT_LINE_RE = /^\s*(\/\/|\/\*|\*)/;
-const IMPORT_EXPORT_RE = /^\s*(import|export)\b/;
-
-const glob = new Glob("**/*.ts");
 const violations: string[] = [];
+const seenFiles = new Set<string>();
 
-for await (const path of glob.scan(SCAN_DIR)) {
-  const fullPath = `${SCAN_DIR}/${path}`;
+function isConstAssertion(node: ts.AsExpression, sourceFile: ts.SourceFile): boolean {
+  return node.type.getText(sourceFile) === "const";
+}
 
-  if (EXCLUDED_FILES.test(fullPath)) continue;
-
-  const content = await Bun.file(fullPath).text();
-  const lines = content.split("\n");
-
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i] ?? "";
-
-    // Skip comment lines
-    if (COMMENT_LINE_RE.test(line)) continue;
-
-    // Skip import/export lines (aliases, not assertions)
-    if (IMPORT_EXPORT_RE.test(line)) continue;
-
-    // Check for type assertions
-    if (TYPE_ASSERTION_RE.test(line)) {
-      violations.push(`${fullPath}:${i + 1}: ${line.trim()}`);
+function collectTypeAssertions(sourceFile: ts.SourceFile, fullPath: string): void {
+  function visit(node: ts.Node): void {
+    if (ts.isAsExpression(node) && !isConstAssertion(node, sourceFile)) {
+      const position = sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile));
+      violations.push(
+        `${fullPath}:${position.line + 1}:${position.character + 1}: ${node.getText(sourceFile)}`,
+      );
     }
+
+    ts.forEachChild(node, visit);
+  }
+
+  visit(sourceFile);
+}
+
+for (const sourceGlob of SOURCE_GLOBS) {
+  const glob = new Glob(sourceGlob);
+  for await (const fullPath of glob.scan(".")) {
+    if (seenFiles.has(fullPath) || EXCLUDED_FILES.test(fullPath)) continue;
+    seenFiles.add(fullPath);
+
+    const content = await Bun.file(fullPath).text();
+    const sourceFile = ts.createSourceFile(
+      fullPath,
+      content,
+      ts.ScriptTarget.Latest,
+      true,
+      fullPath.endsWith(".tsx") ? ts.ScriptKind.TSX : ts.ScriptKind.TS,
+    );
+
+    collectTypeAssertions(sourceFile, fullPath);
   }
 }
 
@@ -56,7 +66,9 @@ if (violations.length > 0) {
   for (const v of violations) {
     console.error(`  ${v}`);
   }
-  console.error("\nType assertions (as SomeType) are not allowed outside src/core/ffi/.");
+  console.error(
+    "\nType assertions (as SomeType) are not allowed outside packages/*/src/core/ffi/.",
+  );
   console.error("Use runtime checks, type narrowing, or improve the type design instead.");
   process.exit(1);
 } else {

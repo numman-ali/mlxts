@@ -9,7 +9,13 @@
  */
 
 // --- Closure bridge (internal, not re-exported from public index.ts) ---
-export { extractAllArrays, extractSingleArray, type GradFn, withClosure } from "./closure-bridge";
+export {
+  extractAllArrays,
+  extractSingleArray,
+  type GradFn,
+  ReusableClosure,
+  withClosure,
+} from "./closure-bridge";
 // --- Native library symbols ---
 export { ffi } from "./lib";
 

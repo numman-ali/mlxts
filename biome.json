@@ -19,7 +19,8 @@
         "noNonNullAssertion": "error",
         "useConst": "error",
         "useImportType": "error",
-        "noEnum": "error"
+        "noEnum": "error",
+        "useNodejsImportProtocol": "off"
       },
       "suspicious": {
         "noExplicitAny": "error",
@@ -50,6 +51,9 @@
       "**/*.tsx",
       "**/*.js",
       "**/*.json",
+      "!**/.nanogpt-cache",
+      "!**/.nanogpt-checkpoints",
+      "!**/.nanogpt-runs",
       "!packages/mlx-ts/native/build",
       "!packages/mlx-ts/native/lib"
     ]

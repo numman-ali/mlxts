@@ -1,18 +1,20 @@
 /**
- * Runs package coverage and enforces the mlx-ts quality gate.
+ * Runs package coverage and enforces the repo quality gates.
  *
- * Bun can emit LCOV reports but does not provide a built-in threshold gate,
- * so this script runs coverage for each workspace package and verifies that
- * mlx-ts stays above the required minimums.
+ * Bun now supports built-in coverage thresholds, but this repo keeps a custom
+ * package-aware gate so we can enforce different thresholds per workspace and
+ * print the weakest source files directly. Long soak and acceptance runs remain
+ * separate from this fast gate.
  */
 
-import { spawnSync } from "node:child_process";
-import { existsSync, readFileSync, rmSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync, readFileSync, rmSync } from "fs";
+import { join } from "path";
 
 type CoverageTotals = {
   functionsFound: number;
   functionsHit: number;
+  branchesFound: number;
+  branchesHit: number;
   linesFound: number;
   linesHit: number;
 };
@@ -21,6 +23,8 @@ type FileCoverage = {
   path: string;
   functionsFound: number;
   functionsHit: number;
+  branchesFound: number;
+  branchesHit: number;
   linesFound: number;
   linesHit: number;
 };
@@ -31,6 +35,7 @@ type PackageConfig = {
   coverageDir: string;
   thresholds?: {
     functions: number;
+    branches?: number;
     lines: number;
   };
 };
@@ -42,12 +47,13 @@ const PACKAGES: PackageConfig[] = [
     name: "mlx-ts",
     cwd: join(PROJECT_ROOT, "packages", "mlx-ts"),
     coverageDir: join(PROJECT_ROOT, "coverage", "mlx-ts"),
-    thresholds: { lines: 95, functions: 90 },
+    thresholds: { lines: 95, functions: 90, branches: 85 },
   },
   {
     name: "nanogpt",
     cwd: join(PROJECT_ROOT, "packages", "nanogpt"),
     coverageDir: join(PROJECT_ROOT, "coverage", "nanogpt"),
+    thresholds: { lines: 90, functions: 85, branches: 85 },
   },
 ];
 
@@ -61,6 +67,8 @@ function percent(hit: number, found: number): number {
 function emptyFileCoverage(): FileCoverage {
   return {
     path: "",
+    branchesFound: 0,
+    branchesHit: 0,
     functionsFound: 0,
     functionsHit: 0,
     linesFound: 0,
@@ -75,6 +83,10 @@ function parseRecordLine(fileCoverage: FileCoverage, line: string): void {
     fileCoverage.functionsFound = Number(line.slice(4));
   } else if (line.startsWith("FNH:")) {
     fileCoverage.functionsHit = Number(line.slice(4));
+  } else if (line.startsWith("BRF:")) {
+    fileCoverage.branchesFound = Number(line.slice(4));
+  } else if (line.startsWith("BRH:")) {
+    fileCoverage.branchesHit = Number(line.slice(4));
   } else if (line.startsWith("LF:")) {
     fileCoverage.linesFound = Number(line.slice(3));
   } else if (line.startsWith("LH:")) {
@@ -109,31 +121,77 @@ function parseLcov(lcovPath: string): { files: FileCoverage[]; totals: CoverageT
 
   const totals = files.reduce<CoverageTotals>(
     (acc, file) => ({
+      branchesFound: acc.branchesFound + file.branchesFound,
+      branchesHit: acc.branchesHit + file.branchesHit,
       functionsFound: acc.functionsFound + file.functionsFound,
       functionsHit: acc.functionsHit + file.functionsHit,
       linesFound: acc.linesFound + file.linesFound,
       linesHit: acc.linesHit + file.linesHit,
     }),
-    { functionsFound: 0, functionsHit: 0, linesFound: 0, linesHit: 0 },
+    {
+      branchesFound: 0,
+      branchesHit: 0,
+      functionsFound: 0,
+      functionsHit: 0,
+      linesFound: 0,
+      linesHit: 0,
+    },
   );
 
   return { files, totals };
 }
 
-function runCoverage(pkg: PackageConfig): { files: FileCoverage[]; totals: CoverageTotals } {
-  rmSync(pkg.coverageDir, { recursive: true, force: true });
+function isPackageSourceFile(pkg: PackageConfig, filePath: string): boolean {
+  const normalized = filePath.replaceAll("\\", "/");
+  const isSourcePath =
+    normalized.startsWith("src/") || normalized.includes(`/packages/${pkg.name}/src/`);
+  if (!isSourcePath) {
+    return false;
+  }
+  return !normalized.endsWith(".test.ts");
+}
 
-  const result = spawnSync(
-    "bun",
-    ["test", "--coverage", "--coverage-reporter=lcov", `--coverage-dir=${pkg.coverageDir}`],
+function filterPackageFiles(
+  pkg: PackageConfig,
+  files: FileCoverage[],
+): { files: FileCoverage[]; totals: CoverageTotals } {
+  const packageFiles = files.filter((file) => isPackageSourceFile(pkg, file.path));
+  const totals = packageFiles.reduce<CoverageTotals>(
+    (acc, file) => ({
+      branchesFound: acc.branchesFound + file.branchesFound,
+      branchesHit: acc.branchesHit + file.branchesHit,
+      functionsFound: acc.functionsFound + file.functionsFound,
+      functionsHit: acc.functionsHit + file.functionsHit,
+      linesFound: acc.linesFound + file.linesFound,
+      linesHit: acc.linesHit + file.linesHit,
+    }),
     {
-      cwd: pkg.cwd,
-      stdio: "inherit",
+      branchesFound: 0,
+      branchesHit: 0,
+      functionsFound: 0,
+      functionsHit: 0,
+      linesFound: 0,
+      linesHit: 0,
     },
   );
 
-  if (result.status !== 0) {
-    process.exit(result.status ?? 1);
+  return { files: packageFiles, totals };
+}
+
+function runCoverage(pkg: PackageConfig): { files: FileCoverage[]; totals: CoverageTotals } {
+  rmSync(pkg.coverageDir, { recursive: true, force: true });
+
+  const result = Bun.spawnSync(
+    ["bun", "test", "--coverage", "--coverage-reporter=lcov", `--coverage-dir=${pkg.coverageDir}`],
+    {
+      cwd: pkg.cwd,
+      stdout: "inherit",
+      stderr: "inherit",
+    },
+  );
+
+  if (result.exitCode !== 0) {
+    process.exit(result.exitCode);
   }
 
   const lcovPath = join(pkg.coverageDir, "lcov.info");
@@ -141,21 +199,29 @@ function runCoverage(pkg: PackageConfig): { files: FileCoverage[]; totals: Cover
     throw new Error(`Coverage report not found for ${pkg.name}: ${lcovPath}`);
   }
 
-  return parseLcov(lcovPath);
+  const parsed = parseLcov(lcovPath);
+  return filterPackageFiles(pkg, parsed.files);
 }
 
 function printSummary(pkg: PackageConfig, totals: CoverageTotals): void {
   const linePercent = percent(totals.linesHit, totals.linesFound);
   const functionPercent = percent(totals.functionsHit, totals.functionsFound);
+  const branchPercent = percent(totals.branchesHit, totals.branchesFound);
+  const hasBranchData = totals.branchesFound > 0 || totals.branchesHit > 0;
   const gateLabel =
     pkg.thresholds === undefined
       ? "report-only"
-      : `gate ${pkg.thresholds.lines}% lines / ${pkg.thresholds.functions}% funcs`;
+      : hasBranchData && pkg.thresholds.branches !== undefined
+        ? `gate ${pkg.thresholds.lines}% lines / ${pkg.thresholds.functions}% funcs / ${pkg.thresholds.branches}% branches`
+        : `gate ${pkg.thresholds.lines}% lines / ${pkg.thresholds.functions}% funcs (branch data unavailable)`;
 
   console.log("");
   console.log(
     `${pkg.name} coverage: ${linePercent.toFixed(2)}% lines, ${functionPercent.toFixed(2)}% funcs (${gateLabel})`,
   );
+  if (hasBranchData) {
+    console.log(`Branch coverage: ${branchPercent.toFixed(2)}%`);
+  }
 }
 
 function printWeakestFiles(files: FileCoverage[]): void {
@@ -188,13 +254,29 @@ for (const pkg of PACKAGES) {
 
   const linePercent = percent(totals.linesHit, totals.linesFound);
   const functionPercent = percent(totals.functionsHit, totals.functionsFound);
+  const branchPercent = percent(totals.branchesHit, totals.branchesFound);
+  const hasBranchData = totals.branchesFound > 0 || totals.branchesHit > 0;
 
-  if (linePercent < pkg.thresholds.lines || functionPercent < pkg.thresholds.functions) {
+  if (
+    linePercent < pkg.thresholds.lines ||
+    functionPercent < pkg.thresholds.functions ||
+    (hasBranchData &&
+      pkg.thresholds.branches !== undefined &&
+      branchPercent < pkg.thresholds.branches)
+  ) {
     failed = true;
     console.error(
-      `${pkg.name} coverage gate failed: expected at least ${pkg.thresholds.lines}% lines and ${pkg.thresholds.functions}% funcs.`,
+      `${pkg.name} coverage gate failed: expected at least ${pkg.thresholds.lines}% lines and ${pkg.thresholds.functions}% funcs${
+        hasBranchData && pkg.thresholds.branches !== undefined
+          ? ` and ${pkg.thresholds.branches}% branches`
+          : ""
+      }.`,
     );
     printWeakestFiles(files);
+  } else if (pkg.thresholds.branches !== undefined && !hasBranchData) {
+    console.log(
+      `${pkg.name} coverage: branch data unavailable in LCOV output, so the branch threshold was not enforced.`,
+    );
   }
 }
 

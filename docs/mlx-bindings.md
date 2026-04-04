@@ -79,17 +79,29 @@ All symbols are loaded via a single `dlopen` call with grouped constants spread 
 ```typescript
 // src/core/ops/linalg.ts
 export function matmul(a: MxArray, b: MxArray, stream?: S): MxArray {
-  const out = prepareOut();
-  checkStatus(ffi.mlx_matmul(out, a._ctx, b._ctx, s(stream)), "matmul");
-  return MxArray._fromCtx(readOut());
+  return readResultArray("matmul", (out) => {
+    checkStatus(ffi.mlx_matmul(out, a._ctx, b._ctx, s(stream)), "matmul");
+  });
 }
 ```
 
-The `prepareOut()` / `readOut()` pair manages a shared 8-byte output buffer for the `mlx_array*` result pointer. `checkStatus()` throws a typed `MxError` on non-zero return codes.
+`readResultArray()` creates a fresh `OutSlot` per call, which keeps the FFI layer reentrant and makes result ownership explicit. `checkStatus()` throws a typed `MxError` on non-zero return codes.
 
 ## mlx-c API Surface
 
 The following catalogs the mlx-c functions we need, verified against the v0.6.0 source.
+
+### Binding expansion policy
+
+We expand the binding surface deliberately, not randomly.
+
+- **Family-complete over one-off symbols.** If we decide to bring in `fast.h`, `compile.h`, or another header family, we organize it cleanly under `src/core/ffi/` and document the family as a coherent surface.
+- **Official mlx-c first.** The default bridge is Apple's C API. We do not add local native shims just because they feel convenient.
+- **Upstream before local shims.** If the right capability is missing or awkward in mlx-c, prefer a precise upstream issue or PR before creating local native code.
+- **Local native shims are a last resort.** If we ever need them, they belong in a dedicated shim layer rather than being mixed into the ordinary FFI mapping.
+- **Runtime controls matter.** `memory.h`, `fast.h`, `compile.h`, and transform/runtime controls are first-class binding families because they affect correctness, performance, and operator trust.
+
+The mirror image of this policy is just as important: a correct FFI symbol declaration is not enough on its own. JS-side tensor lifetime discipline still matters above the FFI layer.
 
 ### Priority 1 — Required for nanoGPT
 
@@ -188,11 +200,20 @@ Note the two calling conventions:
 | `mlx_compile` | JIT compilation |
 | `mlx_checkpoint` | Gradient checkpointing |
 
+**Runtime and operational controls:**
+| mlx-c Function Family | Purpose |
+|---|---|
+| `memory.h` | Active/cache/peak memory telemetry and allocator limits |
+| `device.h` / `stream.h` | Device availability, default stream/device, explicit synchronization |
+| `metal.h` | Metal availability and profiling / capture hooks |
+
 **I/O:**
 | mlx-c Function | Purpose |
 |---|---|
 | `mlx_load_safetensors` | Load model weights |
 | `mlx_save_safetensors` | Save model weights |
+
+Today the repo's public safetensors surface is implemented in TypeScript in `src/core/io.ts`, not through a direct `io.h` binding. That choice is deliberate: the current `mlx-c` I/O surface returns map iterators that are awkward to model directly in Bun FFI without adding a native shim layer. The canonical operator checkpoint format stays separate from safetensors either way: safetensors is for model-weight interop, not resumable training state.
 
 ### Priority 2 — Nice to have
 
@@ -351,7 +372,7 @@ All symbols are loaded via a single `dlopen` in `src/core/ffi/lib.ts`:
 
 ```typescript
 import { dlopen, FFIType } from "bun:ffi";
-import { resolve } from "node:path";
+import { resolve } from "path";
 
 const DYLIB_PATH = resolve(import.meta.dirname, "../../native/lib/libmlxc.dylib");
 

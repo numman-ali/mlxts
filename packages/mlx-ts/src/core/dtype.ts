@@ -93,3 +93,20 @@ export const DTYPE_TYPED_ARRAY = {
   uint16: Uint16Array,
   uint32: Uint32Array,
 } as const;
+
+/** Integer dtypes accepted for index and target tensors. */
+export const INTEGER_DTYPES = new Set<DType>([
+  "int8",
+  "int16",
+  "int32",
+  "int64",
+  "uint8",
+  "uint16",
+  "uint32",
+  "uint64",
+]);
+
+/** Whether a dtype is an integer dtype. */
+export function isIntegerDType(dtype: DType): boolean {
+  return INTEGER_DTYPES.has(dtype);
+}

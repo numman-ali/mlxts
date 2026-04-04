@@ -136,8 +136,9 @@ abstract class Module implements Disposable {
 // The key list is cached after the first scan, so public parameter and
 // sub-module fields must be established during construction.
 // Internal state uses #private fields (invisible to scanning).
-// Shared public parameter aliases are not supported yet; Phase 4 will
-// add explicit weight-tying semantics when the transformer output head lands.
+// Shared public parameter aliases are not supported. Functional weight tying
+// should stay functional (for example via Embedding.asLinear()) until the
+// parameter tree and optimizer layers grow explicit alias semantics.
 
 class Linear extends Module {
   weight: MxArray        // scanned as parameter
@@ -155,6 +156,9 @@ class Linear extends Module {
 - Implements GPT-2 architecture
 - Training loop, data loading, text generation
 - Configurable model sizes
+- Canonical long-run operator surface under `src/run/` for supervised start/status/stop/resume flows
+
+`mlx-ts` remains the reusable foundation. `nanogpt` is the reference model/application layer built on top of it. Reusable model families should move into their own package only when there is a second real consumer or a second model family that justifies the split.
 
 ## Memory Management
 
@@ -294,12 +298,14 @@ Since graph construction is lazy (building a graph, not executing GPU kernels), 
 
 4. Optimizer step (TypeScript + FFI)
    → optimizer.update(model, gradients)
-   → mx.eval(model.parameters())  ← forces GPU computation
+   → explicit eval/synchronize of the state or scalars we actually need
 
 5. Log and repeat
 ```
 
 Steps 2-4 are mostly GPU work dispatched via Metal. The TypeScript layer orchestrates but doesn't do heavy computation.
+
+The important architectural rule is that synchronization stays explicit. Forcing full parameter trees back to the host just to "be safe" is a correctness and performance smell in this repo.
 
 ## Fused Operations (Performance Bonus)
 
@@ -313,3 +319,23 @@ mlx-c exposes optimized fused ops in `mlx/c/fast.h` that are critical for GPT pe
 | RoPE | `mlx_fast_rope` | Rotary positional embeddings — used by modern LLMs |
 
 These fused ops bypass the need to compose from primitives in TypeScript, giving us near-native performance for the most critical transformer operations.
+
+## Runtime-Sensitive Change Posture
+
+The repo treats tensor hot paths, optimizer updates, checkpoint flows, and long-run operator control as runtime-sensitive code. These changes require more than a green test suite:
+
+- local tensor lifetimes must be visible in code
+- sync/eval points must be explicit and justified
+- the diff must leave a review artifact under `docs/reviews/`
+- incident fixes must add a preventive rule, test, benchmark, or validation gate
+- the repo enforces this with `bun run check:tensor-lifetimes`, `bun run check:runtime-review`, `bun run bench:memory`, and the supervised soak ladder
+
+This is part of the architecture, not just process. The stack only stays teachable if the runtime behavior is also reviewable.
+
+## Package Direction After Phase 4
+
+`mlx-ts` remains the reusable foundation: arrays, ops, autograd, runtime controls, nn primitives, and optimizers.
+
+`nanogpt` remains the reference GPT application and operator surface: model wiring, tokenizer, training loop, generation, checkpoints, soak, and acceptance flows.
+
+If reusable model-family code eventually wants its own home, it should move into a separate package such as `packages/lm` or `packages/models`. The split should happen only when there is a second consumer or a second model family that justifies a reusable layer. We do not move GPT-family code into `mlx-ts` itself.

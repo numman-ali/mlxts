@@ -9,25 +9,12 @@
  */
 
 import type { MxArray } from "../core/array";
+import { isIntegerDType } from "../core/dtype";
 import { matmul } from "../core/ops/linalg";
 import { takeAxis, transpose } from "../core/ops/shape";
 import * as random from "../core/random";
+import { formatShape } from "../utils/format-shape";
 import { Module } from "./module";
-
-const INTEGER_DTYPES: ReadonlySet<string> = new Set([
-  "int8",
-  "int16",
-  "int32",
-  "int64",
-  "uint8",
-  "uint16",
-  "uint32",
-  "uint64",
-]);
-
-function formatShape(shape: readonly number[]): string {
-  return shape.length === 0 ? "[]" : `[${shape.join(", ")}]`;
-}
 
 /** Embedding layer: integer indices → dense vectors. */
 export class Embedding extends Module {
@@ -57,7 +44,7 @@ export class Embedding extends Module {
    * @returns Tensor of shape `[...indices.shape, embDim]`.
    */
   forward(indices: MxArray): MxArray {
-    if (!INTEGER_DTYPES.has(indices.dtype)) {
+    if (!isIntegerDType(indices.dtype)) {
       throw new Error(
         `Embedding.forward: indices must be integer dtype (int32, uint32, etc.), got ${indices.dtype}.\n` +
           '  Hint: use array([1, 2, 3], "int32") to create integer indices.',

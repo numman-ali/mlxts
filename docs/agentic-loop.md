@@ -8,6 +8,14 @@ The exact model or tool used for each role may change over time. The workflow ma
 
 This document defines the process.
 
+Runtime-sensitive code gets stricter handling than ordinary feature work. If a change touches production code in `packages/mlx-ts/src/core/`, `packages/mlx-ts/src/nn/`, `packages/mlx-ts/src/optimizers/`, or `packages/nanogpt/src/`, the change is not review-ready until it has:
+
+- a line-by-line runtime audit
+- an independent review by a different agent or human
+- a review artifact under `docs/reviews/`
+- the exact changed runtime-sensitive files listed in the artifact's `Files Reviewed` section
+- any new memory/performance evidence that the change needs
+
 ## The Loop
 
 ```
@@ -126,11 +134,21 @@ Every piece of code or documentation that enters the project must be reviewed by
 ### Validation Gate
 
 - `bun run typecheck` must pass before work moves from implementation to review
-- `bun run validate` is the standard gate: typecheck, lint, assertion checks, and coverage-backed tests
+- `bun run validate` is the standard gate: typecheck, lint, assertion checks, tensor-lifetime checks, runtime-review checks, and coverage-backed tests
+- `bun run check:tensor-lifetimes` enforces a narrow AST-based static check against the anonymous-intermediate leak class in runtime-sensitive code
+- `bun run check:runtime-review` enforces the review artifact requirement for runtime-sensitive diffs and verifies that the artifact names the changed runtime-sensitive files
+- `bun run check:coverage` remains truthful about branch data: it enforces branch thresholds only when LCOV reports them, and otherwise says branch data was unavailable
 - Pre-commit should call `bun run validate` directly rather than maintaining a weaker parallel checklist
 - `mlx-ts` coverage must stay at or above `95%` lines and `90%` functions
+- `nanogpt` coverage must stay at or above `90%` lines and `85%` functions
+- Agents should prefer the smallest meaningful Bun test run while iterating locally, for example `bun test packages/mlx-ts/src/core/fast.test.ts`, before moving back to `bun run validate`
 - Tests, lint, and build remain required, but type errors are treated as design failures, not cosmetic issues
 - Type assertions and `any` do not count as "fixing" a type problem unless they are isolated to a justified boundary such as FFI
+- Acceptance runs for `gpt-tiny` and `gpt-small` are scripted separately from `validate`; they are part of phase sign-off, not pre-commit
+- Long unattended training is validated through the supervised `run:nanogpt` path, not ad hoc one-shot scripts outside the package source tree
+- Runtime-sensitive changes must leave an explicit review record in `docs/reviews/`, including tensor-lifetime notes, the exact files reviewed, and remaining risks
+- If a serious incident is fixed, the same change must also add a preventive rule, test, benchmark, or validation gate so the lesson becomes part of the repo
+- Benchmarks and soak runs stay outside `validate`, but they are still required evidence before long unattended training is considered trustworthy again
 
 ### Spec-First Development
 
@@ -141,6 +159,16 @@ Before implementing, the spec must include:
 3. **Interface** — Public API signatures with types
 4. **Tests** — At minimum, the test cases (can be written before implementation)
 5. **Not included** — Explicit scope boundaries
+
+### Runtime-Sensitive Change Protocol
+
+Use this path for hot-path tensor code, long-run training control, memory behavior, checkpointing, or device/runtime orchestration:
+
+1. Audit the changed file line by line for ownership, disposal, sync/eval points, and hidden operator costs
+2. Get an independent reviewer who did not author the implementation
+3. Record the review in `docs/reviews/`
+4. Add or update the test/benchmark/gate that would have caught the issue earlier
+5. Only then treat the change as ready for normal review
 
 ### Conflict Resolution
 
@@ -190,3 +218,5 @@ Nomi:                 Accept and evaluate generated text quality
 - **Treating smoke tests as full coverage**: Coverage should come from direct unit tests of exported behavior and failure modes, not incidental execution
 - **Using casts to dodge type errors**: Boundary-only assertions can be valid; broad "make TypeScript shut up" casting is not
 - **Over-planning**: Once a spec is approved, build it. Don't redesign in implementation.
+- **Fixing incidents without changing the system**: If a crash, leak, or major performance regression is fixed without adding a preventive rule, test, or gate, the repo has not actually learned anything
+- **Hiding runtime cost in unreadable expressions**: In tensor hot paths, anonymous disposable intermediates and hidden sync points are design smells, not cleverness

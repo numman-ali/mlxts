@@ -33,6 +33,9 @@ packages/mlx-ts/native/lib/
 checkpoints/
 *.safetensors
 *.bin
+.nanogpt-cache/
+.nanogpt-checkpoints/
+.nanogpt-runs/
 
 # Data
 data/
@@ -40,3 +43,7 @@ data/
 
 # Coverage
 coverage/
+
+# Local scratch space
+.tmp/
+.reference/

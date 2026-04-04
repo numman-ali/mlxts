@@ -5,8 +5,8 @@
  * then copies the resulting dylibs to native/lib/ and fixes rpaths
  * so they can find each other at runtime.
  */
-import { existsSync, mkdirSync, readdirSync } from "node:fs";
-import { resolve } from "node:path";
+import { existsSync, mkdirSync, readdirSync } from "fs";
+import { resolve } from "path";
 
 const ROOT = resolve(import.meta.dirname, "..");
 const NATIVE_DIR = resolve(ROOT, "native");

@@ -10,6 +10,10 @@ This project is maintained primarily by AI agents but read and collaborated on b
 
 **Simplicity is not laziness.** The simplest correct solution is the best solution. Cleverness that obscures intent is a defect.
 
+**This repo is forward-only.** Do not keep legacy compatibility layers, deprecated modes, stale file formats, or “just in case” code paths. If we no longer want to support something, remove it cleanly and update the docs in the same change.
+
+**Bun is the runtime.** Do not design for multiple JS runtimes. Prefer Bun-native APIs and Bun runtime semantics. Avoid `node:*` imports; if you need a standard-library helper that Bun already supports, use the neutral module specifier under Bun rather than a Node-branded one.
+
 ## Naming
 
 ### Files
@@ -153,6 +157,41 @@ function trainStep(model: GPT, batch: Batch): number {
 }
 ```
 
+### Keep tensor lifetimes visible
+
+In runtime-sensitive code, do not hide disposable `MxArray` values inside nested expressions.
+
+```typescript
+// Good: every disposable intermediate has a visible lifetime
+using reshaped = reshape(x, [batchSize, sequenceLength, heads, headDim]);
+using transposed = transpose(reshaped, [0, 2, 1, 3]);
+
+// Bad: the inner reshape returns an MxArray that is easy to miss in review
+using transposed = transpose(reshape(x, [batchSize, sequenceLength, heads, headDim]), [0, 2, 1, 3]);
+```
+
+Rules:
+
+- If an operation returns `MxArray` and you are not returning it directly, bind it to a local name.
+- Prefer `using` for lexical ownership and `try/finally` for non-lexical native handle cleanup.
+- Keep `eval()` / `asyncEval()` / `synchronize()` calls explicit and justified. Hidden synchronization is a correctness and performance bug source.
+- Runtime-sensitive code should read linearly to a TypeScript developer who is checking ownership by eye.
+- FFI result-pointer writes must use per-call `OutSlot`-style helpers. Shared reusable output buffers are not allowed.
+- Transforms that hold native resources beyond a single invocation should expose explicit disposal rather than depending on GC timing.
+- `bun run check:tensor-lifetimes` is the fast static backstop for this rule. It is intentionally narrow, AST-based, and should stay high-signal.
+- The canonical tracked tensor-op list lives in `scripts/`; when a new tensor-producing primitive is added, update that list instead of teaching the codebase to ignore the smell.
+
+### Runtime incidents must leave behind a stronger system
+
+When a crash, leak, or major performance regression is fixed, the same change must also add at least one preventive improvement:
+
+- a direct regression test
+- a benchmark or soak script
+- a stricter validation gate
+- a documented repo rule
+
+Fixing the bug is not enough. The repo has to learn from it.
+
 ### No `any` except at the FFI boundary
 
 The FFI boundary package (`src/core/ffi/`) may use `any` or a minimal, documented type assertion where Bun's FFI types require it. Nowhere else. If you're tempted to use either in normal code, the type design needs improvement.
@@ -171,7 +210,7 @@ Public `MxArray` and `Module` fields are scanned as parameters by `Module.parame
 
 The scan keys are cached after the first parameter walk. Public parameter and sub-module fields therefore need to be assigned during construction or as class field initializers before the first call to `parameters()` / `trainableParameters()`.
 
-Shared public parameter aliases are not supported yet. Do not register the same logical parameter through multiple public fields until Phase 4 defines explicit weight-tying semantics for the parameter tree and optimizer layers.
+Shared public parameter aliases are still not supported. Functional weight tying is fine, but do not register the same logical parameter through multiple public fields until the parameter tree and optimizer layers grow explicit alias semantics.
 
 ### Typecheck is part of the contract
 
@@ -227,10 +266,17 @@ export class CausalSelfAttention extends Module {
 ### Coverage is part of the contract
 
 - `mlx-ts` must stay at or above `95%` line coverage and `90%` function coverage
-- Enforced by: `bun run check:coverage`
-- `bun run validate` includes the coverage gate and is the standard pre-commit/review-ready path
+- `nanogpt` must stay at or above `90%` line coverage and `85%` function coverage
+- Enforced by: `bun run check:coverage` for package coverage, plus `bun run check:runtime-review` for runtime-sensitive diffs. If coverage reports branch counters, the gate also enforces branch coverage instead of inventing one.
+- `bun run validate` includes both gates and is the standard pre-commit/review-ready path
 - Prefer tests that exercise real behavior, edge cases, and failure paths over tests written only to bump percentages
 - Dynamic paths count: default-device switching, autograd error propagation, shape/axis variants, and cleanup paths all need explicit coverage
+- Long-running acceptance scripts are separate from `validate`, but the repo should still provide canonical scripted paths for them
+- Long-running training control should be checkpoint-first: graceful stop + resume beats hidden in-memory pause state
+- The supervised run-manager flow under `packages/nanogpt/src/run/` is production code, not glue. Test it, review it, and keep it under the same quality gates as the model code.
+- Snapshot checkpoints are for frequent model saves; resume checkpoints are for exact continuation with optimizer state. Do not blur those meanings in code or docs.
+- Use `bun run bench:memory` and the `bun run soak:gpt-*` ladder before trusting a new hot-path optimization or an overnight run.
+- Runtime-sensitive diffs must add or update a review artifact under `docs/reviews/`. The review record is part of the deliverable, not optional process overhead, and its `Files Reviewed` section must name the exact changed runtime-sensitive files.
 
 ### Test naming
 
@@ -283,12 +329,16 @@ When reviewing code (whether written by a human or an agent), check for:
 
 - [ ] **"Where did we teach TypeScript the truth?"** — not just "did the compiler go green?" Types should express real invariants, not suppress inconvenient errors.
 - [ ] **No type assertions outside `src/core/ffi/`** — if `as` or `!` appears in ops, nn, or application code, the design is incomplete.
+- [ ] **No legacy compatibility scaffolding** — if we are carrying deprecated formats or fallback modes “just in case,” the surface is not clean enough.
 - [ ] **ABI correctness** — FFI symbol declarations in `src/core/ffi/symbols.ts` must match the actual mlx-c header signatures. Creation functions return by value; operations use output pointers; property getters return directly.
 - [ ] **Resource cleanup** — every native handle temporary (`mlx_vector_array`, device handles, RNG key splits) uses `try/finally`.
+- [ ] **Tensor lifetimes are locally visible** — no anonymous disposable `MxArray` intermediates hiding inside nested hot-path expressions.
 - [ ] **`bun run typecheck` passes** — code is not review-ready until static types are clean.
-- [ ] **`bun run check:coverage` passes** — `mlx-ts` stays at or above `95%` lines and `90%` funcs.
+- [ ] **`bun run check:runtime-review` passes when required** — runtime-sensitive diffs need a `docs/reviews/` artifact with the required sections, and the `Files Reviewed` list must match the changed runtime-sensitive files.
+- [ ] **`bun run check:coverage` passes** — `mlx-ts` stays at or above `95%` lines / `90%` funcs and `nanogpt` stays at or above `90%` lines / `85%` funcs.
 - [ ] **Unit tests cover exported behavior directly** — don’t rely on one or two broad smoke tests to “accidentally” hit important branches.
 - [ ] **Error messages are actionable** — include what was expected, what was received, and where.
+- [ ] **The fix improved the system** — incidents must leave behind a rule, test, benchmark, or gate that would have caught them sooner next time.
 
 ## Git
 

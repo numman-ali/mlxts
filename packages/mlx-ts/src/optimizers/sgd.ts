@@ -9,7 +9,15 @@
 import type { MxArray } from "../core/array";
 import { zeros } from "../core/array";
 import { add, multiply, subtract } from "../core/ops/arithmetic";
+import { stopGradient } from "../core/ops/shape";
 import { Optimizer } from "./optimizer";
+
+/** SGD constructor options. */
+export interface SGDOptions {
+  learningRate: number;
+  momentum?: number;
+  weightDecay?: number;
+}
 
 /** SGD optimizer with optional momentum and weight decay. */
 export class SGD extends Optimizer {
@@ -18,13 +26,13 @@ export class SGD extends Optimizer {
   #weightDecay: number;
 
   /**
-   * @param lr - Learning rate.
+   * @param learningRate - Learning rate.
    * @param momentum - Momentum factor. Defaults to 0 (no momentum).
    * @param weightDecay - Weight decay (L2 penalty). Defaults to 0.
    */
-  constructor(lr: number, momentum = 0, weightDecay = 0) {
+  constructor({ learningRate, momentum = 0, weightDecay = 0 }: SGDOptions) {
     super();
-    this.#lr = lr;
+    this.#lr = learningRate;
     this.#momentum = momentum;
     this.#weightDecay = weightDecay;
   }
@@ -48,7 +56,8 @@ export class SGD extends Optimizer {
       if (this.#momentum === 0) {
         // Simple SGD: param = param - lr * grad
         using step = multiply(effectiveGrad, this.#lr);
-        return { parameter: subtract(param, step) };
+        using rawParameter = subtract(param, step);
+        return { parameter: stopGradient(rawParameter) };
       }
 
       // Momentum: v = momentum * v + grad; param = param - lr * v
@@ -58,14 +67,22 @@ export class SGD extends Optimizer {
       try {
         // v = momentum * v + effectiveGrad
         using scaledV = multiply(velocity, this.#momentum);
-        const newVelocity = add(scaledV, effectiveGrad);
+        using rawVelocity = add(scaledV, effectiveGrad);
 
         // param = param - lr * newVelocity
-        using step = multiply(newVelocity, this.#lr);
-        return {
-          parameter: subtract(param, step),
-          state: { velocity: newVelocity },
-        };
+        using step = multiply(rawVelocity, this.#lr);
+        using rawParameter = subtract(param, step);
+        const parameter = stopGradient(rawParameter);
+        try {
+          const velocityState = stopGradient(rawVelocity);
+          return {
+            parameter,
+            state: { velocity: velocityState },
+          };
+        } catch (error) {
+          parameter.free();
+          throw error;
+        }
       } finally {
         if (savedVelocity === undefined) {
           velocity.free();

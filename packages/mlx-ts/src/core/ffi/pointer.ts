@@ -84,8 +84,8 @@ function isPointer(address: number): address is Pointer {
  * Use `prepare()` before each FFI call to zero the buffer, then `read()`
  * after to extract the result pointer.
  *
- * Unlike the global `prepareOut`/`readOut` in array.ts, OutSlot instances
- * can be used concurrently (e.g., for value + gradient output buffers).
+ * OutSlot instances are per-call and reentrant, so they remain safe even
+ * when one FFI helper nests inside another synchronous frame.
  */
 export class OutSlot {
   private readonly buf = new Uint8Array(8);

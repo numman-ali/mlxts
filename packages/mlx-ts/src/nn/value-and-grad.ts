@@ -13,10 +13,106 @@
  */
 
 import type { MxArray } from "../core/array";
-import { valueAndGrad as coreValueAndGrad } from "../core/transforms";
+import { valueAndGrad as coreValueAndGrad, type DisposableTransform } from "../core/transforms";
 import type { FlatEntry, ParameterTree } from "../utils/tree";
 import { treeFlatten, treeUnflatten } from "../utils/tree";
 import type { Module } from "./module";
+
+function samePaths(
+  left: readonly (readonly string[])[],
+  right: readonly (readonly string[])[],
+): boolean {
+  if (left.length !== right.length) {
+    return false;
+  }
+
+  for (let index = 0; index < left.length; index++) {
+    const leftPath = left[index];
+    const rightPath = right[index];
+    if (leftPath === undefined || rightPath === undefined || leftPath.length !== rightPath.length) {
+      return false;
+    }
+    for (let segment = 0; segment < leftPath.length; segment++) {
+      if (leftPath[segment] !== rightPath[segment]) {
+        return false;
+      }
+    }
+  }
+
+  return true;
+}
+
+function formatPaths(paths: readonly (readonly string[])[]): string {
+  return paths.map((path) => path.join(".")).join(", ");
+}
+
+function createCachedTransform(
+  model: Module,
+  lossFn: (...args: MxArray[]) => MxArray,
+  paths: readonly string[][],
+): DisposableTransform<(...args: MxArray[]) => [MxArray, MxArray[]]> {
+  const numParams = paths.length;
+  const argnums = Array.from({ length: numParams }, (_, i) => i);
+
+  const innerFn = (...allArgs: MxArray[]): MxArray => {
+    const paramArgs = allArgs.slice(0, numParams);
+    const userArgs = allArgs.slice(numParams);
+    const entries: FlatEntry[] = [];
+
+    for (let i = 0; i < paths.length; i++) {
+      const path = paths[i];
+      const arr = paramArgs[i];
+      if (path === undefined || arr === undefined) {
+        throw new Error(`nn.valueAndGrad: missing parameter at index ${i}`);
+      }
+      entries.push([path, arr]);
+    }
+
+    model.update(treeUnflatten(entries));
+    return lossFn(...userArgs);
+  };
+
+  return coreValueAndGrad(innerFn, argnums);
+}
+
+function assertStableTrainableStructure(
+  cachedPaths: readonly string[][],
+  currentPaths: readonly string[][],
+): void {
+  if (samePaths(cachedPaths, currentPaths)) {
+    return;
+  }
+
+  throw new Error(
+    "nn.valueAndGrad: trainable parameter structure changed after the transform was created. " +
+      `Expected [${formatPaths(cachedPaths)}], got [${formatPaths(currentPaths)}]. ` +
+      "Recreate the transform after freeze/unfreeze or module surgery.",
+  );
+}
+
+function gradientEntries(paths: readonly string[][], gradArrays: readonly MxArray[]): FlatEntry[] {
+  const entries: FlatEntry[] = [];
+
+  for (let index = 0; index < paths.length; index++) {
+    const path = paths[index];
+    const grad = gradArrays[index];
+    if (path === undefined || grad === undefined) {
+      throw new Error(`nn.valueAndGrad: missing gradient at index ${index}`);
+    }
+    entries.push([path, grad]);
+  }
+
+  return entries;
+}
+
+function attachDisposable<T extends (...args: MxArray[]) => unknown>(
+  fn: T,
+  dispose: () => void,
+): DisposableTransform<T> {
+  return Object.assign(fn, {
+    [Symbol.dispose]: dispose,
+  });
+}
 
 /**
  * Create a function that computes both the loss and parameter gradients
@@ -35,67 +131,67 @@ import type { Module } from "./module";
 export function valueAndGrad(
   model: Module,
   lossFn: (...args: MxArray[]) => MxArray,
-): (...args: MxArray[]) => [MxArray, ParameterTree] {
-  return (...args: MxArray[]): [MxArray, ParameterTree] => {
-    // 1. Snapshot trainable parameters
-    const flat = treeFlatten(model.trainableParameters());
-    const paths = flat.map(([p]) => p);
-    const paramArrays = flat.map(([, v]) => v);
+): DisposableTransform<(...args: MxArray[]) => [MxArray, ParameterTree]> {
+  let cachedPaths: string[][] | null = null;
+  let cachedVgFn: DisposableTransform<(...args: MxArray[]) => [MxArray, MxArray[]]> | null = null;
+  let disposed = false;
 
-    // Edge case: no trainable params (all frozen or empty model)
-    if (paramArrays.length === 0) {
-      return [lossFn(...args), {}];
-    }
-
-    // 2. Save original MxArray references for unconditional restore
-    const saved: FlatEntry[] = flat.map(([p, v]) => [p, v]);
-
-    // 3. Build inner function: positions [0..N-1] = params, [N..] = user args
-    const numParams = paramArrays.length;
-    const argnums = Array.from({ length: numParams }, (_, i) => i);
-
-    const innerFn = (...allArgs: MxArray[]): MxArray => {
-      const paramArgs = allArgs.slice(0, numParams);
-      const userArgs = allArgs.slice(numParams);
-
-      // Unflatten param arrays into a tree and inject into model
-      const entries: FlatEntry[] = [];
-      for (let i = 0; i < paths.length; i++) {
-        const path = paths[i];
-        const arr = paramArgs[i];
-        if (path === undefined || arr === undefined) {
-          throw new Error(`nn.valueAndGrad: missing parameter at index ${i}`);
-        }
-        entries.push([path, arr]);
+  const transformed = attachDisposable(
+    (...args: MxArray[]): [MxArray, ParameterTree] => {
+      if (disposed) {
+        throw new Error("nn.valueAndGrad: transform has already been disposed");
       }
-      model.update(treeUnflatten(entries));
+      // 1. Snapshot trainable parameters
+      const flat = treeFlatten(model.trainableParameters());
+      const paths = flat.map(([p]) => p);
+      const paramArrays = flat.map(([, v]) => v);
 
-      return lossFn(...userArgs);
-    };
-
-    // 4. Call Phase 2 valueAndGrad with all param indices
-    const vgFn = coreValueAndGrad(innerFn, argnums);
-
-    try {
-      const [loss, gradArrays] = vgFn(...paramArrays, ...args);
-
-      // 5. Unflatten gradient arrays back to parameter tree structure
-      const gradEntries: FlatEntry[] = [];
-      for (let i = 0; i < paths.length; i++) {
-        const path = paths[i];
-        const grad = gradArrays[i];
-        if (path === undefined || grad === undefined) {
-          throw new Error(`nn.valueAndGrad: missing gradient at index ${i}`);
-        }
-        gradEntries.push([path, grad]);
+      // Edge case: no trainable params (all frozen or empty model)
+      if (paramArrays.length === 0) {
+        return [lossFn(...args), {}];
       }
 
-      return [loss, treeUnflatten(gradEntries)];
-    } finally {
-      // 6. Unconditional restore — even on throw
-      // The closure bridge freed its temporary handles. Restore the
-      // model's original live handles so it's never in a bad state.
-      model.update(treeUnflatten(saved));
-    }
-  };
+      // 2. Save original MxArray references for unconditional restore
+      const saved: FlatEntry[] = flat.map(([p, v]) => [p, v]);
+
+      // 3. Build and cache the flat transform once per stable trainable structure.
+      if (cachedPaths === null) {
+        cachedPaths = paths.map((path) => [...path]);
+        cachedVgFn = createCachedTransform(model, lossFn, cachedPaths);
+      } else {
+        assertStableTrainableStructure(cachedPaths, paths);
+      }
+
+      if (cachedVgFn === null) {
+        throw new Error("nn.valueAndGrad: cached transform was not initialized");
+      }
+
+      try {
+        const [loss, gradArrays] = cachedVgFn(...paramArrays, ...args);
+        const stablePaths = cachedPaths;
+        if (stablePaths === null) {
+          throw new Error("nn.valueAndGrad: cached paths were not initialized");
+        }
+        return [loss, treeUnflatten(gradientEntries(stablePaths, gradArrays))];
+      } finally {
+        // 6. Unconditional restore — even on throw
+        // The closure bridge freed its temporary handles. Restore the
+        // model's original live handles so it's never in a bad state.
+        model.update(treeUnflatten(saved));
+      }
+    },
+    () => {
+      if (disposed) {
+        return;
+      }
+      disposed = true;
+      cachedPaths = null;
+      if (cachedVgFn !== null) {
+        cachedVgFn[Symbol.dispose]();
+        cachedVgFn = null;
+      }
+    },
+  );
+
+  return transformed;
 }

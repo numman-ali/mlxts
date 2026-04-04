@@ -33,18 +33,22 @@ export {
   where,
 } from "./comparison";
 export { matmul } from "./linalg";
+export type { SoftmaxOptions } from "./reduction";
 export { argmax, argmin, logsumexp, max, mean, min, softmax, sum } from "./reduction";
 export {
-  astype,
+  asType,
   broadcastTo,
   concatenate,
   expandDims,
   flatten,
   reshape,
+  split,
   squeeze,
   stack,
   stopGradient,
   takeAlongAxis,
   takeAxis,
   transpose,
+  tril,
+  triu,
 } from "./shape";

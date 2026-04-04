@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { array, type MxArray } from "../core/array";
+import { array, MxArray } from "../core/array";
 import { mxEval } from "../core/transforms";
 import type { ParameterTree } from "../utils/tree";
 import { treeFlatten } from "../utils/tree";
@@ -412,5 +412,159 @@ describe("Module + treeFlatten integration", () => {
     expect(flat[3]?.[0]).toEqual(["layer2", "bias"]);
 
     m[Symbol.dispose]();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Module[] (array of sub-modules) support
+// ---------------------------------------------------------------------------
+
+class ModuleArrayParent extends Module {
+  layers: SimpleModule[];
+
+  constructor(count: number) {
+    super();
+    this.layers = Array.from({ length: count }, () => new SimpleModule());
+  }
+
+  forward(x: MxArray): MxArray {
+    return x;
+  }
+}
+
+class MixedModule extends Module {
+  weight: MxArray;
+  layers: SimpleModule[];
+
+  constructor() {
+    super();
+    this.weight = array([1, 2]);
+    this.layers = [new SimpleModule(), new SimpleModule()];
+  }
+
+  forward(x: MxArray): MxArray {
+    return x;
+  }
+}
+
+class InvalidMixedModuleArray extends Module {
+  layers: [SimpleModule, string];
+
+  constructor() {
+    super();
+    this.layers = [new SimpleModule(), "rogue"];
+  }
+
+  forward(x: MxArray): MxArray {
+    return x;
+  }
+}
+
+describe("Module[] support", () => {
+  test("parameters() produces numeric-keyed subtree for Module[]", () => {
+    const m = new ModuleArrayParent(2);
+    const params = m.parameters();
+    expect(params.layers).toBeDefined();
+    const layersTree = params.layers as ParameterTree;
+    expect(layersTree["0"]).toBeDefined();
+    expect(layersTree["1"]).toBeDefined();
+    const layer0 = layersTree["0"] as ParameterTree;
+    expect(layer0.weight).toBeInstanceOf(MxArray);
+    expect(layer0.bias).toBeInstanceOf(MxArray);
+    m[Symbol.dispose]();
+  });
+
+  test("treeFlatten produces correct paths with numeric indices", () => {
+    const m = new ModuleArrayParent(2);
+    const flat = treeFlatten(m.parameters());
+    expect(flat).toHaveLength(4);
+    expect(flat[0]?.[0]).toEqual(["layers", "0", "weight"]);
+    expect(flat[1]?.[0]).toEqual(["layers", "0", "bias"]);
+    expect(flat[2]?.[0]).toEqual(["layers", "1", "weight"]);
+    expect(flat[3]?.[0]).toEqual(["layers", "1", "bias"]);
+    m[Symbol.dispose]();
+  });
+
+  test("update() applies to Module[] children", () => {
+    const m = new ModuleArrayParent(2);
+    const newWeight = array([99, 99, 99]);
+    m.update({
+      layers: {
+        "0": { weight: newWeight },
+      },
+    });
+    mxEval(newWeight);
+    const params = m.parameters();
+    const layer0 = (params.layers as ParameterTree)["0"] as ParameterTree;
+    expect((layer0.weight as MxArray).toList()).toEqual([99, 99, 99]);
+    m[Symbol.dispose]();
+  });
+
+  test("train(false) propagates into Module[] elements", () => {
+    const m = new ModuleArrayParent(2);
+    expect(m.layers[0]?.isTraining).toBe(true);
+    m.train(false);
+    expect(m.layers[0]?.isTraining).toBe(false);
+    expect(m.layers[1]?.isTraining).toBe(false);
+    m.train(true);
+    expect(m.layers[0]?.isTraining).toBe(true);
+    m[Symbol.dispose]();
+  });
+
+  test("trainableParameters() excludes frozen Module[]", () => {
+    const m = new ModuleArrayParent(2);
+    m.freeze(["layers"]);
+    const trainable = m.trainableParameters();
+    expect(Object.keys(trainable)).toHaveLength(0);
+    m.unfreeze(["layers"]);
+    const unfrozen = m.trainableParameters();
+    expect(unfrozen.layers).toBeDefined();
+    m[Symbol.dispose]();
+  });
+
+  test("dispose recurses into Module[] elements", () => {
+    const m = new ModuleArrayParent(2);
+    // Just verify it doesn't throw — disposal frees native handles
+    m[Symbol.dispose]();
+  });
+
+  test("non-Module arrays are silently skipped", () => {
+    class HasNumberArray extends Module {
+      // biome-ignore lint/correctness/noUnusedPrivateClassMembers: testing that config arrays are skipped
+      #config = [1, 2, 3];
+      weight: MxArray;
+      constructor() {
+        super();
+        this.weight = array([1]);
+      }
+      forward(x: MxArray): MxArray {
+        return x;
+      }
+    }
+    const m = new HasNumberArray();
+    const params = m.parameters();
+    expect(Object.keys(params)).toEqual(["weight"]);
+    m[Symbol.dispose]();
+  });
+
+  test("mixed Module with weight + Module[] works together", () => {
+    const m = new MixedModule();
+    const flat = treeFlatten(m.parameters());
+    expect(flat).toHaveLength(5); // weight + 2 layers × (weight + bias)
+    expect(flat[0]?.[0]).toEqual(["weight"]);
+    expect(flat[1]?.[0]).toEqual(["layers", "0", "weight"]);
+    m[Symbol.dispose]();
+  });
+
+  test("mixed arrays of Module and non-Module values throw clearly", () => {
+    const m = new InvalidMixedModuleArray();
+    try {
+      expect(() => m.parameters()).toThrow("mixes Module and non-Module values");
+      expect(() => m.freeze()).toThrow("mixes Module and non-Module values");
+      expect(() => m.train(false)).toThrow("mixed Module arrays are unsupported");
+      expect(() => m[Symbol.dispose]()).toThrow("mixed Module arrays are unsupported");
+    } finally {
+      m.layers[0][Symbol.dispose]();
+    }
   });
 });

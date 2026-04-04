@@ -4,7 +4,7 @@
  */
 
 import type { Pointer } from "bun:ffi";
-import { MxArray, prepareOut, readOut } from "../array";
+import { type MxArray, readResultArray } from "../array";
 import { defaultStream } from "../device";
 import { checkStatus } from "../error";
 import { ffi } from "../ffi";
@@ -14,7 +14,7 @@ const s = (stream?: S) => stream ?? defaultStream();
 
 /** Matrix multiplication. */
 export function matmul(a: MxArray, b: MxArray, stream?: S): MxArray {
-  const out = prepareOut();
-  checkStatus(ffi.mlx_matmul(out, a._ctx, b._ctx, s(stream)), "matmul");
-  return MxArray._fromCtx(readOut());
+  return readResultArray("matmul", (out) => {
+    checkStatus(ffi.mlx_matmul(out, a._ctx, b._ctx, s(stream)), "matmul");
+  });
 }

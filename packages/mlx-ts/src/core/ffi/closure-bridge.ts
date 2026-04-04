@@ -25,6 +25,86 @@ import { OutSlot, sizeToNumber, unwrapPointer } from "./pointer";
 export type GradFn = (...args: MxArray[]) => MxArray;
 
 /**
+ * Reusable mlx_closure backed by a JSCallback.
+ *
+ * This lets higher-level transforms cache the native closure across calls
+ * instead of rebuilding it for every invocation.
+ */
+export class ReusableClosure implements Disposable {
+  #capturedError: unknown = null;
+  #callback: JSCallback;
+  #closurePtr: Pointer;
+
+  constructor(fn: (...args: MxArray[]) => MxArray[]) {
+    this.#callback = new JSCallback(
+      (outVecPtr: Pointer | null, inVec: Pointer | null): number => {
+        if (outVecPtr === null || inVec === null) return 1;
+
+        let inputs: MxArray[] = [];
+        let results: MxArray[] = [];
+        try {
+          // Unpack input vector into MxArray arguments
+          inputs = extractAllArrays(inVec, "closure_input");
+
+          // Call the user's function
+          results = fn(...inputs);
+          if (results.length !== 1) {
+            throw new Error(
+              `Closure function returned ${results.length} output(s); expected exactly 1`,
+            );
+          }
+          const firstResult = results[0];
+
+          if (firstResult === undefined) {
+            throw new Error(
+              "Closure function returned an empty array — expected at least one MxArray",
+            );
+          }
+
+          // Write the result into the pre-allocated output vector.
+          // Phase 2 supports single-output (scalar loss) only.
+          checkStatus(
+            ffi.mlx_vector_array_set_value(outVecPtr, firstResult._ctx),
+            "closure_output_set",
+          );
+
+          return 0;
+        } catch (error) {
+          this.#capturedError = error;
+          return 1;
+        } finally {
+          for (const result of results) {
+            result.free();
+          }
+          for (const input of inputs) {
+            input.free();
+          }
+        }
+      },
+      { args: [FFIType.ptr, FFIType.ptr], returns: FFIType.i32 },
+    );
+
+    const callbackPtr = unwrapPointer(this.#callback.ptr, "closure callback pointer");
+    this.#closurePtr = unwrapPointer(ffi.mlx_closure_new_func(callbackPtr), "mlx_closure_new_func");
+  }
+
+  get pointer(): Pointer {
+    return this.#closurePtr;
+  }
+
+  consumeCapturedError(): unknown {
+    const captured = this.#capturedError;
+    this.#capturedError = null;
+    return captured;
+  }
+
+  [Symbol.dispose](): void {
+    ffi.mlx_closure_free(this.#closurePtr);
+    this.#callback.close();
+  }
+}
+
+/**
  * Extract a single MxArray from position 0 of a native vector.
  * Used for reading the scalar loss value from value_and_grad output.
  */
@@ -65,86 +145,23 @@ export function withClosure<T>(
   fn: (...args: MxArray[]) => MxArray[],
   body: (closurePtr: Pointer) => T,
 ): T {
-  let capturedError: unknown = null;
-
-  // The JSCallback bridges the C function pointer to our TypeScript function.
-  // It matches: int (*fun)(mlx_vector_array* out, const mlx_vector_array in)
-  const callback = new JSCallback(
-    (outVecPtr: Pointer | null, inVec: Pointer | null): number => {
-      if (outVecPtr === null || inVec === null) return 1;
-
-      let inputs: MxArray[] = [];
-      let results: MxArray[] = [];
-      try {
-        // Unpack input vector into MxArray arguments
-        inputs = extractAllArrays(inVec, "closure_input");
-
-        // Call the user's function
-        results = fn(...inputs);
-        if (results.length !== 1) {
-          throw new Error(
-            `Closure function returned ${results.length} output(s); expected exactly 1`,
-          );
-        }
-        const firstResult = results[0];
-
-        if (firstResult === undefined) {
-          throw new Error(
-            "Closure function returned an empty array — expected at least one MxArray",
-          );
-        }
-
-        // Write the result into the pre-allocated output vector.
-        // Phase 2 supports single-output (scalar loss) only.
-        checkStatus(
-          ffi.mlx_vector_array_set_value(outVecPtr, firstResult._ctx),
-          "closure_output_set",
-        );
-        firstResult.free();
-
-        return 0;
-      } catch (error) {
-        capturedError = error;
-        return 1;
-      } finally {
-        for (const result of results) {
-          result.free();
-        }
-        for (const input of inputs) {
-          input.free();
-        }
-      }
-    },
-    { args: [FFIType.ptr, FFIType.ptr], returns: FFIType.i32 },
-  );
-
-  // Create mlx_closure from the native callback function pointer
-  const callbackPtr = unwrapPointer(callback.ptr, "closure callback pointer");
-  const closurePtr = unwrapPointer(ffi.mlx_closure_new_func(callbackPtr), "mlx_closure_new_func");
+  using closure = new ReusableClosure(fn);
 
   try {
-    let result: T;
-    try {
-      result = body(closurePtr);
-    } catch (bodyError) {
-      // If we captured a JS error from the callback, that's the real cause.
-      // The body typically fails because checkStatus sees error code 1 from
-      // our callback returning failure — the MxError is just the symptom.
-      if (capturedError !== null) {
-        throw capturedError;
-      }
-      throw bodyError;
-    }
-
-    // Also check after successful body return (callback error may not have
-    // caused a status failure in all code paths).
+    const result = body(closure.pointer);
+    const capturedError = closure.consumeCapturedError();
     if (capturedError !== null) {
       throw capturedError;
     }
-
     return result;
-  } finally {
-    ffi.mlx_closure_free(closurePtr);
-    callback.close();
+  } catch (bodyError) {
+    // If we captured a JS error from the callback, that's the real cause.
+    // The body typically fails because checkStatus sees error code 1 from
+    // our callback returning failure — the MxError is just the symptom.
+    const capturedError = closure.consumeCapturedError();
+    if (capturedError !== null) {
+      throw capturedError;
+    }
+    throw bodyError;
   }
 }

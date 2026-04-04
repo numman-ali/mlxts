@@ -1,12 +1,13 @@
 import { describe, expect, test } from "bun:test";
 
 import { arange, array, MxArray, ones, zeros } from "../array";
+import { mxEval } from "../transforms";
 import {
   abs,
   add,
   argmax,
   argmin,
-  astype,
+  asType,
   broadcastTo,
   concatenate,
   divide,
@@ -35,6 +36,7 @@ import {
   reshape,
   sigmoid,
   softmax,
+  split,
   sqrt,
   square,
   squeeze,
@@ -44,6 +46,8 @@ import {
   takeAlongAxis,
   tanh,
   transpose,
+  tril,
+  triu,
   where,
 } from "./index";
 
@@ -506,7 +510,7 @@ describe("Shape ops", () => {
 
   test("astype changes the visible dtype", () => {
     const a = array([1, 2, 3], "int32");
-    const b = astype(a, "float32");
+    const b = asType(a, "float32");
     expect(b.dtype).toBe("float32");
     a.free();
     b.free();
@@ -638,6 +642,24 @@ describe("Comparison ops", () => {
     le.free();
   });
 
+  test("comparison ops accept scalar operands symmetrically", () => {
+    const values = array([1, 2, 3], "int32");
+    const eq = equal(values, 2);
+    const gt = greater(2, values);
+    const le = lessEqual(values, 2);
+    mxEval(eq, gt, le);
+
+    expect(eq.dtype).toBe("bool");
+    expect(eq.toList()).toEqual([0, 1, 0]);
+    expect(gt.toList()).toEqual([1, 0, 0]);
+    expect(le.toList()).toEqual([1, 1, 0]);
+
+    values.free();
+    eq.free();
+    gt.free();
+    le.free();
+  });
+
   test("where", () => {
     const cond = array([1, 0, 1]);
     const x = array([10, 20, 30]);
@@ -651,6 +673,58 @@ describe("Comparison ops", () => {
     condBool.free();
     x.free();
     y.free();
+    result.free();
+  });
+});
+
+describe("Error paths", () => {
+  test("reshape rejects incompatible element counts", () => {
+    const values = arange(0, 6, 1, "int32");
+    expect(() => reshape(values, [4, 4])).toThrow();
+    values.free();
+  });
+
+  test("matmul rejects incompatible inner dimensions", () => {
+    const left = ones([2, 3]);
+    const right = ones([4, 2]);
+    expect(() => matmul(left, right)).toThrow();
+    left.free();
+    right.free();
+  });
+
+  test("split rejects zero splits", () => {
+    const values = ones([4, 4]);
+    expect(() => split(values, 0)).toThrow();
+    values.free();
+  });
+
+  test("squeeze rejects non-singleton axes", () => {
+    const values = ones([2, 3]);
+    expect(() => squeeze(values, 1)).toThrow();
+    values.free();
+  });
+
+  test("takeAlongAxis rejects invalid axes", () => {
+    const values = array(
+      [
+        [10, 11, 12],
+        [20, 21, 22],
+      ],
+      "float32",
+    );
+    const indices = array([[0, 1, 2]], "int32");
+    expect(() => takeAlongAxis(values, indices, 2)).toThrow();
+    values.free();
+    indices.free();
+  });
+
+  test("softmax accepts the precise option", () => {
+    const values = array([1, 2, 3], "float32");
+    const result = softmax(values, 0, { precise: true });
+    result.eval();
+    const total = (result.toList() as number[]).reduce((sumValue, value) => sumValue + value, 0);
+    expect(total).toBeCloseTo(1, 5);
+    values.free();
     result.free();
   });
 });
@@ -745,6 +819,165 @@ describe("scalar coercion", () => {
     const result = add(3, 4);
     result.eval();
     expect(result.item()).toBe(7);
+    result.free();
+  });
+});
+
+describe("tril / triu", () => {
+  test("tril extracts lower triangle of 3x3", () => {
+    const a = ones([3, 3]);
+    const result = tril(a);
+    result.eval();
+    expect(result.toList()).toEqual([
+      [1, 0, 0],
+      [1, 1, 0],
+      [1, 1, 1],
+    ]);
+    a.free();
+    result.free();
+  });
+
+  test("triu extracts upper triangle of 3x3", () => {
+    const a = ones([3, 3]);
+    const result = triu(a);
+    result.eval();
+    expect(result.toList()).toEqual([
+      [1, 1, 1],
+      [0, 1, 1],
+      [0, 0, 1],
+    ]);
+    a.free();
+    result.free();
+  });
+
+  test("tril with diagonal offset k=-1", () => {
+    const a = ones([3, 3]);
+    const result = tril(a, -1);
+    result.eval();
+    expect(result.toList()).toEqual([
+      [0, 0, 0],
+      [1, 0, 0],
+      [1, 1, 0],
+    ]);
+    a.free();
+    result.free();
+  });
+
+  test("triu with diagonal offset k=1", () => {
+    const a = ones([3, 3]);
+    const result = triu(a, 1);
+    result.eval();
+    expect(result.toList()).toEqual([
+      [0, 1, 1],
+      [0, 0, 1],
+      [0, 0, 0],
+    ]);
+    a.free();
+    result.free();
+  });
+
+  test("tril on 3D input uses last two dims", () => {
+    const a = ones([2, 3, 3]);
+    const result = tril(a);
+    result.eval();
+    const expected = [
+      [1, 0, 0],
+      [1, 1, 0],
+      [1, 1, 1],
+    ];
+    expect(result.toList()).toEqual([expected, expected]);
+    a.free();
+    result.free();
+  });
+});
+
+describe("split", () => {
+  test("split along axis=0 into equal parts", () => {
+    const a = arange(0, 6, 1, "float32");
+    const r = reshape(a, [6, 1]);
+    const parts = split(r, 3, 0);
+    expect(parts.length).toBe(3);
+    for (const p of parts) {
+      p.eval();
+      expect(p.shape).toEqual([2, 1]);
+    }
+    expect(parts[0]?.toList()).toEqual([[0], [1]]);
+    expect(parts[1]?.toList()).toEqual([[2], [3]]);
+    expect(parts[2]?.toList()).toEqual([[4], [5]]);
+    a.free();
+    r.free();
+    for (const p of parts) p.free();
+  });
+
+  test("split along axis=-1 (QKV pattern)", () => {
+    const a = ones([2, 12]);
+    const parts = split(a, 3, -1);
+    expect(parts.length).toBe(3);
+    for (const p of parts) {
+      p.eval();
+      expect(p.shape).toEqual([2, 4]);
+    }
+    a.free();
+    for (const p of parts) p.free();
+  });
+});
+
+describe("where with scalar operands", () => {
+  test("where(condition, array, number)", () => {
+    const cond = array([1, 0, 1]);
+    const x = array([10, 20, 30]);
+    const result = where(cond, x, -1);
+    result.eval();
+    expect(result.toList()).toEqual([10, -1, 30]);
+    cond.free();
+    x.free();
+    result.free();
+  });
+
+  test("where(condition, int array, number) preserves the array dtype", () => {
+    const cond = array([1, 0, 1]);
+    const x = array(new Int32Array([10, 20, 30]), "int32");
+    const result = where(cond, x, 0);
+    result.eval();
+    expect(result.dtype).toBe("int32");
+    expect(result.toTypedArray()).toEqual(new Int32Array([10, 0, 30]));
+    cond.free();
+    x.free();
+    result.free();
+  });
+
+  test("where(condition, number, array)", () => {
+    const cond = array([0, 1, 0]);
+    const y = array([10, 20, 30]);
+    const result = where(cond, 99, y);
+    result.eval();
+    expect(result.toList()).toEqual([10, 99, 30]);
+    cond.free();
+    y.free();
+    result.free();
+  });
+
+  test("where(condition, number, number)", () => {
+    const cond = array([1, 0]);
+    const result = where(cond, 5.0, -5.0);
+    result.eval();
+    expect(result.toList()).toEqual([5, -5]);
+    cond.free();
+    result.free();
+  });
+
+  test("where with -1e9 for attention masking", () => {
+    // tril produces 0/1 float — MLX treats non-zero as true in where
+    const mask = tril(ones([3, 3]));
+    const scores = ones([3, 3]);
+    const result = where(mask, scores, -1e9);
+    result.eval();
+    const rows = result.toList() as number[][];
+    expect(rows[0]?.[0]).toBe(1);
+    expect(rows[0]?.[1]).toBeCloseTo(-1e9);
+    expect(rows[2]?.[2]).toBe(1);
+    mask.free();
+    scores.free();
     result.free();
   });
 });

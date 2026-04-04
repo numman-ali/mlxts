@@ -4,7 +4,7 @@
  */
 
 import type { Pointer } from "bun:ffi";
-import { MxArray, prepareOut, readOut } from "../array";
+import { type MxArray, readResultArray } from "../array";
 import { defaultStream } from "../device";
 import { checkStatus } from "../error";
 import { ffi, ptr } from "../ffi";
@@ -33,18 +33,20 @@ function reduceDispatch(
   stream: S,
   name: string,
 ): MxArray {
-  const out = prepareOut();
-
   if (axis === undefined) {
-    checkStatus(fnAll(out, a._ctx, keepdims, s(stream)), name);
+    return readResultArray(name, (out) => {
+      checkStatus(fnAll(out, a._ctx, keepdims, s(stream)), name);
+    });
   } else if (typeof axis === "number") {
-    checkStatus(fnAxis(out, a._ctx, axis, keepdims, s(stream)), name);
+    return readResultArray(name, (out) => {
+      checkStatus(fnAxis(out, a._ctx, axis, keepdims, s(stream)), name);
+    });
   } else {
     const axesBuf = new Int32Array(axis);
-    checkStatus(fnAxes(out, a._ctx, ptr(axesBuf), axis.length, keepdims, s(stream)), name);
+    return readResultArray(name, (out) => {
+      checkStatus(fnAxes(out, a._ctx, ptr(axesBuf), axis.length, keepdims, s(stream)), name);
+    });
   }
-
-  return MxArray._fromCtx(readOut());
 }
 
 /** Sum reduction. */
@@ -105,24 +107,24 @@ export function min(a: MxArray, axis?: number | number[], keepdims = false, stre
 
 /** Index of maximum value. */
 export function argmax(a: MxArray, axis?: number, keepdims = false, stream?: S): MxArray {
-  const out = prepareOut();
-  if (axis === undefined) {
-    checkStatus(ffi.mlx_argmax(out, a._ctx, keepdims, s(stream)), "argmax");
-  } else {
-    checkStatus(ffi.mlx_argmax_axis(out, a._ctx, axis, keepdims, s(stream)), "argmax");
-  }
-  return MxArray._fromCtx(readOut());
+  return readResultArray("argmax", (out) => {
+    if (axis === undefined) {
+      checkStatus(ffi.mlx_argmax(out, a._ctx, keepdims, s(stream)), "argmax");
+    } else {
+      checkStatus(ffi.mlx_argmax_axis(out, a._ctx, axis, keepdims, s(stream)), "argmax");
+    }
+  });
 }
 
 /** Index of minimum value. */
 export function argmin(a: MxArray, axis?: number, keepdims = false, stream?: S): MxArray {
-  const out = prepareOut();
-  if (axis === undefined) {
-    checkStatus(ffi.mlx_argmin(out, a._ctx, keepdims, s(stream)), "argmin");
-  } else {
-    checkStatus(ffi.mlx_argmin_axis(out, a._ctx, axis, keepdims, s(stream)), "argmin");
-  }
-  return MxArray._fromCtx(readOut());
+  return readResultArray("argmin", (out) => {
+    if (axis === undefined) {
+      checkStatus(ffi.mlx_argmin(out, a._ctx, keepdims, s(stream)), "argmin");
+    } else {
+      checkStatus(ffi.mlx_argmin_axis(out, a._ctx, axis, keepdims, s(stream)), "argmin");
+    }
+  });
 }
 
 /** Log-sum-exp reduction (numerically stable). */
@@ -144,9 +146,17 @@ export function logsumexp(
   );
 }
 
+export type SoftmaxOptions = {
+  precise?: boolean;
+  stream?: S;
+};
+
 /** Softmax along an axis. */
-export function softmax(a: MxArray, axis = -1, stream?: S): MxArray {
-  const out = prepareOut();
-  checkStatus(ffi.mlx_softmax_axis(out, a._ctx, axis, false, s(stream)), "softmax");
-  return MxArray._fromCtx(readOut());
+export function softmax(a: MxArray, axis = -1, options?: SoftmaxOptions): MxArray {
+  return readResultArray("softmax", (out) => {
+    checkStatus(
+      ffi.mlx_softmax_axis(out, a._ctx, axis, options?.precise ?? false, s(options?.stream)),
+      "softmax",
+    );
+  });
 }

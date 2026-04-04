@@ -20,15 +20,37 @@ function formatPath(path: readonly string[]): string {
   return path.length === 0 ? "<root>" : path.join(".");
 }
 
+type ModuleArrayState =
+  | { kind: "module-array"; modules: Module[] }
+  | { kind: "mixed-array" }
+  | { kind: "other" };
+
+function moduleArrayState(value: unknown): ModuleArrayState {
+  if (!Array.isArray(value) || value.length === 0) {
+    return { kind: "other" };
+  }
+
+  const hasModule = value.some((entry) => entry instanceof Module);
+  if (!hasModule) {
+    return { kind: "other" };
+  }
+
+  if (value.every((entry) => entry instanceof Module)) {
+    return { kind: "module-array", modules: value };
+  }
+
+  return { kind: "mixed-array" };
+}
+
 /**
  * Abstract base class for neural network modules.
  *
  * Provides parameter collection, tree-based update, freeze/unfreeze,
  * and training mode propagation. Subclasses implement `forward()`.
  *
- * Phase 3 assumes each public parameter field is a distinct registration
- * site. Shared public aliases are intentionally unsupported until Phase 4
- * defines explicit weight-tying semantics for trees and optimizers.
+ * Shared public parameter aliases are intentionally unsupported. Weight tying
+ * should stay functional (for example via `Embedding.asLinear()`) until the
+ * parameter tree and optimizer layers grow explicit alias semantics.
  */
 export abstract class Module implements Disposable {
   #training = true;
@@ -74,6 +96,65 @@ export abstract class Module implements Disposable {
     return Reflect.get(this, key);
   }
 
+  private collectChildParameters(child: Module, trainableOnly: boolean): ParameterTree | null {
+    const subtree = trainableOnly ? child.trainableParameters() : child.parameters();
+    return trainableOnly && Object.keys(subtree).length === 0 ? null : subtree;
+  }
+
+  private collectModuleArrayParameters(
+    children: Module[],
+    trainableOnly: boolean,
+  ): ParameterTree | null {
+    const subtree: ParameterTree = {};
+    for (let index = 0; index < children.length; index++) {
+      const child = children[index];
+      if (child === undefined) {
+        continue;
+      }
+
+      const childParams = this.collectChildParameters(child, trainableOnly);
+      if (childParams !== null) {
+        subtree[String(index)] = childParams;
+      }
+    }
+
+    return Object.keys(subtree).length === 0 ? null : subtree;
+  }
+
+  private assignParameterValue(
+    tree: ParameterTree,
+    key: string,
+    value: unknown,
+    trainableOnly: boolean,
+  ): void {
+    if (value instanceof MxArray) {
+      tree[key] = value;
+      return;
+    }
+
+    if (value instanceof Module) {
+      const subtree = this.collectChildParameters(value, trainableOnly);
+      if (subtree !== null) {
+        tree[key] = subtree;
+      }
+      return;
+    }
+
+    const arrayState = moduleArrayState(value);
+    if (arrayState.kind === "mixed-array") {
+      throw new Error(
+        `Module.parameters: property "${key}" mixes Module and non-Module values in one array`,
+      );
+    }
+
+    if (arrayState.kind === "module-array") {
+      const subtree = this.collectModuleArrayParameters(arrayState.modules, trainableOnly);
+      if (subtree !== null) {
+        tree[key] = subtree;
+      }
+    }
+  }
+
   private collectParameters(trainableOnly: boolean): ParameterTree {
     const tree: ParameterTree = {};
     for (const key of this.ownKeys()) {
@@ -81,15 +162,7 @@ export abstract class Module implements Disposable {
         continue;
       }
 
-      const value = this.slotValue(key);
-      if (value instanceof MxArray) {
-        tree[key] = value;
-      } else if (value instanceof Module) {
-        const subtree = trainableOnly ? value.trainableParameters() : value.parameters();
-        if (!trainableOnly || Object.keys(subtree).length > 0) {
-          tree[key] = subtree;
-        }
-      }
+      this.assignParameterValue(tree, key, this.slotValue(key), trainableOnly);
     }
     return tree;
   }
@@ -98,7 +171,12 @@ export abstract class Module implements Disposable {
     if (current instanceof MxArray) {
       return;
     }
-    if (current instanceof Module) {
+    const arrayState = moduleArrayState(current);
+    if (
+      current instanceof Module ||
+      arrayState.kind === "module-array" ||
+      arrayState.kind === "mixed-array"
+    ) {
       throw new Error(
         `Module.update: key "${formatPath(path)}" is a sub-module and expects a nested parameter tree`,
       );
@@ -118,6 +196,61 @@ export abstract class Module implements Disposable {
     throw new Error(`Module.update: key "${formatPath(path)}" is not a sub-module`);
   }
 
+  private validateModuleArrayEntry(
+    current: Module[],
+    parentPath: readonly string[],
+    indexKey: string,
+    childValue: MxArray | ParameterTree,
+  ): void {
+    const childPath = [...parentPath, indexKey];
+    const index = Number(indexKey);
+    if (!Number.isInteger(index) || index < 0 || index >= current.length) {
+      throw new Error(
+        `Module.update: invalid index "${formatPath(childPath)}" for module array of length ${current.length}`,
+      );
+    }
+
+    const child = current[index];
+    if (child === undefined) {
+      return;
+    }
+
+    if (childValue instanceof MxArray) {
+      throw new Error(
+        `Module.update: key "${formatPath(childPath)}" is a sub-module and expects a nested parameter tree`,
+      );
+    }
+
+    child.validateUpdateTree(childValue, childPath);
+  }
+
+  private validateSubtreeUpdate(
+    current: unknown,
+    value: ParameterTree,
+    nextPath: readonly string[],
+  ): void {
+    if (current instanceof Module) {
+      current.validateUpdateTree(value, nextPath);
+      return;
+    }
+
+    const arrayState = moduleArrayState(current);
+    if (arrayState.kind === "mixed-array") {
+      throw new Error(
+        `Module.update: key "${formatPath(nextPath)}" mixes Module and non-Module values in one array`,
+      );
+    }
+
+    if (arrayState.kind === "module-array") {
+      for (const [indexKey, childValue] of Object.entries(value)) {
+        this.validateModuleArrayEntry(arrayState.modules, nextPath, indexKey, childValue);
+      }
+      return;
+    }
+
+    this.assertUpdatableSubtree(current, nextPath);
+  }
+
   private validateUpdateTree(params: ParameterTree, path: readonly string[]): void {
     for (const [key, value] of Object.entries(params)) {
       const nextPath = [...path, key];
@@ -128,10 +261,35 @@ export abstract class Module implements Disposable {
       const current = this.slotValue(key);
       if (value instanceof MxArray) {
         this.assertUpdatableLeaf(current, nextPath);
-      } else if (isParameterTree(value)) {
-        const child = this.assertUpdatableSubtree(current, nextPath);
-        child.validateUpdateTree(value, nextPath);
+        continue;
       }
+
+      this.validateSubtreeUpdate(current, value, nextPath);
+    }
+  }
+
+  private applyModuleArrayUpdate(current: Module[], value: ParameterTree): void {
+    for (const [indexKey, childValue] of Object.entries(value)) {
+      const child = current[Number(indexKey)];
+      if (child !== undefined && isParameterTree(childValue)) {
+        child.applyUpdateTree(childValue);
+      }
+    }
+  }
+
+  private applySubtreeUpdate(current: unknown, value: ParameterTree): void {
+    if (current instanceof Module) {
+      current.applyUpdateTree(value);
+      return;
+    }
+
+    const arrayState = moduleArrayState(current);
+    if (arrayState.kind === "mixed-array") {
+      throw new Error("Module.update: mixed Module arrays are unsupported");
+    }
+
+    if (arrayState.kind === "module-array") {
+      this.applyModuleArrayUpdate(arrayState.modules, value);
     }
   }
 
@@ -139,12 +297,10 @@ export abstract class Module implements Disposable {
     for (const [key, value] of Object.entries(params)) {
       if (value instanceof MxArray) {
         Reflect.set(this, key, value);
-      } else if (isParameterTree(value)) {
-        const current = this.slotValue(key);
-        if (current instanceof Module) {
-          current.applyUpdateTree(value);
-        }
+        continue;
       }
+
+      this.applySubtreeUpdate(this.slotValue(key), value);
     }
   }
 
@@ -154,7 +310,16 @@ export abstract class Module implements Disposable {
     }
 
     const value = this.slotValue(key);
-    if (!(value instanceof MxArray) && !(value instanceof Module)) {
+    const arrayState = moduleArrayState(value);
+    if (arrayState.kind === "mixed-array") {
+      throw new Error(`${operation}: key "${key}" mixes Module and non-Module values in one array`);
+    }
+
+    if (
+      !(value instanceof MxArray) &&
+      !(value instanceof Module) &&
+      arrayState.kind !== "module-array"
+    ) {
       throw new Error(`${operation}: key "${key}" is not a parameter or sub-module`);
     }
   }
@@ -204,7 +369,18 @@ export abstract class Module implements Disposable {
     if (keys === undefined) {
       for (const key of this.ownKeys()) {
         const value = this.slotValue(key);
-        if (value instanceof MxArray || value instanceof Module) {
+        const arrayState = moduleArrayState(value);
+        if (arrayState.kind === "mixed-array") {
+          throw new Error(
+            `Module.freeze: key "${key}" mixes Module and non-Module values in one array`,
+          );
+        }
+
+        if (
+          value instanceof MxArray ||
+          value instanceof Module ||
+          arrayState.kind === "module-array"
+        ) {
           this.#frozenKeys.add(key);
         }
       }
@@ -245,8 +421,7 @@ export abstract class Module implements Disposable {
   train(mode?: boolean): this {
     this.#training = mode ?? true;
     for (const key of this.ownKeys()) {
-      const val = this.slotValue(key);
-      if (val instanceof Module) val.train(mode);
+      this.applyTrainingMode(this.slotValue(key), mode);
     }
     return this;
   }
@@ -256,12 +431,52 @@ export abstract class Module implements Disposable {
     return this.train(false);
   }
 
+  private applyTrainingMode(value: unknown, mode: boolean | undefined): void {
+    if (value instanceof Module) {
+      value.train(mode);
+      return;
+    }
+
+    const arrayState = moduleArrayState(value);
+    if (arrayState.kind === "mixed-array") {
+      throw new Error("Module.train: mixed Module arrays are unsupported");
+    }
+
+    if (arrayState.kind === "module-array") {
+      for (const child of arrayState.modules) {
+        child.train(mode);
+      }
+    }
+  }
+
+  /** Free all owned parameter arrays and dispose sub-modules. */
+  private disposeValue(value: unknown): void {
+    if (value instanceof MxArray) {
+      value.free();
+      return;
+    }
+
+    if (value instanceof Module) {
+      value[Symbol.dispose]();
+      return;
+    }
+
+    const arrayState = moduleArrayState(value);
+    if (arrayState.kind === "mixed-array") {
+      throw new Error("Module.dispose: mixed Module arrays are unsupported");
+    }
+
+    if (arrayState.kind === "module-array") {
+      for (const child of arrayState.modules) {
+        child[Symbol.dispose]();
+      }
+    }
+  }
+
   /** Free all owned parameter arrays and dispose sub-modules. */
   [Symbol.dispose](): void {
     for (const key of this.ownKeys()) {
-      const val = this.slotValue(key);
-      if (val instanceof MxArray) val.free();
-      if (val instanceof Module) val[Symbol.dispose]();
+      this.disposeValue(this.slotValue(key));
     }
   }
 }

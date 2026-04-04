@@ -12,7 +12,7 @@
     "exactOptionalPropertyTypes": true,
     "noImplicitOverride": true,
     "verbatimModuleSyntax": true,
-    "types": ["bun-types"]
+    "types": ["bun"]
   },
   "exclude": ["node_modules", "dist", "build"]
 }

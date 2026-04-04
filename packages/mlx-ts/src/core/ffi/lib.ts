@@ -8,7 +8,7 @@
  */
 
 import { dlopen } from "bun:ffi";
-import { resolve } from "node:path";
+import { resolve } from "path";
 
 import {
   ARITHMETIC_SYMBOLS,
@@ -18,8 +18,11 @@ import {
   CREATION_SYMBOLS,
   DEVICE_SYMBOLS,
   ERROR_SYMBOLS,
+  FAST_SYMBOLS,
   GRAD_TRANSFORM_SYMBOLS,
   LINALG_SYMBOLS,
+  MEMORY_SYMBOLS,
+  METAL_SYMBOLS,
   RANDOM_SYMBOLS,
   REDUCTION_SYMBOLS,
   SHAPE_SYMBOLS,
@@ -47,6 +50,9 @@ const lib = dlopen(DYLIB_PATH, {
   ...CREATION_SYMBOLS,
   ...TAKE_SYMBOLS,
   ...RANDOM_SYMBOLS,
+  ...MEMORY_SYMBOLS,
+  ...METAL_SYMBOLS,
+  ...FAST_SYMBOLS,
   ...TRANSFORM_SYMBOLS,
   ...CLOSURE_SYMBOLS,
   ...GRAD_TRANSFORM_SYMBOLS,

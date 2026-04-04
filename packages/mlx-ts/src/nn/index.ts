@@ -4,6 +4,7 @@
  */
 
 export { gelu, relu, silu } from "./activations";
+export { checkpoint } from "./checkpoint";
 export { Dropout } from "./dropout";
 export { Embedding } from "./embedding";
 export { LayerNorm } from "./layer-norm";

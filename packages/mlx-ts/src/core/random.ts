@@ -8,7 +8,7 @@
  */
 
 import type { Pointer } from "bun:ffi";
-import { MxArray, prepareOut, readOut } from "./array";
+import { MxArray, readResultArray, readResultPointer } from "./array";
 import { defaultStream } from "./device";
 import { DTYPE_TO_MLX, type DType } from "./dtype";
 import { checkStatus } from "./error";
@@ -20,9 +20,9 @@ let _defaultKey: Pointer | null = null;
 /** Initialize or get the module-level default RNG key. */
 function getDefaultKey(): Pointer {
   if (_defaultKey === null) {
-    const out = prepareOut();
-    checkStatus(ffi.mlx_random_key(out, 0), "random_key_default");
-    _defaultKey = readOut();
+    _defaultKey = readResultPointer("random_key_default", (out) => {
+      checkStatus(ffi.mlx_random_key(out, 0), "random_key_default");
+    });
   }
   return _defaultKey;
 }
@@ -55,16 +55,17 @@ export function seed(value: number): void {
     ffi.mlx_array_free(_defaultKey);
     _defaultKey = null;
   }
-  const out = prepareOut();
-  checkStatus(ffi.mlx_random_key(out, value), "random_key");
-  _defaultKey = readOut();
+  checkStatus(ffi.mlx_random_seed(value), "random_seed");
+  _defaultKey = readResultPointer("random_key", (out) => {
+    checkStatus(ffi.mlx_random_key(out, value), "random_key");
+  });
 }
 
 /** Create an explicit RNG key from a seed. */
 export function key(seedValue: number): MxArray {
-  const out = prepareOut();
-  checkStatus(ffi.mlx_random_key(out, seedValue), "random_key");
-  return MxArray._fromCtx(readOut());
+  return readResultArray("random_key", (out) => {
+    checkStatus(ffi.mlx_random_key(out, seedValue), "random_key");
+  });
 }
 
 /** Split an RNG key into two new keys. */
@@ -91,22 +92,22 @@ export function normal(
   const shapeBuf = new Int32Array(shape);
   const ownKey = rngKey === undefined;
   const keyCtx = rngKey?._ctx ?? useDefaultKey();
-  const out = prepareOut();
   try {
-    checkStatus(
-      ffi.mlx_random_normal(
-        out,
-        ptr(shapeBuf),
-        shape.length,
-        DTYPE_TO_MLX[dtype],
-        loc,
-        scale,
-        keyCtx,
-        defaultStream(),
-      ),
-      "random_normal",
-    );
-    return MxArray._fromCtx(readOut());
+    return readResultArray("random_normal", (out) => {
+      checkStatus(
+        ffi.mlx_random_normal(
+          out,
+          ptr(shapeBuf),
+          shape.length,
+          DTYPE_TO_MLX[dtype],
+          loc,
+          scale,
+          keyCtx,
+          defaultStream(),
+        ),
+        "random_normal",
+      );
+    });
   } finally {
     if (ownKey) {
       ffi.mlx_array_free(keyCtx);
@@ -127,25 +128,52 @@ export function uniform(
   const keyCtx = rngKey?._ctx ?? useDefaultKey();
   const lowArr = unwrapPointer(ffi.mlx_array_new_float(low), "mlx_array_new_float(low)");
   const highArr = unwrapPointer(ffi.mlx_array_new_float(high), "mlx_array_new_float(high)");
-  const out = prepareOut();
   try {
-    checkStatus(
-      ffi.mlx_random_uniform(
-        out,
-        lowArr,
-        highArr,
-        ptr(shapeBuf),
-        shape.length,
-        DTYPE_TO_MLX[dtype],
-        keyCtx,
-        defaultStream(),
-      ),
-      "random_uniform",
-    );
-    return MxArray._fromCtx(readOut());
+    return readResultArray("random_uniform", (out) => {
+      checkStatus(
+        ffi.mlx_random_uniform(
+          out,
+          lowArr,
+          highArr,
+          ptr(shapeBuf),
+          shape.length,
+          DTYPE_TO_MLX[dtype],
+          keyCtx,
+          defaultStream(),
+        ),
+        "random_uniform",
+      );
+    });
   } finally {
     ffi.mlx_array_free(lowArr);
     ffi.mlx_array_free(highArr);
+    if (ownKey) {
+      ffi.mlx_array_free(keyCtx);
+    }
+  }
+}
+
+/**
+ * Sample from a categorical distribution defined by unnormalized log-probabilities.
+ *
+ * Returns int32 indices sampled along the given axis. One sample per
+ * "row" along that axis.
+ *
+ * @param logits - Unnormalized log-probabilities. Any shape.
+ * @param axis - Axis along which to sample. Defaults to -1.
+ * @param rngKey - Optional explicit RNG key.
+ */
+export function categorical(logits: MxArray, axis = -1, rngKey?: MxArray): MxArray {
+  const ownKey = rngKey === undefined;
+  const keyCtx = rngKey?._ctx ?? useDefaultKey();
+  try {
+    return readResultArray("random_categorical", (out) => {
+      checkStatus(
+        ffi.mlx_random_categorical(out, logits._ctx, axis, keyCtx, defaultStream()),
+        "random_categorical",
+      );
+    });
+  } finally {
     if (ownKey) {
       ffi.mlx_array_free(keyCtx);
     }
@@ -158,13 +186,13 @@ export function bernoulli(p: number, shape: number[], rngKey?: MxArray): MxArray
   const ownKey = rngKey === undefined;
   const keyCtx = rngKey?._ctx ?? useDefaultKey();
   const pArr = unwrapPointer(ffi.mlx_array_new_float(p), "mlx_array_new_float(p)");
-  const out = prepareOut();
   try {
-    checkStatus(
-      ffi.mlx_random_bernoulli(out, pArr, ptr(shapeBuf), shape.length, keyCtx, defaultStream()),
-      "random_bernoulli",
-    );
-    return MxArray._fromCtx(readOut());
+    return readResultArray("random_bernoulli", (out) => {
+      checkStatus(
+        ffi.mlx_random_bernoulli(out, pArr, ptr(shapeBuf), shape.length, keyCtx, defaultStream()),
+        "random_bernoulli",
+      );
+    });
   } finally {
     ffi.mlx_array_free(pArr);
     if (ownKey) {

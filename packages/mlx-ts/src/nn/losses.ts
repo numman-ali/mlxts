@@ -7,32 +7,19 @@
  */
 
 import type { MxArray } from "../core/array";
+import { isIntegerDType } from "../core/dtype";
 import { multiply, square, subtract } from "../core/ops/arithmetic";
 import { logsumexp, mean } from "../core/ops/reduction";
 import { expandDims, squeeze, takeAlongAxis } from "../core/ops/shape";
-
-const INTEGER_DTYPES: ReadonlySet<string> = new Set([
-  "int8",
-  "int16",
-  "int32",
-  "int64",
-  "uint8",
-  "uint16",
-  "uint32",
-  "uint64",
-]);
+import { formatShape } from "../utils/format-shape";
 
 function assertIntegerDtype(arr: MxArray, name: string): void {
-  if (!INTEGER_DTYPES.has(arr.dtype)) {
+  if (!isIntegerDType(arr.dtype)) {
     throw new Error(
       `${name}: targets must be integer dtype (int32, uint32, etc.), got ${arr.dtype}.\n` +
         `  Hint: use array([1, 2, 3], "int32") to create integer indices.`,
     );
   }
-}
-
-function formatShape(shape: readonly number[]): string {
-  return shape.length === 0 ? "[]" : `[${shape.join(", ")}]`;
 }
 
 function shapesEqual(left: readonly number[], right: readonly number[]): boolean {

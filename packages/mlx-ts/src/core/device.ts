@@ -8,7 +8,7 @@
 
 import type { Pointer } from "bun:ffi";
 import { checkStatus } from "./error";
-import { ffi, unwrapPointer } from "./ffi";
+import { ffi, OutSlot, ptr, sizeToNumber, unwrapPointer } from "./ffi";
 
 /** Device type for stream selection. */
 export type DeviceType = "cpu" | "gpu";
@@ -21,9 +21,37 @@ const MLX_GPU = 1;
 // Streams are lightweight handles — we create them once and never free them.
 let _gpuStream: Pointer | null = null;
 let _cpuStream: Pointer | null = null;
+let _defaultDevice: DeviceType | null = null;
 
-/** The default device type used when no stream is explicitly passed. */
-let _defaultDeviceType: DeviceType = "gpu";
+function deviceTypeFromNative(raw: number): DeviceType {
+  if (raw === MLX_CPU) {
+    return "cpu";
+  }
+  if (raw === MLX_GPU) {
+    return "gpu";
+  }
+  throw new Error(`Unknown mlx device type: ${raw}`);
+}
+
+function boolResult(label: string, callback: (out: Uint8Array) => void): boolean {
+  const out = new Uint8Array(1);
+  callback(out);
+  const value = out[0];
+  if (value === undefined) {
+    throw new Error(`${label}: expected a boolean result`);
+  }
+  return value !== 0;
+}
+
+function i32Result(label: string, callback: (out: Int32Array) => void): number {
+  const out = new Int32Array(1);
+  callback(out);
+  const value = out[0];
+  if (value === undefined) {
+    throw new Error(`${label}: expected a numeric result`);
+  }
+  return value;
+}
 
 /** Get the default GPU stream. */
 export function gpuStream(): Pointer {
@@ -43,7 +71,7 @@ export function cpuStream(): Pointer {
 
 /** Get the default stream (GPU unless changed via setDefaultDevice). */
 export function defaultStream(): Pointer {
-  return _defaultDeviceType === "gpu" ? gpuStream() : cpuStream();
+  return getDefaultDevice() === "gpu" ? gpuStream() : cpuStream();
 }
 
 /**
@@ -51,13 +79,12 @@ export function defaultStream(): Pointer {
  * This affects which stream is used when none is explicitly provided.
  */
 export function setDefaultDevice(device: DeviceType): void {
-  _defaultDeviceType = device;
-
   const mlxType = device === "gpu" ? MLX_GPU : MLX_CPU;
   const dev = unwrapPointer(ffi.mlx_device_new_type(mlxType, 0), "mlx_device_new_type");
 
   try {
     checkStatus(ffi.mlx_set_default_device(dev), "set_default_device");
+    _defaultDevice = device;
   } finally {
     ffi.mlx_device_free(dev);
   }
@@ -65,5 +92,49 @@ export function setDefaultDevice(device: DeviceType): void {
 
 /** Get the current default device type. */
 export function getDefaultDevice(): DeviceType {
-  return _defaultDeviceType;
+  if (_defaultDevice !== null) {
+    return _defaultDevice;
+  }
+  const slot = new OutSlot();
+  checkStatus(ffi.mlx_get_default_device(slot.prepare()), "get_default_device");
+  const device = slot.read("default device");
+  try {
+    const rawType = i32Result("mlx_device_get_type", (out) => {
+      checkStatus(ffi.mlx_device_get_type(ptr(out), device), "device_get_type");
+    });
+    const resolved = deviceTypeFromNative(rawType);
+    _defaultDevice = resolved;
+    return resolved;
+  } finally {
+    ffi.mlx_device_free(device);
+  }
+}
+
+/** Wait for queued work on a stream to complete. */
+export function synchronize(stream: Pointer = defaultStream()): void {
+  checkStatus(ffi.mlx_synchronize(stream), "synchronize");
+}
+
+/** Number of available devices of a given type. */
+export function deviceCount(device: DeviceType): number {
+  const rawCount = i32Result("mlx_device_count", (out) => {
+    checkStatus(
+      ffi.mlx_device_count(ptr(out), device === "gpu" ? MLX_GPU : MLX_CPU),
+      "device_count",
+    );
+  });
+  return sizeToNumber(rawCount, "mlx_device_count");
+}
+
+/** Whether a specific device index is available. */
+export function isDeviceAvailable(device: DeviceType, index = 0): boolean {
+  const mlxType = device === "gpu" ? MLX_GPU : MLX_CPU;
+  const dev = unwrapPointer(ffi.mlx_device_new_type(mlxType, index), "mlx_device_new_type");
+  try {
+    return boolResult("mlx_device_is_available", (out) => {
+      checkStatus(ffi.mlx_device_is_available(ptr(out), dev), "device_is_available");
+    });
+  } finally {
+    ffi.mlx_device_free(dev);
+  }
 }

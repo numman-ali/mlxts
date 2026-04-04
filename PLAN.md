@@ -16,7 +16,7 @@ We reject that. Our principles:
 
 1. **The first-time user is the primary audience.** Every API, every file, every error message is designed for someone encountering it fresh. If a developer can't understand what a module does within 30 seconds of opening it, we've failed.
 
-2. **Original thinking from first principles.** We study the official MLX source code and nothing else. No third-party wrappers, no community bindings, no derivative projects. Their compromises are not our compromises. Our architecture emerges from understanding the problem, not from copying someone else's solution.
+2. **Original thinking from first principles.** Official MLX and mlx-c sources are the primary truth. Comparative research from other high-signal repos is allowed when it improves correctness, semantics, or performance understanding, but we do not cargo-cult someone else's API or operational compromises.
 
 3. **If it's not documented, it doesn't exist.** Every public API has JSDoc. Every architectural decision has a rationale. Every phase has exit criteria.
 
@@ -145,7 +145,9 @@ We reject that. Our principles:
 1. `bun run typecheck` passes with zero errors
 2. `bun test` passes all tests (75+ across 6 test files)
 3. `bun run lint` (Biome) passes clean
-4. `bun run check:coverage` passes for `mlx-ts` at `95%` lines and `90%` functions
+4. `bun run check:coverage` passes for the production packages:
+   - `mlx-ts` at `95%` lines and `90%` functions
+   - `nanogpt` at `90%` lines and `85%` functions
 5. FFI symbol declarations in `src/core/ffi/symbols.ts` are verified against mlx-c v0.6.0 headers
 6. No type assertions (`as`, `!`) exist outside the FFI boundary package (`src/core/ffi/`)
 7. All native handle temporaries use `try/finally` for cleanup
@@ -275,8 +277,8 @@ We reject that. Our principles:
 
 ### 4a. Tokenizer
 
-- Character-level tokenizer (simplest, for initial training)
-- BPE tokenizer (for real training — port tiktoken or implement from scratch)
+- Character-level tokenizer
+- Canonical serialized vocab captured in checkpoints
 
 ### 4b. Data pipeline
 
@@ -299,32 +301,56 @@ Token Embedding + Position Embedding
 - Configurable: n_layers, n_heads, n_embd, block_size, vocab_size, dropout
 - Weight tying (embedding weights = output projection weights)
 - Causal attention mask
+- Fused fast attention when MLX exposes the right primitive
+- Optional gradient checkpointing at the transformer-block level for memory-sensitive runs
 
 ### 4d. Training
 
 - Training loop with gradient accumulation
 - Loss logging, learning rate scheduling (warmup + cosine decay)
 - Periodic validation loss evaluation
-- Checkpoint saving/loading (safetensors or JSON)
+- Canonical checkpoint saving/loading (`manifest.json` + `tensors.bin`)
+- Supervised long-run management with explicit status, stop, cancel, and resume flows
 
 ### 4e. Generation
 
 - Autoregressive text generation
-- Temperature and top-k/top-p sampling
-- Interactive generation mode
+- Temperature and greedy / categorical sampling
+- Interactive CLI generation mode
 
 ### 4f. Configurations
 
-- `gpt2-tiny`: ~1M params (for fast iteration, trains in minutes)
-- `gpt2-small`: ~124M params (the real nanoGPT target)
+- `gpt-tiny`: ~10.8M params with char-level vocab (the fast acceptance model)
+- `gpt-small`: GPT-2-small-sized architecture variant with runtime vocab from the tokenizer
 
 **Deliverables**:
 
 - `packages/nanogpt/` — complete GPT implementation
 - Trains on Shakespeare, generates coherent text
-- Example scripts in `examples/`
+- Canonical CLI with `train` / `generate`
+- Memory benchmark and supervised soak surfaces before loss-targeted acceptance
+- Acceptance scripts: `bun run acceptance:gpt-tiny` and `bun run acceptance:gpt-small`
 
-**Exit criteria**: GPT-2 tiny trains to <1.5 loss on Shakespeare in under 30 minutes on M4 Max. Generated text is recognizably English and vaguely Shakespearean.
+**Exit criteria**:
+- `bun run validate` passes
+- `gpt-tiny` trains to <1.5 validation loss on Shakespeare in an explicit acceptance run
+- `gpt-small` also has an explicit loss-targeted acceptance run
+- Long unattended runs use the supervised `bun run run:nanogpt ...` surface rather than one-off scripts
+- Long-run acceptance follows a soak ladder (`50 → 250 → 1000 → 5000`) rather than jumping straight to overnight runs
+- Runtime-sensitive diffs leave a review artifact under `docs/reviews/` and pass `bun run check:runtime-review`
+- Generated text is recognizably English and vaguely Shakespearean
+
+**Post-Phase-4 package posture**:
+- `mlx-ts` remains the reusable foundation
+- `nanogpt` remains the reference GPT application and operator surface
+- Reusable model-family code should move into its own package only when a second consumer or second model family makes that split worthwhile
+
+**Post-Phase-4 runtime posture**:
+- Fused fast attention and gradient-checkpointed transformer blocks are the canonical GPT hot path
+- Runtime-sensitive changes must pass the visible-lifetime and review-artifact gates
+- Long-run trust is earned through `bench:memory`, the supervised soak ladder, and then loss-targeted acceptance
+- The supervised run protocol uses atomic file-backed status/control writes, and `stalled` is treated as a terminal operator failure until a human resumes or restarts the run
+- Operator surfaces should expose semantic sample output alongside scalar metrics so humans can judge learning progress, not just loss curves
 
 ---
 
