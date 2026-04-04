@@ -1,5 +1,5 @@
 /**
- * Build script for mlx-ts native dependencies.
+ * Build script for @mlxts/core native dependencies.
  *
  * Runs CMake to build mlx-c (which auto-fetches MLX via FetchContent),
  * then copies the resulting dylibs to native/lib/ and fixes rpaths
@@ -158,7 +158,7 @@ async function fixRpaths(): Promise<void> {
 }
 
 async function main(): Promise<void> {
-  console.log("mlx-ts native build");
+  console.log("@mlxts/core native build");
   console.log("=".repeat(50));
 
   // Check if dylibs already exist (skip rebuild)

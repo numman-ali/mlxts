@@ -1,5 +1,13 @@
 import { describe, expect, test } from "bun:test";
-import { array, clearMemoryCache, getActiveMemoryBytes, mxEval, random, synchronize } from "mlx-ts";
+import {
+  array,
+  clearMemoryCache,
+  getActiveMemoryBytes,
+  mxEval,
+  random,
+  synchronize,
+} from "@mlxts/core";
+
 import { GPT_TINY, resolveConfig } from "../config";
 import { CausalSelfAttention } from "./causal-self-attention";
 

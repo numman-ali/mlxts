@@ -78,13 +78,12 @@ These gates are non-negotiable at every phase boundary. Code does not advance un
 | Each package's tests pass independently, not just monorepo-level | `cd packages/<pkg> && bun test` for each |
 | Canonical package sources honor the 500-line cap | `bun run check:file-lines` |
 | Coverage thresholds match the current package-first gate | `bun run check:coverage` |
-| `packages/mlx-ts` is documented as a temporary compatibility shim | Manual review |
 | `packages/nanogpt` is documented as a temporary validation fixture | Manual review |
 | Runtime-sensitive extraction work has a review artifact | `bun run check:runtime-review` |
 | All top-level docs describe the package-first state consistently | Manual review |
 
 ### What "done" looks like
-A developer runs `bun install`, opens `packages/core/src/index.ts` and `packages/train/src/index.ts`, sees the canonical `@mlxts/*` package surfaces, and `bun run validate` passes. The old `packages/mlx-ts` and `packages/nanogpt` surfaces are still present only as clearly documented transitional fixtures.
+A developer runs `bun install`, opens `packages/core/src/index.ts` and `packages/train/src/index.ts`, sees the canonical `@mlxts/*` package surfaces, and `bun run validate` passes. `packages/nanogpt` is still present only as a clearly documented temporary validation fixture.
 
 ---
 

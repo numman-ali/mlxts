@@ -7,7 +7,9 @@
     "nanogpt": "src/cli.ts"
   },
   "dependencies": {
-    "mlx-ts": "workspace:*"
+    "@mlxts/core": "workspace:*",
+    "@mlxts/nn": "workspace:*",
+    "@mlxts/optimizers": "workspace:*"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",

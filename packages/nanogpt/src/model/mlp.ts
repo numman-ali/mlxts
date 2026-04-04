@@ -7,8 +7,9 @@
  * @module
  */
 
-import type { MxArray } from "mlx-ts";
-import { Dropout, gelu, Linear, Module } from "mlx-ts";
+import type { MxArray } from "@mlxts/core";
+import { Dropout, gelu, Linear, Module } from "@mlxts/nn";
+
 import type { GPTConfig } from "../config";
 
 /** Feed-forward MLP block: expand → GELU → contract → dropout. */

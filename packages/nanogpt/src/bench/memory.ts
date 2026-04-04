@@ -3,7 +3,6 @@
 import {
   array,
   clearMemoryCache,
-  crossEntropy,
   getMemoryStats,
   mxEval,
   random,
@@ -11,7 +10,8 @@ import {
   reshape,
   synchronize,
   transpose,
-} from "mlx-ts";
+} from "@mlxts/core";
+import { crossEntropy } from "@mlxts/nn";
 
 import { GPT_SMALL, GPT_TINY, type ModelPreset, resolveConfig } from "../config";
 import { CausalSelfAttention } from "../model/causal-self-attention";

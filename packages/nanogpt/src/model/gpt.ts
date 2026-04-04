@@ -14,8 +14,10 @@
  * @module
  */
 
-import type { MxArray } from "mlx-ts";
-import { add, arange, Dropout, Embedding, isIntegerDType, LayerNorm, Module } from "mlx-ts";
+import type { MxArray } from "@mlxts/core";
+import { add, arange, isIntegerDType } from "@mlxts/core";
+import { Dropout, Embedding, LayerNorm, Module } from "@mlxts/nn";
+
 import type { GPTConfig } from "../config";
 import { TransformerBlock } from "./transformer-block";
 

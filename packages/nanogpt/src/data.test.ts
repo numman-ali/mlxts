@@ -1,8 +1,9 @@
 import { describe, expect, test } from "bun:test";
+import { mxEval } from "@mlxts/core";
 import { mkdtempSync, writeFileSync } from "fs";
-import { mxEval } from "mlx-ts";
 import { tmpdir } from "os";
 import { join } from "path";
+
 import { createRandomSource, getBatch, loadText, prepareData } from "./data";
 
 describe("data", () => {

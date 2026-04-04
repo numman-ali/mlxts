@@ -1,5 +1,5 @@
 /**
- * nanogpt — A GPT implementation in TypeScript, built on mlx-ts.
+ * nanogpt — A GPT implementation in TypeScript, built on @mlxts/*.
  *
  * Educational, self-documenting, and designed to run
  * end-to-end on Apple Silicon.

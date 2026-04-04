@@ -18,7 +18,7 @@ import {
   reshape,
   squeeze,
   takeAxis,
-} from "mlx-ts";
+} from "@mlxts/core";
 import type { GPTConfig } from "./config";
 import type { GPT } from "./model/gpt";
 import type { CharTokenizer } from "./tokenizer";

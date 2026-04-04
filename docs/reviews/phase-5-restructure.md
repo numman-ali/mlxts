@@ -3,7 +3,7 @@
 ## Summary
 
 This artifact tracks the runtime-sensitive review for the Phase 5 package
-restructure from `mlx-ts` + `nanogpt` into the `@mlxts/*` package family. The
+restructure from the legacy monolith into the `@mlxts/*` package family. The
 current implementation focus is the reusable package surface: tensor, nn,
 optimizer, training, data, and tokenizer code are extracted and split into
 smaller files without changing their runtime behavior. The old `packages/nanogpt`
@@ -13,10 +13,10 @@ canonical example.
 ## Current State vs Deferred Work
 
 The package-first extraction is the current Phase 5 target and is reflected in
-the repo today. The extracted packages are the canonical surfaces. The deferred
-work is a later dedicated examples pass, including a ground-up nanoGPT rewrite
-and deletion of the temporary `packages/mlx-ts` shim and `packages/nanogpt`
-fixture once replacement surfaces are ready.
+the repo today. The extracted packages are the canonical surfaces, and the old
+compatibility shim has been removed. The deferred work is a later dedicated
+examples pass, including a ground-up nanoGPT rewrite and eventual deletion of
+the temporary `packages/nanogpt` fixture once replacement surfaces are ready.
 
 The review is intentionally incremental. The `Files Reviewed` section is updated
 as runtime-sensitive files move or split, and the evidence sections are
@@ -55,7 +55,20 @@ refreshed as the migration reaches new validation checkpoints.
 - `packages/core/src/tree.ts`
 - `packages/data/src/index.ts`
 - `packages/data/src/text.ts`
-- `packages/mlx-ts/src/index.ts`
+- `packages/nanogpt/src/bench/memory.ts`
+- `packages/nanogpt/src/checkpoint.ts`
+- `packages/nanogpt/src/cli.ts`
+- `packages/nanogpt/src/data.ts`
+- `packages/nanogpt/src/generate.ts`
+- `packages/nanogpt/src/index.ts`
+- `packages/nanogpt/src/model/causal-self-attention.ts`
+- `packages/nanogpt/src/model/gpt.ts`
+- `packages/nanogpt/src/model/init.ts`
+- `packages/nanogpt/src/model/mlp.ts`
+- `packages/nanogpt/src/model/transformer-block.ts`
+- `packages/nanogpt/src/optimizer-defaults.ts`
+- `packages/nanogpt/src/safetensors.ts`
+- `packages/nanogpt/src/train.ts`
 - `packages/nn/src/activations.ts`
 - `packages/nn/src/checkpoint.ts`
 - `packages/nn/src/dropout.ts`
@@ -100,6 +113,8 @@ Current evidence:
 - `cd packages/core && bun test` passes after splitting `array.ts` and `transforms.ts`
 - `cd packages/train && bun test` passes after extracting the generic training
   schedule, loop, gradient, and checkpoint surfaces
+- `cd packages/nanogpt && bun test` passes after rewiring the temporary fixture
+  directly onto `@mlxts/core`, `@mlxts/nn`, and `@mlxts/optimizers`
 - `bun run check:file-lines` passes for the canonical `@mlxts/*` package sources
 
 Throughput-sensitive long-run evidence for the legacy `packages/nanogpt`
@@ -115,8 +130,9 @@ before the Phase 5 migration is considered complete.
 
 - Runtime-sensitive file moves can accidentally hide tensor lifetimes if large
   files are split without preserving ownership clarity.
-- The temporary `mlx-ts` shim still coexists with the extracted packages, so
-  there is a short-term risk of drift until the old surface is deleted.
+- Rewiring the temporary `packages/nanogpt` fixture directly onto the extracted
+  packages touches training, checkpoint, and generation paths that still carry
+  the long-run operational surface.
 - The `packages/nanogpt` fixture is no longer the primary Phase 5 target, so
   example and operator docs still need a dedicated cleanup pass to match the new
   package-first direction.

@@ -1,5 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import { AdamW, full, Module, type MxArray, random, treeFlatten } from "mlx-ts";
+import { full, type MxArray, random, treeFlatten } from "@mlxts/core";
+import { Module } from "@mlxts/nn";
+import { AdamW } from "@mlxts/optimizers";
+
 import { GPT_TINY, resolveConfig } from "./config";
 import { prepareData } from "./data";
 import { GPT } from "./model/gpt";

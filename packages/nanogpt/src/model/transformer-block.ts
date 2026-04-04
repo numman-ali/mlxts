@@ -8,8 +8,10 @@
  * @module
  */
 
-import type { MxArray } from "mlx-ts";
-import { add, LayerNorm, Module, nn } from "mlx-ts";
+import type { MxArray } from "@mlxts/core";
+import { add } from "@mlxts/core";
+import { checkpoint as checkpointModule, LayerNorm, Module } from "@mlxts/nn";
+
 import type { GPTConfig } from "../config";
 import { CausalSelfAttention } from "./causal-self-attention";
 import { MLP } from "./mlp";
@@ -30,7 +32,7 @@ export class TransformerBlock extends Module {
     this.mlp = new MLP(config);
     this.#checkpointedForward =
       config.gradientCheckpointing === true
-        ? nn.checkpoint(this, (x) => this.forwardUnchecked(x))
+        ? checkpointModule(this, (x) => this.forwardUnchecked(x))
         : null;
   }
 

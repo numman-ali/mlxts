@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.24)
-project(mlx-ts-native LANGUAGES C CXX)
+project(mlxts-core-native LANGUAGES C CXX)
 
 include(FetchContent)
 

@@ -8,11 +8,8 @@
  * @module
  */
 
-import type { MxArray } from "mlx-ts";
+import type { MxArray } from "@mlxts/core";
 import {
-  Dropout,
-  Linear,
-  Module,
   matmul,
   multiply,
   ones,
@@ -23,7 +20,9 @@ import {
   transpose,
   tril,
   where,
-} from "mlx-ts";
+} from "@mlxts/core";
+import { Dropout, Linear, Module } from "@mlxts/nn";
+
 import type { GPTConfig } from "../config";
 
 /** Multi-head causal self-attention block. */

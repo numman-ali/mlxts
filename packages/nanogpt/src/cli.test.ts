@@ -1,9 +1,10 @@
 import { describe, expect, test } from "bun:test";
+import { loadSafetensors } from "@mlxts/core";
 import { spawnSync } from "child_process";
 import { mkdtempSync, writeFileSync } from "fs";
-import { loadSafetensors } from "mlx-ts";
 import { tmpdir } from "os";
 import { join } from "path";
+
 import { saveCheckpoint } from "./checkpoint";
 import { GPT_TINY, resolveConfig } from "./config";
 import { prepareData } from "./data";

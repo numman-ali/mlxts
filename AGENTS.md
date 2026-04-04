@@ -4,10 +4,11 @@ This document provides context and instructions for AI coding agents working on 
 
 ## Project Overview
 
-nanogpt-ts is a TypeScript-native ML stack for Apple Silicon. It consists of:
+mlxts is a TypeScript-native ML stack for Apple Silicon. The repo currently
+centers on:
 
-- **mlx-ts**: FFI bindings from TypeScript/Bun to Apple's MLX C++ framework
-- **nanogpt**: A GPT implementation built on mlx-ts
+- **`@mlxts/core` / `@mlxts/nn` / `@mlxts/optimizers`**: the extracted reusable ML stack
+- **`packages/nanogpt`**: a temporary GPT validation fixture built on the extracted packages
 
 ## Architecture Decisions
 
@@ -53,6 +54,7 @@ See [docs/code-standards.md](./docs/code-standards.md) for the full code standar
 | Document                                           | Purpose                                               |
 | -------------------------------------------------- | ----------------------------------------------------- |
 | [PLAN.md](./PLAN.md)                               | Phased build plan with deliverables and exit criteria |
+| [docs/design-reasoning.md](./docs/design-reasoning.md) | Why we make the design choices we do — composition, visibility, abstraction timing |
 | [docs/architecture.md](./docs/architecture.md)     | System architecture and layer responsibilities        |
 | [docs/mlx-bindings.md](./docs/mlx-bindings.md)     | Technical guide to the MLX binding approach           |
 | [docs/agentic-loop.md](./docs/agentic-loop.md)     | Multi-agent engineering workflow                      |
@@ -90,7 +92,7 @@ See [docs/code-standards.md](./docs/code-standards.md) for the full code standar
 - **No type escape hatches in core code.** Type assertions (`as`, `!`) are forbidden outside `src/core/ffi/`. If a type doesn't fit, the design needs improving — not a cast.
 - **Prefer runtime checks that teach the type system something true** over casts that merely silence the compiler.
 
-### What nanoGPT needs from mlx-ts (minimum viable surface)
+### What nanoGPT needs from the extracted package stack (minimum viable surface)
 
 1. Array creation: zeros, ones, full, arange, from typed arrays
 2. Core ops: matmul, add, multiply, reshape, transpose, softmax, cross_entropy
@@ -107,7 +109,7 @@ See [docs/code-standards.md](./docs/code-standards.md) for the full code standar
 bun install
 
 # Build native bindings
-cd packages/mlx-ts && bun run build:native
+cd packages/core && bun run build:native
 
 # Run tests
 bun test

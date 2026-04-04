@@ -8,13 +8,10 @@
  */
 
 import {
-  type AdamW,
   add,
-  crossEntropy,
   type MxArray,
   multiply,
   mxEval,
-  nn,
   type ParameterTree,
   random,
   reshape,
@@ -24,7 +21,10 @@ import {
   treeFlatten,
   treeLeaves,
   treeUnflatten,
-} from "mlx-ts";
+} from "@mlxts/core";
+import { crossEntropy, valueAndGrad as moduleValueAndGrad } from "@mlxts/nn";
+import type { AdamW } from "@mlxts/optimizers";
+
 import type { GPTConfig } from "./config";
 import { createRandomSource, getBatch } from "./data";
 import type { GPT } from "./model/gpt";
@@ -601,7 +601,7 @@ export function train(options: TrainOptions): TrainSummary {
     return crossEntropy(flatLogits, flatTargets);
   };
 
-  const lossAndGrad = nn.valueAndGrad(model, lossFn);
+  const lossAndGrad = moduleValueAndGrad(model, lossFn);
   let lastStepLoss: number | null = null;
   let lastTrainLoss: number | null = null;
   let lastValLoss: number | null = null;

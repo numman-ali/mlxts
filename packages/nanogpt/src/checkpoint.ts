@@ -11,9 +11,11 @@
  * @module
  */
 
+import { type DType, MxArray, mxEval, treeFlatten, treeUnflatten } from "@mlxts/core";
+import { AdamW } from "@mlxts/optimizers";
 import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "fs";
-import { AdamW, type DType, MxArray, mxEval, treeFlatten, treeUnflatten } from "mlx-ts";
 import { basename, dirname, join } from "path";
+
 import type { GPTConfig } from "./config";
 import type { GPT } from "./model/gpt";
 import type { CharTokenizer } from "./tokenizer";

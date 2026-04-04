@@ -7,8 +7,9 @@
  * @module
  */
 
-import type { MxArray } from "mlx-ts";
-import { loadSafetensors, mxEval, saveSafetensors, treeFlatten, treeUnflatten } from "mlx-ts";
+import type { MxArray } from "@mlxts/core";
+import { loadSafetensors, mxEval, saveSafetensors, treeFlatten, treeUnflatten } from "@mlxts/core";
+
 import type { GPT } from "./model/gpt";
 
 type ModelParameterEntry = {

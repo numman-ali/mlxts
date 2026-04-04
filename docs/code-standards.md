@@ -102,7 +102,7 @@ src/
 - Canonical production source files must stay at or under 500 physical lines
 - Tests are excluded from that cap
 - If a file grows past the cap, split it by responsibility rather than adding another scroll-length blob
-- During the Phase 5 migration, the hard gate applies to the canonical `@mlxts/*` package sources; temporary migration surfaces such as `packages/mlx-ts` and `packages/nanogpt` are exempt until they are deleted or rewritten
+- During the Phase 5 migration, the hard gate applies to the canonical `@mlxts/*` package sources; the temporary `packages/nanogpt` validation fixture is exempt until it is rewritten or deleted
 
 ## TypeScript Practices
 
@@ -272,8 +272,9 @@ export class CausalSelfAttention extends Module {
 
 ### Coverage is part of the contract
 
-- `mlx-ts` must stay at or above `95%` line coverage and `90%` function coverage
-- `nanogpt` must stay at or above `90%` line coverage and `85%` function coverage
+- `@mlxts/core` must stay at or above `95%` line coverage and `90%` function coverage
+- The newly extracted auxiliary packages currently report coverage without hard thresholds while the migration settles
+- `packages/nanogpt` remains a heavily tested validation fixture even though it is not part of the current hard coverage gate
 - Enforced by: `bun run check:coverage` for package coverage, plus `bun run check:runtime-review` for runtime-sensitive diffs. If coverage reports branch counters, the gate also enforces branch coverage instead of inventing one.
 - `bun run validate` includes both gates and is the standard pre-commit/review-ready path
 - Prefer tests that exercise real behavior, edge cases, and failure paths over tests written only to bump percentages
@@ -342,7 +343,7 @@ When reviewing code (whether written by a human or an agent), check for:
 - [ ] **Tensor lifetimes are locally visible** — no anonymous disposable `MxArray` intermediates hiding inside nested hot-path expressions.
 - [ ] **`bun run typecheck` passes** — code is not review-ready until static types are clean.
 - [ ] **`bun run check:runtime-review` passes when required** — runtime-sensitive diffs need a `docs/reviews/` artifact with the required sections, and the `Files Reviewed` list must match the changed runtime-sensitive files.
-- [ ] **`bun run check:coverage` passes** — `mlx-ts` stays at or above `95%` lines / `90%` funcs and `nanogpt` stays at or above `90%` lines / `85%` funcs.
+- [ ] **`bun run check:coverage` passes** — `@mlxts/core` stays at or above `95%` lines / `90%` funcs and the current package-first coverage posture is preserved.
 - [ ] **Unit tests cover exported behavior directly** — don’t rely on one or two broad smoke tests to “accidentally” hit important branches.
 - [ ] **Error messages are actionable** — include what was expected, what was received, and where.
 - [ ] **The fix improved the system** — incidents must leave behind a rule, test, benchmark, or gate that would have caught them sooner next time.

@@ -2,14 +2,15 @@ import { describe, expect, test } from "bun:test";
 import {
   array,
   clearMemoryCache,
-  crossEntropy,
   getActiveMemoryBytes,
   mxEval,
   random,
   reshape,
   synchronize,
   treeFlatten,
-} from "mlx-ts";
+} from "@mlxts/core";
+import { crossEntropy } from "@mlxts/nn";
+
 import { estimateParameterCount, GPT_SMALL, GPT_TINY, resolveConfig } from "../config";
 import { GPT } from "./gpt";
 import { initializeGPT } from "./init";

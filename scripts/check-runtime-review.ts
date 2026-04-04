@@ -53,11 +53,7 @@ function uniqueSorted(paths: string[]): string[] {
 }
 
 function isProductionSourceFile(path: string): boolean {
-  return (
-    (path.startsWith("packages/") || path.startsWith("examples/")) &&
-    path.includes("/src/") &&
-    !path.endsWith(".test.ts")
-  );
+  return path.startsWith("packages/") && path.includes("/src/") && !path.endsWith(".test.ts");
 }
 
 function isRuntimeSensitiveFile(path: string): boolean {
@@ -66,15 +62,13 @@ function isRuntimeSensitiveFile(path: string): boolean {
   }
 
   return (
-    path.startsWith("packages/mlx-ts/src/") ||
     path.startsWith("packages/core/src/") ||
     path.startsWith("packages/nn/src/") ||
     path.startsWith("packages/optimizers/src/") ||
     path.startsWith("packages/train/src/") ||
     path.startsWith("packages/data/src/") ||
     path.startsWith("packages/tokenizers/src/") ||
-    path.startsWith("packages/nanogpt/src/") ||
-    path.startsWith("examples/nanogpt/src/")
+    path.startsWith("packages/nanogpt/src/")
   );
 }
 

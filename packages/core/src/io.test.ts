@@ -17,7 +17,7 @@ afterEach(() => {
 });
 
 function createTempPath(name: string): string {
-  const directory = mkdtempSync(join(tmpdir(), "mlx-ts-io-"));
+  const directory = mkdtempSync(join(tmpdir(), "mlxts-core-io-"));
   tempDirectories.push(directory);
   return join(directory, name);
 }

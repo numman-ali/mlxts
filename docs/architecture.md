@@ -36,9 +36,8 @@
               └────────────────────────────┘
 ```
 
-`packages/mlx-ts` currently survives as a temporary compatibility shim, and
-`packages/nanogpt` survives as a temporary validation fixture. They are not the
-canonical architecture target anymore; the extracted `@mlxts/*` packages are.
+`packages/nanogpt` survives as a temporary validation fixture. The extracted
+`@mlxts/*` packages are the canonical architecture target.
 
 ### Why mlx-c instead of a custom C wrapper?
 
@@ -166,8 +165,6 @@ These packages are now the canonical reusable layer above `@mlxts/core`,
 
 ### Transitional Surfaces
 
-- `packages/mlx-ts` is a temporary compatibility shim so old imports can resolve
-  while the package extraction settles
 - `packages/nanogpt` is a temporary validation fixture that still carries the
   supervised run manager and acceptance harness
 
@@ -349,8 +346,15 @@ This is part of the architecture, not just process. The stack only stays teachab
 
 ## Package Direction After Phase 4
 
-`mlx-ts` remains the reusable foundation: arrays, ops, autograd, runtime controls, nn primitives, and optimizers.
+The extracted `@mlxts/*` stack is the reusable foundation: arrays, ops,
+autograd, runtime controls, nn primitives, optimizers, training helpers, data,
+and tokenizers.
 
-`nanogpt` remains the reference GPT application and operator surface: model wiring, tokenizer, training loop, generation, checkpoints, soak, and acceptance flows.
+`nanogpt` remains the temporary GPT validation and operator surface: model
+wiring, tokenizer, training loop, generation, checkpoints, soak, and acceptance
+flows.
 
-If reusable model-family code eventually wants its own home, it should move into a separate package such as `packages/lm` or `packages/models`. The split should happen only when there is a second consumer or a second model family that justifies a reusable layer. We do not move GPT-family code into `mlx-ts` itself.
+If reusable model-family code eventually wants its own home, it should move
+into a separate package such as `packages/lm` or `packages/models`. The split
+should happen only when there is a second consumer or a second model family
+that justifies a reusable layer.

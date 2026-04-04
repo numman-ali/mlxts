@@ -8,7 +8,7 @@ The exact model or tool used for each role may change over time. The workflow ma
 
 This document defines the process.
 
-Runtime-sensitive code gets stricter handling than ordinary feature work. If a change touches production code in `packages/core/src/`, `packages/nn/src/`, `packages/optimizers/src/`, `packages/train/src/`, `packages/data/src/`, `packages/tokenizers/src/`, or the temporary transitional surfaces in `packages/mlx-ts/src/` or `packages/nanogpt/src/`, the change is not review-ready until it has:
+Runtime-sensitive code gets stricter handling than ordinary feature work. If a change touches production code in `packages/core/src/`, `packages/nn/src/`, `packages/optimizers/src/`, `packages/train/src/`, `packages/data/src/`, `packages/tokenizers/src/`, or the temporary validation fixture in `packages/nanogpt/src/`, the change is not review-ready until it has:
 
 - a line-by-line runtime audit
 - an independent review by a different agent or human
@@ -181,7 +181,7 @@ When agents disagree:
 
 ## Workflow by Phase
 
-### Phase 1 (mlx-ts Core)
+### Phase 1 (Core Bindings)
 
 ```
 Planning agent:       Design C wrapper API + TypeScript public API

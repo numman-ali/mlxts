@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { array, random, reshape } from "mlx-ts";
+import { array, random, reshape } from "@mlxts/core";
+
 import { GPT_TINY, resolveConfig } from "./config";
 import { generate, generateTokens } from "./generate";
 import { GPT } from "./model/gpt";

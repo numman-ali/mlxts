@@ -1,8 +1,10 @@
 import { describe, expect, test } from "bun:test";
+import { full, treeFlatten, treeUnflatten } from "@mlxts/core";
+import { AdamW } from "@mlxts/optimizers";
 import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from "fs";
-import { AdamW, full, treeFlatten, treeUnflatten } from "mlx-ts";
 import { tmpdir } from "os";
 import { join } from "path";
+
 import {
   applyCheckpoint,
   loadCheckpoint,

@@ -11,15 +11,9 @@
  * @module
  */
 
-import {
-  type Embedding,
-  type Linear,
-  type MxArray,
-  mxEval,
-  random,
-  treeFlatten,
-  zeros,
-} from "mlx-ts";
+import { type MxArray, mxEval, random, treeFlatten, zeros } from "@mlxts/core";
+import type { Embedding, Linear } from "@mlxts/nn";
+
 import type { GPTConfig } from "../config";
 import type { GPT } from "./gpt";
 

@@ -3,8 +3,8 @@
  *
  * The current Phase 5 posture is package-first. The extracted `@mlxts/*`
  * packages are canonical and stay under the hard 500-line cap. Temporary
- * migration surfaces such as `packages/mlx-ts` and `packages/nanogpt` are
- * excluded until they are deleted or rewritten.
+ * migration surfaces such as `packages/nanogpt` are excluded until they are
+ * deleted or rewritten.
  */
 
 import { readFileSync } from "fs";
@@ -13,7 +13,7 @@ import { join } from "path";
 const PROJECT_ROOT = join(import.meta.dirname, "..");
 const MAX_FILE_LINES = 500;
 const INCLUDED_GLOBS = ["packages/*/src/**/*.ts"];
-const EXCLUDED_PREFIXES = ["packages/mlx-ts/", "packages/nanogpt/"];
+const EXCLUDED_PREFIXES = ["packages/nanogpt/"];
 
 function isCheckedFile(path: string): boolean {
   const normalized = path.replaceAll("\\", "/");

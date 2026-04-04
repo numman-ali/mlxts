@@ -1,4 +1,5 @@
 #!/usr/bin/env bun
+
 /**
  * nanogpt CLI — train GPT models and generate text.
  *
@@ -9,17 +10,18 @@
  * @module
  */
 
-import { mkdirSync } from "fs";
 import {
-  type AdamW,
   clearMemoryCache,
   getMemoryStats,
   random,
   setCacheLimitBytes,
   setMemoryLimitBytes,
   setWiredLimitBytes,
-} from "mlx-ts";
+} from "@mlxts/core";
+import type { AdamW } from "@mlxts/optimizers";
+import { mkdirSync } from "fs";
 import { join } from "path";
+
 import {
   applyCheckpoint,
   type CheckpointKind,

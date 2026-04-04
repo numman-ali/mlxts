@@ -410,7 +410,7 @@ export type DeviceType = 'cpu' | 'gpu';
 
 ## 3. How MLX Maps to the Interface
 
-The current `packages/mlx-ts` codebase implements every required method in the `ComputeBackend` interface, plus all four optional capabilities.
+The current extracted MLX-first package stack, centered on `packages/core`, implements every required method in the `ComputeBackend` interface, plus all four optional capabilities.
 
 | Interface method | Current implementation | File |
 |---|---|---|
@@ -823,7 +823,7 @@ Not supported initially. A single global backend is active at any time. Mixed-ba
 
 ## 9. Migration Path
 
-How the current codebase (`packages/mlx-ts`) becomes the `@mlxts/*` ecosystem.
+How the legacy single-package MLX implementation maps onto the `@mlxts/*` ecosystem.
 
 ### 9.1 Package Split
 
@@ -864,7 +864,7 @@ Today, `src/nn/linear.ts` imports directly from `../core/array` and `../core/ops
 
 Before:
 ```typescript
-// packages/mlx-ts/src/nn/linear.ts
+// legacy monolith linear.ts
 import { MxArray, zeros } from '../core/array';
 import { add, matmul } from '../core/ops';
 
@@ -910,7 +910,7 @@ The change is mechanical: replace free-function imports with `backend()` method 
 
 ### 9.3 Preserving Tests
 
-Every existing test in `packages/mlx-ts` continues to work by running with the MLX backend set:
+Every existing framework-level test continues to work by running with the MLX backend set:
 
 ```typescript
 // packages/nn/src/linear.test.ts
@@ -929,7 +929,7 @@ Backend-specific tests (e.g., testing that `MxArray._ctx` is a valid pointer) st
 ### 9.4 Refactor Order
 
 1. **Define the interfaces in `@mlxts/core`.** Types, `ComputeBackend`, `TensorHandle`, backend registration. No implementation yet.
-2. **Wrap existing mlx-ts code as `@mlxts/mlx`.** The adapter is thin: package the existing free functions into a `ComputeBackend` object. `MxArray` implements `TensorHandle`.
+2. **Wrap the extracted MLX-first implementation as `@mlxts/mlx`.** The adapter is thin: package the existing free functions into a `ComputeBackend` object. `MxArray` implements `TensorHandle`.
 3. **Move nn code to `@mlxts/nn`.** Replace direct imports with `backend()` calls. All tests must pass with `mlxBackend` set.
 4. **Move optimizers to `@mlxts/optimizers`.** Same mechanical refactor.
 5. **Extract I/O and autograd fallback into `@mlxts/core`.** The safetensors code in `src/core/io.ts` is already pure TypeScript. The autograd fallback is new code.

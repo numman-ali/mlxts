@@ -8,8 +8,8 @@
  * @module
  */
 
+import { array, type MxArray, reshape } from "@mlxts/core";
 import { mkdirSync } from "fs";
-import { array, type MxArray, reshape } from "mlx-ts";
 import { join } from "path";
 
 const SHAKESPEARE_URL =

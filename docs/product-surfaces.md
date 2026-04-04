@@ -18,7 +18,7 @@ This document defines the standards for each surface. All agents must consider t
 │        train, generate, inspect, benchmark           │
 ├─────────────────────────────────────────────────────┤
 │                     API (Phase 1-3)                  │
-│     mlx-ts core, nn layers, optimizers, nanogpt      │
+│  @mlxts/core, @mlxts/nn, @mlxts/optimizers, fixture  │
 └─────────────────────────────────────────────────────┘
 ```
 

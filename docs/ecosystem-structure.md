@@ -26,7 +26,6 @@ The package-first Phase 5 extraction is already underway in the repo today.
 - `@mlxts/core`, `@mlxts/nn`, `@mlxts/optimizers`, `@mlxts/train`,
   `@mlxts/data`, and `@mlxts/tokenizers` all exist as workspace packages
 - `packages/core` owns the native MLX build and the canonical FFI/runtime layer
-- `packages/mlx-ts` remains as a temporary compatibility shim
 - `packages/nanogpt` remains as a temporary validation fixture until a later
   dedicated examples repo and rewritten examples surface exist
 
@@ -58,7 +57,7 @@ The foundation of the mlxts ecosystem. Contains the MxArray tensor type, all ops
 
 **Dependencies:** None. This is a leaf package.
 
-**Source origin:** Extracted from the former `packages/mlx-ts` monolith and now lives in `packages/core/`.
+**Source origin:** Extracted from the former single-package MLX monolith and now lives in `packages/core/`.
 
 ---
 
@@ -82,7 +81,7 @@ Neural network layers, Module system, activations, losses.
 
 **Dependencies:** `@mlxts/core` — nn modules import MxArray and ops directly.
 
-**Source origin:** Extracted from the former `packages/mlx-ts/src/nn/`. Model-specific attention code remains outside this package for now.
+**Source origin:** Extracted from the former monolithic nn layer. Model-specific attention code remains outside this package for now.
 
 #### `@mlxts/optimizers`
 
@@ -96,7 +95,7 @@ Gradient-based optimizers and learning rate schedules.
 
 **Dependencies:** `@mlxts/core`, `@mlxts/nn` — `Optimizer.update()` accepts `Module` for parameter extraction.
 
-**Source origin:** Extracted from the former `packages/mlx-ts/src/optimizers/`. Generic learning-rate schedule helpers now live in `@mlxts/train`.
+**Source origin:** Extracted from the former monolithic optimizer layer. Generic learning-rate schedule helpers now live in `@mlxts/train`.
 
 ---
 
@@ -435,11 +434,6 @@ mlxts/                                # Monorepo root
         text.ts                       # Text data loading/batching
         # Dataset abstractions can arrive later if a second consumer needs them
 
-    mlx-ts/                           # Temporary compatibility shim
-      package.json
-      src/
-        index.ts
-
     nanogpt/                          # Temporary validation fixture
       package.json
       src/
@@ -500,27 +494,27 @@ work is deferred unless a row says otherwise.
 
 | Current location | Destination | Package |
 |-----------------|-------------|---------|
-| `packages/mlx-ts/src/core/dtype.ts` | `packages/core/src/dtype.ts` | `@mlxts/core` |
-| `packages/mlx-ts/src/core/error.ts` | `packages/core/src/error.ts` | `@mlxts/core` |
-| `packages/mlx-ts/src/core/array.ts` | `packages/core/src/array.ts` | `@mlxts/core` |
-| `packages/mlx-ts/src/core/ffi/lib.ts` | `packages/core/src/ffi/lib.ts` | `@mlxts/core` |
-| `packages/mlx-ts/src/core/ffi/symbols.ts` | `packages/core/src/ffi/symbols.ts` | `@mlxts/core` |
-| `packages/mlx-ts/src/core/ffi/index.ts` | `packages/core/src/ffi/index.ts` | `@mlxts/core` |
-| `packages/mlx-ts/src/core/ffi/pointer.ts` | `packages/core/src/ffi/pointer.ts` | `@mlxts/core` |
-| `packages/mlx-ts/src/core/ffi/closure-bridge.ts` | `packages/core/src/ffi/closure-bridge.ts` | `@mlxts/core` |
-| `packages/mlx-ts/src/core/ops/` | `packages/core/src/ops/` | `@mlxts/core` |
-| `packages/mlx-ts/src/core/transforms.ts` | `packages/core/src/transforms.ts` | `@mlxts/core` |
-| `packages/mlx-ts/src/core/fast.ts` | `packages/core/src/fast.ts` | `@mlxts/core` |
-| `packages/mlx-ts/src/core/device.ts` | `packages/core/src/device.ts` | `@mlxts/core` |
-| `packages/mlx-ts/src/core/memory.ts` | `packages/core/src/memory.ts` | `@mlxts/core` |
-| `packages/mlx-ts/src/core/metal.ts` | `packages/core/src/metal.ts` | `@mlxts/core` |
-| `packages/mlx-ts/src/core/random.ts` | `packages/core/src/random.ts` | `@mlxts/core` |
-| `packages/mlx-ts/src/core/io.ts` | `packages/core/src/io.ts` | `@mlxts/core` |
-| `packages/mlx-ts/src/utils/tree.ts` | `packages/core/src/tree.ts` | `@mlxts/core` |
-| `packages/mlx-ts/src/utils/format-shape.ts` | `packages/core/src/format-shape.ts` | `@mlxts/core` |
-| `packages/mlx-ts/src/nn/` | `packages/nn/src/` | `@mlxts/nn` |
-| `packages/mlx-ts/src/nn/checkpoint.ts` | `packages/nn/src/checkpoint.ts` | `@mlxts/nn` |
-| `packages/mlx-ts/src/optimizers/` | `packages/optimizers/src/` | `@mlxts/optimizers` |
+| Legacy core monolith: `dtype.ts` | `packages/core/src/dtype.ts` | `@mlxts/core` |
+| Legacy core monolith: `error.ts` | `packages/core/src/error.ts` | `@mlxts/core` |
+| Legacy core monolith: `array.ts` | `packages/core/src/array.ts` | `@mlxts/core` |
+| Legacy FFI layer: `lib.ts` | `packages/core/src/ffi/lib.ts` | `@mlxts/core` |
+| Legacy FFI layer: `symbols.ts` | `packages/core/src/ffi/symbols.ts` | `@mlxts/core` |
+| Legacy FFI layer: `index.ts` | `packages/core/src/ffi/index.ts` | `@mlxts/core` |
+| Legacy FFI layer: `pointer.ts` | `packages/core/src/ffi/pointer.ts` | `@mlxts/core` |
+| Legacy FFI layer: `closure-bridge.ts` | `packages/core/src/ffi/closure-bridge.ts` | `@mlxts/core` |
+| Legacy ops layer | `packages/core/src/ops/` | `@mlxts/core` |
+| Legacy transforms layer | `packages/core/src/transforms.ts` | `@mlxts/core` |
+| Legacy fused-ops layer | `packages/core/src/fast.ts` | `@mlxts/core` |
+| Legacy device layer | `packages/core/src/device.ts` | `@mlxts/core` |
+| Legacy memory layer | `packages/core/src/memory.ts` | `@mlxts/core` |
+| Legacy Metal tooling | `packages/core/src/metal.ts` | `@mlxts/core` |
+| Legacy random layer | `packages/core/src/random.ts` | `@mlxts/core` |
+| Legacy I/O layer | `packages/core/src/io.ts` | `@mlxts/core` |
+| Legacy tree utilities | `packages/core/src/tree.ts` | `@mlxts/core` |
+| Legacy shape-format utility | `packages/core/src/format-shape.ts` | `@mlxts/core` |
+| Legacy nn layer | `packages/nn/src/` | `@mlxts/nn` |
+| Legacy module checkpoint helper | `packages/nn/src/checkpoint.ts` | `@mlxts/nn` |
+| Legacy optimizer layer | `packages/optimizers/src/` | `@mlxts/optimizers` |
 | `packages/nanogpt/src/train.ts` | `packages/train/src/loop.ts` + `packages/train/src/schedule.ts` + `packages/train/src/gradients.ts` | `@mlxts/train` |
 | `packages/nanogpt/src/checkpoint.ts` | `packages/train/src/checkpoint.ts` + `packages/train/src/checkpoint-*.ts` | `@mlxts/train` |
 | `packages/nanogpt/src/safetensors.ts` | `packages/hub/src/safetensors.ts` | `@mlxts/hub` |

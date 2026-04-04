@@ -1,4 +1,4 @@
-import { AdamW } from "mlx-ts";
+import { AdamW } from "@mlxts/optimizers";
 
 export const DEFAULT_ADAMW_CONFIG = Object.freeze({
   beta1: 0.9,

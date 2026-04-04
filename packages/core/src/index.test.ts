@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 
 import { add, array, type MxArray, matmul, mxEval, ones, random, VERSION, zeros } from "./index";
 
-describe("mlx-ts", () => {
+describe("@mlxts/core", () => {
   test("exports a version string", () => {
     expect(VERSION).toBe("0.0.1");
   });
