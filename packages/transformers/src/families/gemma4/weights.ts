@@ -10,8 +10,9 @@ import {
   mxEval,
   retainArray,
 } from "@mlxts/core";
-import { inspectSnapshot, parseSafetensorIndex, type ResolvedSnapshot } from "@mlxts/hub";
-
+import { inspectSnapshot } from "../../pretrained/snapshot";
+import type { ResolvedSnapshot } from "../../pretrained/types";
+import { parseSafetensorIndex } from "../../pretrained/weights";
 import type { ExceptionalWeightLoaderContext } from "../../types";
 import type { Gemma4TextConfig } from "./types";
 import { isIgnoredGemma4TextWeightName, sanitizeGemma4TextWeightName } from "./types";

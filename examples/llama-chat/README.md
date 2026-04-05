@@ -1,7 +1,7 @@
 # `examples/llama-chat`
 
-Minimal Bun-native interactive text-generation loop for a local or cached
-pretrained decoder model.
+Interactive Bun-native chat loop for a local or Hugging Face-hosted pretrained
+decoder model.
 
 ## Run
 
@@ -9,10 +9,13 @@ pretrained decoder model.
 bun run examples/llama-chat/index.ts /path/to/model
 ```
 
-You can also point it at a Hugging Face repo id if the model is already cached
-or if hub access is configured.
+You can also point it at a Hugging Face repo id such as
+`google/gemma-4-E2B-it`. The example will:
 
-Despite the folder name, this example does not apply a model-specific chat
-template. It feeds your raw prompt text directly into the tokenizer and model.
+- resolve or download the snapshot through the official Hugging Face JS client
+- show file-by-file loader progress
+- load the model and tokenizer from the resolved local directory
+- enable a model chat template automatically when `chat_template.jinja` or a
+  tokenizer-side `chat_template` is present
 
 Type `/exit` or press `Ctrl-D` to quit.

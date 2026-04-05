@@ -196,7 +196,7 @@ The takeaway: when implementing a new model family, the reference parity audit a
 
 **Don't abstract before the second consumer.** The first implementation teaches you what the API needs. The second consumer proves the abstraction is right.
 
-This is why `@mlxts/train` is extracted when the training code is proven (nanoGPT works), not when the training code is first written. And why `@mlxts/hub` doesn't exist until Phase 7, when pretrained model loading creates a real consumer.
+This is why `@mlxts/train` is extracted when the training code is proven (nanoGPT works), not when the training code is first written. And why pretrained loading now sits inside `@mlxts/transformers`, with the official `@huggingface/hub` package handling remote snapshot transport instead of a separate repo-owned hub package.
 
 Premature abstraction is worse than duplication. Three similar training loops in three examples is better than one generic `TrainingPipeline<TModel, TData, TConfig>` that nobody can read.
 

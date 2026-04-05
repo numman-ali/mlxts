@@ -368,7 +368,12 @@ export async function resolveCachedSnapshotPath(modelSource: string): Promise<st
     return modelSource;
   }
 
-  const repoCacheDir = `${homeDir}/.cache/huggingface/hub/models--${owner}--${name}`;
+  const cacheRoot =
+    Bun.env.HF_HUB_CACHE ??
+    Bun.env.HUGGINGFACE_HUB_CACHE ??
+    Bun.env.HF_HOME?.concat("/hub") ??
+    `${homeDir}/.cache/huggingface/hub`;
+  const repoCacheDir = `${cacheRoot}/models--${owner}--${name}`;
   const mainRefPath = `${repoCacheDir}/refs/main`;
   const snapshotsDir = `${repoCacheDir}/snapshots`;
   const mainRef = Bun.file(mainRefPath);

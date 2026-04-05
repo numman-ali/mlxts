@@ -1,11 +1,12 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import type { ParameterTree } from "@mlxts/core";
 import { array, type MxArray, saveSafetensors } from "@mlxts/core";
-import { type ResolvedSnapshot, resolveSnapshot } from "@mlxts/hub";
 import { mkdtempSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 
+import { resolvePretrainedSnapshot } from "../../pretrained/snapshot";
+import type { ResolvedSnapshot } from "../../pretrained/types";
 import type { CausalLM, TransformerCache } from "../../types";
 import type { Gemma4TextConfig } from "./types";
 import { exceptionalGemma4WeightNames, loadExceptionalGemma4Weights } from "./weights";
@@ -118,9 +119,7 @@ class DummyModel implements CausalLM {
 }
 
 async function resolveLocalSnapshot(directory: string): Promise<ResolvedSnapshot> {
-  return resolveSnapshot(directory, {
-    include: ["*.json", "*.safetensors"],
-  });
+  return resolvePretrainedSnapshot(directory);
 }
 
 describe("gemma4 exceptional weight loading", () => {
@@ -135,9 +134,9 @@ describe("gemma4 exceptional weight loading", () => {
 
     const snapshot: ResolvedSnapshot = {
       source: "local",
-      repoType: "model",
       directory: "/tmp/unused",
       files: [],
+      totalBytes: 0,
     };
 
     let assigned = false;

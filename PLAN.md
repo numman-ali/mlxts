@@ -526,14 +526,14 @@ See [docs/python-equivalence-map.md](./docs/python-equivalence-map.md) for the f
 
 **What this phase covers**:
 
-### 7a. Hub integration (`@mlxts/hub`)
+### 7a. Hub integration (official `@huggingface/hub` + transformers pretrained loading)
 
-- HuggingFace Hub REST client (download models, datasets)
-- safetensors reader/writer (native via mlx-c or pure TS)
-- GGUF header/metadata parsing only. Tensor dequantization (15+ quant formats) deferred to Phase 9.
-- `config.json` and `tokenizer.json` parsing
-- Local model cache with integrity checking
-- HF → mlxts weight name mapping
+- Official Hugging Face JS client for model snapshot resolution and cache reuse
+- Local pretrained-source resolution inside `@mlxts/transformers`
+- safetensors reading stays native via `@mlxts/core`
+- `config.json`, tokenizer sidecars, `chat_template.jinja`, and processor config inspection
+- Structured loader progress events for future CLI/TUI work
+- HF checkpoint name mapping stays local to the transformer family implementations
 
 ### 7b. Tokenizers (`@mlxts/tokenizers` expansion)
 
@@ -717,7 +717,7 @@ The `CausalLM` contract does not change. VLMs compose a vision encoder with a te
 
 ### 10b. Diffusion/flow generation (`@mlxts/diffusion`)
 
-All diffusion and flow-based generation across modalities: image, video, and audio. The package mirrors `@mlxts/transformers` in structure: explicit family registry, config-driven model construction, weight loading via `@mlxts/hub`.
+All diffusion and flow-based generation across modalities: image, video, and audio. The package mirrors `@mlxts/transformers` in structure: explicit family registry, config-driven model construction, and official Hugging Face JS-backed snapshot loading.
 
 - Backbone architectures: UNet2D, DiT (Diffusion Transformers), 3D variants for video
 - VAE: image VAE, video VAE (3D causal), audio VAE

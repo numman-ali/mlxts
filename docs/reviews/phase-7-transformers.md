@@ -1,12 +1,14 @@
-# Runtime Review: Phase 7 Tokenizers, Hub, and Transformers
+# Runtime Review: Phase 7 Tokenizers and Transformers
 
 ## Summary
 
 This review covers the runtime-sensitive production changes for Phase 7's
-pretrained-loading surface: the new `@mlxts/hub` snapshot and artifact
-inspection package, the expanded `@mlxts/tokenizers` package, and the rebuilt
-`@mlxts/transformers` decoder-loading and generation stack, including the core
-large-safetensor loading fix that made public Phi-4-scale checkpoints viable.
+pretrained-loading surface: the expanded `@mlxts/tokenizers` package and the
+rebuilt `@mlxts/transformers` decoder-loading and generation stack, including
+the core large-safetensor loading fix that made public Phi-4-scale checkpoints
+viable. Remote snapshot resolution now uses the official Hugging Face
+JavaScript packages directly, while artifact inspection and safetensor
+iteration live inside the transformers loading surface.
 
 The implementation keeps the Phase 7 contract intentionally narrow and explicit:
 dense text decoders only, explicit family registry, standalone generation
@@ -38,15 +40,6 @@ compiled logit-softcap closure when the checkpoint actually enables softcapping.
 - `packages/core/src/ops/index.ts`
 - `packages/core/src/ops/reduction.ts`
 - `packages/core/src/ops/shape.ts`
-- `packages/hub/src/gguf.ts`
-- `packages/hub/src/http.ts`
-- `packages/hub/src/index.ts`
-- `packages/hub/src/inspect.ts`
-- `packages/hub/src/paths.ts`
-- `packages/hub/src/patterns.ts`
-- `packages/hub/src/snapshot.ts`
-- `packages/hub/src/types.ts`
-- `packages/hub/src/weights.ts`
 - `packages/nn/src/embedding.ts`
 - `packages/nn/src/linear.ts`
 - `packages/nn/src/activations.ts`
@@ -58,6 +51,10 @@ compiled logit-softcap closure when the checkpoint actually enables softcapping.
 - `packages/tokenizers/src/errors.ts`
 - `packages/tokenizers/src/index.ts`
 - `packages/tokenizers/src/load.ts`
+- `packages/transformers/src/chat-template.ts`
+- `packages/transformers/src/pretrained/snapshot.ts`
+- `packages/transformers/src/pretrained/types.ts`
+- `packages/transformers/src/pretrained/weights.ts`
 - `packages/tokenizers/src/sentencepiece-proto.ts`
 - `packages/tokenizers/src/sentencepiece.ts`
 - `packages/tokenizers/src/tekken.ts`
@@ -110,10 +107,10 @@ compiled logit-softcap closure when the checkpoint actually enables softcapping.
 
 ## Tensor Lifetime Audit
 
-- `@mlxts/hub` and `@mlxts/tokenizers` stay in pure file/JSON/string space and do
-  not introduce native tensor ownership. The runtime review there focused on
-  file filtering, manifest parsing, GGUF header parsing, and tokenizer file
-  selection rather than array lifetime hazards.
+- The official Hugging Face JS packages and `@mlxts/tokenizers` stay in pure
+  file/JSON/string space and do not introduce native tensor ownership. The
+  runtime review there focused on snapshot resolution, chat-template handling,
+  and tokenizer file selection rather than array lifetime hazards.
 - `@mlxts/transformers` keeps tensor ownership visible in hot paths:
   `LlamaLikeDecoderBlock`, `LlamaLikeAttention`, and `LlamaLikeModel` use named
   `using` bindings for disposable intermediates instead of nesting tensor

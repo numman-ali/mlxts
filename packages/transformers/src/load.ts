@@ -4,10 +4,15 @@
  */
 
 import { mxEval, treeFlatten } from "@mlxts/core";
-import { inspectSnapshot, iterateSafetensorWeights, resolveSnapshot } from "@mlxts/hub";
 import { loadTokenizer, type Tokenizer, type TokenizerFileSet } from "@mlxts/tokenizers";
 
 import { assignWeightPath, listParameterPaths } from "./infrastructure/weight-assignment";
+import {
+  inspectSnapshot,
+  resolvePretrainedSnapshot,
+  resolvePretrainedSource,
+} from "./pretrained/snapshot";
+import { iterateSafetensorWeights, listSafetensorShardPaths } from "./pretrained/weights";
 import { resolveFamily } from "./registry";
 import {
   type CausalLM,
@@ -64,7 +69,7 @@ export async function loadCausalLM(
   source: string,
   options: LoadCausalLMOptions = {},
 ): Promise<CausalLM> {
-  const snapshot = await resolveSnapshot(source, options);
+  const snapshot = await resolvePretrainedSnapshot(source, options);
   const inspection = inspectSnapshot(snapshot);
   const modelType = expectModelType(inspection.config);
   const registration = resolveFamily(modelType);
@@ -75,6 +80,12 @@ export async function loadCausalLM(
   const unexpectedWeights: string[] = [];
   const sanitizedPaths = new Map<string, string>();
   const exceptionalWeights = new Set(registration.exceptionalWeightNames?.(config) ?? []);
+  const shardCount = listSafetensorShardPaths(snapshot).length;
+  options.onProgress?.({
+    stage: "model",
+    status: "weights-start",
+    shardCount,
+  });
 
   try {
     for await (const { name, tensor } of iterateSafetensorWeights(snapshot, {
@@ -151,6 +162,12 @@ export async function loadCausalLM(
       console.warn(message);
     }
 
+    options.onProgress?.({
+      stage: "model",
+      status: "weights-complete",
+      shardCount,
+    });
+
     return model;
   } catch (error) {
     model[Symbol.dispose]();
@@ -164,7 +181,7 @@ export async function loadPretrainedTokenizer(
   options: LoadPretrainedTokenizerOptions = {},
 ): Promise<Tokenizer> {
   const { format, ...snapshotOptions } = options;
-  const snapshot = await resolveSnapshot(source, snapshotOptions);
+  const snapshot = await resolvePretrainedSnapshot(source, snapshotOptions);
   const inspection = inspectSnapshot(snapshot);
   if (
     inspection.tokenizer.tokenizerJsonPath === undefined &&
@@ -176,8 +193,25 @@ export async function loadPretrainedTokenizer(
     );
   }
 
-  return loadTokenizer(
+  options.onProgress?.({
+    stage: "tokenizer",
+    status: "start",
+    directory: snapshot.directory,
+    ...(format === undefined ? {} : { format }),
+  });
+
+  const tokenizer = loadTokenizer(
     tokenizerFileSet(snapshot.directory, inspection),
     format === undefined ? {} : { format },
   );
+  options.onProgress?.({
+    stage: "tokenizer",
+    status: "complete",
+    directory: snapshot.directory,
+    ...(format === undefined ? {} : { format }),
+  });
+  return tokenizer;
 }
+
+/** Resolve a local directory or Hub repo id to a concrete local snapshot path. */
+export { resolvePretrainedSource };

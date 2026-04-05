@@ -86,7 +86,7 @@ The goal is not to replicate Python's entire ML ecosystem line-for-line. It is t
 | Python Package | What It Does | mlxts Equivalent | Phase | Status | Notes |
 |---|---|---|---|---|---|
 | **vLLM** | High-throughput LLM serving with PagedAttention | @mlxts/serve | 9 | Planned | Phase 9 builds an inference server with KV cache management. PagedAttention is a CUDA optimization; the Apple Silicon equivalent uses MLX's memory model and fused attention. |
-| **llama.cpp** | CPU/GPU inference for quantized LLMs (GGUF) | @mlxts/hub + @mlxts/quantize + @mlxts/serve | 7-9 | Planned | GGUF header parsing lives in @mlxts/hub (Phase 7). Tensor dequantization lives in @mlxts/quantize (Phase 9). llama.cpp's value is broad hardware support; mlxts uses MLX natively but GGUF loading provides access to the large quantized model ecosystem. |
+| **llama.cpp** | CPU/GPU inference for quantized LLMs (GGUF) | @mlxts/quantize + @mlxts/serve | 7-9 | Planned | GGUF support is now future quantization/interoperability work rather than a standalone hub package. llama.cpp's value is broad hardware support; mlxts uses MLX natively but GGUF loading still matters for the quantized ecosystem. |
 | **Ollama** | Local LLM runner with REST API | @mlxts/serve | 9 | Planned | Ollama wraps llama.cpp with a nice API. mlxts's serve package provides the same surface: REST API, model management, streaming generation. Built on Bun's native HTTP server. |
 | **TGI** (Text Generation Inference) | HuggingFace's production inference server | @mlxts/serve | 9 | Planned | TGI's features (continuous batching, streaming, structured output) are design targets for @mlxts/serve. |
 | **TensorRT-LLM** | NVIDIA-optimized LLM inference | Not applicable | -- | Not planned | NVIDIA-exclusive. See Section 4. |
@@ -100,14 +100,14 @@ The goal is not to replicate Python's entire ML ecosystem line-for-line. It is t
 | **bitsandbytes** | CUDA 4-bit/8-bit quantization (QLoRA foundation) | Not applicable | -- | Not planned | CUDA-only. See Section 4. MLX's native quantization covers the same use cases on Apple Silicon. |
 | **GPTQ** | Post-training quantization for GPU inference | @mlxts/quantize | 9 | Future | GPTQ model weights can be loaded. The quantization algorithm itself can be implemented against MLX ops. |
 | **AWQ** | Activation-aware weight quantization | @mlxts/quantize | 9 | Future | AWQ is a quantization format. Loading pre-quantized AWQ weights is the practical need. |
-| **GGUF** (format) | llama.cpp's quantized model format | @mlxts/hub (headers) + @mlxts/quantize (tensors) | 7-9 | Planned | GGUF is a file format, not a runtime. Header/metadata parsing lives in @mlxts/hub (Phase 7). Tensor dequantization (15+ quant formats) lives in @mlxts/quantize (Phase 9). This gives access to the thousands of quantized models on HuggingFace. |
+| **GGUF** (format) | llama.cpp's quantized model format | @mlxts/quantize | 7-9 | Planned | GGUF is a file format, not a runtime. The future implementation belongs with quantization/interoperability work, not a standalone hub package. |
 
 ### 2i. Hub and Interoperability
 
 | Python Package | What It Does | mlxts Equivalent | Phase | Status | Notes |
 |---|---|---|---|---|---|
-| **HuggingFace Hub** | Model/dataset repository, download, upload | @mlxts/hub | 7 | Exists | HF Hub has a REST API. No Python is needed to download models, inspect model cards, or resolve snapshot files. |
-| **safetensors** | Safe, fast tensor serialization format | @mlxts/hub | 7 | Exists | mlxts reads sharded safetensors snapshots directly and iterates weights shard by shard for pretrained loading. |
+| **HuggingFace Hub** | Model/dataset repository, download, upload | official `@huggingface/hub` + `@mlxts/transformers` | 7 | Exists | mlxts now uses the official Hugging Face JavaScript hub client directly from the transformers pretrained loading surface. |
+| **safetensors** | Safe, fast tensor serialization format | `@mlxts/core` + `@mlxts/transformers` | 7 | Exists | mlxts reads sharded safetensors snapshots directly and iterates weights shard by shard for pretrained loading. |
 | **ONNX** | Cross-framework model interchange format | @mlxts/onnx | 11+ | Future | ONNX import would allow loading models from PyTorch/TensorFlow. Lower priority than safetensors and GGUF, which cover the practical model loading needs. |
 | **ONNX Runtime** | Optimized inference engine for ONNX models | @mlxts/onnx | 11+ | Future | If ONNX loading is implemented, ORT-style optimized execution is possible via MLX. |
 
@@ -163,7 +163,7 @@ Training            HF Trainer, Accelerate, DeepSpeed
                          |
 Models              HF Transformers, mlx-lm, timm, diffusers
                          |
-Hub / Interop       HF Hub, safetensors, GGUF, ONNX, tokenizers
+Hub / Interop       HF Hub, safetensors, ONNX, tokenizers, future GGUF
                          |
 NN Framework        torch.nn, torch.optim, mlx.nn
                          |
@@ -193,7 +193,7 @@ Models              @mlxts/transformers (dense text decoders now,      [Phase 7+
                     vision/audio/multimodal later in the same package)
                     @mlxts/diffusion                                   [Phase 10]
                          |
-Hub / Interop       @mlxts/hub (HF Hub, safetensors, GGUF headers) [Phase 7]
+Hub / Interop       official @huggingface/hub + @huggingface/jinja [Phase 7]
                     @mlxts/tokenizers (BPE, tokenizer.json)         [Phase 7]
                     @mlxts/quantize (MLX quantize, GGUF dequant)    [Phase 9]
                          |
@@ -215,7 +215,7 @@ Hardware            MLX (Metal, Apple Silicon)                      [Phase 4 - e
 
 3. **No framework fragmentation.** In Python, choosing PyTorch vs JAX vs TensorFlow is a fork that determines your entire library ecosystem. mlxts makes that choice once (MLX backend) and every package above it benefits.
 
-4. **Hub interop without Python.** HuggingFace Hub, safetensors, tokenizer.json, and GGUF are all documented formats with HTTP or binary specs. mlxts accesses them directly, not through Python bindings.
+4. **Hub interop without Python.** HuggingFace Hub, safetensors, and tokenizer artifacts are documented formats with HTTP or binary specs. Future GGUF support follows the same principle. mlxts accesses them directly, not through Python bindings.
 
 ---
 
@@ -241,7 +241,7 @@ Note: MLX does have mx.distributed with MPI, Ring, and JACCL (RDMA over Thunderb
 
 **Packages**: TensorFlow 1.x compatibility, Caffe model loaders, Theano
 
-**Why not**: mlxts has no legacy to maintain. Starting fresh is an advantage. We support the formats that matter today (safetensors, GGUF, tokenizer.json) and ignore the rest.
+**Why not**: mlxts has no legacy to maintain. Starting fresh is an advantage. We support the formats that matter today (safetensors and tokenizer artifacts) and stage GGUF with the later quantization work instead of pretending it already exists.
 
 ### Python-Specific Infrastructure
 
@@ -301,11 +301,10 @@ mlxts does not exist in isolation. The Python ML ecosystem has produced millions
 
 **Implementation sketch**:
 ```typescript
-// @mlxts/hub -- no Python, no pip, no conda
-const model = await hub.download("meta-llama/Llama-3-8B", {
-  files: ["model.safetensors", "tokenizer.json", "config.json"],
+import { resolvePretrainedSource } from "@mlxts/transformers";
+
+const directory = await resolvePretrainedSource("meta-llama/Llama-3-8B", {
   revision: "main",
-  cacheDir: "~/.cache/mlxts",
 });
 ```
 
@@ -437,8 +436,8 @@ The goal is that steps 1-2 (understanding what exists and what's novel) take min
 | @mlxts/train | 5 | Exists | @mlxts/core, @mlxts/nn, @mlxts/optimizers |
 | @mlxts/data | 5 | Exists | @mlxts/core |
 | @mlxts/tokenizers | 5 | Exists (char tokenizer) | (mostly standalone today; broader tokenizer formats in Phase 7) |
-| @mlxts/hub | 7 | Exists | @mlxts/core (HF Hub REST client, safetensors, GGUF header parsing) |
-| @mlxts/transformers | 7 | Exists | @mlxts/nn, @mlxts/hub, @mlxts/tokenizers |
+| official `@huggingface/hub` + `@huggingface/jinja` | 7 | Exists | external JS packages used by `@mlxts/transformers` |
+| @mlxts/transformers | 7 | Exists | @mlxts/nn, @mlxts/tokenizers, @huggingface/hub, @huggingface/jinja |
 | @mlxts/lora | 8 | Planned | @mlxts/nn, @mlxts/train, @mlxts/transformers |
 | @mlxts/align | 8+ | Future | @mlxts/lora, @mlxts/train |
 | @mlxts/quantize | 9 | Planned | @mlxts/core (raw quantize/dequantize bindings already exist), GGUF tensor dequantization |

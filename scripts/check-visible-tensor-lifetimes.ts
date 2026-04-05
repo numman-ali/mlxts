@@ -17,7 +17,6 @@ const SOURCE_GLOBS = [
   "packages/train/src/**/*.ts",
   "packages/data/src/**/*.ts",
   "packages/tokenizers/src/**/*.ts",
-  "packages/hub/src/**/*.ts",
   "packages/transformers/src/**/*.ts",
   "packages/nanogpt/src/**/*.ts",
 ];

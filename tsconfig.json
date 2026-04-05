@@ -13,7 +13,6 @@
       "@mlxts/train": ["packages/train/src/index.ts"],
       "@mlxts/data": ["packages/data/src/index.ts"],
       "@mlxts/tokenizers": ["packages/tokenizers/src/index.ts"],
-      "@mlxts/hub": ["packages/hub/src/index.ts"],
       "@mlxts/transformers": ["packages/transformers/src/index.ts"]
     },
     "noEmit": true,

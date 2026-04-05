@@ -10,7 +10,6 @@ const WORKSPACE_ORDER = [
   "core",
   "tokenizers",
   "data",
-  "hub",
   "nn",
   "optimizers",
   "train",

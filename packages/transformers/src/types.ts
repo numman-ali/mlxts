@@ -4,8 +4,9 @@
  */
 
 import type { MxArray, ParameterTree } from "@mlxts/core";
-import type { ResolvedSnapshot, SnapshotOptions } from "@mlxts/hub";
 import type { TokenizerFormat } from "@mlxts/tokenizers";
+
+import type { LoadSourceOptions, PretrainedLoadProgressEvent } from "./pretrained/types";
 
 export type SupportedModelFamily = "llama" | "mistral" | "gemma" | "phi";
 
@@ -35,13 +36,15 @@ export type GenerationResult = {
   finishReason: "length" | "eos";
 };
 
-export type LoadCausalLMOptions = SnapshotOptions & {
+export type LoadCausalLMOptions = LoadSourceOptions & {
   strictUnexpectedWeights?: boolean;
 };
 
-export type LoadPretrainedTokenizerOptions = SnapshotOptions & {
+export type LoadPretrainedTokenizerOptions = LoadSourceOptions & {
   format?: TokenizerFormat;
 };
+
+export type { LoadSourceOptions, PretrainedLoadProgressEvent };
 
 export type BaseModelConfig = {
   family: SupportedModelFamily;
@@ -85,7 +88,7 @@ export interface CausalLM extends Disposable {
 }
 
 export type ExceptionalWeightLoaderContext<Config extends BaseModelConfig = BaseModelConfig> = {
-  snapshot: ResolvedSnapshot;
+  snapshot: import("./pretrained/types").ResolvedSnapshot;
   config: Config;
   model: CausalLM;
   assignWeight(path: string, tensor: MxArray): void;

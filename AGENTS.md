@@ -8,8 +8,8 @@ mlxts is a TypeScript-native ML stack for Apple Silicon. The repo currently
 centers on:
 
 - `**@mlxts/core` / `@mlxts/nn` / `@mlxts/optimizers` / `@mlxts/train` / `@mlxts/data` / `@mlxts/tokenizers**`: the extracted reusable ML stack
-- `**@mlxts/hub**`: HuggingFace Hub integration — snapshot resolution, safetensors loading, GGUF parsing
 - `**@mlxts/transformers**`: Pretrained model architectures — LLaMA, Mistral, Gemma families with KV cache, generation, and auto-dispatch
+- `**Official Hugging Face JS packages**`: `@huggingface/hub` for snapshot download/cache and `@huggingface/jinja` for chat-template rendering inside the transformers loading surface
 - `**packages/nanogpt**`: a temporary GPT validation fixture built on the extracted packages
 
 ## Architecture Decisions
@@ -23,7 +23,7 @@ centers on:
 - **Packages by generation paradigm, not modality**: `@mlxts/transformers` holds all autoregressive architectures (text, MoE, vision encoders, VLMs, encoder-decoders). `@mlxts/diffusion` holds all diffusion/flow generation (image, video, audio). There is no `@mlxts/vlm`, `@mlxts/audio`, or `@mlxts/multimodal` package. See [docs/design-reasoning.md § Generation Paradigms](./docs/design-reasoning.md#generation-paradigms).
 - **CausalLM is the universal autoregressive contract**: MoE is a block-level swap inside the decoder, not a new model contract. Multimodal understanding composes encoders with CausalLM, not a replacement. Do not widen CausalLM for anticipated future consumers. See [docs/design-reasoning.md § Contract Boundaries](./docs/design-reasoning.md#contract-boundaries).
 - **Weight tying via Embedding.asLinear()**: This is a functional projection (`matmul(x, transpose(weight))`), not a `Linear` module. When `tieWordEmbeddings` is true, call `embedTokens.asLinear(hidden)` in forward — never create shared parameter aliases on the module tree.
-- **Shard-iterator-first weight loading**: Use `iterateSafetensorWeights` (one tensor at a time, bounded peak memory) as the default loading strategy, not `loadSafetensorShardSet` (all tensors into memory at once).
+- **Shard-iterator-first weight loading**: Use one-tensor-at-a-time safetensor iteration as the default loading strategy, not whole-shard eager materialization.
 - **MLX-C first, JS fallback last**: When an operation is needed on the GPU, always check if mlx-c exposes it (`packages/core/native/build/_deps/mlx-c-src/mlx/c/ops.h`) before writing a JS workaround. Binding a missing mlx-c op properly is always better than approximating in JS. Fall back to JS only for genuinely host-side work (small lookups, user-provided callbacks). If mlx-c doesn't expose a needed op but MLX Python has it, consider a custom C binding.
 - **Performance is an observable, not a review opinion**: Generation hot-path changes require before/after benchmark numbers in the review artifact, not just "I considered performance." See [docs/runtime-safety.md § Generation Performance](./docs/runtime-safety.md#generation-performance). Key invariants: one eval per token in steady state, sampling stays on GPU, prefill is chunked, GPU never idles between tokens via async eval pipelining.
 

@@ -155,20 +155,17 @@ Fast tokenization with support for HuggingFace tokenizer formats.
 
 **Source origin:** Extracted from the former `packages/nanogpt/src/tokenizer.ts`. The package now owns the char tokenizer plus pretrained `tokenizer.json`, SentencePiece, and Tekken loading for the Phase 7 decoder families.
 
-#### `@mlxts/hub`
+#### External: `@huggingface/hub` and `@huggingface/jinja`
 
-HuggingFace Hub integration and model format I/O.
+Official Hugging Face JavaScript packages used by the pretrained loading surface.
 
 | Concern | What it provides |
 |---------|-----------------|
-| Hub client | Download models/datasets from HuggingFace Hub via REST API |
-| safetensors | Read/write safetensors format (via native binding or pure TS) |
-| GGUF | Read GGUF model files (parse header, extract tensors, dequantize) |
-| Config | Parse HF `config.json`, `generation_config.json` |
-| Caching | Local model cache with integrity checking |
-| Artifact discovery | Identify model and tokenizer files inside a snapshot |
+| Hub client | Download and cache model snapshots from Hugging Face |
+| Snapshot layout | Canonical Hub cache structure shared with the wider ecosystem |
+| Chat templates | Jinja rendering for `chat_template` / `chat_template.jinja` |
 
-**Dependencies:** `@mlxts/core`
+`mlxts` now uses these packages directly from `@mlxts/transformers` instead of carrying a separate repo-owned hub package.
 
 ---
 
@@ -187,9 +184,9 @@ All transformer-based model architectures — the mlxts equivalent of HuggingFac
 | Encoder-decoder families (Phase 10) | Whisper (speech → text), T5, BART |
 | Auto dispatch | `AutoModel.fromPretrained(modelId)` — config-driven architecture selection |
 | Generation | `generateText()` / `generateTokens()` / `generateStep()` with KV cache and sampling |
-| Weight loading | Load from safetensors via `@mlxts/hub` |
+| Weight loading | Load from safetensors via `@mlxts/core` with internal pretrained snapshot inspection |
 
-**Dependencies:** `@mlxts/core`, `@mlxts/nn`, `@mlxts/hub`, `@mlxts/tokenizers`
+**Dependencies:** `@mlxts/core`, `@mlxts/nn`, `@mlxts/tokenizers`, `@huggingface/hub`, `@huggingface/jinja`
 
 **Architecture pattern:** An explicit registry maps `model_type` to family
 parsers and model constructors. Shared LLaMA-like structure lives under
@@ -211,10 +208,10 @@ All diffusion and flow-based generation across modalities: image, video, and aud
 | Sampling | Classifier-free guidance, negative prompts |
 | Fine-tuning support | DreamBooth, textual inversion (LoRA via `@mlxts/lora` works on any Linear) |
 
-**Dependencies:** `@mlxts/core`, `@mlxts/nn`, `@mlxts/hub`
+**Dependencies:** `@mlxts/core`, `@mlxts/nn`, `@huggingface/hub`
 
 **Architecture pattern:** Mirrors `@mlxts/transformers` — explicit family
-registry, config-driven model construction, weight loading via `@mlxts/hub`.
+registry, config-driven model construction, and official Hugging Face JS-backed snapshot loading.
 Conditioning embeddings are produced by text/image encoders from
 `@mlxts/transformers` and passed as tensors — no direct dependency between the
 two architecture packages. Pipeline orchestration (composing both) is
@@ -477,10 +474,9 @@ mlxts/                                # Monorepo root
   └── @mlxts/data                     # Core only
 
 @mlxts/train                          # Core + nn + optimizers
-@mlxts/hub                            # Core + tokenizers
 @mlxts/lora                           # Core + nn
 
-@mlxts/transformers                   # Core + nn + hub + tokenizers
+@mlxts/transformers                   # Core + nn + tokenizers + official HF JS
 @mlxts/serve                          # Core + nn + transformers + tokenizers
 @mlxts/quantize                       # Core + nn
 @mlxts/eval                           # Core + transformers + tokenizers + data
@@ -520,7 +516,7 @@ work is deferred unless a row says otherwise.
 | Legacy optimizer layer | `packages/optimizers/src/` | `@mlxts/optimizers` |
 | `packages/nanogpt/src/train.ts` | `packages/train/src/loop.ts` + `packages/train/src/schedule.ts` + `packages/train/src/gradients.ts` + `packages/train/src/step.ts` | `@mlxts/train` |
 | `packages/nanogpt/src/checkpoint.ts` | `packages/train/src/checkpoint.ts` + `packages/train/src/checkpoint-*.ts` | `@mlxts/train` |
-| `packages/nanogpt/src/safetensors.ts` | `packages/hub/src/safetensors.ts` | `@mlxts/hub` |
+| `packages/nanogpt/src/safetensors.ts` | `packages/transformers/src/pretrained/weights.ts` + `@mlxts/core` safetensor readers | `@mlxts/transformers` |
 | Former `packages/nanogpt/src/data.ts` | `packages/data/src/text.ts` | `@mlxts/data` |
 | Former `packages/nanogpt/src/tokenizer.ts` | `packages/tokenizers/src/char.ts` | `@mlxts/tokenizers` |
 | `packages/nanogpt/src/model/` | `packages/nanogpt/src/model/` for now; later dedicated examples repo | Temporary validation fixture |
@@ -538,7 +534,7 @@ work is deferred unless a row says otherwise.
 - **If it has no consumer yet, don't create it.** Packages are extracted when a second consumer needs them, not when we can imagine one.
 - **`@mlxts/core` contains everything MLX-related:** FFI, array, ops, transforms, device, memory, random, I/O, fast fused ops. This is one package because MLX is one coherent system — splitting it would create artificial boundaries.
 - **Phase 5 creates:** `core`, `nn`, `optimizers`, `train`, `data`, `tokenizers`. These are already extracted, with the temporary nanoGPT fixture still acting as the validation harness while the package surfaces settle.
-- **Phase 7 creates:** `hub`, `transformers`. These appear when pretrained model loading lands.
+- **Phase 7 creates:** `transformers`. Pretrained loading uses official Hugging Face JS packages plus repo-owned helpers under `packages/transformers/src/pretrained/`.
 - **Phase 8 creates:** `lora`, `align`. These appear when fine-tuning lands.
 - **Phase 9 creates:** `serve`, `quantize`. These appear when inference serving lands.
 - **Phase 10 creates:** `diffusion`. Vision/audio encoders extend `transformers`, not a separate package. Generative media (image/video/audio) uses diffusion/flow → `@mlxts/diffusion`.

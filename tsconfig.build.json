@@ -8,7 +8,6 @@
       "@mlxts/train": ["packages/train/dist/index.d.ts"],
       "@mlxts/data": ["packages/data/dist/index.d.ts"],
       "@mlxts/tokenizers": ["packages/tokenizers/dist/index.d.ts"],
-      "@mlxts/hub": ["packages/hub/dist/index.d.ts"],
       "@mlxts/transformers": ["packages/transformers/dist/index.d.ts"]
     },
     "noEmit": false,

@@ -140,9 +140,9 @@ A developer runs `bun install`, opens `packages/core/src/index.ts` and `packages
 
 | Criterion | How to verify |
 |-----------|--------------|
-| `@mlxts/hub` downloads from HuggingFace Hub | Test: download a small model |
-| `@mlxts/hub` parses `config.json` and `tokenizer.json` | Test: parse known configs |
-| `@mlxts/hub` loads safetensors weights into mlxts arrays | Test: load and verify shapes/dtypes |
+| Pretrained loading downloads from HuggingFace Hub via official `@huggingface/hub` | Test: download a small model |
+| Pretrained loading parses `config.json` and tokenizer sidecars | Test: parse known configs |
+| `@mlxts/transformers` streams safetensors weights into mlxts arrays | Test: load and verify shapes/dtypes |
 | `@mlxts/tokenizers` implements ByteLevel BPE from `tokenizer.json` (covers LLaMA/Mistral/GPT-2) | Test: encode/decode matches Python tokenizer output |
 | `@mlxts/transformers` implements LLaMA architecture | Test: forward pass matches MLX Python output for same weights |
 | KV cache works for efficient generation | Test: generate 100 tokens, verify speed improvement vs no cache |
@@ -150,7 +150,6 @@ A developer runs `bun install`, opens `packages/core/src/index.ts` and `packages
 | At least 3 model architectures supported | LLaMA, Mistral, Phi or Gemma |
 | Generation quality: coherent multi-sentence output | Manual inspection |
 | `examples/llama-chat/` runs interactively | Demo it |
-| GGUF header/metadata parsing works | Test: parse GGUF file, extract model config and tensor info |
 
 ### What "done" looks like
 A developer writes:

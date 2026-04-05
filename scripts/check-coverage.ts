@@ -88,13 +88,6 @@ const PACKAGES: PackageConfig[] = [
     thresholds: DEFAULT_THRESHOLDS,
   },
   {
-    label: "@mlxts/hub",
-    sourceDir: "hub",
-    cwd: join(PROJECT_ROOT, "packages", "hub"),
-    coverageDir: join(PROJECT_ROOT, "coverage", "hub"),
-    thresholds: DEFAULT_THRESHOLDS,
-  },
-  {
     label: "@mlxts/transformers",
     sourceDir: "transformers",
     cwd: join(PROJECT_ROOT, "packages", "transformers"),
