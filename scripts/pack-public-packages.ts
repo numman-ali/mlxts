@@ -5,7 +5,18 @@
 import { resolve } from "path";
 
 const ROOT = resolve(import.meta.dirname, "..");
-const PUBLIC_PACKAGES = ["core", "nn", "optimizers", "train", "data", "tokenizers", "transformers"];
+const PUBLIC_PACKAGES = [
+  "core",
+  "nn",
+  "optimizers",
+  "train",
+  "data",
+  "quantize",
+  "lora",
+  "align",
+  "tokenizers",
+  "transformers",
+];
 
 async function run(command: string[], cwd: string): Promise<void> {
   const proc = Bun.spawn(command, {

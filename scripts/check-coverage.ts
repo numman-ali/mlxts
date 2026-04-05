@@ -81,6 +81,27 @@ const PACKAGES: PackageConfig[] = [
     thresholds: DEFAULT_THRESHOLDS,
   },
   {
+    label: "@mlxts/quantize",
+    sourceDir: "quantize",
+    cwd: join(PROJECT_ROOT, "packages", "quantize"),
+    coverageDir: join(PROJECT_ROOT, "coverage", "quantize"),
+    thresholds: DEFAULT_THRESHOLDS,
+  },
+  {
+    label: "@mlxts/lora",
+    sourceDir: "lora",
+    cwd: join(PROJECT_ROOT, "packages", "lora"),
+    coverageDir: join(PROJECT_ROOT, "coverage", "lora"),
+    thresholds: DEFAULT_THRESHOLDS,
+  },
+  {
+    label: "@mlxts/align",
+    sourceDir: "align",
+    cwd: join(PROJECT_ROOT, "packages", "align"),
+    coverageDir: join(PROJECT_ROOT, "coverage", "align"),
+    thresholds: DEFAULT_THRESHOLDS,
+  },
+  {
     label: "@mlxts/tokenizers",
     sourceDir: "tokenizers",
     cwd: join(PROJECT_ROOT, "packages", "tokenizers"),

@@ -12,6 +12,9 @@
       "@mlxts/optimizers": ["packages/optimizers/src/index.ts"],
       "@mlxts/train": ["packages/train/src/index.ts"],
       "@mlxts/data": ["packages/data/src/index.ts"],
+      "@mlxts/quantize": ["packages/quantize/src/index.ts"],
+      "@mlxts/lora": ["packages/lora/src/index.ts"],
+      "@mlxts/align": ["packages/align/src/index.ts"],
       "@mlxts/tokenizers": ["packages/tokenizers/src/index.ts"],
       "@mlxts/transformers": ["packages/transformers/src/index.ts"]
     },

@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { array, type MxArray, mxEval, retainArray, saveSafetensors } from "@mlxts/core";
-import { Linear } from "@mlxts/nn";
+import { array, type MxArray, mxEval, quantize, retainArray, saveSafetensors } from "@mlxts/core";
+import { Linear, QuantizedLinear } from "@mlxts/nn";
 import { mkdtempSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
@@ -270,6 +270,34 @@ function checkpointTensors(model: LlamaLikeCausalLM): Record<string, MxArray> {
   }
 
   return tensors;
+}
+
+function quantizeCheckpointTensors(
+  tensors: Record<string, MxArray>,
+  targets: readonly string[],
+): Record<string, MxArray> {
+  const targetWeights = new Set(targets.map((target) => `${target}.weight`));
+  const rewritten: Record<string, MxArray> = {};
+
+  for (const [name, tensor] of Object.entries(tensors)) {
+    if (!targetWeights.has(name)) {
+      rewritten[name] = retainArray(tensor);
+      continue;
+    }
+
+    const quantizedTensor = quantize(tensor, {
+      groupSize: 64,
+      bits: 4,
+      mode: "affine",
+    });
+    rewritten[name] = quantizedTensor.weight;
+    rewritten[`${name.slice(0, -".weight".length)}.scales`] = quantizedTensor.scales;
+    if (quantizedTensor.biases !== undefined) {
+      rewritten[`${name.slice(0, -".weight".length)}.biases`] = quantizedTensor.biases;
+    }
+  }
+
+  return rewritten;
 }
 
 function rawConfigForGemma3Text(): Record<string, unknown> {
@@ -940,6 +968,77 @@ describe("pretrained loading", () => {
       console.warn = warn;
       model[Symbol.dispose]();
     }
+  });
+
+  test("loadCausalLM prepares quantized linear modules from explicit checkpoint metadata", async () => {
+    const directory = createTempDir("mlxts-transformers-quantized-");
+    const rawConfig: Record<string, unknown> = {
+      ...rawConfigForFamily("llama"),
+      hidden_size: 64,
+      intermediate_size: 128,
+      num_attention_heads: 4,
+      num_key_value_heads: 4,
+      max_position_embeddings: 64,
+      vocab_size: 7,
+    };
+    rawConfig.quantization = {
+      bits: 4,
+      group_size: 64,
+      "model.layers.0.self_attn.q_proj": true,
+      "model.layers.1.self_attn.q_proj": true,
+    };
+    const registration = resolveFamily("llama");
+    using model = registration.createModel(registration.parseConfig(rawConfig));
+    if (!(model instanceof LlamaLikeCausalLM)) {
+      throw new Error("Expected a LlamaLikeCausalLM for the quantized checkpoint fixture.");
+    }
+
+    const baseTensors = checkpointTensors(model);
+    const quantizedTensors = quantizeCheckpointTensors(baseTensors, [
+      "model.layers.0.self_attn.q_proj",
+      "model.layers.1.self_attn.q_proj",
+    ]);
+    const tokenizer = tokenizerFixture();
+
+    try {
+      await Bun.write(join(directory, "config.json"), `${JSON.stringify(rawConfig, null, 2)}\n`);
+      await Bun.write(
+        join(directory, "tokenizer.json"),
+        `${JSON.stringify(tokenizer.tokenizerJson, null, 2)}\n`,
+      );
+      await Bun.write(
+        join(directory, "tokenizer_config.json"),
+        `${JSON.stringify(tokenizer.tokenizerConfig, null, 2)}\n`,
+      );
+      await Bun.write(
+        join(directory, "special_tokens_map.json"),
+        `${JSON.stringify(tokenizer.specialTokensMap, null, 2)}\n`,
+      );
+      await saveSafetensors(quantizedTensors, join(directory, "model.safetensors"));
+    } finally {
+      for (const tensor of Object.values(baseTensors)) {
+        tensor.free();
+      }
+      for (const tensor of Object.values(quantizedTensors)) {
+        tensor.free();
+      }
+    }
+
+    using loadedModel = await loadCausalLM(directory);
+    if (!(loadedModel instanceof LlamaLikeCausalLM)) {
+      throw new Error("Expected a LlamaLikeCausalLM after loading the quantized checkpoint.");
+    }
+
+    const firstLayer = loadedModel.model.layers[0];
+    const secondLayer = loadedModel.model.layers[1];
+    if (firstLayer === undefined || secondLayer === undefined) {
+      throw new Error("Expected two decoder layers in the quantized checkpoint fixture.");
+    }
+
+    expect(firstLayer.selfAttention.qProjection).toBeInstanceOf(QuantizedLinear);
+    expect(secondLayer.selfAttention.qProjection).toBeInstanceOf(QuantizedLinear);
+    expect(firstLayer.selfAttention.kProjection).toBeInstanceOf(Linear);
+    expect(secondLayer.selfAttention.kProjection).toBeInstanceOf(Linear);
   });
 
   test("loadPretrainedTokenizer rejects snapshots without tokenizer artifacts", async () => {

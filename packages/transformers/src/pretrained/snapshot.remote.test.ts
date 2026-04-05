@@ -20,6 +20,16 @@ function repoFolderName(repoId: string): string {
   return `models--${repoId.replaceAll("/", "--")}`;
 }
 
+function expectedAccessTokenFromEnvironment(): string {
+  return (
+    Bun.env.HF_TOKEN ??
+    Bun.env.HF_ACCESS_TOKEN ??
+    Bun.env.HUGGING_FACE_HUB_TOKEN ??
+    Bun.env.HUGGINGFACE_HUB_TOKEN ??
+    "hf_token_from_file"
+  );
+}
+
 function writeSnapshotFile(
   cacheDir: string,
   repoId: string,
@@ -163,7 +173,7 @@ describe("resolvePretrainedSnapshot remote resolution", () => {
       cacheDir: "~/custom-hf-cache",
     });
 
-    expect(accessTokens).toEqual(["hf_token_from_file"]);
+    expect(accessTokens).toEqual([expectedAccessTokenFromEnvironment()]);
     expect(snapshot.source).toBe("hub");
     expect(snapshot.directory).toBe(
       join(homeDir, "custom-hf-cache", repoFolderName(repoId), "snapshots", resolvedRevision),

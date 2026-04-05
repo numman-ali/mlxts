@@ -1,14 +1,11 @@
 /**
  * Base class for neural network modules.
- *
- * Subclasses declare parameters as plain `MxArray` properties and
- * sub-modules as `Module` properties. The base class scans these
- * to build parameter trees for autograd and optimization.
- *
- * Convention: public `MxArray` and `Module` fields are scanned as
- * parameters. Internal state that is not a parameter must use JS
- * `#` private fields or be a non-MxArray type.
- *
+ * Subclasses declare parameters as plain `MxArray` properties and sub-modules
+ * as `Module` properties. The base class scans these to build parameter trees
+ * for autograd and optimization.
+ * Public `MxArray` and `Module` fields are scanned as parameters. Internal
+ * state that is not a parameter must use JS `#` private fields or be a
+ * non-MxArray type.
  * @module
  */
 
@@ -354,6 +351,26 @@ export abstract class Module implements Disposable {
   update(params: ParameterTree): void {
     this.validateUpdateTree(params, []);
     this.applyUpdateTree(params);
+  }
+
+  /**
+   * Replace a direct child module and return the previous child.
+   *
+   * Ownership stays with the caller. The previous child is not disposed.
+   */
+  replaceChild(key: string, next: Module): Module {
+    if (!this.hasOwnKey(key)) {
+      throw new Error(`Module.replaceChild: unknown key "${key}"`);
+    }
+
+    const current = this.slotValue(key);
+    if (!(current instanceof Module)) {
+      throw new Error(`Module.replaceChild: key "${key}" is not a direct Module child`);
+    }
+
+    next.train(this.#training);
+    Reflect.set(this, key, next);
+    return current;
   }
 
   /**

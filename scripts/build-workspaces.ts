@@ -11,9 +11,12 @@ const WORKSPACE_ORDER = [
   "tokenizers",
   "data",
   "nn",
+  "quantize",
   "optimizers",
   "train",
   "transformers",
+  "lora",
+  "align",
   "nanogpt",
 ];
 

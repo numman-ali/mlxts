@@ -37,6 +37,15 @@ export type DequantizeOptions = {
   stream?: S;
 };
 
+export type QuantizedMatmulOptions = {
+  biases?: MxArray;
+  transpose?: boolean;
+  groupSize?: number;
+  bits?: number;
+  mode?: QuantizationMode;
+  stream?: S;
+};
+
 export type QuantizeResult = {
   weight: MxArray;
   scales: MxArray;
@@ -125,6 +134,34 @@ export function dequantize(
         s(options.stream),
       ),
       "dequantize",
+    );
+  });
+}
+
+/** Multiply against packed quantized weights without materializing dense weights. */
+export function quantizedMatmul(
+  x: MxArray,
+  weight: MxArray,
+  scales: MxArray,
+  options: QuantizedMatmulOptions = {},
+): MxArray {
+  const mode = options.mode ?? "affine";
+  const encodedMode = encodeMode(mode);
+  return readResultArray("quantizedMatmul", (out) => {
+    checkStatus(
+      ffi.mlx_quantized_matmul(
+        out,
+        x._ctx,
+        weight._ctx,
+        scales._ctx,
+        options.biases?._ctx ?? null,
+        options.transpose ?? false,
+        optionalInt(options.groupSize),
+        optionalInt(options.bits),
+        ptr(encodedMode),
+        s(options.stream),
+      ),
+      "quantizedMatmul",
     );
   });
 }

@@ -32,6 +32,7 @@
     "@huggingface/jinja": "^0.5.6",
     "@mlxts/core": "workspace:*",
     "@mlxts/nn": "workspace:*",
+    "@mlxts/quantize": "workspace:*",
     "@mlxts/tokenizers": "workspace:*"
   },
   "scripts": {

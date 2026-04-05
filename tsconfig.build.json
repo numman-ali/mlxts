@@ -7,6 +7,9 @@
       "@mlxts/optimizers": ["packages/optimizers/dist/index.d.ts"],
       "@mlxts/train": ["packages/train/dist/index.d.ts"],
       "@mlxts/data": ["packages/data/dist/index.d.ts"],
+      "@mlxts/quantize": ["packages/quantize/dist/index.d.ts"],
+      "@mlxts/lora": ["packages/lora/dist/index.d.ts"],
+      "@mlxts/align": ["packages/align/dist/index.d.ts"],
       "@mlxts/tokenizers": ["packages/tokenizers/dist/index.d.ts"],
       "@mlxts/transformers": ["packages/transformers/dist/index.d.ts"]
     },

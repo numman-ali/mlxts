@@ -321,6 +321,10 @@ export const QUANTIZATION_SYMBOLS = {
     args: [P, P, P, P, U64_FAST, U64_FAST, CSTRING, P, U64_FAST, P],
     returns: I32,
   },
+  mlx_quantized_matmul: {
+    args: [P, P, P, P, P, BOOL, U64_FAST, U64_FAST, CSTRING, P],
+    returns: I32,
+  },
 } as const;
 
 // ---------------------------------------------------------------------------

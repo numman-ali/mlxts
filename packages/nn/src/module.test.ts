@@ -68,6 +68,38 @@ class ModuleWithConfig extends Module {
   }
 }
 
+class DisposableChild extends Module {
+  weight: MxArray;
+  disposed = false;
+
+  constructor(value: number) {
+    super();
+    this.weight = array([value]);
+  }
+
+  forward(x: MxArray): MxArray {
+    return x;
+  }
+
+  override [Symbol.dispose](): void {
+    this.disposed = true;
+    super[Symbol.dispose]();
+  }
+}
+
+class ReplaceableModule extends Module {
+  child: DisposableChild;
+
+  constructor() {
+    super();
+    this.child = new DisposableChild(1);
+  }
+
+  forward(x: MxArray): MxArray {
+    return this.child.forward(x);
+  }
+}
+
 // ---------------------------------------------------------------------------
 // parameters()
 // ---------------------------------------------------------------------------
@@ -268,6 +300,49 @@ describe("Module.update()", () => {
 
     replacement.free();
     m[Symbol.dispose]();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// replaceChild()
+// ---------------------------------------------------------------------------
+
+describe("Module.replaceChild()", () => {
+  test("replaces a direct child module and returns the previous child", () => {
+    const module = new ReplaceableModule();
+    const nextChild = new DisposableChild(2);
+
+    const previous = module.replaceChild("child", nextChild);
+
+    expect(previous).toBeInstanceOf(DisposableChild);
+    expect(previous).not.toBe(nextChild);
+    expect(module.child).toBe(nextChild);
+
+    previous[Symbol.dispose]();
+    module[Symbol.dispose]();
+  });
+
+  test("does not dispose the previous child automatically", () => {
+    const module = new ReplaceableModule();
+    const previous = module.child;
+    const nextChild = new DisposableChild(3);
+
+    module.replaceChild("child", nextChild);
+
+    expect(previous.disposed).toBe(false);
+
+    previous[Symbol.dispose]();
+    module[Symbol.dispose]();
+  });
+
+  test("throws when the key is not a direct module child", () => {
+    const module = new SimpleModule();
+    const nextChild = new DisposableChild(1);
+
+    expect(() => module.replaceChild("weight", nextChild)).toThrow("direct Module child");
+
+    nextChild[Symbol.dispose]();
+    module[Symbol.dispose]();
   });
 });
 

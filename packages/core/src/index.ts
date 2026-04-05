@@ -132,10 +132,11 @@ export {
 export type {
   DequantizeOptions,
   QuantizationMode,
+  QuantizedMatmulOptions,
   QuantizeOptions,
   QuantizeResult,
 } from "./quantization";
-export { dequantize, quantize } from "./quantization";
+export { dequantize, quantize, quantizedMatmul } from "./quantization";
 // biome-ignore lint/performance/noReExportAll: Intentional namespace re-export — matches MLX Python's mx.random.normal() API pattern
 export * as random from "./random";
 export type { CompileMode, DisposableTransform } from "./transforms";
