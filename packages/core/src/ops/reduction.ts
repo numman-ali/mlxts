@@ -160,3 +160,17 @@ export function softmax(a: MxArray, axis = -1, options?: SoftmaxOptions): MxArra
     );
   });
 }
+
+/** Sort values along an axis. Defaults to the last axis. */
+export function sort(a: MxArray, axis = -1, stream?: S): MxArray {
+  return readResultArray("sort", (out) => {
+    checkStatus(ffi.mlx_sort_axis(out, a._ctx, axis, s(stream)), "sort");
+  });
+}
+
+/** Return the largest `k` values along an axis. Defaults to the last axis. */
+export function topk(a: MxArray, k: number, axis = -1, stream?: S): MxArray {
+  return readResultArray("topk", (out) => {
+    checkStatus(ffi.mlx_topk_axis(out, a._ctx, k, axis, s(stream)), "topk");
+  });
+}

@@ -72,17 +72,19 @@ Neural network layers, Module system, activations, losses.
 |---------|-----------------|
 | Module base | `Module` class with property scanning, freeze/unfreeze, train/eval |
 | Linear layers | `Linear` |
-| Normalization | `LayerNorm`, `RMSNorm` (when mlx-c fused binding available) |
+| Normalization | `LayerNorm`, `RMSNorm` |
 | Embeddings | `Embedding` with `asLinear()` for weight tying |
 | Regularization | `Dropout` |
-| Activations | `gelu`, `relu`, `silu`, `sigmoid`, `tanh` (free functions) |
+| Activations | `gelu`, `relu`, `silu`, `swiglu` (free functions) |
 | Losses | `crossEntropy`, `mse` |
-| Attention | `MultiHeadAttention`, `CausalSelfAttention` |
+| Attention | `GroupedQueryAttention` |
 | Module autograd | `nn.valueAndGrad` — the module-aware gradient transform |
 
 **Dependencies:** `@mlxts/core` — nn modules import MxArray and ops directly.
 
-**Source origin:** Extracted from the former monolithic nn layer. Model-specific attention code remains outside this package for now.
+**Source origin:** Extracted from the former monolithic nn layer. GPT-specific
+causal attention remains in the temporary `packages/nanogpt` fixture, while the
+reusable transformer primitives now live here.
 
 #### `@mlxts/optimizers`
 

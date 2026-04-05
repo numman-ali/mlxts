@@ -474,6 +474,11 @@ This extraction is now real, not hypothetical:
 
 **Goal**: The nn and ops layers have everything modern architectures need.
 
+**Status**: Complete. `@mlxts/core` and `@mlxts/nn` now expose RMSNorm, RoPE,
+Grouped-Query Attention, SwiGLU, `sort` / `topk` / `repeat` / `tile`, exact
+float16/bfloat16 safetensors I/O, and low-level MLX quantize/dequantize
+bindings.
+
 **What this phase covers**:
 
 ### 6.5a. Fast ops from mlx-c

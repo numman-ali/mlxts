@@ -29,3 +29,9 @@ export function silu(x: MxArray): MxArray {
   using sig = sigmoid(x);
   return multiply(x, sig);
 }
+
+/** SwiGLU activation: silu(gate) * value. */
+export function swiglu(gate: MxArray, value: MxArray): MxArray {
+  using activatedGate = silu(gate);
+  return multiply(activatedGate, value);
+}

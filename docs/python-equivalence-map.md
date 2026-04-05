@@ -96,7 +96,7 @@ The goal is not to replicate Python's entire ML ecosystem line-for-line. It is t
 
 | Python Package | What It Does | mlxts Equivalent | Phase | Status | Notes |
 |---|---|---|---|---|---|
-| **MLX quantize** | MLX's built-in quantization (4-bit, 8-bit) | @mlxts/quantize | 9 | Planned | MLX exposes quantization natively through mlx-c. This is the primary quantization path. |
+| **MLX quantize** | MLX's built-in quantization (4-bit, 8-bit) | @mlxts/core now, `@mlxts/quantize` later | 6.5 / 9 | Partial | Phase 6.5 exposes the raw MLX quantize/dequantize bindings in `@mlxts/core`. The dedicated `@mlxts/quantize` package is still the later ergonomics and GGUF-focused phase. |
 | **bitsandbytes** | CUDA 4-bit/8-bit quantization (QLoRA foundation) | Not applicable | -- | Not planned | CUDA-only. See Section 4. MLX's native quantization covers the same use cases on Apple Silicon. |
 | **GPTQ** | Post-training quantization for GPU inference | @mlxts/quantize | 9 | Future | GPTQ model weights can be loaded. The quantization algorithm itself can be implemented against MLX ops. |
 | **AWQ** | Activation-aware weight quantization | @mlxts/quantize | 9 | Future | AWQ is a quantization format. Loading pre-quantized AWQ weights is the practical need. |
@@ -358,7 +358,7 @@ class SlidingWindowAttention extends Module {
 }
 ```
 
-**Available after Phase 7**: Multi-head attention, RoPE, RMS norm, GQA/MQA as reusable components that new architectures compose.
+**Available after Phase 6.5**: RoPE, RMS norm, GQA/MQA-style attention, and SwiGLU as reusable components that new architectures compose.
 
 ### Custom Training Loops
 
@@ -441,7 +441,7 @@ The goal is that steps 1-2 (understanding what exists and what's novel) take min
 | @mlxts/transformers | 7 | Planned | @mlxts/nn, @mlxts/hub, @mlxts/tokenizers |
 | @mlxts/lora | 8 | Planned | @mlxts/nn, @mlxts/train, @mlxts/transformers |
 | @mlxts/align | 8+ | Future | @mlxts/lora, @mlxts/train |
-| @mlxts/quantize | 9 | Planned | @mlxts/core (MLX quantize/dequantize, GGUF tensor dequantization) |
+| @mlxts/quantize | 9 | Planned | @mlxts/core (raw quantize/dequantize bindings already exist), GGUF tensor dequantization |
 | @mlxts/serve | 9 | Planned | @mlxts/transformers, @mlxts/quantize |
 | @mlxts/diffusion | 10 | Future | @mlxts/nn, @mlxts/transformers |
 | @mlxts/vlm | 10 | Future | @mlxts/nn, @mlxts/transformers |

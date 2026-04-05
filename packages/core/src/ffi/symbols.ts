@@ -79,6 +79,7 @@ export const ARRAY_LIFECYCLE_SYMBOLS = {
   mlx_array_item_int32: { args: [P, P], returns: I32 },
   mlx_array_item_float32: { args: [P, P], returns: I32 },
   mlx_array_item_float64: { args: [P, P], returns: I32 },
+  mlx_array_item_bfloat16: { args: [P, P], returns: I32 },
 
   // Data pointer access (returns pointer to raw data, array must be evaluated)
   mlx_array_data_bool: { args: [P], returns: P },
@@ -90,6 +91,7 @@ export const ARRAY_LIFECYCLE_SYMBOLS = {
   mlx_array_data_int32: { args: [P], returns: P },
   mlx_array_data_int64: { args: [P], returns: P },
   mlx_array_data_float16: { args: [P], returns: P },
+  mlx_array_data_bfloat16: { args: [P], returns: P },
   mlx_array_data_float32: { args: [P], returns: P },
   mlx_array_data_float64: { args: [P], returns: P },
 
@@ -201,6 +203,10 @@ export const REDUCTION_SYMBOLS = {
   mlx_logsumexp: { args: [P, P, BOOL, P], returns: I32 },
   mlx_logsumexp_axis: { args: [P, P, I32, BOOL, P], returns: I32 },
   mlx_logsumexp_axes: { args: [P, P, P, U64_FAST, BOOL, P], returns: I32 },
+  mlx_sort: { args: [P, P, P], returns: I32 },
+  mlx_sort_axis: { args: [P, P, I32, P], returns: I32 },
+  mlx_topk: { args: [P, P, I32, P], returns: I32 },
+  mlx_topk_axis: { args: [P, P, I32, I32, P], returns: I32 },
 } as const;
 
 // ---------------------------------------------------------------------------
@@ -225,6 +231,9 @@ export const SHAPE_SYMBOLS = {
   mlx_flatten: { args: [P, P, I32, I32, P], returns: I32 },
   mlx_contiguous: { args: [P, P, BOOL, P], returns: I32 },
   mlx_stop_gradient: { args: [P, P, P], returns: I32 },
+  mlx_repeat_axis: { args: [P, P, I32, I32, P], returns: I32 },
+  mlx_repeat: { args: [P, P, I32, P], returns: I32 },
+  mlx_tile: { args: [P, P, P, U64_FAST, P], returns: I32 },
   // int mlx_tril(res, x, k, stream)
   mlx_tril: { args: [P, P, I32, P], returns: I32 },
   // int mlx_triu(res, x, k, stream)
@@ -275,6 +284,21 @@ export const CREATION_SYMBOLS = {
 export const TAKE_SYMBOLS = {
   // int mlx_take_axis(res, a, indices, axis, stream)
   mlx_take_axis: { args: [P, P, P, I32, P], returns: I32 },
+} as const;
+
+// ---------------------------------------------------------------------------
+// Quantization (ops.h)
+// ---------------------------------------------------------------------------
+
+export const QUANTIZATION_SYMBOLS = {
+  mlx_quantize: {
+    args: [P, P, U64_FAST, U64_FAST, CSTRING, P, P],
+    returns: I32,
+  },
+  mlx_dequantize: {
+    args: [P, P, P, P, U64_FAST, U64_FAST, CSTRING, P, U64_FAST, P],
+    returns: I32,
+  },
 } as const;
 
 // ---------------------------------------------------------------------------
@@ -330,6 +354,18 @@ export const FAST_SYMBOLS = {
   },
   mlx_fast_layer_norm: {
     args: [P, P, P, P, F32, P],
+    returns: I32,
+  },
+  mlx_fast_rms_norm: {
+    args: [P, P, P, F32, P],
+    returns: I32,
+  },
+  mlx_fast_rope: {
+    args: [P, P, I32, BOOL, U64_FAST, F32, I32, P, P],
+    returns: I32,
+  },
+  mlx_fast_rope_dynamic: {
+    args: [P, P, I32, BOOL, U64_FAST, F32, P, P, P],
     returns: I32,
   },
 } as const;

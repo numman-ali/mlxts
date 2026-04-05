@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { array, mxEval } from "@mlxts/core";
-import { gelu, relu, silu } from "./activations";
+import { gelu, relu, silu, swiglu } from "./activations";
 
 describe("relu", () => {
   test("positive values pass through", () => {
@@ -89,6 +89,21 @@ describe("silu", () => {
     // silu(-1) = -1 * sigmoid(-1) ≈ -0.2689
     expect(result.item()).toBeCloseTo(-0.2689, 2);
     x.free();
+    result.free();
+  });
+});
+
+describe("swiglu", () => {
+  test("matches gate * silu(value) structure", () => {
+    const gate = array([1.0, -1.0], "float32");
+    const value = array([2.0, 3.0], "float32");
+    const result = swiglu(gate, value);
+    mxEval(result);
+    const list = result.toList() as number[];
+    expect(list[0]).toBeCloseTo(2 * (1 / (1 + Math.exp(-1))), 5);
+    expect(list[1]).toBeCloseTo(3 * (-1 / (1 + Math.exp(1))), 5);
+    gate.free();
+    value.free();
     result.free();
   });
 });

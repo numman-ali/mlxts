@@ -25,11 +25,34 @@ function encodeFixture(
 }
 
 describe("io extra coverage", () => {
-  test("saveSafetensors rejects unsupported dtypes from the TypeScript bridge", async () => {
+  test("saveSafetensors round-trips float16 tensors", async () => {
+    const path = writeFixturePath("float16-roundtrip");
     using tensor = array([1, 2, 3], "float16");
-    await expect(
-      saveSafetensors({ half: tensor }, writeFixturePath("unsupported")),
-    ).rejects.toThrow("not supported");
+
+    await saveSafetensors({ half: tensor }, path);
+    const bytes = new Uint8Array(await Bun.file(path).arrayBuffer());
+    expect(new TextDecoder().decode(bytes)).toContain('"dtype":"F16"');
+
+    const loaded = await loadSafetensors(path);
+    using restored = loaded.tensors.half;
+    expect(restored).toBeDefined();
+    expect(restored?.dtype).toBe("float16");
+    expect(restored?.toList()).toEqual([1, 2, 3]);
+  });
+
+  test("saveSafetensors round-trips bfloat16 tensors", async () => {
+    const path = writeFixturePath("bfloat16-roundtrip");
+    using tensor = array([1, 2, 3], "bfloat16");
+
+    await saveSafetensors({ half: tensor }, path);
+    const bytes = new Uint8Array(await Bun.file(path).arrayBuffer());
+    expect(new TextDecoder().decode(bytes)).toContain('"dtype":"BF16"');
+
+    const loaded = await loadSafetensors(path);
+    using restored = loaded.tensors.half;
+    expect(restored).toBeDefined();
+    expect(restored?.dtype).toBe("bfloat16");
+    expect(restored?.toList()).toEqual([1, 2, 3]);
   });
 
   test("loadSafetensors rejects malformed tensor headers", async () => {

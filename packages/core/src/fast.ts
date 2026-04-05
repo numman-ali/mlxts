@@ -12,8 +12,8 @@ import type { Pointer } from "bun:ffi";
 import { type MxArray, readResultArray } from "./array";
 import { defaultStream } from "./device";
 import { checkStatus } from "./error";
+import { optionalFloat, ptr } from "./ffi";
 import { ffi } from "./ffi/lib";
-import { ptr } from "./ffi/pointer";
 
 type S = Pointer | undefined;
 const s = (stream?: S) => stream ?? defaultStream();
@@ -33,10 +33,28 @@ export type FastLayerNormOptions = {
   stream?: S;
 };
 
+export type FastRMSNormOptions = {
+  eps?: number;
+  stream?: S;
+};
+
+export type FastRoPEOptions = {
+  traditional?: boolean;
+  base?: number;
+  scale?: number;
+  offset?: number | MxArray;
+  freqs?: MxArray;
+  stream?: S;
+};
+
 const textEncoder = new TextEncoder();
 
+function encodeCString(value: string): Uint8Array {
+  return textEncoder.encode(`${value}\0`);
+}
+
 function encodeMaskMode(maskMode: ScaledDotProductAttentionMaskMode): Uint8Array {
-  return textEncoder.encode(`${maskMode}\0`);
+  return encodeCString(maskMode);
 }
 
 function normalizeAttentionMaskMode(
@@ -55,6 +73,37 @@ function normalizeAttentionMaskMode(
     );
   }
   return resolvedMode;
+}
+
+function resolveRoPEBase(base: number | undefined, freqs: MxArray | undefined): number | undefined {
+  if (freqs !== undefined && base !== undefined) {
+    throw new Error("fast.rope: provide either base or freqs, not both.");
+  }
+
+  if (freqs !== undefined) {
+    return undefined;
+  }
+
+  return base ?? 10000;
+}
+
+function validateRoPEInput(x: MxArray, dims: number): void {
+  if (x.ndim < 3) {
+    throw new Error(`fast.rope: expected input rank >= 3, got rank ${x.ndim}.`);
+  }
+  if (!Number.isInteger(dims) || dims <= 0) {
+    throw new Error(`fast.rope: dims must be a positive integer, got ${dims}.`);
+  }
+  if (dims % 2 !== 0) {
+    throw new Error(`fast.rope: dims must be even, got ${dims}.`);
+  }
+
+  const featureDimension = x.shape[x.shape.length - 1];
+  if (featureDimension === undefined || dims > featureDimension) {
+    throw new Error(
+      `fast.rope: dims ${dims} must be <= the last dimension ${featureDimension ?? "undefined"}.`,
+    );
+  }
 }
 
 /**
@@ -111,6 +160,82 @@ export function layerNorm(
         s(options?.stream),
       ),
       "fast_layer_norm",
+    );
+  });
+}
+
+/**
+ * Fused RMS normalization.
+ *
+ * Normalizes across the last axis using the root mean square and
+ * optionally applies a learnable weight.
+ */
+export function rmsNorm(x: MxArray, weight?: MxArray, options?: FastRMSNormOptions): MxArray {
+  return readResultArray("fast_rms_norm", (out) => {
+    checkStatus(
+      ffi.mlx_fast_rms_norm(
+        out,
+        x._ctx,
+        weight?._ctx ?? null,
+        options?.eps ?? 1e-5,
+        s(options?.stream),
+      ),
+      "fast_rms_norm",
+    );
+  });
+}
+
+/**
+ * Apply rotary positional encoding to the last axis of an attention tensor.
+ *
+ * The input is expected to be at least rank 3 with shape `[batch, *, sequence, dims]`.
+ * Offsets can be provided either as a single number or as a per-example array.
+ */
+export function rope(x: MxArray, dims: number, options: FastRoPEOptions = {}): MxArray {
+  validateRoPEInput(x, dims);
+
+  const resolvedBase = resolveRoPEBase(options.base, options.freqs);
+  const offset = options.offset ?? 0;
+  const traditional = options.traditional ?? false;
+  const scale = options.scale ?? 1.0;
+
+  if (typeof offset === "number") {
+    if (!Number.isInteger(offset) || offset < 0) {
+      throw new Error(`fast.rope: numeric offset must be a non-negative integer, got ${offset}.`);
+    }
+
+    return readResultArray("fast_rope", (out) => {
+      checkStatus(
+        ffi.mlx_fast_rope(
+          out,
+          x._ctx,
+          dims,
+          traditional,
+          optionalFloat(resolvedBase),
+          scale,
+          offset,
+          options.freqs?._ctx ?? null,
+          s(options.stream),
+        ),
+        "fast_rope",
+      );
+    });
+  }
+
+  return readResultArray("fast_rope_dynamic", (out) => {
+    checkStatus(
+      ffi.mlx_fast_rope_dynamic(
+        out,
+        x._ctx,
+        dims,
+        traditional,
+        optionalFloat(resolvedBase),
+        scale,
+        offset._ctx,
+        options.freqs?._ctx ?? null,
+        s(options.stream),
+      ),
+      "fast_rope_dynamic",
     );
   });
 }

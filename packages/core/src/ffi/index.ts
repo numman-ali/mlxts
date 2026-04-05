@@ -18,7 +18,8 @@ export {
 } from "./closure-bridge";
 // --- Native library symbols ---
 export { ffi } from "./lib";
-
+// --- Optional ABI helpers ---
+export { optionalDType, optionalFloat, optionalInt } from "./optional";
 // --- Pointer utilities ---
 export {
   nativeSlice,

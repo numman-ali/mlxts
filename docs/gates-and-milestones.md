@@ -112,6 +112,9 @@ A developer runs `bun install`, opens `packages/core/src/index.ts` and `packages
 
 **Goal:** The nn and ops layers have everything modern architectures need.
 
+**Current state:** Complete in-repo. The canonical `@mlxts/core` and
+`@mlxts/nn` packages now provide the primitives this milestone requires.
+
 ### Milestone: "Ready for LLaMA"
 
 | Criterion | How to verify |

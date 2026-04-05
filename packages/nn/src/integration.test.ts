@@ -6,12 +6,24 @@
  * and optimizer parameter updates.
  */
 import { describe, expect, test } from "bun:test";
-import { argmax, array, type MxArray, mxEval, random, treeFlatten, treeLeaves } from "@mlxts/core";
+import {
+  add,
+  argmax,
+  array,
+  type MxArray,
+  mxEval,
+  random,
+  treeFlatten,
+  treeLeaves,
+} from "@mlxts/core";
 import { SGD } from "@mlxts/optimizers";
-import { gelu } from "./activations";
+import { gelu, swiglu } from "./activations";
+import { GroupedQueryAttention } from "./grouped-query-attention";
 import { Linear } from "./linear";
 import { crossEntropy } from "./losses";
 import { Module } from "./module";
+import { RMSNorm } from "./rms-norm";
+import { RoPE } from "./rope";
 import { valueAndGrad } from "./value-and-grad";
 
 class MLP extends Module {
@@ -28,6 +40,39 @@ class MLP extends Module {
     using h = this.layer1.forward(x);
     using activated = gelu(h);
     return this.layer2.forward(activated);
+  }
+}
+
+class TinyLlamaBlock extends Module {
+  inputNorm: RMSNorm;
+  attention: GroupedQueryAttention;
+  postAttentionNorm: RMSNorm;
+  gateProjection: Linear;
+  upProjection: Linear;
+  downProjection: Linear;
+
+  constructor() {
+    super();
+    this.inputNorm = new RMSNorm(8, 1e-6);
+    this.attention = new GroupedQueryAttention(8, 4, 2, {
+      rope: new RoPE(2, true),
+    });
+    this.postAttentionNorm = new RMSNorm(8, 1e-6);
+    this.gateProjection = new Linear(8, 16, false);
+    this.upProjection = new Linear(8, 16, false);
+    this.downProjection = new Linear(16, 8, false);
+  }
+
+  forward(x: MxArray): MxArray {
+    using attentionInput = this.inputNorm.forward(x);
+    using attentionOutput = this.attention.forward(attentionInput);
+    using afterAttention = add(x, attentionOutput);
+    using mlpInput = this.postAttentionNorm.forward(afterAttention);
+    using gate = this.gateProjection.forward(mlpInput);
+    using up = this.upProjection.forward(mlpInput);
+    using activated = swiglu(gate, up);
+    using down = this.downProjection.forward(activated);
+    return add(afterAttention, down);
   }
 }
 
@@ -86,5 +131,28 @@ describe("MLP convergence on XOR", () => {
     logits.free();
     preds.free();
     model[Symbol.dispose]();
+  });
+});
+
+describe("LLaMA-style block composition", () => {
+  test("RMSNorm, GQA, RoPE, and SwiGLU compose into a decoder block", () => {
+    using block = new TinyLlamaBlock();
+    using input = array(
+      [
+        [
+          [1, 2, 3, 4, 5, 6, 7, 8],
+          [2, 3, 4, 5, 6, 7, 8, 9],
+          [3, 4, 5, 6, 7, 8, 9, 10],
+        ],
+      ],
+      "float32",
+    );
+
+    using output = block.forward(input);
+    mxEval(output);
+
+    expect(output.shape).toEqual([1, 3, 8]);
+    const values = (output.toList() as number[][][]).flat(2);
+    expect(values.every((value) => Number.isFinite(value))).toBe(true);
   });
 });

@@ -7,8 +7,13 @@
  * @module
  */
 
-import { MxArray } from "./array";
-import { DTYPE_BYTE_SIZE, type DType } from "./dtype";
+import { MxArray, readResultArray } from "./array";
+import { getDataPointer } from "./array-ffi-data";
+import { defaultStream } from "./device";
+import type { DType } from "./dtype";
+import { DTYPE_BYTE_SIZE, DTYPE_TO_MLX } from "./dtype";
+import { checkStatus } from "./error";
+import { ffi, nativeSlice, ptr, unwrapPointer } from "./ffi";
 import { formatShape } from "./format-shape";
 
 type SupportedSafetensorsDType =
@@ -19,16 +24,39 @@ type SupportedSafetensorsDType =
   | "int8"
   | "int16"
   | "int32"
+  | "float16"
+  | "bfloat16"
   | "float32"
   | "float64";
 
-type SafetensorsDTypeTag = "BOOL" | "U8" | "U16" | "U32" | "I8" | "I16" | "I32" | "F32" | "F64";
+type SafetensorsDTypeTag =
+  | "BOOL"
+  | "U8"
+  | "U16"
+  | "U32"
+  | "I8"
+  | "I16"
+  | "I32"
+  | "F16"
+  | "BF16"
+  | "F32"
+  | "F64";
 
 type SafetensorsTensorHeader = {
   dtype: SafetensorsDTypeTag;
   shape: number[];
   data_offsets: [number, number];
 };
+
+type RawStorageView =
+  | Float32Array
+  | Float64Array
+  | Int8Array
+  | Int16Array
+  | Int32Array
+  | Uint8Array
+  | Uint16Array
+  | Uint32Array;
 
 export type LoadedSafetensors = {
   tensors: Record<string, MxArray>;
@@ -43,6 +71,8 @@ const DTYPE_TO_SAFETENSORS = {
   int8: "I8",
   int16: "I16",
   int32: "I32",
+  float16: "F16",
+  bfloat16: "BF16",
   float32: "F32",
   float64: "F64",
 } as const satisfies Record<SupportedSafetensorsDType, SafetensorsDTypeTag>;
@@ -55,6 +85,8 @@ const SAFETENSORS_TO_DTYPE: Record<SafetensorsDTypeTag, SupportedSafetensorsDTyp
   I8: "int8",
   I16: "int16",
   I32: "int32",
+  F16: "float16",
+  BF16: "bfloat16",
   F32: "float32",
   F64: "float64",
 };
@@ -76,12 +108,14 @@ function toSupportedSafetensorsDType(dtype: DType): SupportedSafetensorsDType {
     case "int8":
     case "int16":
     case "int32":
+    case "float16":
+    case "bfloat16":
     case "float32":
     case "float64":
       return dtype;
     default:
       throw new Error(
-        `saveSafetensors: dtype ${dtype} is not supported by the current TypeScript safetensors bridge.`,
+        `saveSafetensors: dtype ${dtype} is not supported by the safetensors bridge.`,
       );
   }
 }
@@ -180,9 +214,58 @@ function assertTensorHeader(key: string, value: unknown): SafetensorsTensorHeade
   };
 }
 
-function buildTensorBytes(tensor: MxArray): Uint8Array {
-  const typed = tensor.toTypedArray();
-  return new Uint8Array(typed.buffer.slice(typed.byteOffset, typed.byteOffset + typed.byteLength));
+function makeContiguous(tensor: MxArray): MxArray {
+  return readResultArray("contiguous", (out) => {
+    checkStatus(ffi.mlx_contiguous(out, tensor._ctx, false, defaultStream()), "contiguous");
+  });
+}
+
+function buildTensorBytes(tensor: MxArray, dtype: SupportedSafetensorsDType): Uint8Array {
+  using contiguous = makeContiguous(tensor);
+  contiguous.eval();
+  const byteLength = contiguous.size * DTYPE_BYTE_SIZE[dtype];
+  return new Uint8Array(nativeSlice(getDataPointer(contiguous, dtype), 0, byteLength).slice(0));
+}
+
+function createStorageView(bytes: Uint8Array, dtype: SupportedSafetensorsDType): RawStorageView {
+  const copied = bytes.slice();
+
+  switch (dtype) {
+    case "bool":
+    case "uint8":
+      return copied;
+    case "uint16":
+    case "float16":
+    case "bfloat16":
+      return new Uint16Array(copied.buffer);
+    case "uint32":
+      return new Uint32Array(copied.buffer);
+    case "int8":
+      return new Int8Array(copied.buffer);
+    case "int16":
+      return new Int16Array(copied.buffer);
+    case "int32":
+      return new Int32Array(copied.buffer);
+    case "float32":
+      return new Float32Array(copied.buffer);
+    case "float64":
+      return new Float64Array(copied.buffer);
+  }
+}
+
+function createTensorFromBytes(
+  bytes: Uint8Array,
+  shape: number[],
+  dtype: SupportedSafetensorsDType,
+): MxArray {
+  const storage = createStorageView(bytes, dtype);
+  const shapeBuffer = shape.length === 0 ? new Int32Array(1) : new Int32Array(shape);
+  return MxArray._fromCtx(
+    unwrapPointer(
+      ffi.mlx_array_new_data(ptr(storage), ptr(shapeBuffer), shape.length, DTYPE_TO_MLX[dtype]),
+      "mlx_array_new_data",
+    ),
+  );
 }
 
 function concatChunks(chunks: readonly Uint8Array[], totalLength: number): Uint8Array {
@@ -197,9 +280,6 @@ function concatChunks(chunks: readonly Uint8Array[], totalLength: number): Uint8
 
 /**
  * Save named tensors to a safetensors file.
- *
- * Only dtypes that round-trip cleanly through the current TypeScript bridge
- * are supported.
  */
 export async function saveSafetensors(
   tensors: Record<string, MxArray>,
@@ -207,13 +287,6 @@ export async function saveSafetensors(
   metadata: Record<string, string> = {},
 ): Promise<void> {
   const entries = Object.entries(tensors).sort(([left], [right]) => left.localeCompare(right));
-  const arrays = entries.map(([, tensor]) => tensor);
-  if (arrays.length > 0) {
-    for (const tensor of arrays) {
-      tensor.eval();
-    }
-  }
-
   const dataChunks: Uint8Array[] = [];
   const headerEntries: [string, SafetensorsTensorHeader][] = [];
   let dataOffset = 0;
@@ -222,7 +295,7 @@ export async function saveSafetensors(
     const dtype = toSupportedSafetensorsDType(tensor.dtype);
     const shape = [...tensor.shape];
     const expectedBytes = tensorElementCount(shape) * DTYPE_BYTE_SIZE[dtype];
-    const bytes = buildTensorBytes(tensor);
+    const bytes = buildTensorBytes(tensor, dtype);
     if (bytes.byteLength !== expectedBytes) {
       throw new Error(
         `saveSafetensors: tensor "${key}" has ${bytes.byteLength} bytes, expected ${expectedBytes} for ${dtype} ${formatShape(shape)}`,
@@ -289,45 +362,11 @@ export async function loadSafetensors(path: string): Promise<LoadedSafetensors> 
         throw new Error(`loadSafetensors: tensor "${key}" extends past the end of the file`);
       }
 
-      const tensorBytes = bytes.subarray(absoluteStart, absoluteEnd);
-      let typed:
-        | Float32Array
-        | Float64Array
-        | Int8Array
-        | Int16Array
-        | Int32Array
-        | Uint8Array
-        | Uint16Array
-        | Uint32Array;
-      switch (dtype) {
-        case "bool":
-        case "uint8":
-          typed = new Uint8Array(tensorBytes.slice().buffer);
-          break;
-        case "uint16":
-          typed = new Uint16Array(tensorBytes.slice().buffer);
-          break;
-        case "uint32":
-          typed = new Uint32Array(tensorBytes.slice().buffer);
-          break;
-        case "int8":
-          typed = new Int8Array(tensorBytes.slice().buffer);
-          break;
-        case "int16":
-          typed = new Int16Array(tensorBytes.slice().buffer);
-          break;
-        case "int32":
-          typed = new Int32Array(tensorBytes.slice().buffer);
-          break;
-        case "float32":
-          typed = new Float32Array(tensorBytes.slice().buffer);
-          break;
-        case "float64":
-          typed = new Float64Array(tensorBytes.slice().buffer);
-          break;
-      }
-
-      tensors[key] = MxArray.fromData(typed, tensorHeader.shape, dtype);
+      tensors[key] = createTensorFromBytes(
+        bytes.subarray(absoluteStart, absoluteEnd),
+        tensorHeader.shape,
+        dtype,
+      );
     }
 
     return { tensors, metadata };

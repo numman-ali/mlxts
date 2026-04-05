@@ -79,6 +79,27 @@ export function flatten(a: MxArray, startAxis = 0, endAxis = -1, stream?: S): Mx
   });
 }
 
+/** Repeat elements of an array either globally or along a specific axis. */
+export function repeat(a: MxArray, repeats: number, axis?: number, stream?: S): MxArray {
+  return readResultArray("repeat", (out) => {
+    if (axis === undefined) {
+      checkStatus(ffi.mlx_repeat(out, a._ctx, repeats, s(stream)), "repeat");
+      return;
+    }
+
+    checkStatus(ffi.mlx_repeat_axis(out, a._ctx, repeats, axis, s(stream)), "repeat");
+  });
+}
+
+/** Tile an array by repeating it according to the provided reps. */
+export function tile(a: MxArray, reps: number | number[], stream?: S): MxArray {
+  const normalizedReps = typeof reps === "number" ? [reps] : reps;
+  const repsBuf = new Int32Array(normalizedReps);
+  return readResultArray("tile", (out) => {
+    checkStatus(ffi.mlx_tile(out, a._ctx, ptr(repsBuf), normalizedReps.length, s(stream)), "tile");
+  });
+}
+
 /** Concatenate arrays along an axis. */
 export function concatenate(arrays: MxArray[], axis = 0, stream?: S): MxArray {
   const vec = unwrapPointer(ffi.mlx_vector_array_new(), "mlx_vector_array_new");

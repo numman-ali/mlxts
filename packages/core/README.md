@@ -2,7 +2,9 @@
 
 The native MLX runtime surface for mlxts.
 
-`@mlxts/core` owns `MxArray`, core tensor ops, random utilities, transforms, safetensors I/O, tree helpers, and the Bun FFI bridge to `mlx-c`.
+`@mlxts/core` owns `MxArray`, core tensor ops, random utilities, transforms,
+fast fused kernels, safetensors I/O, low-level quantize/dequantize primitives,
+tree helpers, and the Bun FFI bridge to `mlx-c`.
 
 ```ts
 import { mxEval, ones, matmul } from "@mlxts/core";

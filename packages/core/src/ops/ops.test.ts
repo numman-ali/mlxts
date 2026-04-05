@@ -33,9 +33,11 @@ import {
   notEqual,
   power,
   reciprocal,
+  repeat,
   reshape,
   sigmoid,
   softmax,
+  sort,
   split,
   sqrt,
   square,
@@ -45,6 +47,8 @@ import {
   sum,
   takeAlongAxis,
   tanh,
+  tile,
+  topk,
   transpose,
   tril,
   triu,
@@ -416,6 +420,35 @@ describe("Reduction ops", () => {
     a.free();
     b.free();
   });
+
+  test("sort orders values along the last axis", () => {
+    const a = array([
+      [3, 1, 2],
+      [9, 7, 8],
+    ]);
+    const b = sort(a);
+    b.eval();
+    expect(b.toList()).toEqual([
+      [1, 2, 3],
+      [7, 8, 9],
+    ]);
+    a.free();
+    b.free();
+  });
+
+  test("topk returns the largest values along the last axis", () => {
+    const a = array([
+      [3, 1, 2],
+      [9, 7, 8],
+    ]);
+    const b = topk(a, 2);
+    b.eval();
+    const values = b.toList() as number[][];
+    expect([...(values[0] ?? [])].sort((left, right) => left - right)).toEqual([2, 3]);
+    expect([...(values[1] ?? [])].sort((left, right) => left - right)).toEqual([8, 9]);
+    a.free();
+    b.free();
+  });
 });
 
 describe("Shape ops", () => {
@@ -533,6 +566,38 @@ describe("Shape ops", () => {
     expect(b.toList()).toEqual([
       [1, 2, 3, 4],
       [5, 6, 7, 8],
+    ]);
+    a.free();
+    b.free();
+  });
+
+  test("repeat duplicates values along an axis", () => {
+    const a = array([
+      [1, 2],
+      [3, 4],
+    ]);
+    const b = repeat(a, 2, 1);
+    b.eval();
+    expect(b.toList()).toEqual([
+      [1, 1, 2, 2],
+      [3, 3, 4, 4],
+    ]);
+    a.free();
+    b.free();
+  });
+
+  test("tile repeats an array over both axes", () => {
+    const a = array([
+      [1, 2],
+      [3, 4],
+    ]);
+    const b = tile(a, [2, 1]);
+    b.eval();
+    expect(b.toList()).toEqual([
+      [1, 2],
+      [3, 4],
+      [1, 2],
+      [3, 4],
     ]);
     a.free();
     b.free();

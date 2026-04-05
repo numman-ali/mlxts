@@ -22,12 +22,19 @@ export { INTEGER_DTYPES, isIntegerDType } from "./dtype";
 export { MxError } from "./error";
 export type {
   FastLayerNormOptions,
+  FastRMSNormOptions,
+  FastRoPEOptions,
   ScaledDotProductAttentionMaskMode,
   ScaledDotProductAttentionOptions,
 } from "./fast";
 // biome-ignore lint/performance/noReExportAll: Intentional namespace re-export — matches MLX Python's mx.fast API pattern
 export * as fast from "./fast";
-export { layerNorm as fastLayerNorm, scaledDotProductAttention } from "./fast";
+export {
+  layerNorm as fastLayerNorm,
+  rmsNorm as fastRmsNorm,
+  rope as fastRoPE,
+  scaledDotProductAttention,
+} from "./fast";
 export { formatShape } from "./format-shape";
 export type { LoadedSafetensors } from "./io";
 export { loadSafetensors, saveSafetensors } from "./io";
@@ -77,9 +84,11 @@ export {
   notEqual,
   power,
   reciprocal,
+  repeat,
   reshape,
   sigmoid,
   softmax,
+  sort,
   split,
   sqrt,
   square,
@@ -91,11 +100,20 @@ export {
   takeAlongAxis,
   takeAxis,
   tanh,
+  tile,
+  topk,
   transpose,
   tril,
   triu,
   where,
 } from "./ops";
+export type {
+  DequantizeOptions,
+  QuantizationMode,
+  QuantizeOptions,
+  QuantizeResult,
+} from "./quantization";
+export { dequantize, quantize } from "./quantization";
 // biome-ignore lint/performance/noReExportAll: Intentional namespace re-export — matches MLX Python's mx.random.normal() API pattern
 export * as random from "./random";
 export type { CompileMode, DisposableTransform } from "./transforms";

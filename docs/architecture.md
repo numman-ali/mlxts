@@ -52,7 +52,8 @@ Using mlx-c eliminates:
 What mlx-c provides that we'd have had to build:
 - All array operations, reductions, and linear algebra
 - Complete autograd via the `mlx_closure` + `mlx_value_and_grad` pipeline
-- Fused fast ops (SDPA, RoPE, RMS norm, layer norm) — critical for GPT performance
+- Fused fast ops (SDPA, RoPE, RMS norm, layer norm) plus low-level
+  quantize/dequantize bindings — critical for modern transformer work
 - Safetensors I/O
 - Metal/device/stream management
 - Error handling via `mlx_set_error_handler`
