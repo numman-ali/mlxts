@@ -19,6 +19,8 @@
     "check:runtime-review": "bun run scripts/check-runtime-review.ts",
     "check:coverage": "bun run scripts/check-coverage.ts",
     "bench:memory": "bun run packages/nanogpt/src/bench/memory.ts",
+    "bench:generation": "bun run packages/transformers/scripts/benchmark-generation.ts",
+    "bench:generation:parity": "bun run packages/transformers/scripts/benchmark-generation-parity.ts",
     "soak:gpt-tiny": "bun run packages/nanogpt/src/run/soak.ts --preset gpt-tiny",
     "soak:gpt-small": "bun run packages/nanogpt/src/run/soak.ts --preset gpt-small",
     "acceptance:gpt-tiny": "bun run packages/nanogpt/src/run/acceptance.ts --preset gpt-tiny",

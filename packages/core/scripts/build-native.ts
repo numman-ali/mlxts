@@ -175,8 +175,9 @@ async function main(): Promise<void> {
   // are present. The dylibs alone are not sufficient for MLX's Metal runtime.
   const mlxcExists = existsSync(resolve(LIB_DIR, "libmlxc.dylib"));
   const mlxExists = existsSync(resolve(LIB_DIR, "libmlx.dylib"));
+  const mlxtsCoreNativeExists = existsSync(resolve(LIB_DIR, "libmlxts_core_native.dylib"));
   const metallibExists = existsSync(METALLIB_PATH);
-  if (mlxcExists && mlxExists && metallibExists) {
+  if (mlxcExists && mlxExists && mlxtsCoreNativeExists && metallibExists) {
     console.log("\nDylibs already exist in native/lib/. Skipping build.");
     console.log("To force rebuild, delete native/lib/ and native/build/.");
     return;
@@ -220,6 +221,7 @@ async function main(): Promise<void> {
   console.log("\nSearching for built dylibs...");
   const mlxcLibs = findDylibs(BUILD_DIR, /^libmlxc\.dylib$/);
   const mlxLibs = findDylibs(BUILD_DIR, /^libmlx\.dylib$/);
+  const mlxtsCoreNativeLibs = findDylibs(BUILD_DIR, /^libmlxts_core_native\.dylib$/);
 
   if (mlxcLibs.length === 0) {
     throw new Error("libmlxc.dylib not found in build output");
@@ -227,12 +229,16 @@ async function main(): Promise<void> {
   if (mlxLibs.length === 0) {
     throw new Error("libmlx.dylib not found in build output");
   }
+  if (mlxtsCoreNativeLibs.length === 0) {
+    throw new Error("libmlxts_core_native.dylib not found in build output");
+  }
 
   // Copy the first match of each
   console.log(`\nCopying dylibs to ${LIB_DIR}/`);
   for (const [src, name] of [
     [firstPath(mlxcLibs, "libmlxc.dylib"), "libmlxc.dylib"],
     [firstPath(mlxLibs, "libmlx.dylib"), "libmlx.dylib"],
+    [firstPath(mlxtsCoreNativeLibs, "libmlxts_core_native.dylib"), "libmlxts_core_native.dylib"],
   ] as const) {
     const dst = resolve(LIB_DIR, name);
     await Bun.write(dst, Bun.file(src));
@@ -245,6 +251,7 @@ async function main(): Promise<void> {
   console.log("\nBuild complete!");
   console.log(`  libmlxc.dylib: ${resolve(LIB_DIR, "libmlxc.dylib")}`);
   console.log(`  libmlx.dylib:  ${resolve(LIB_DIR, "libmlx.dylib")}`);
+  console.log(`  libmlxts_core_native.dylib: ${resolve(LIB_DIR, "libmlxts_core_native.dylib")}`);
 }
 
 main().catch((error) => {

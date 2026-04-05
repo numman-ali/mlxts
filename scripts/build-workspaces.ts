@@ -6,7 +6,17 @@
 import { resolve } from "path";
 
 const ROOT = resolve(import.meta.dirname, "..");
-const WORKSPACE_ORDER = ["core", "tokenizers", "data", "nn", "optimizers", "train", "nanogpt"];
+const WORKSPACE_ORDER = [
+  "core",
+  "tokenizers",
+  "data",
+  "hub",
+  "nn",
+  "optimizers",
+  "train",
+  "transformers",
+  "nanogpt",
+];
 
 async function run(command: string[], cwd: string): Promise<void> {
   const proc = Bun.spawn(command, {

@@ -11,11 +11,15 @@ export type { NestedArray } from "./array";
 export { arange, array, full, MxArray, ones, retainArray, zeros } from "./array";
 export type { DeviceType } from "./device";
 export {
+  createStream,
   deviceCount,
   getDefaultDevice,
+  getRecommendedWorkingSetBytes,
   isDeviceAvailable,
+  MxStream,
   setDefaultDevice,
   synchronize,
+  withDefaultStream,
 } from "./device";
 export type { DType } from "./dtype";
 export { INTEGER_DTYPES, isIntegerDType } from "./dtype";
@@ -36,8 +40,17 @@ export {
   scaledDotProductAttention,
 } from "./fast";
 export { formatShape } from "./format-shape";
-export type { LoadedSafetensors } from "./io";
-export { loadSafetensors, saveSafetensors } from "./io";
+export type {
+  LoadedSafetensors,
+  SafetensorTensorChunkEntry,
+  SafetensorTensorEntry,
+} from "./io";
+export {
+  iterateSafetensors,
+  iterateSafetensorTensorChunks,
+  loadSafetensors,
+  saveSafetensors,
+} from "./io";
 export type { MemoryStats } from "./memory";
 export {
   clearMemoryCache,
@@ -58,15 +71,19 @@ export {
   add,
   argmax,
   argmin,
+  argpartition,
+  argsort,
   asType,
   broadcastTo,
   concatenate,
+  cumsum,
   divide,
   equal,
   erf,
   exp,
   expandDims,
   flatten,
+  geluApprox,
   greater,
   greaterEqual,
   less,
@@ -83,10 +100,15 @@ export {
   negative,
   notEqual,
   power,
+  putAlongAxis,
   reciprocal,
   repeat,
   reshape,
   sigmoid,
+  slice,
+  sliceDynamic,
+  sliceUpdate,
+  sliceUpdateDynamic,
   softmax,
   sort,
   split,

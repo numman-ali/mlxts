@@ -7,8 +7,32 @@
  * @module
  */
 
+import type {
+  BatchEncoding,
+  DecodeOptions,
+  EncodeOptions,
+  Encoding,
+  Offset,
+  Tokenizer,
+} from "./tokenizer";
+
+function sanitizeOffsets(offsets: Offset[]): Offset[] | undefined {
+  return offsets.length === 0 ? undefined : offsets;
+}
+
+function createEncoding(ids: number[], offsets: Offset[] | undefined): Encoding {
+  const encoding: Encoding = {
+    ids,
+    specialTokensMask: ids.map(() => 0),
+  };
+  if (offsets !== undefined) {
+    encoding.offsets = offsets;
+  }
+  return encoding;
+}
+
 /** Character-level tokenizer: one token per character. */
-export class CharTokenizer {
+export class CharTokenizer implements Tokenizer {
   #charToIndex: Map<string, number>;
   #indexToChar: string[];
 
@@ -35,15 +59,13 @@ export class CharTokenizer {
   }
 
   /** Encode a string to an array of integer token IDs. */
-  encode(text: string): number[] {
+  encode(text: string, _options: EncodeOptions = {}): number[] {
     const tokens: number[] = [];
-    for (let i = 0; i < text.length; i++) {
-      const char = text[i];
-      if (char === undefined) continue;
+    for (const [index, char] of Array.from(text).entries()) {
       const id = this.#charToIndex.get(char);
       if (id === undefined) {
         throw new Error(
-          `CharTokenizer.encode: unknown character '${char}' (code ${char.charCodeAt(0)}) at position ${i}`,
+          `CharTokenizer.encode: unknown character '${char}' (code ${char.codePointAt(0) ?? 0}) at position ${index}`,
         );
       }
       tokens.push(id);
@@ -51,8 +73,28 @@ export class CharTokenizer {
     return tokens;
   }
 
+  /** Encode text and optionally keep per-token character offsets. */
+  encodeWithOffsets(text: string, options: EncodeOptions = {}): Encoding {
+    const ids = this.encode(text, options);
+    const offsets: Offset[] = [];
+    if (options.returnOffsets === true) {
+      let offset = 0;
+      for (const char of text) {
+        const width = char.length;
+        offsets.push({ start: offset, end: offset + width });
+        offset += width;
+      }
+    }
+    return createEncoding(ids, sanitizeOffsets(offsets));
+  }
+
+  /** Encode a batch of strings. */
+  encodeBatch(texts: string[], options: EncodeOptions = {}): BatchEncoding {
+    return texts.map((text) => this.encodeWithOffsets(text, options));
+  }
+
   /** Decode an array of token IDs back to a string. */
-  decode(tokens: number[]): string {
+  decode(tokens: number[], _options: DecodeOptions = {}): string {
     const chars: string[] = [];
     for (let i = 0; i < tokens.length; i++) {
       const id = tokens[i];
@@ -68,9 +110,29 @@ export class CharTokenizer {
     return chars.join("");
   }
 
+  /** Decode a batch of token ID arrays. */
+  decodeBatch(batch: number[][], options: DecodeOptions = {}): string[] {
+    return batch.map((tokens) => this.decode(tokens, options));
+  }
+
   /** Number of unique tokens in the vocabulary. */
   get vocabSize(): number {
     return this.#indexToChar.length;
+  }
+
+  /** Character tokenizer does not define a BOS token. */
+  get bosTokenId(): number | undefined {
+    return undefined;
+  }
+
+  /** Character tokenizer does not define EOS tokens. */
+  get eosTokenIds(): number[] {
+    return [];
+  }
+
+  /** Character tokenizer does not define a PAD token. */
+  get padTokenId(): number | undefined {
+    return undefined;
   }
 
   /** Ordered character list for serialization. */

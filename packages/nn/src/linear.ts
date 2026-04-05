@@ -15,6 +15,8 @@ export class Linear extends Module {
   weight: MxArray;
   bias: MxArray | null;
   #inputDims: number;
+  #transposedWeight: MxArray | null = null;
+  #transposedWeightSource: MxArray | null = null;
 
   /**
    * @param inputDims - Number of input features. Must be > 0.
@@ -45,12 +47,27 @@ export class Linear extends Module {
       );
     }
 
-    using wt = transpose(this.weight);
-    const out = matmul(x, wt);
+    const out = matmul(x, this.transposedWeight());
     if (this.bias !== null) {
       using unbiased = out;
       return add(unbiased, this.bias);
     }
     return out;
+  }
+
+  private transposedWeight(): MxArray {
+    if (this.#transposedWeight === null || this.#transposedWeightSource !== this.weight) {
+      this.#transposedWeight?.free();
+      this.#transposedWeight = transpose(this.weight);
+      this.#transposedWeightSource = this.weight;
+    }
+    return this.#transposedWeight;
+  }
+
+  override [Symbol.dispose](): void {
+    this.#transposedWeight?.free();
+    this.#transposedWeight = null;
+    this.#transposedWeightSource = null;
+    super[Symbol.dispose]();
   }
 }

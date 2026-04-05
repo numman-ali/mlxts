@@ -7,15 +7,19 @@ import {
   add,
   argmax,
   argmin,
+  argpartition,
+  argsort,
   asType,
   broadcastTo,
   concatenate,
+  cumsum,
   divide,
   equal,
   erf,
   exp,
   expandDims,
   flatten,
+  geluApprox,
   greater,
   greaterEqual,
   less,
@@ -32,10 +36,15 @@ import {
   negative,
   notEqual,
   power,
+  putAlongAxis,
   reciprocal,
   repeat,
   reshape,
   sigmoid,
+  slice,
+  sliceDynamic,
+  sliceUpdate,
+  sliceUpdateDynamic,
   softmax,
   sort,
   split,
@@ -235,6 +244,23 @@ describe("Arithmetic ops", () => {
     a.free();
     b.free();
   });
+
+  test("geluApprox matches the tanh approximation", () => {
+    const a = array([-1, 0, 1], "float32");
+    const b = geluApprox(a);
+    b.eval();
+    const list = b.toList() as number[];
+    expect(list[0]).toBeCloseTo(-0.1588, 4);
+    expect(list[1]).toBeCloseTo(0, 5);
+    expect(list[2]).toBeCloseTo(0.8412, 4);
+    a.free();
+    b.free();
+  });
+
+  test("geluApprox rejects non-floating tensors", () => {
+    using a = array([1, 2, 3], "int32");
+    expect(() => geluApprox(a)).toThrow("expected a floating-point tensor");
+  });
 });
 
 describe("Linalg ops", () => {
@@ -360,6 +386,37 @@ describe("Reduction ops", () => {
     idx.free();
   });
 
+  test("argsort returns indices in ascending order", () => {
+    const a = array([
+      [3, 1, 2],
+      [9, 7, 8],
+    ]);
+    const indices = argsort(a);
+    indices.eval();
+    expect(indices.toList()).toEqual([
+      [1, 2, 0],
+      [1, 2, 0],
+    ]);
+    a.free();
+    indices.free();
+  });
+
+  test("argpartition moves the requested kth partition into place", () => {
+    const a = array([9, 1, 8, 2, 7]);
+    const indices = argpartition(a, 1);
+    indices.eval();
+    const values = indices.toList() as number[];
+    const kthIndex = values[1];
+    if (typeof kthIndex !== "number") {
+      throw new Error("Expected argpartition to return numeric indices");
+    }
+    const original = a.toList() as number[];
+    const kthValue = original[kthIndex];
+    expect(kthValue).toBe(2);
+    a.free();
+    indices.free();
+  });
+
   test("keepdims preserves rank", () => {
     const a = array([
       [1, 2],
@@ -446,6 +503,21 @@ describe("Reduction ops", () => {
     const values = b.toList() as number[][];
     expect([...(values[0] ?? [])].sort((left, right) => left - right)).toEqual([2, 3]);
     expect([...(values[1] ?? [])].sort((left, right) => left - right)).toEqual([8, 9]);
+    a.free();
+    b.free();
+  });
+
+  test("cumsum accumulates values along an axis", () => {
+    const a = array([
+      [1, 2, 3],
+      [4, 5, 6],
+    ]);
+    const b = cumsum(a, 1);
+    b.eval();
+    expect(b.toList()).toEqual([
+      [1, 3, 6],
+      [4, 9, 15],
+    ]);
     a.free();
     b.free();
   });
@@ -651,6 +723,83 @@ describe("Shape ops", () => {
     indices.free();
     gathered.free();
   });
+
+  test("putAlongAxis replaces values by index", () => {
+    const a = array([
+      [10, 11, 12],
+      [20, 21, 22],
+    ]);
+    const indices = array(
+      [
+        [2, 1],
+        [0, 2],
+      ],
+      "int32",
+    );
+    const updates = array(
+      [
+        [99, 88],
+        [77, 66],
+      ],
+      "float32",
+    );
+    const updated = putAlongAxis(a, indices, updates, 1);
+    updated.eval();
+    expect(updated.toList()).toEqual([
+      [10, 88, 99],
+      [77, 21, 66],
+    ]);
+    a.free();
+    indices.free();
+    updates.free();
+    updated.free();
+  });
+
+  test("sliceUpdateDynamic updates a slice at dynamic starts", () => {
+    const base = zeros([1, 1, 6, 2], "float32");
+    const update = ones([1, 1, 2, 2], "float32");
+    const start = array([2], "int32");
+    const updated = sliceUpdateDynamic(base, update, start, [2]);
+    updated.eval();
+    expect(updated.toList()).toEqual([
+      [
+        [
+          [0, 0],
+          [0, 0],
+          [1, 1],
+          [1, 1],
+          [0, 0],
+          [0, 0],
+        ],
+      ],
+    ]);
+    base.free();
+    update.free();
+    start.free();
+    updated.free();
+  });
+
+  test("sliceUpdate updates a static slice range", () => {
+    const base = zeros([1, 1, 6, 2], "float32");
+    const update = ones([1, 1, 2, 2], "float32");
+    const updated = sliceUpdate(base, update, [0, 0, 2, 0], [1, 1, 4, 2]);
+    updated.eval();
+    expect(updated.toList()).toEqual([
+      [
+        [
+          [0, 0],
+          [0, 0],
+          [1, 1],
+          [1, 1],
+          [0, 0],
+          [0, 0],
+        ],
+      ],
+    ]);
+    base.free();
+    update.free();
+    updated.free();
+  });
 });
 
 describe("Comparison ops", () => {
@@ -808,6 +957,15 @@ describe("scalar coercion", () => {
     result.free();
   });
 
+  test("add(array, number) preserves the array dtype for bf16 tensors", () => {
+    const a = array([1, 2, 3], "bfloat16");
+    const result = add(a, 1.0);
+    result.eval();
+    expect(result.dtype).toBe("bfloat16");
+    a.free();
+    result.free();
+  });
+
   test("add(number, array)", () => {
     const a = array([1, 2, 3]);
     const result = add(5, a);
@@ -831,6 +989,15 @@ describe("scalar coercion", () => {
     const result = multiply(a, 0.5);
     result.eval();
     expect(result.toList()).toEqual([0.5, 1, 1.5]);
+    a.free();
+    result.free();
+  });
+
+  test("multiply(array, number) preserves the array dtype for bf16 tensors", () => {
+    const a = array([1, 2, 3], "bfloat16");
+    const result = multiply(a, 0.5);
+    result.eval();
+    expect(result.dtype).toBe("bfloat16");
     a.free();
     result.free();
   });
@@ -1044,5 +1211,39 @@ describe("where with scalar operands", () => {
     mask.free();
     scores.free();
     result.free();
+  });
+});
+
+describe("slice operations", () => {
+  test("slice returns a strided view", () => {
+    const base = array([
+      [
+        [0, 1],
+        [2, 3],
+        [4, 5],
+        [6, 7],
+      ],
+    ]);
+    const view = slice(base, [0, 1, 0], [1, 4, 2], [1, 2, 1]);
+    view.eval();
+    expect(view.toList()).toEqual([
+      [
+        [2, 3],
+        [6, 7],
+      ],
+    ]);
+    base.free();
+    view.free();
+  });
+
+  test("sliceDynamic returns a runtime-positioned view", () => {
+    const base = array([[[[0], [1], [2], [3], [4], [5]]]], "float32");
+    const start = array([2], "int32");
+    const view = sliceDynamic(base, start, [2], [3]);
+    view.eval();
+    expect(view.toList()).toEqual([[[[2], [3], [4]]]]);
+    base.free();
+    start.free();
+    view.free();
   });
 });

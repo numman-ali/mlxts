@@ -10,7 +10,7 @@
 import type { MxArray } from "@mlxts/core";
 import { add, divide, erf, maximum, multiply, sigmoid } from "@mlxts/core";
 
-/** GELU activation: x * 0.5 * (1 + erf(x / sqrt(2))). */
+/** Exact GELU activation. Prefer `geluApprox` from `@mlxts/core` on inference hot paths. */
 export function gelu(x: MxArray): MxArray {
   using xScaled = divide(x, Math.sqrt(2));
   using erfResult = erf(xScaled);

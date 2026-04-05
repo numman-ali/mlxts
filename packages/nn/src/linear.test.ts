@@ -73,4 +73,27 @@ describe("Linear", () => {
     x.free();
     g.free();
   });
+
+  test("refreshes the cached transposed weight when the weight parameter changes", () => {
+    using linear = new Linear(2, 2, false);
+    const initialWeight = linear.weight;
+    linear.weight = MxArray.fromData([1, 0, 0, 1], [2, 2]);
+
+    const x = MxArray.fromData([1, 1], [1, 2]);
+    const firstOut = linear.forward(x);
+    mxEval(firstOut);
+    expect(firstOut.toList()).toEqual([[1, 1]]);
+    firstOut.free();
+
+    initialWeight.free();
+    const previousWeight = linear.weight;
+    linear.weight = MxArray.fromData([2, 0, 0, 3], [2, 2]);
+    previousWeight.free();
+
+    const secondOut = linear.forward(x);
+    mxEval(secondOut);
+    expect(secondOut.toList()).toEqual([[2, 3]]);
+    secondOut.free();
+    x.free();
+  });
 });

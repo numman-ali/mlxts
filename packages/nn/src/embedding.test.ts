@@ -68,4 +68,27 @@ describe("Embedding", () => {
     expect(Object.keys(params)).toEqual(["weight"]);
     expect(params.weight).toBe(emb.weight);
   });
+
+  test("refreshes the cached projection weight when the embedding matrix changes", () => {
+    using emb = new Embedding(3, 2);
+    const initialWeight = emb.weight;
+    emb.weight = MxArray.fromData([1, 0, 0, 1, 1, 1], [3, 2]);
+
+    const x = MxArray.fromData([1, 1], [1, 2]);
+    const firstOut = emb.asLinear(x);
+    mxEval(firstOut);
+    expect(firstOut.toList()).toEqual([[1, 1, 2]]);
+    firstOut.free();
+
+    initialWeight.free();
+    const previousWeight = emb.weight;
+    emb.weight = MxArray.fromData([2, 0, 0, 3, 1, 1], [3, 2]);
+    previousWeight.free();
+
+    const secondOut = emb.asLinear(x);
+    mxEval(secondOut);
+    expect(secondOut.toList()).toEqual([[2, 3, 2]]);
+    secondOut.free();
+    x.free();
+  });
 });

@@ -272,8 +272,7 @@ export class CausalSelfAttention extends Module {
 
 ### Coverage is part of the contract
 
-- `@mlxts/core` must stay at or above `95%` line coverage and `90%` function coverage
-- The newly extracted auxiliary packages currently report coverage without hard thresholds while the migration settles
+- The canonical package stack and the temporary `packages/nanogpt/` validation fixture must stay at or above `95%` line coverage and `90%` function coverage
 - `packages/nanogpt` remains a heavily tested validation fixture even though it is not part of the current hard coverage gate
 - Enforced by: `bun run check:coverage` for package coverage, plus `bun run check:runtime-review` for runtime-sensitive diffs. If coverage reports branch counters, the gate also enforces branch coverage instead of inventing one.
 - `bun run validate` includes both gates and is the standard pre-commit/review-ready path
@@ -343,7 +342,7 @@ When reviewing code (whether written by a human or an agent), check for:
 - [ ] **Tensor lifetimes are locally visible** — no anonymous disposable `MxArray` intermediates hiding inside nested hot-path expressions.
 - [ ] **`bun run typecheck` passes** — code is not review-ready until static types are clean.
 - [ ] **`bun run check:runtime-review` passes when required** — runtime-sensitive diffs need a `docs/reviews/` artifact with the required sections, and the `Files Reviewed` list must match the changed runtime-sensitive files.
-- [ ] **`bun run check:coverage` passes** — `@mlxts/core` stays at or above `95%` lines / `90%` funcs and the current package-first coverage posture is preserved.
+- [ ] **`bun run check:coverage` passes** — every covered package in the repo gate stays at or above `95%` lines / `90%` funcs, with branch thresholds enforced whenever LCOV reports them.
 - [ ] **Unit tests cover exported behavior directly** — don’t rely on one or two broad smoke tests to “accidentally” hit important branches.
 - [ ] **Error messages are actionable** — include what was expected, what was received, and where.
 - [ ] **The fix improved the system** — incidents must leave behind a rule, test, benchmark, or gate that would have caught them sooner next time.

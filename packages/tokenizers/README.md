@@ -2,10 +2,13 @@
 
 Tokenizer implementations for mlxts.
 
-`@mlxts/tokenizers` currently ships the canonical character tokenizer used by the temporary nanoGPT fixture. Broader tokenizer formats are planned later.
+`@mlxts/tokenizers` now ships the canonical character tokenizer plus the first
+Phase 7 pretrained-model tokenizers: HuggingFace-compatible BPE and
+SentencePiece loading.
 
 ```ts
-import { CharTokenizer } from "@mlxts/tokenizers";
+import { CharTokenizer, loadTokenizer } from "@mlxts/tokenizers";
 
 const tokenizer = CharTokenizer.fromText("hello");
+const pretrained = loadTokenizer("/path/to/model");
 ```

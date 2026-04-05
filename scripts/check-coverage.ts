@@ -42,6 +42,7 @@ type PackageConfig = {
 };
 
 const PROJECT_ROOT = join(import.meta.dirname, "..");
+const DEFAULT_THRESHOLDS = { lines: 95, functions: 90, branches: 85 } as const;
 
 const PACKAGES: PackageConfig[] = [
   {
@@ -49,37 +50,63 @@ const PACKAGES: PackageConfig[] = [
     sourceDir: "core",
     cwd: join(PROJECT_ROOT, "packages", "core"),
     coverageDir: join(PROJECT_ROOT, "coverage", "core"),
-    thresholds: { lines: 95, functions: 90, branches: 85 },
+    thresholds: DEFAULT_THRESHOLDS,
   },
   {
     label: "@mlxts/nn",
     sourceDir: "nn",
     cwd: join(PROJECT_ROOT, "packages", "nn"),
     coverageDir: join(PROJECT_ROOT, "coverage", "nn"),
+    thresholds: DEFAULT_THRESHOLDS,
   },
   {
     label: "@mlxts/optimizers",
     sourceDir: "optimizers",
     cwd: join(PROJECT_ROOT, "packages", "optimizers"),
     coverageDir: join(PROJECT_ROOT, "coverage", "optimizers"),
+    thresholds: DEFAULT_THRESHOLDS,
   },
   {
     label: "@mlxts/train",
     sourceDir: "train",
     cwd: join(PROJECT_ROOT, "packages", "train"),
     coverageDir: join(PROJECT_ROOT, "coverage", "train"),
+    thresholds: DEFAULT_THRESHOLDS,
   },
   {
     label: "@mlxts/data",
     sourceDir: "data",
     cwd: join(PROJECT_ROOT, "packages", "data"),
     coverageDir: join(PROJECT_ROOT, "coverage", "data"),
+    thresholds: DEFAULT_THRESHOLDS,
   },
   {
     label: "@mlxts/tokenizers",
     sourceDir: "tokenizers",
     cwd: join(PROJECT_ROOT, "packages", "tokenizers"),
     coverageDir: join(PROJECT_ROOT, "coverage", "tokenizers"),
+    thresholds: DEFAULT_THRESHOLDS,
+  },
+  {
+    label: "@mlxts/hub",
+    sourceDir: "hub",
+    cwd: join(PROJECT_ROOT, "packages", "hub"),
+    coverageDir: join(PROJECT_ROOT, "coverage", "hub"),
+    thresholds: DEFAULT_THRESHOLDS,
+  },
+  {
+    label: "@mlxts/transformers",
+    sourceDir: "transformers",
+    cwd: join(PROJECT_ROOT, "packages", "transformers"),
+    coverageDir: join(PROJECT_ROOT, "coverage", "transformers"),
+    thresholds: DEFAULT_THRESHOLDS,
+  },
+  {
+    label: "nanogpt",
+    sourceDir: "nanogpt",
+    cwd: join(PROJECT_ROOT, "packages", "nanogpt"),
+    coverageDir: join(PROJECT_ROOT, "coverage", "nanogpt"),
+    thresholds: DEFAULT_THRESHOLDS,
   },
 ];
 

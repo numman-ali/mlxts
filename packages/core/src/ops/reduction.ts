@@ -127,6 +127,41 @@ export function argmin(a: MxArray, axis?: number, keepdims = false, stream?: S):
   });
 }
 
+/** Indices that would sort values along an axis. Defaults to the last axis. */
+export function argsort(a: MxArray, axis = -1, stream?: S): MxArray {
+  return readResultArray("argsort", (out) => {
+    checkStatus(ffi.mlx_argsort_axis(out, a._ctx, axis, s(stream)), "argsort");
+  });
+}
+
+/** Indices that partition values around `kth` along an axis. Defaults to the last axis. */
+export function argpartition(a: MxArray, kth: number, axis = -1, stream?: S): MxArray {
+  return readResultArray("argpartition", (out) => {
+    checkStatus(ffi.mlx_argpartition_axis(out, a._ctx, kth, axis, s(stream)), "argpartition");
+  });
+}
+
+/** Cumulative sum along an axis. */
+export function cumsum(
+  a: MxArray,
+  axis = -1,
+  options?: { reverse?: boolean; inclusive?: boolean; stream?: S },
+): MxArray {
+  return readResultArray("cumsum", (out) => {
+    checkStatus(
+      ffi.mlx_cumsum(
+        out,
+        a._ctx,
+        axis,
+        options?.reverse ?? false,
+        options?.inclusive ?? true,
+        s(options?.stream),
+      ),
+      "cumsum",
+    );
+  });
+}
+
 /** Log-sum-exp reduction (numerically stable). */
 export function logsumexp(
   a: MxArray,

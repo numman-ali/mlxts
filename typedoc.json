@@ -7,7 +7,9 @@
     "packages/optimizers/src/index.ts",
     "packages/train/src/index.ts",
     "packages/data/src/index.ts",
-    "packages/tokenizers/src/index.ts"
+    "packages/tokenizers/src/index.ts",
+    "packages/hub/src/index.ts",
+    "packages/transformers/src/index.ts"
   ],
   "out": ".tmp/api-docs",
   "excludePrivate": true,

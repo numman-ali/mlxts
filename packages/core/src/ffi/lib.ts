@@ -23,6 +23,7 @@ import {
   LINALG_SYMBOLS,
   MEMORY_SYMBOLS,
   METAL_SYMBOLS,
+  MLXTS_NATIVE_SYMBOLS,
   QUANTIZATION_SYMBOLS,
   RANDOM_SYMBOLS,
   REDUCTION_SYMBOLS,
@@ -35,6 +36,10 @@ import {
 } from "./symbols";
 
 export const DYLIB_PATH = resolve(import.meta.dirname, "../../native/lib/libmlxc.dylib");
+export const MLXTS_CORE_NATIVE_DYLIB_PATH = resolve(
+  import.meta.dirname,
+  "../../native/lib/libmlxts_core_native.dylib",
+);
 
 const lib = dlopen(DYLIB_PATH, {
   ...ERROR_SYMBOLS,
@@ -60,5 +65,12 @@ const lib = dlopen(DYLIB_PATH, {
   ...GRAD_TRANSFORM_SYMBOLS,
 });
 
+const mlxtsCoreNativeLib = dlopen(MLXTS_CORE_NATIVE_DYLIB_PATH, {
+  ...MLXTS_NATIVE_SYMBOLS,
+});
+
 /** All FFI symbols from libmlxc.dylib. */
-export const ffi = lib.symbols;
+export const ffi = {
+  ...lib.symbols,
+  ...mlxtsCoreNativeLib.symbols,
+};

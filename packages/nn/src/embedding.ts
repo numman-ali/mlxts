@@ -16,6 +16,8 @@ import { Module } from "./module";
 export class Embedding extends Module {
   weight: MxArray;
   #embeddingDims: number;
+  #transposedWeight: MxArray | null = null;
+  #transposedWeightSource: MxArray | null = null;
 
   /**
    * @param numEmbeddings - Size of the vocabulary. Must be > 0.
@@ -66,7 +68,22 @@ export class Embedding extends Module {
       );
     }
 
-    using wt = transpose(this.weight);
-    return matmul(x, wt);
+    return matmul(x, this.transposedWeight());
+  }
+
+  private transposedWeight(): MxArray {
+    if (this.#transposedWeight === null || this.#transposedWeightSource !== this.weight) {
+      this.#transposedWeight?.free();
+      this.#transposedWeight = transpose(this.weight);
+      this.#transposedWeightSource = this.weight;
+    }
+    return this.#transposedWeight;
+  }
+
+  override [Symbol.dispose](): void {
+    this.#transposedWeight?.free();
+    this.#transposedWeight = null;
+    this.#transposedWeightSource = null;
+    super[Symbol.dispose]();
   }
 }

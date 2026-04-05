@@ -184,4 +184,47 @@ describe("checkpoint", () => {
       freeTreeArrays(model);
     }
   });
+
+  test("applyCheckpoint rejects unexpected, mismatched-dtype, and mismatched-shape payloads", () => {
+    const source = new TinyModel(4, 6);
+    const target = new TinyModel(1, 1);
+    const path = checkpointPath("train-apply-errors");
+
+    try {
+      saveCheckpoint({
+        model: source,
+        kind: "snapshot",
+        metadata: { name: "apply-errors" },
+        path,
+        step: 3,
+      });
+
+      const loaded = loadCheckpoint(path);
+      const originalWeight = loaded.parameters.weight;
+      if (originalWeight === undefined) {
+        throw new Error('expected checkpoint parameter "weight"');
+      }
+
+      loaded.parameters.extra = originalWeight;
+      expect(() => applyCheckpoint(target, loaded)).toThrow(
+        'unexpected checkpoint parameter "extra"',
+      );
+      delete loaded.parameters.extra;
+
+      loaded.parameters.weight = {
+        ...originalWeight,
+        dtype: "float64",
+      };
+      expect(() => applyCheckpoint(target, loaded)).toThrow('dtype mismatch for "weight"');
+
+      loaded.parameters.weight = {
+        ...originalWeight,
+        shape: [3],
+      };
+      expect(() => applyCheckpoint(target, loaded)).toThrow('shape mismatch for "weight"');
+    } finally {
+      freeTreeArrays(source);
+      freeTreeArrays(target);
+    }
+  });
 });

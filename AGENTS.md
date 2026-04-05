@@ -7,8 +7,10 @@ This document provides context and instructions for AI coding agents working on 
 mlxts is a TypeScript-native ML stack for Apple Silicon. The repo currently
 centers on:
 
-- **`@mlxts/core` / `@mlxts/nn` / `@mlxts/optimizers` / `@mlxts/train` / `@mlxts/data` / `@mlxts/tokenizers`**: the extracted reusable ML stack
-- **`packages/nanogpt`**: a temporary GPT validation fixture built on the extracted packages
+- `**@mlxts/core` / `@mlxts/nn` / `@mlxts/optimizers` / `@mlxts/train` / `@mlxts/data` / `@mlxts/tokenizers**`: the extracted reusable ML stack
+- `**@mlxts/hub**`: HuggingFace Hub integration — snapshot resolution, safetensors loading, GGUF parsing
+- `**@mlxts/transformers**`: Pretrained model architectures — LLaMA, Mistral, Gemma families with KV cache, generation, and auto-dispatch
+- `**packages/nanogpt**`: a temporary GPT validation fixture built on the extracted packages
 
 ## Architecture Decisions
 
@@ -18,6 +20,12 @@ centers on:
 - **Build**: CMake for native code, Bun/TypeScript for everything else
 - **Testing**: Bun's built-in test runner
 - **No Python at runtime**: The nn layer and optimizers are rewritten in TypeScript, not wrapped
+- **Packages by generation paradigm, not modality**: `@mlxts/transformers` holds all autoregressive architectures (text, MoE, vision encoders, VLMs, encoder-decoders). `@mlxts/diffusion` holds all diffusion/flow generation (image, video, audio). There is no `@mlxts/vlm`, `@mlxts/audio`, or `@mlxts/multimodal` package. See [docs/design-reasoning.md § Generation Paradigms](./docs/design-reasoning.md#generation-paradigms).
+- **CausalLM is the universal autoregressive contract**: MoE is a block-level swap inside the decoder, not a new model contract. Multimodal understanding composes encoders with CausalLM, not a replacement. Do not widen CausalLM for anticipated future consumers. See [docs/design-reasoning.md § Contract Boundaries](./docs/design-reasoning.md#contract-boundaries).
+- **Weight tying via Embedding.asLinear()**: This is a functional projection (`matmul(x, transpose(weight))`), not a `Linear` module. When `tieWordEmbeddings` is true, call `embedTokens.asLinear(hidden)` in forward — never create shared parameter aliases on the module tree.
+- **Shard-iterator-first weight loading**: Use `iterateSafetensorWeights` (one tensor at a time, bounded peak memory) as the default loading strategy, not `loadSafetensorShardSet` (all tensors into memory at once).
+- **MLX-C first, JS fallback last**: When an operation is needed on the GPU, always check if mlx-c exposes it (`packages/core/native/build/_deps/mlx-c-src/mlx/c/ops.h`) before writing a JS workaround. Binding a missing mlx-c op properly is always better than approximating in JS. Fall back to JS only for genuinely host-side work (small lookups, user-provided callbacks). If mlx-c doesn't expose a needed op but MLX Python has it, consider a custom C binding.
+- **Performance is an observable, not a review opinion**: Generation hot-path changes require before/after benchmark numbers in the review artifact, not just "I considered performance." See [docs/runtime-safety.md § Generation Performance](./docs/runtime-safety.md#generation-performance). Key invariants: one eval per token in steady state, sampling stays on GPU, prefill is chunked, GPU never idles between tokens via async eval pipelining.
 
 ## Coding Conventions
 
@@ -30,11 +38,11 @@ See [docs/code-standards.md](./docs/code-standards.md) for the full code standar
 - All public APIs must have JSDoc with at least a one-line description
 - Test files live next to source: `foo.ts` → `foo.test.ts`
 - Use Bun's test runner: `bun test`
-- Bun is the only JavaScript/TypeScript runtime in this repo. Do not add `node:*` imports or Node-only execution assumptions; prefer Bun-native APIs first, then Bun-compatible neutral imports only when needed.
+- Bun is the only JavaScript/TypeScript runtime in this repo. Do not add `node:`* imports or Node-only execution assumptions; prefer Bun-native APIs first, then Bun-compatible neutral imports only when needed.
 - `bun run typecheck` is a required validation gate, not optional cleanup
 - `bun run check:runtime-review` is required whenever runtime-sensitive production files change; the diff must include a review artifact under `docs/reviews/` and that artifact's `Files Reviewed` section must name the changed runtime-sensitive files
 - `bun run check:tensor-lifetimes` is an AST-based static backstop for the anonymous-intermediate leak class; when a new tensor-producing primitive is added, update the canonical tracked-op list in `scripts/`
-- `bun run check:coverage` is a required quality gate for the canonical extracted package `@mlxts/core` (`95%` lines, `90%` functions). The newly extracted auxiliary packages, including `@mlxts/train`, currently report coverage without hard thresholds while the migration settles. Branch thresholds are enforced only when LCOV provides branch counters; otherwise the script says branch data was unavailable
+- `bun run check:coverage` is a required quality gate across the canonical package stack and the temporary `packages/nanogpt/` validation fixture (`95%` lines, `90%` functions, with branch thresholds enforced only when LCOV reports branch counters)
 - Prefer direct unit coverage of exported behavior and dynamic failure paths over broad smoke-only tests
 - The repo is forward-moving and canonical: do not add legacy compatibility code, fallback modes, or stale docs for APIs we no longer want to carry
 - If a surface is no longer part of the intended product, delete it instead of preserving it behind flags or compatibility layers
@@ -48,20 +56,37 @@ See [docs/code-standards.md](./docs/code-standards.md) for the full code standar
 - **Code must be self-documenting**: names, types, and structure carry meaning. Comments explain *why*, never *what*.
 - **Human readability is a first-class concern**: every function should be immediately understandable to a TypeScript developer unfamiliar with this codebase.
 
+## Reference Repositories
+
+The `.reference/` folder contains local clones of upstream repositories for research and cross-referencing:
+
+
+| Repo                      | Purpose                                                                                                                        |
+| ------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| `.reference/mlx-lm`       | Apple's MLX language model library — primary reference for model architectures, weight loading, generation, LoRA, quantization |
+| `.reference/transformers` | HuggingFace Transformers — reference for model configs, tokenizer formats, weight naming conventions                           |
+| `.reference/trl`          | HuggingFace TRL — reference for SFT, DPO, alignment training patterns                                                          |
+| `.reference/mlx-examples` | Apple's MLX examples — reference for LLaVA, Stable Diffusion, Whisper implementations                                          |
+
+
+**These should be kept up to date.** When investigating a new model family, architecture pattern, or training technique, check `.reference/` first. Pull latest before starting research for a new phase.
+
+**Usage**: Read and study these for design decisions, architecture patterns, and correctness validation. Do not copy code — our implementations are TypeScript-native and designed from first principles. These repos inform *what* to build and validate *correctness*, not dictate *how* to build it.
+
 ## Documentation
 
 
-| Document                                           | Purpose                                               |
-| -------------------------------------------------- | ----------------------------------------------------- |
-| [PLAN.md](./PLAN.md)                               | Phased build plan with deliverables and exit criteria |
+| Document                                               | Purpose                                                                            |
+| ------------------------------------------------------ | ---------------------------------------------------------------------------------- |
+| [PLAN.md](./PLAN.md)                                   | Phased build plan with deliverables and exit criteria                              |
 | [docs/design-reasoning.md](./docs/design-reasoning.md) | Why we make the design choices we do — composition, visibility, abstraction timing |
-| [docs/architecture.md](./docs/architecture.md)     | System architecture and layer responsibilities        |
-| [docs/mlx-bindings.md](./docs/mlx-bindings.md)     | Technical guide to the MLX binding approach           |
-| [docs/agentic-loop.md](./docs/agentic-loop.md)     | Multi-agent engineering workflow                      |
-| [docs/code-standards.md](./docs/code-standards.md) | Code quality, naming, structure, testing standards    |
-| [docs/runtime-safety.md](./docs/runtime-safety.md) | Runtime ownership, telemetry, and soak expectations   |
-| [docs/product-surfaces.md](./docs/product-surfaces.md) | API, CLI, TUI, GUI design guidelines                  |
-| [docs/setup.md](./docs/setup.md)                   | Development environment setup and build instructions  |
+| [docs/architecture.md](./docs/architecture.md)         | System architecture and layer responsibilities                                     |
+| [docs/mlx-bindings.md](./docs/mlx-bindings.md)         | Technical guide to the MLX binding approach                                        |
+| [docs/agentic-loop.md](./docs/agentic-loop.md)         | Multi-agent engineering workflow                                                   |
+| [docs/code-standards.md](./docs/code-standards.md)     | Code quality, naming, structure, testing standards                                 |
+| [docs/runtime-safety.md](./docs/runtime-safety.md)     | Runtime ownership, telemetry, and soak expectations                                |
+| [docs/product-surfaces.md](./docs/product-surfaces.md) | API, CLI, TUI, GUI design guidelines                                               |
+| [docs/setup.md](./docs/setup.md)                       | Development environment setup and build instructions                               |
 
 
 ## Key Technical Context
@@ -92,15 +117,26 @@ See [docs/code-standards.md](./docs/code-standards.md) for the full code standar
 - **No type escape hatches in core code.** Type assertions (`as`, `!`) are forbidden outside `src/core/ffi/`. If a type doesn't fit, the design needs improving — not a cast.
 - **Prefer runtime checks that teach the type system something true** over casts that merely silence the compiler.
 
-### What nanoGPT needs from the extracted package stack (minimum viable surface)
+### nn.Module parameter scanning
 
-1. Array creation: zeros, ones, full, arange, from typed arrays
-2. Core ops: matmul, add, multiply, reshape, transpose, softmax, cross_entropy
-3. Autograd: value_and_grad
-4. Random: normal, uniform, key/split
-5. nn: Module, Linear, Embedding, LayerNorm, GELU, Dropout
-6. Optimizers: AdamW
-7. eval() for forcing computation
+`Module.parameters()` scans own enumerable properties:
+
+- `MxArray` → leaf parameter (included in the tree)
+- `Module` → recurse into that module's parameters
+- `Module[]` → scanned with string indices ("0", "1"...) matching HuggingFace weight naming (`model.layers.0.self_attn.q_proj.weight`)
+- Everything else (numbers, strings, functions, `#private` fields) → silently skipped
+
+**Implication for @mlxts/transformers**: Every structural component (attention, MLP, norm, block, model) MUST extend `nn.Module`. Config scalars and non-parameter state must use `#` private fields to avoid being scanned.
+
+### Tensor ownership in weight loading
+
+When loading pretrained weights via `iterateSafetensorWeights`:
+
+- **Assigned** tensors: owned by the model after `assignWeightPath()`. Freed when model is disposed.
+- **Skipped** tensors (sanitize returns null): freed immediately after the skip decision.
+- **Error path** tensors: freed in the catch block. Never leaked.
+
+A post-load audit compares assigned paths against the model's parameter tree. Missing weights throw `MissingWeightsError`. Unexpected weights either warn or throw depending on strict mode.
 
 ## Build Commands
 
@@ -156,6 +192,14 @@ bun run release:check
 ## Agentic Workflow
 
 This project uses multiple AI agents in a structured loop. See [docs/agentic-loop.md](./docs/agentic-loop.md) for the full process. The key rules are: **no agent's output ships without review by a different agent or human**, and **work is not review-ready until typecheck and coverage gates pass**.
+
+### Workflow principles
+
+- **Done fully, never simply.** Every phase should be thoroughly researched and planned before implementation begins. Do not rush features into earlier phases to "get them done sooner." If something is scoped for a later phase, that is the right decision — better to do it fully later than partially now.
+- **Research spike before new territory.** Phases involving genuinely new architectural ground (new generation paradigms, new model families with novel architecture patterns) require a dedicated research spike before implementation begins. See Phase 0.5 as the model: investigate official sources, validate assumptions, then plan.
+- **Phases fan out, not chain.** Phases 8 (fine-tuning), 9 (serving), and 10 (multimodal + diffusion) all depend on Phase 7 (model architectures) but not on each other. Do not treat the phase numbering as a strict sequential dependency.
+- **Contracts describe behavior, not internals.** When a new model variant appears, ask "does the existing contract cover its external behavior?" before proposing a new interface. MoE is a block-level swap, not a new CausalLM. VLMs compose encoders with CausalLM, not a replacement.
+- **Reference parity audit before benchmarking.** When implementing a new model family in `@mlxts/transformers`, audit each hot-path function against its mlx-lm equivalent *before* running benchmarks. Count: (a) MLX ops per decode token, (b) intermediate tensor allocations per decode token, (c) mask values passed to SDPA during single-token decode (`null` vs boolean tensor), (d) cache update strategy (O(1) write vs O(n) concatenation). If any of these differ significantly from mlx-lm, investigate and resolve before benchmarking. The benchmark tells you *that* something is slow; the parity audit tells you *why* before you ship it. See [docs/runtime-safety.md § Forward pass performance invariants](./docs/runtime-safety.md#forward-pass-performance-invariants) for the specific invariants to check.
 
 Runtime-sensitive changes add one more requirement: they need a review artifact under `docs/reviews/` that records the files reviewed, tensor-lifetime audit, memory/performance evidence, independent review, and remaining risks. The `Files Reviewed` section must list the exact changed runtime-sensitive files.
 

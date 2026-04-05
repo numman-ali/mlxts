@@ -14,3 +14,18 @@ FetchContent_Declare(
 set(BUILD_SHARED_LIBS ON CACHE BOOL "Build shared libraries" FORCE)
 
 FetchContent_MakeAvailable(mlx-c)
+
+add_library(
+  mlxts_core_native SHARED
+  ${CMAKE_CURRENT_LIST_DIR}/mlxts_core_ops.cpp
+)
+
+target_link_libraries(mlxts_core_native PRIVATE mlxc mlx)
+set_property(TARGET mlxts_core_native PROPERTY CXX_STANDARD 20)
+set_property(TARGET mlxts_core_native PROPERTY CXX_STANDARD_REQUIRED ON)
+target_include_directories(
+  mlxts_core_native
+  PRIVATE
+  ${CMAKE_CURRENT_LIST_DIR}
+)
+set_property(TARGET mlxts_core_native PROPERTY POSITION_INDEPENDENT_CODE ON)

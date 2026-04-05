@@ -42,9 +42,55 @@ Use the soak ladder:
 
 Long unattended runs must go through the supervised `bun run run:nanogpt ...` surface.
 
+## Generation Performance
+
+Performance is an observable, not a review opinion. The generation hot path (`generation.ts`, `sampling.ts`, `cache.ts`, `attention.ts`, `model.ts`) must have measurable, comparable, regression-protected performance.
+
+### Benchmark infrastructure
+
+- `bun run bench:generation` runs the synthetic throughput benchmark: real cached checkpoints, synthetic random-token prompts, no downloads or network during the benchmark itself. It measures prefill tok/s, decode tok/s, peak memory, and eval-count-per-token, and acts as the low-level throughput canary.
+- `bun run bench:generation:parity` runs the MLX-LM parity benchmark: the same real cached checkpoints and token counts, but with the decode-side work structured for fair comparison with `mlx-lm`.
+- The benchmark implementations live with the transformer generation surface in `packages/transformers/scripts/`; shared benchmark data and traces live under repo-root `benchmarks/`.
+- Baselines in `benchmarks/baselines.json` now carry both surfaces. Parity targets also record the paired MLX-LM reference numbers captured on the same machine and date.
+- The benchmarks warn on >2x regression. They do not hard-fail `bun run validate` (tok/s varies with system load), but the numbers must be reviewed for any hot-path diff.
+- `--metal-trace` wraps either benchmark surface in `startMetalCapture()` / `stopMetalCapture()` for Instruments analysis. Zero overhead when not used.
+
+### Performance review requirement
+
+When a diff touches generation hot-path files, the `docs/reviews/` artifact must include **Memory / Performance Evidence** with:
+- Before/after numbers from `bun run bench:generation`
+- Parity numbers from `bun run bench:generation:parity` when the change affects generation behavior rather than only low-level throughput
+- Explanation of any regression (even if intentional)
+- `bun run check:runtime-review` enforces the review artifact requirement
+
+### Profiling without code changes
+
+Available tools that do not require modifying the hot path:
+- **Metal System Trace**: `startMetalCapture()` / `stopMetalCapture()` (bound in `@mlxts/core`) → open `.gputrace` in Instruments
+- **DTrace**: trace mlx-c dylib calls with timing (e.g., `dtrace -n 'pid$target::mlx_eval:entry { self->ts=timestamp; } pid$target::mlx_eval:return { printf("%d ns", timestamp-self->ts); }'`)
+- **MLX memory telemetry**: `getActiveMemoryBytes()`, `getPeakMemoryBytes()`, `getCacheMemoryBytes()`, `resetPeakMemory()` — all bound in core, sample between operations for memory profiles
+
+### Key performance invariants
+
+- **One eval per token in steady state.** The decode loop should have exactly one `mxEval` (or `mxAsyncEval` + deferred read) per generated token. Additional synchronization points indicate a bug.
+- **Sampling stays on GPU.** Logit tensors should not cross to CPU for sampling. The token ID crosses as a 4-byte scalar via `.item()`, not the full vocab-sized logit vector.
+- **Prefill is chunked.** Prompts longer than `prefillStepSize` (default 2048 tokens) are processed in chunks with cache-only eval and `clearMemoryCache()` between chunks.
+- **GPU never idles between tokens.** Async eval double-buffering ensures the next forward pass is dispatched before the current token's result is read.
+
+### Forward pass performance invariants
+
+The invariants above protect the macro loop (one eval per token, no idle gaps). These invariants protect what happens *inside* a single forward pass. MLX's lazy evaluation means that the **graph structure is the performance** — two graphs that produce the same output tensor can have dramatically different throughput depending on node count, kernel dispatch paths, and intermediate allocations.
+
+- **SDPA must receive `null` mask during single-token decode when all positions are visible.** MLX's fused scaled-dot-product attention has a fast maskless kernel and a slower masked kernel. Passing a dense all-true boolean mask is functionally equivalent to `null` but routes to the slow path. During single-token decode, if the query can attend to every key in the cache (no sliding window, or the window covers the entire visible range), the mask must be `null`. This is a qualitative GPU utilization change, not a minor optimization.
+- **KV cache updates must be O(1) amortized.** Pre-allocate cache buffers in chunks and write via `sliceUpdateDynamic` (or equivalent in-place scatter). Concatenating the full cache history per token is O(n) and creates a new allocation every step — forbidden in steady-state decode. This applies to all cache types: standard, rotating, and mixed-pattern caches.
+- **Composite activation functions must collapse to one hot-path primitive.** Multi-op activations like tanh-based GELU create multiple graph nodes and intermediate tensor allocations per call if expressed naively. The preferred order is: use an existing native/core primitive when one exists; otherwise `compile({ shapeless: true })` the full composite helper until a native primitive is warranted by measurements. The hot path should not carry a long chain of elementwise ops per layer when one fused activation is what the model semantically needs.
+- **Weight-derived invariants must be computed once, not per forward call.** If a value depends only on model weights and does not change between tokens (e.g., `add(weight, 1.0)` for Gemma-style offset norms), compute it once after weight loading and store the result. Recomputing invariants per call creates unnecessary graph nodes and FFI round-trips that compound across layers.
+- **Per-token graph node count must be comparable to mlx-lm.** When implementing a new model family, count the MLX ops and FFI round-trips per decode token and compare against the equivalent mlx-lm model. If yours is 5x higher, something is structurally wrong — investigate before benchmarking. Common sources of excess nodes: uncompiled composite ops, materialized masks that should be `null`, O(n) cache ops, and per-call recomputation of invariants.
+
 ## Bench and Soak Surfaces
 
 - `bun run bench:memory` measures active-memory drift for the leak-prone scenarios we care about.
+- `bun run bench:generation` measures generation throughput against recorded baselines.
 - `bun run soak:gpt-tiny` runs the canonical supervised soak for the tiny preset.
 - `bun run soak:gpt-small` runs the canonical supervised soak for the small preset.
 - `bun run acceptance:gpt-tiny` and `bun run acceptance:gpt-small` are the loss-targeted acceptance runs.

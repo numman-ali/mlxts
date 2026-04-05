@@ -291,6 +291,8 @@ We reject that. Our principles:
 
 ## Phase 4: nanoGPT
 
+**Status**: Complete.
+
 **Goal**: A working GPT that trains on Shakespeare and generates text.
 
 **What this phase covers**:
@@ -366,6 +368,8 @@ Token Embedding + Position Embedding
 
 ## Phase 5: Ecosystem Restructure
 
+**Status**: Complete.
+
 **Goal**: Adopt the `mlxts` package identity inside the monorepo, extract the canonical `@mlxts/*` packages, and make the repo truthful about the package-first transition. Full example rewrites are intentionally deferred until the ecosystem is more complete.
 
 See [docs/ecosystem-structure.md](./docs/ecosystem-structure.md) for the complete package map and migration table.
@@ -430,6 +434,8 @@ This extraction is now real, not hypothetical:
 ---
 
 ## Phase 6: Publish Core Packages
+
+**Status**: Complete.
 
 **Goal**: Make the public packages fully repo-ready for first npm publish. TypeDoc, CI, and package ergonomics land in-repo even if the actual publish step is still manual.
 
@@ -552,6 +558,8 @@ LLaMA first, done right, then expand:
 | Qwen | Medium | Strong multilingual |
 | GPT-2 | Already done | From nanoGPT |
 
+**Scope: dense text models only.** MoE variants (Mixtral, DeepSeek) are deferred to Phase 7e. The architecture accommodates this — the decoder block's MLP slot is a swappable `Module` property, and `FamilyRegistration.sanitizeWeight()` handles per-family weight name translation including expert weight stacking. The `CausalLM` contract does not change for MoE because MoE is a block-internal optimization, not a different model contract. See [design-reasoning.md § Contract Boundaries](./docs/design-reasoning.md#contract-boundaries) for the rationale.
+
 - `AutoModel.fromPretrained(modelId)` auto-dispatch
 - `AutoTokenizer.fromPretrained(modelId)`
 
@@ -561,6 +569,54 @@ LLaMA first, done right, then expand:
 - The later dedicated examples repo can adopt `@mlxts/transformers` where it improves the rewritten examples
 
 **Exit criteria**: See [gates-and-milestones.md](./docs/gates-and-milestones.md#phase-7-model-architectures).
+
+### 7e. MoE text architectures (follows Phase 7 dense completion)
+
+MoE (Mixture of Experts) models use the same `CausalLM` contract as dense models. The difference is entirely inside the decoder block: instead of a single dense MLP, an MoE block routes tokens through a subset of expert MLPs via a learned router.
+
+**What changes:**
+
+- `SwitchLinear` primitive in `@mlxts/nn` — batched expert dispatch via `mx.gatherMm`, holds all experts in a single weight of shape `(numExperts, outDims, inDims)`
+- MoE MLP block variant in `families/` — router + top-K expert selection + weighted combination
+- Expert weight stacking in `sanitizeWeight()` — HuggingFace stores per-expert tensors individually, MLX stacks them for efficient batched matmul
+- New family registrations: Mixtral, potentially DeepSeek-v2, OLMoE
+
+**What stays the same:**
+
+- `CausalLM` interface — `forward(inputIds, options?) → logits`
+- `TransformerCache` — KV cache is per-attention-layer; MoE only affects the FFN sublayer
+- Generation pipeline — `generateStep()`, `generateTokens()`, `generateText()`
+- Weight loading pipeline — same `iterateSafetensorWeights` → `sanitizeWeight` → `assignWeightPath` flow
+- LoRA and quantization — work the same way; LoRA targets `SwitchLinear` via type dispatch, quantization uses `SwitchLinear.toQuantized()`
+
+**Exit criteria**: Mixtral loads and generates coherent text. Forward parity with Python mlx-lm Mixtral.
+
+### 7f. Performance observability (follows Phase 7 performance optimization)
+
+Generation performance must be measurable, comparable, and regression-protected. This phase builds the infrastructure that keeps performance visible going forward — it does not include the performance fixes themselves (those are part of completing 7c).
+
+**What this phase covers:**
+
+1. **Synthetic throughput benchmark** (`packages/transformers/scripts/benchmark-generation.ts`) — synthetic-prompt generation benchmark over real cached transformer checkpoints (no tokenization, no network in the benchmark itself). Measures prefill tok/s, decode tok/s, peak memory, and eval-count-per-token. Runs warmup + N trials and reports per-trial numbers plus averages. This is the low-level throughput canary.
+
+2. **Parity benchmark** (`packages/transformers/scripts/benchmark-generation-parity.ts`) — MLX-LM-comparison benchmark over the same real cached checkpoints and token counts. Includes the reference-style decode work we care about for shipping claims and records the paired MLX-LM reference numbers alongside the mlxts baselines.
+
+3. **Benchmark commands** (`bun run bench:generation`, `bun run bench:generation:parity`) — run the benchmarks, compare results against recorded baselines in `benchmarks/baselines.json`, and warn (do not fail) on >2x regression. Reports numbers to stdout.
+
+4. **Metal trace integration** — `--metal-trace` flag on both benchmark surfaces that wraps execution in `startMetalCapture()` / `stopMetalCapture()` (already bound in `@mlxts/core`) for Instruments analysis. Zero overhead when not used.
+
+5. **Performance section in runtime review** — the review artifact for a hot-path diff must include the benchmark numbers that justify the change. The canonical evidence now includes both synthetic throughput and parity measurements when the change affects generation behavior.
+
+6. **Baseline file** (`benchmarks/baselines.json`) — recorded tok/s for the canonical real-model benchmark targets (for example Llama 3.2 1B, Gemma 3 1B, Phi-4 mini) for both synthetic and parity modes, including the eval-count canary and paired MLX-LM reference numbers for parity targets. Updated explicitly when intentional performance-affecting changes land.
+
+**Design principle:** Performance is an observable, not a review opinion. Don't ask "did you think about performance?" — ask "what do the numbers say?" See [runtime-safety.md § Generation Performance](./docs/runtime-safety.md#generation-performance).
+
+**Profiling tools available (no code changes to hot path required):**
+- Metal System Trace via Instruments.app + `startMetalCapture()` / `stopMetalCapture()`
+- DTrace probes on mlx-c dylib calls (e.g., trace every `mlx_eval` with timing)
+- MLX memory telemetry: `getActiveMemoryBytes()`, `getPeakMemoryBytes()`, `getCacheMemoryBytes()` — already bound in core
+
+**Exit criteria**: `bun run bench:generation` and `bun run bench:generation:parity` both run and report numbers. Baselines are recorded. A diff that makes decode 2x slower is caught by the benchmark comparison. The review gate requires performance numbers for hot-path diffs.
 
 ---
 
@@ -638,33 +694,44 @@ LLaMA first, done right, then expand:
 
 ---
 
-## Phase 10: Diffusion and Multi-Modal
+## Phase 10: Generative Media and Multimodal Understanding
 
-**Goal**: Image generation, speech recognition, vision-language models.
+**Goal**: On-device generative AI across modalities — image, video, and audio generation via diffusion models; multimodal understanding via transformer encoders and VLM composition.
+
+**Design principle**: Packages are organized by **generation paradigm**, not by input/output modality. See [design-reasoning.md § Generation Paradigms](./docs/design-reasoning.md#generation-paradigms). There is no `@mlxts/vlm`, `@mlxts/audio`, or `@mlxts/multimodal` package — vision/audio encoders are transformer architectures (→ `@mlxts/transformers`), media generation uses diffusion/flow (→ `@mlxts/diffusion`).
 
 **What this phase covers**:
 
-### 10a. Whisper (`@mlxts/audio`) — speech recognition
+### 10a. Multimodal understanding (`@mlxts/transformers` expansion)
 
-- Whisper speech recognition (smallest scope — one model family)
-- Audio I/O (mel spectrograms, resampling)
-- `examples/whisper/` — transcribe audio
+Vision encoders, audio encoders, and VLM wrappers are transformer architectures. They extend `@mlxts/transformers`, not a separate package.
 
-### 10b. Diffusion (`@mlxts/diffusion`)
+- Vision encoder families: CLIP, SigLIP, ViT
+- VLM wrapper families: LLaVA, PaliGemma, Gemma 3/4, newer Mistral conditional-generation models
+- Encoder-decoder families: Whisper (speech → text), T5, BART
+- Audio preprocessing utilities co-located with Whisper family
+- `ForwardOptions` gains optional `inputEmbeddings` field (additive, not breaking)
+- `generateStep()` gains optional `inputEmbeddings` parameter for VLM generation
 
-- Requires UNet, VAE, noise schedulers
-- Noise schedulers: DDPM, DDIM, DPM-Solver, Euler
-- UNet2D architecture
-- VAE (Variational Autoencoder)
-- `StableDiffusionPipeline` — text to image
-- ControlNet support
-- `examples/stable-diffusion/` — generate images from text
+The `CausalLM` contract does not change. VLMs compose a vision encoder with a text decoder — the vision encoder preprocesses images into the text model's embedding space, then the text decoder generates autoregressively as normal.
 
-### 10c. Vision-Language (VLM)
+### 10b. Diffusion/flow generation (`@mlxts/diffusion`)
 
-- Requires vision encoder + LLM integration
-- VLM support via `@mlxts/transformers` (LLaVA, PaliGemma)
-- Image preprocessing pipeline
+All diffusion and flow-based generation across modalities: image, video, and audio. The package mirrors `@mlxts/transformers` in structure: explicit family registry, config-driven model construction, weight loading via `@mlxts/hub`.
+
+- Backbone architectures: UNet2D, DiT (Diffusion Transformers), 3D variants for video
+- VAE: image VAE, video VAE (3D causal), audio VAE
+- Schedulers: DDPM, DDIM, DPM-Solver, Euler, Flow Matching
+- Conditioning: cross-attention from text/image embeddings (produced by encoders from `@mlxts/transformers`)
+- Sampling: classifier-free guidance, negative prompts
+- Target families (informed by mlxr proving workloads): Stable Diffusion, Flux, LTX-Video
+- Fine-tuning: `@mlxts/lora` and `@mlxts/train` work on diffusion models — LoRA targets attention layers in UNet/DiT the same way it targets attention in text decoders. DreamBooth and textual inversion are diffusion-specific techniques that live in this package.
+
+### 10c. Examples
+
+- `examples/whisper/` — transcribe audio on device
+- `examples/text-to-image/` — generate images from text prompts
+- `examples/vlm-chat/` — chat with images using a vision-language model
 
 **Exit criteria**: See [gates-and-milestones.md](./docs/gates-and-milestones.md#phase-10-diffusion-and-multi-modal).
 

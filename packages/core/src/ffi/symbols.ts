@@ -118,6 +118,10 @@ export const DEVICE_SYMBOLS = {
   mlx_device_new_type: { args: [I32, I32], returns: P },
   mlx_device_free: { args: [P], returns: I32 },
   mlx_device_get_type: { args: [P, P], returns: I32 },
+  mlx_device_info_get: { args: [P, P], returns: I32 },
+  mlx_device_info_free: { args: [P], returns: I32 },
+  mlx_device_info_has_key: { args: [P, P, CSTRING], returns: I32 },
+  mlx_device_info_get_size: { args: [P, P, CSTRING], returns: I32 },
   mlx_device_is_available: { args: [P, P], returns: I32 },
   mlx_device_count: { args: [P, I32], returns: I32 },
   mlx_get_default_device: { args: [P], returns: I32 },
@@ -126,6 +130,7 @@ export const DEVICE_SYMBOLS = {
 
 export const STREAM_SYMBOLS = {
   mlx_stream_new: { args: [], returns: P },
+  mlx_stream_new_device: { args: [P], returns: P },
   mlx_stream_free: { args: [P], returns: I32 },
   mlx_default_cpu_stream_new: { args: [], returns: P },
   mlx_default_gpu_stream_new: { args: [], returns: P },
@@ -178,6 +183,10 @@ export const ARITHMETIC_SYMBOLS = {
   mlx_cos: { args: [P, P, P], returns: I32 },
 } as const;
 
+export const MLXTS_NATIVE_SYMBOLS = {
+  mlxts_gelu_approx: { args: [P, P, P], returns: I32 },
+} as const;
+
 // ---------------------------------------------------------------------------
 // Reductions (ops.h)
 // ---------------------------------------------------------------------------
@@ -200,6 +209,11 @@ export const REDUCTION_SYMBOLS = {
   mlx_argmax_axis: { args: [P, P, I32, BOOL, P], returns: I32 },
   mlx_argmin: { args: [P, P, BOOL, P], returns: I32 },
   mlx_argmin_axis: { args: [P, P, I32, BOOL, P], returns: I32 },
+  mlx_argpartition: { args: [P, P, I32, P], returns: I32 },
+  mlx_argpartition_axis: { args: [P, P, I32, I32, P], returns: I32 },
+  mlx_argsort: { args: [P, P, P], returns: I32 },
+  mlx_argsort_axis: { args: [P, P, I32, P], returns: I32 },
+  mlx_cumsum: { args: [P, P, I32, BOOL, BOOL, P], returns: I32 },
   mlx_logsumexp: { args: [P, P, BOOL, P], returns: I32 },
   mlx_logsumexp_axis: { args: [P, P, I32, BOOL, P], returns: I32 },
   mlx_logsumexp_axes: { args: [P, P, P, U64_FAST, BOOL, P], returns: I32 },
@@ -275,6 +289,7 @@ export const CREATION_SYMBOLS = {
   mlx_softmax_axis: { args: [P, P, I32, BOOL, P], returns: I32 },
   mlx_softmax: { args: [P, P, BOOL, P], returns: I32 },
   mlx_take_along_axis: { args: [P, P, P, I32, P], returns: I32 },
+  mlx_put_along_axis: { args: [P, P, P, P, I32, P], returns: I32 },
 } as const;
 
 // ---------------------------------------------------------------------------
@@ -284,6 +299,13 @@ export const CREATION_SYMBOLS = {
 export const TAKE_SYMBOLS = {
   // int mlx_take_axis(res, a, indices, axis, stream)
   mlx_take_axis: { args: [P, P, P, I32, P], returns: I32 },
+  mlx_slice: { args: [P, P, P, U64_FAST, P, U64_FAST, P, U64_FAST, P], returns: I32 },
+  mlx_slice_dynamic: { args: [P, P, P, P, U64_FAST, P, U64_FAST, P], returns: I32 },
+  mlx_slice_update: {
+    args: [P, P, P, P, U64_FAST, P, U64_FAST, P, U64_FAST, P],
+    returns: I32,
+  },
+  mlx_slice_update_dynamic: { args: [P, P, P, P, P, U64_FAST, P], returns: I32 },
 } as const;
 
 // ---------------------------------------------------------------------------

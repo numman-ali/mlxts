@@ -40,9 +40,9 @@ These gates are non-negotiable at every phase boundary. Code does not advance un
 
 ---
 
-## Phase 4: nanoGPT (Current)
+## Phase 4: nanoGPT
 
-**Status:** In progress. Codex is handling implementation.
+**Status:** Complete.
 
 ### Milestone: "GPT trains on Shakespeare and generates text"
 
@@ -155,11 +155,11 @@ A developer runs `bun install`, opens `packages/core/src/index.ts` and `packages
 ### What "done" looks like
 A developer writes:
 ```typescript
-import { AutoModel, AutoTokenizer } from '@mlxts/transformers';
+import { AutoModel, AutoTokenizer, generateText } from '@mlxts/transformers';
 const model = await AutoModel.fromPretrained('mlx-community/Llama-3.2-1B');
 const tokenizer = await AutoTokenizer.fromPretrained('mlx-community/Llama-3.2-1B');
-const output = model.generate(tokenizer.encode('Hello, world!'), { maxTokens: 100 });
-console.log(tokenizer.decode(output));
+const output = generateText(model, tokenizer, 'Hello, world!', { maxTokens: 100 });
+console.log(output);
 ```
 And it works. On their Mac. From TypeScript.
 
@@ -249,7 +249,7 @@ A developer fine-tunes LLaMA-3.2-1B on their custom dataset using 4 lines of con
 
 | Criterion | How to verify |
 |-----------|--------------|
-| `@mlxts/audio` implements Whisper architecture | Test: forward pass produces logits |
+| `@mlxts/transformers` implements Whisper architecture | Test: forward pass produces logits |
 | Audio preprocessing (mel spectrogram) works | Test: process a WAV file, verify spectrogram shape |
 | Transcription produces correct text | Test: transcribe a 30-second audio clip, compare to known transcript |
 | `examples/whisper/` runs | Transcribe a known audio file |

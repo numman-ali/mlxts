@@ -3,7 +3,14 @@ import { mkdtempSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { array } from "./array";
-import { deviceCount, isDeviceAvailable, synchronize } from "./device";
+import {
+  createStream,
+  deviceCount,
+  getRecommendedWorkingSetBytes,
+  isDeviceAvailable,
+  synchronize,
+  withDefaultStream,
+} from "./device";
 import {
   clearMemoryCache,
   getActiveMemoryBytes,
@@ -59,6 +66,14 @@ describe("runtime controls", () => {
     expect(deviceCount("gpu")).toBeGreaterThanOrEqual(0);
   });
 
+  test("recommended working-set size is readable on the active GPU", () => {
+    if (!isDeviceAvailable("gpu")) {
+      return;
+    }
+
+    expect(getRecommendedWorkingSetBytes("gpu")).toBeGreaterThan(0);
+  });
+
   test("metal availability is readable", () => {
     expect(typeof isMetalAvailable()).toBe("boolean");
   });
@@ -85,6 +100,22 @@ describe("runtime controls", () => {
     using values = array([1, 2, 3], "float32");
     mxAsyncEval(values);
     synchronize();
+    expect(values.toList()).toEqual([1, 2, 3]);
+  });
+
+  test("custom streams can be scoped as the default stream", () => {
+    if (!isDeviceAvailable("gpu")) {
+      return;
+    }
+
+    using stream = createStream("gpu");
+    using values = withDefaultStream(stream, () => {
+      const numbers = array([1, 2, 3], "float32");
+      mxAsyncEval(numbers);
+      synchronize(stream);
+      return numbers;
+    });
+
     expect(values.toList()).toEqual([1, 2, 3]);
   });
 });

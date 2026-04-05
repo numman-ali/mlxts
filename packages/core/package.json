@@ -15,6 +15,7 @@
   "files": [
     "dist",
     "native/CMakeLists.txt",
+    "native/*.cpp",
     "scripts/build-native.ts",
     "README.md"
   ],

@@ -142,10 +142,166 @@ export function takeAlongAxis(a: MxArray, indices: MxArray, axis: number, stream
   });
 }
 
+/** Scatter replacement values along an axis using explicit indices. */
+export function putAlongAxis(
+  a: MxArray,
+  indices: MxArray,
+  values: MxArray,
+  axis: number,
+  stream?: S,
+): MxArray {
+  return readResultArray("put_along_axis", (out) => {
+    checkStatus(
+      ffi.mlx_put_along_axis(out, a._ctx, indices._ctx, values._ctx, axis, s(stream)),
+      "put_along_axis",
+    );
+  });
+}
+
 /** Select elements from an array along a specific axis. */
 export function takeAxis(a: MxArray, indices: MxArray, axis: number, stream?: S): MxArray {
   return readResultArray("take_axis", (out) => {
     checkStatus(ffi.mlx_take_axis(out, a._ctx, indices._ctx, axis, s(stream)), "take_axis");
+  });
+}
+
+/** Extract a strided slice view using explicit start/stop/stride triples. */
+export function slice(
+  a: MxArray,
+  start: number[],
+  stop: number[],
+  strides?: number[],
+  stream?: S,
+): MxArray {
+  const normalizedStrides = strides ?? Array.from({ length: start.length }, () => 1);
+  if (start.length !== stop.length || start.length !== normalizedStrides.length) {
+    throw new Error(
+      `slice: start, stop, and strides must have the same rank, got ${start.length}, ${stop.length}, and ${normalizedStrides.length}.`,
+    );
+  }
+
+  const startBuf = new Int32Array(start);
+  const stopBuf = new Int32Array(stop);
+  const strideBuf = new Int32Array(normalizedStrides);
+  return readResultArray("slice", (out) => {
+    checkStatus(
+      ffi.mlx_slice(
+        out,
+        a._ctx,
+        ptr(startBuf),
+        start.length,
+        ptr(stopBuf),
+        stop.length,
+        ptr(strideBuf),
+        normalizedStrides.length,
+        s(stream),
+      ),
+      "slice",
+    );
+  });
+}
+
+/** Extract a slice view whose start positions are provided dynamically. */
+export function sliceDynamic(
+  a: MxArray,
+  start: MxArray,
+  axes: number[],
+  sliceSize: number[],
+  stream?: S,
+): MxArray {
+  const normalizedSliceSize =
+    sliceSize.length === a.shape.length
+      ? sliceSize
+      : (() => {
+          if (sliceSize.length !== axes.length) {
+            throw new Error(
+              `sliceDynamic: sliceSize must describe either every axis or just the dynamic axes, got ${sliceSize.length} sizes for ${axes.length} axes on rank ${a.shape.length}.`,
+            );
+          }
+          return a.shape.map((extent, index) => {
+            const dynamicAxisIndex = axes.indexOf(index);
+            return dynamicAxisIndex === -1 ? extent : (sliceSize[dynamicAxisIndex] ?? extent);
+          });
+        })();
+  const axesBuf = new Int32Array(axes);
+  const sliceSizeBuf = new Int32Array(normalizedSliceSize);
+  return readResultArray("slice_dynamic", (out) => {
+    checkStatus(
+      ffi.mlx_slice_dynamic(
+        out,
+        a._ctx,
+        start._ctx,
+        ptr(axesBuf),
+        axes.length,
+        ptr(sliceSizeBuf),
+        normalizedSliceSize.length,
+        s(stream),
+      ),
+      "slice_dynamic",
+    );
+  });
+}
+
+/** Update a slice with a dynamic start index along one or more axes. */
+export function sliceUpdate(
+  src: MxArray,
+  update: MxArray,
+  start: number[],
+  stop: number[],
+  strides?: number[],
+  stream?: S,
+): MxArray {
+  const normalizedStrides = strides ?? Array.from({ length: start.length }, () => 1);
+  if (start.length !== stop.length || start.length !== normalizedStrides.length) {
+    throw new Error(
+      `sliceUpdate: start, stop, and strides must have the same rank, got ${start.length}, ${stop.length}, and ${normalizedStrides.length}.`,
+    );
+  }
+
+  const startBuf = new Int32Array(start);
+  const stopBuf = new Int32Array(stop);
+  const strideBuf = new Int32Array(normalizedStrides);
+  return readResultArray("slice_update", (out) => {
+    checkStatus(
+      ffi.mlx_slice_update(
+        out,
+        src._ctx,
+        update._ctx,
+        ptr(startBuf),
+        start.length,
+        ptr(stopBuf),
+        stop.length,
+        ptr(strideBuf),
+        normalizedStrides.length,
+        s(stream),
+      ),
+      "slice_update",
+    );
+  });
+}
+
+/** Update a slice with a dynamic start index along one or more axes. */
+export function sliceUpdateDynamic(
+  src: MxArray,
+  update: MxArray,
+  start: MxArray,
+  axes: number[],
+  stream?: S,
+): MxArray {
+  const axesBuf = new Int32Array(axes);
+  return readResultArray("slice_update_dynamic", (out) => {
+    checkStatus(
+      ffi.mlx_slice_update_dynamic(
+        out,
+        src._ctx,
+        update._ctx,
+        start._ctx,
+        ptr(axesBuf),
+        axes.length,
+        s(stream),
+      ),
+      "slice_update_dynamic",
+    );
   });
 }
 

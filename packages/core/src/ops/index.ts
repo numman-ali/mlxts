@@ -10,6 +10,7 @@ export {
   divide,
   erf,
   exp,
+  geluApprox,
   log,
   maximum,
   minimum,
@@ -34,15 +35,34 @@ export {
 } from "./comparison";
 export { matmul } from "./linalg";
 export type { SoftmaxOptions } from "./reduction";
-export { argmax, argmin, logsumexp, max, mean, min, softmax, sort, sum, topk } from "./reduction";
+export {
+  argmax,
+  argmin,
+  argpartition,
+  argsort,
+  cumsum,
+  logsumexp,
+  max,
+  mean,
+  min,
+  softmax,
+  sort,
+  sum,
+  topk,
+} from "./reduction";
 export {
   asType,
   broadcastTo,
   concatenate,
   expandDims,
   flatten,
+  putAlongAxis,
   repeat,
   reshape,
+  slice,
+  sliceDynamic,
+  sliceUpdate,
+  sliceUpdateDynamic,
   split,
   squeeze,
   stack,

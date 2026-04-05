@@ -15,9 +15,14 @@ import { ffi } from "../ffi";
 
 type S = Pointer | undefined;
 const s = (stream?: S) => stream ?? defaultStream();
+const GELU_APPROX_DTYPES = new Set(["float16", "float32", "float64", "bfloat16"]);
 
 /** An operand that is either an MxArray or a JS number (coerced to scalar). */
 export type Operand = MxArray | number;
+
+function scalarOperand(value: number, reference?: MxArray): MxArray {
+  return reference === undefined ? array(value) : array(value, reference.dtype);
+}
 
 /**
  * Run a binary FFI op with automatic scalar coercion.
@@ -30,8 +35,8 @@ function withCoerced(
 ): MxArray {
   const aIsNum = typeof a === "number";
   const bIsNum = typeof b === "number";
-  const aArr = aIsNum ? array(a) : a;
-  const bArr = bIsNum ? array(b) : b;
+  const aArr = aIsNum ? scalarOperand(a, bIsNum ? undefined : b) : a;
+  const bArr = bIsNum ? scalarOperand(b, aIsNum ? undefined : a) : b;
   try {
     return fn(aArr, bArr);
   } finally {
@@ -174,5 +179,15 @@ export function reciprocal(a: MxArray, stream?: S): MxArray {
 export function tanh(a: MxArray, stream?: S): MxArray {
   return readResultArray("tanh", (out) => {
     checkStatus(ffi.mlx_tanh(out, a._ctx, s(stream)), "tanh");
+  });
+}
+
+/** Element-wise tanh-based GELU approximation matching MLX's gelu_approx semantics. */
+export function geluApprox(a: MxArray, stream?: S): MxArray {
+  if (!GELU_APPROX_DTYPES.has(a.dtype)) {
+    throw new Error(`geluApprox: expected a floating-point tensor, got dtype "${a.dtype}".`);
+  }
+  return readResultArray("geluApprox", (out) => {
+    checkStatus(ffi.mlxts_gelu_approx(out, a._ctx, s(stream)), "geluApprox");
   });
 }

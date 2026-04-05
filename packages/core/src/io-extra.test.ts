@@ -1,10 +1,15 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync } from "fs";
+import { closeSync, ftruncateSync, mkdtempSync, openSync, writeSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 
 import { array } from "./array";
-import { loadSafetensors, saveSafetensors } from "./io";
+import {
+  iterateSafetensors,
+  iterateSafetensorTensorChunks,
+  loadSafetensors,
+  saveSafetensors,
+} from "./io";
 
 function writeFixturePath(name: string): string {
   return join(mkdtempSync(join(tmpdir(), `${name}-`)), "fixture.safetensors");
@@ -85,5 +90,122 @@ describe("io extra coverage", () => {
     );
 
     await expect(loadSafetensors(path)).rejects.toThrow("extends past the end of the file");
+  });
+
+  test("loadSafetensors reads tensors from sparse files with offsets past 4GB", async () => {
+    const path = writeFixturePath("large-sparse-offset");
+    const tensorOffset = 4_294_967_296;
+    const tensorBytes = new Uint8Array(new Float32Array([1.25, -2.5]).buffer.slice(0));
+    const headerPayload = encodeFixture({
+      large: {
+        dtype: "F32",
+        shape: [2],
+        data_offsets: [tensorOffset, tensorOffset + tensorBytes.byteLength],
+      },
+    });
+    const absoluteTensorOffset = headerPayload.byteLength + tensorOffset;
+
+    const fileDescriptor = openSync(path, "w");
+    try {
+      writeSync(fileDescriptor, headerPayload);
+      ftruncateSync(fileDescriptor, absoluteTensorOffset + tensorBytes.byteLength);
+      writeSync(fileDescriptor, tensorBytes, 0, tensorBytes.byteLength, absoluteTensorOffset);
+    } finally {
+      closeSync(fileDescriptor);
+    }
+
+    const loaded = await loadSafetensors(path);
+    using restored = loaded.tensors.large;
+    expect(restored).toBeDefined();
+    expect(restored?.dtype).toBe("float32");
+    expect(restored?.toList()).toEqual([1.25, -2.5]);
+  });
+
+  test("iterateSafetensors yields tensors lazily and can skip entries by name", async () => {
+    const path = writeFixturePath("iterates-lazily");
+    using left = array([1, 2], "float32");
+    using right = array([3, 4], "float32");
+    await saveSafetensors(
+      {
+        left,
+        right,
+      },
+      path,
+    );
+
+    const iteratedNames: string[] = [];
+    for await (const entry of iterateSafetensors(path, { include: (name) => name !== "left" })) {
+      iteratedNames.push(entry.name);
+      expect(entry.tensor.toList()).toEqual([3, 4]);
+      entry.tensor.free();
+    }
+
+    expect(iteratedNames).toEqual(["right"]);
+  });
+
+  test("iterateSafetensors can iterate every tensor in a safetensors file", async () => {
+    const path = writeFixturePath("iterates-all");
+    using left = array([1, 2], "float32");
+    using right = array([3, 4], "float32");
+    await saveSafetensors(
+      {
+        left,
+        right,
+      },
+      path,
+      { source: "iterate-all" },
+    );
+
+    const seen = new Map<string, number[]>();
+    for await (const entry of iterateSafetensors(path)) {
+      seen.set(entry.name, entry.tensor.toList() as number[]);
+      entry.tensor.free();
+    }
+
+    expect([...seen.keys()]).toEqual(["left", "right"]);
+    expect(seen.get("left")).toEqual([1, 2]);
+    expect(seen.get("right")).toEqual([3, 4]);
+  });
+
+  test("iterateSafetensorTensorChunks reads a tensor in bounded first-axis slices", async () => {
+    const path = writeFixturePath("chunked-tensor");
+    using matrix = array(
+      [
+        [1, 2],
+        [3, 4],
+        [5, 6],
+        [7, 8],
+      ],
+      "float32",
+    );
+    await saveSafetensors({ matrix }, path);
+
+    const chunks: Array<{ startIndex: number; values: number[][] }> = [];
+    for await (const entry of iterateSafetensorTensorChunks(path, "matrix", {
+      maxBytesPerChunk: 16,
+    })) {
+      chunks.push({
+        startIndex: entry.startIndex,
+        values: entry.tensor.toList() as number[][],
+      });
+      entry.tensor.free();
+    }
+
+    expect(chunks).toEqual([
+      {
+        startIndex: 0,
+        values: [
+          [1, 2],
+          [3, 4],
+        ],
+      },
+      {
+        startIndex: 2,
+        values: [
+          [5, 6],
+          [7, 8],
+        ],
+      },
+    ]);
   });
 });

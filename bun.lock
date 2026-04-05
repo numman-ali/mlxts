@@ -23,6 +23,13 @@
         "@mlxts/core": "workspace:*",
       },
     },
+    "packages/hub": {
+      "name": "@mlxts/hub",
+      "version": "0.0.1",
+      "dependencies": {
+        "@mlxts/core": "workspace:*",
+      },
+    },
     "packages/nanogpt": {
       "name": "nanogpt",
       "version": "0.0.1",
@@ -43,7 +50,6 @@
       "version": "0.0.1",
       "dependencies": {
         "@mlxts/core": "workspace:*",
-        "@mlxts/optimizers": "workspace:*",
       },
     },
     "packages/optimizers": {
@@ -65,6 +71,16 @@
         "@mlxts/core": "workspace:*",
         "@mlxts/nn": "workspace:*",
         "@mlxts/optimizers": "workspace:*",
+      },
+    },
+    "packages/transformers": {
+      "name": "@mlxts/transformers",
+      "version": "0.0.1",
+      "dependencies": {
+        "@mlxts/core": "workspace:*",
+        "@mlxts/hub": "workspace:*",
+        "@mlxts/nn": "workspace:*",
+        "@mlxts/tokenizers": "workspace:*",
       },
     },
   },
@@ -135,6 +151,8 @@
 
     "@mlxts/data": ["@mlxts/data@workspace:packages/data"],
 
+    "@mlxts/hub": ["@mlxts/hub@workspace:packages/hub"],
+
     "@mlxts/nn": ["@mlxts/nn@workspace:packages/nn"],
 
     "@mlxts/optimizers": ["@mlxts/optimizers@workspace:packages/optimizers"],
@@ -142,6 +160,8 @@
     "@mlxts/tokenizers": ["@mlxts/tokenizers@workspace:packages/tokenizers"],
 
     "@mlxts/train": ["@mlxts/train@workspace:packages/train"],
+
+    "@mlxts/transformers": ["@mlxts/transformers@workspace:packages/transformers"],
 
     "@nodelib/fs.scandir": ["@nodelib/fs.scandir@2.1.5", "", { "dependencies": { "@nodelib/fs.stat": "2.0.5", "run-parallel": "^1.1.9" } }, "sha512-vq24Bq3ym5HEQm2NKCr3yXDwjc7vTsEThRDnkp2DK9p1uqLR+DHurm/NOTo0KG7HYHU7eppKZj3MyqYuMBf62g=="],
 

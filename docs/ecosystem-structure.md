@@ -147,13 +147,13 @@ Fast tokenization with support for HuggingFace tokenizer formats.
 |---------|-----------------|
 | BPE | Byte-pair encoding from `tokenizer.json` |
 | Char tokenizer | Simple character-level tokenizer |
-| SentencePiece | SentencePiece `.model` loading (via FFI to C++ lib, or pure TS) |
-| tiktoken compat | OpenAI tiktoken encoding support |
+| SentencePiece | SentencePiece `.model` loading in pure TypeScript |
+| Tekken | `tekken.json` loading for modern Mistral tokenizers |
 | Encoding | Batch encode/decode, offset tracking, special tokens |
 
 **Dependencies:** `@mlxts/core` (minimal — mostly standalone)
 
-**Source origin:** Extracted from the former `packages/nanogpt/src/tokenizer.ts`. The package exists today with the char tokenizer and is now the sole implementation used by the temporary GPT fixture; broader tokenizer formats are future work.
+**Source origin:** Extracted from the former `packages/nanogpt/src/tokenizer.ts`. The package now owns the char tokenizer plus pretrained `tokenizer.json`, SentencePiece, and Tekken loading for the Phase 7 decoder families.
 
 #### `@mlxts/hub`
 
@@ -166,9 +166,9 @@ HuggingFace Hub integration and model format I/O.
 | GGUF | Read GGUF model files (parse header, extract tensors, dequantize) |
 | Config | Parse HF `config.json`, `generation_config.json` |
 | Caching | Local model cache with integrity checking |
-| Conversion | HF weight name mapping to mlxts model architectures |
+| Artifact discovery | Identify model and tokenizer files inside a snapshot |
 
-**Dependencies:** `@mlxts/core`, `@mlxts/tokenizers`
+**Dependencies:** `@mlxts/core`
 
 ---
 
@@ -176,49 +176,49 @@ HuggingFace Hub integration and model format I/O.
 
 #### `@mlxts/transformers`
 
-Pretrained model architectures — the mlxts equivalent of HuggingFace Transformers.
+All transformer-based model architectures — the mlxts equivalent of HuggingFace Transformers. Covers text decoders, MoE variants, vision encoders, VLM wrappers, and encoder-decoder models. Packages are organized by **generation paradigm**, not input/output modality — see [design-reasoning.md § Generation Paradigms](../docs/design-reasoning.md#generation-paradigms).
 
 | Concern | What it provides |
 |---------|-----------------|
-| GPT-2 family | GPT-2 architecture (from nanoGPT reference implementation) |
-| LLaMA family | LLaMA, LLaMA 2, LLaMA 3, Code Llama |
-| Mistral family | Mistral, Mixtral (MoE) |
-| Phi family | Phi-3, Phi-3.5 |
-| Gemma family | Gemma, Gemma 2 |
-| Qwen family | Qwen, Qwen2 |
+| Text decoder families | LLaMA, Mistral, Mistral 3, Gemma, Gemma 3, Gemma 4 text, Phi 3/4-mini |
+| MoE families (Phase 7e) | Mixtral, DeepSeek — block-level MoE swap, same CausalLM contract |
+| Vision encoder families (Phase 10) | CLIP, SigLIP, ViT — for VLM composition and diffusion conditioning |
+| VLM wrapper families (Phase 10) | LLaVA, PaliGemma, Gemma 3/4 — compose vision encoder + text decoder |
+| Encoder-decoder families (Phase 10) | Whisper (speech → text), T5, BART |
 | Auto dispatch | `AutoModel.fromPretrained(modelId)` — config-driven architecture selection |
-| Generation | `model.generate()` with KV cache, sampling strategies (temperature, top-k, top-p, min-p) |
+| Generation | `generateText()` / `generateTokens()` / `generateStep()` with KV cache and sampling |
 | Weight loading | Load from safetensors via `@mlxts/hub` |
 
 **Dependencies:** `@mlxts/core`, `@mlxts/nn`, `@mlxts/hub`, `@mlxts/tokenizers`
 
-**Architecture pattern:** Each model family is one file (e.g., `llama.ts`, `mistral.ts`, `gpt2.ts`). Config-driven instantiation from HF `config.json`. Common generation logic shared. Mirrors mlx-lm's clean design.
+**Architecture pattern:** An explicit registry maps `model_type` to family
+parsers and model constructors. Shared LLaMA-like structure lives under
+`families/llama-like/`, while per-family config and weight-name mapping stays
+under `families/<family>/`. The `CausalLM` contract is the right boundary for
+all autoregressive models — MoE is a block-level swap, multimodal understanding
+is a composition layer. See [design-reasoning.md § Contract Boundaries](../docs/design-reasoning.md#contract-boundaries).
 
 #### `@mlxts/diffusion` (Phase 10 — future)
 
-Diffusion model pipelines.
+All diffusion and flow-based generation across modalities: image, video, and audio. This is the generative media package — the counterpart to `@mlxts/transformers` for the diffusion/flow generation paradigm.
 
 | Concern | What it provides |
 |---------|-----------------|
-| Schedulers | DDPM, DDIM, DPM-Solver, Euler |
-| UNet | UNet2D architecture |
-| VAE | Variational autoencoder |
-| Pipelines | `StableDiffusionPipeline`, `SDXLPipeline` |
-| ControlNet | Conditional generation |
+| Backbone architectures | UNet2D, DiT (Diffusion Transformers), 3D variants for video |
+| VAE | Image VAE, video VAE (3D causal), audio VAE |
+| Schedulers | DDPM, DDIM, DPM-Solver, Euler, Flow Matching |
+| Conditioning | Cross-attention from text/image embeddings (from `@mlxts/transformers` encoders) |
+| Sampling | Classifier-free guidance, negative prompts |
+| Fine-tuning support | DreamBooth, textual inversion (LoRA via `@mlxts/lora` works on any Linear) |
 
 **Dependencies:** `@mlxts/core`, `@mlxts/nn`, `@mlxts/hub`
 
-#### `@mlxts/audio` (Phase 10 — future)
-
-Audio model support.
-
-| Concern | What it provides |
-|---------|-----------------|
-| Whisper | Speech recognition |
-| TTS | Text-to-speech |
-| Audio I/O | Mel spectrograms, resampling |
-
-**Dependencies:** `@mlxts/core`, `@mlxts/nn`, `@mlxts/hub`
+**Architecture pattern:** Mirrors `@mlxts/transformers` — explicit family
+registry, config-driven model construction, weight loading via `@mlxts/hub`.
+Conditioning embeddings are produced by text/image encoders from
+`@mlxts/transformers` and passed as tensors — no direct dependency between the
+two architecture packages. Pipeline orchestration (composing both) is
+application-layer code.
 
 ---
 
@@ -452,7 +452,7 @@ mlxts/                                # Monorepo root
 
   docs/                               # Architecture and planning docs
     ecosystem-structure.md            # This document
-    backend-abstraction.md            # Multi-backend design
+    future-backends.md                # Multi-backend design
     python-equivalence-map.md         # Python ecosystem mapping
     gates-and-milestones.md           # Exit criteria for every phase
     architecture.md                   # System architecture
@@ -541,7 +541,7 @@ work is deferred unless a row says otherwise.
 - **Phase 7 creates:** `hub`, `transformers`. These appear when pretrained model loading lands.
 - **Phase 8 creates:** `lora`, `align`. These appear when fine-tuning lands.
 - **Phase 9 creates:** `serve`, `quantize`. These appear when inference serving lands.
-- **Phase 10 creates:** `diffusion`, `audio`. These appear when multi-modal lands.
+- **Phase 10 creates:** `diffusion`. Vision/audio encoders extend `transformers`, not a separate package. Generative media (image/video/audio) uses diffusion/flow → `@mlxts/diffusion`.
 - **Phase 12 creates:** `eval`. This appears when benchmark evaluation lands.
 - **`cli` grows incrementally** — subcommands arrive as their backing packages ship.
 

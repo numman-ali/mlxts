@@ -40,17 +40,17 @@ The goal is not to replicate Python's entire ML ecosystem line-for-line. It is t
 | **torch.nn** | Module system, layers, activations | @mlxts/nn | 4 (exists) | Exists | Module base class with parameter scanning, freeze/unfreeze, train/eval. Linear, Embedding, LayerNorm, Dropout, GELU, ReLU, SiLU, crossEntropy, MSE. |
 | **torch.optim** | SGD, Adam, AdamW, LR schedulers | @mlxts/optimizers | 4 (exists) | Exists | SGD (with momentum, weight decay), Adam, AdamW. LR schedulers (cosine with warmup) arrive in Phase 4. |
 | **mlx.nn** | MLX's own nn module system | @mlxts/nn | 4 (exists) | Exists | Our nn layer is a TypeScript rewrite inspired by MLX's own nn design, not a binding to it. Same Module pattern, same parameter tree semantics. |
-| **timm** | Pre-trained vision model zoo (ViT, ResNet, EfficientNet) | @mlxts/vision | 10+ | Future | Vision architectures are post-Phase 10. Would need Conv2d, pooling, and image preprocessing first. |
-| **torchaudio** | Audio processing, speech models | @mlxts/audio | 10+ | Future | Audio models (Whisper) are Phase 10 scope. |
+| **timm** | Pre-trained vision model zoo (ViT, ResNet, EfficientNet) | @mlxts/transformers | 10+ | Future | Vision encoders belong in the transformers package because packages are organized by generation paradigm, not modality. |
+| **torchaudio** | Audio processing, speech models | @mlxts/transformers | 10+ | Future | Audio understanding models like Whisper also belong in the transformers package. |
 
 ### 2c. Model Architectures
 
 | Python Package | What It Does | mlxts Equivalent | Phase | Status | Notes |
 |---|---|---|---|---|---|
-| **HuggingFace Transformers** | 200k+ pre-trained models, unified API for LLMs, vision, audio | @mlxts/transformers | 7 | Planned | Phase 7 builds multi-architecture support (LLaMA, Mistral). The scope is narrower than HF Transformers -- we target the architectures people actually run locally on Apple Silicon, not the full zoo. |
-| **mlx-lm** | LLM loading, generation, fine-tuning for MLX | @mlxts/transformers | 7-8 | Planned | mlx-lm is the closest Python analog to what mlxts becomes at Phase 7-8. Model loading, tokenized generation, LoRA fine-tuning. |
-| **mlx-vlm** | Vision-language models for MLX | @mlxts/vlm | 10 | Future | Phase 10 scope. Requires vision encoder + LLM integration. |
-| **mlx-audio** | Audio/speech models for MLX | @mlxts/audio | 10 | Future | Phase 10 scope. Whisper and TTS models. |
+| **HuggingFace Transformers** | 200k+ pre-trained models, unified API for LLMs, vision, audio | @mlxts/transformers | 7 | Exists | The current Phase 7 surface covers dense text decoders. Vision, audio, and multimodal families remain later work in the same package. |
+| **mlx-lm** | LLM loading, generation, fine-tuning for MLX | @mlxts/transformers | 7-8 | Exists / Planned | Dense text loading and generation exist now. Fine-tuning arrives in later phases. |
+| **mlx-vlm** | Vision-language models for MLX | @mlxts/transformers | 10 | Future | Multimodal understanding is later work in the transformers package, not a separate modality package. |
+| **mlx-audio** | Audio/speech models for MLX | @mlxts/transformers | 10 | Future | Whisper and other audio understanding models stay under transformers. |
 | **diffusers** | Stable Diffusion, image generation pipelines | @mlxts/diffusion | 10 | Future | Phase 10 scope. Requires UNet, VAE, CLIP text encoder, scheduler infrastructure. |
 
 ### 2d. Training Infrastructure
@@ -75,8 +75,8 @@ The goal is not to replicate Python's entire ML ecosystem line-for-line. It is t
 
 | Python Package | What It Does | mlxts Equivalent | Phase | Status | Notes |
 |---|---|---|---|---|---|
-| **HF tokenizers** | Fast BPE/WordPiece/Unigram tokenization (Rust backend) | @mlxts/tokenizers | 5-7 | Partial | The package exists today with the extracted character tokenizer. HuggingFace `tokenizer.json` parsing and broader tokenizer formats remain Phase 7 work. |
-| **tiktoken** | OpenAI's BPE tokenizer | @mlxts/tokenizers | 7 | Planned | tiktoken's BPE vocabulary can be loaded and applied in TypeScript. The encoding logic is straightforward BPE merge. |
+| **HF tokenizers** | Fast BPE/WordPiece/Unigram tokenization (Rust backend) | @mlxts/tokenizers | 5-7 | Exists | The package now supports char tokenization plus Hugging Face `tokenizer.json`, SentencePiece `.model`, and `tekken.json` loading for the current decoder families. |
+| **tiktoken** | OpenAI's BPE tokenizer | @mlxts/tokenizers | -- | Not planned | The tokenizer package focuses on Hugging Face tokenizer artifacts (`tokenizer.json`, `tokenizer.model`, `tekken.json`) rather than a dedicated tiktoken compatibility layer. |
 | **SentencePiece** | Google's subword tokenizer | @mlxts/tokenizers | 7 | Planned | SentencePiece model files can be parsed. Many models that "use SentencePiece" actually ship HF tokenizer.json files, which we already plan to support. |
 | **HF Datasets** | Dataset loading, streaming, preprocessing | @mlxts/data | 5 (exists) | Exists | `@mlxts/data` now holds the extracted text-data loading and batching helpers. Structured dataset loading (HF Hub REST API, Parquet) still comes later. |
 | **Data Collators** | Batch assembly, padding, masking | @mlxts/data | 5+ | Planned | Collation logic lives in the data pipeline. Padding and attention mask generation are part of the training infrastructure. |
@@ -106,8 +106,8 @@ The goal is not to replicate Python's entire ML ecosystem line-for-line. It is t
 
 | Python Package | What It Does | mlxts Equivalent | Phase | Status | Notes |
 |---|---|---|---|---|---|
-| **HuggingFace Hub** | Model/dataset repository, download, upload | @mlxts/hub | 7 | Planned | HF Hub has a REST API. No Python needed to download models, read model cards, or list files. The Python `huggingface_hub` package is just an HTTP client with caching -- trivial to replicate. |
-| **safetensors** | Safe, fast tensor serialization format | @mlxts/hub | 7 | Planned | safetensors is a simple binary format (JSON header + raw tensor data). mlx-c already has safetensors I/O built in. TypeScript-side parsing is also straightforward for the header metadata. |
+| **HuggingFace Hub** | Model/dataset repository, download, upload | @mlxts/hub | 7 | Exists | HF Hub has a REST API. No Python is needed to download models, inspect model cards, or resolve snapshot files. |
+| **safetensors** | Safe, fast tensor serialization format | @mlxts/hub | 7 | Exists | mlxts reads sharded safetensors snapshots directly and iterates weights shard by shard for pretrained loading. |
 | **ONNX** | Cross-framework model interchange format | @mlxts/onnx | 11+ | Future | ONNX import would allow loading models from PyTorch/TensorFlow. Lower priority than safetensors and GGUF, which cover the practical model loading needs. |
 | **ONNX Runtime** | Optimized inference engine for ONNX models | @mlxts/onnx | 11+ | Future | If ONNX loading is implemented, ORT-style optimized execution is possible via MLX. |
 
@@ -133,7 +133,7 @@ The goal is not to replicate Python's entire ML ecosystem line-for-line. It is t
 |---|---|---|---|---|---|
 | **ggml** | C tensor library (llama.cpp's compute backend) | @mlxts/core (MLX backend) | 4 (exists) | Exists (different backend) | mlxts uses MLX, not ggml, as the compute backend. Same role (GPU tensor math), different implementation. MLX's Metal kernels are optimized for Apple Silicon. |
 | **llama.cpp** | LLM inference engine | @mlxts/serve | 9 | Planned | mlxts's inference path is native MLX, not llama.cpp. GGUF loading provides model compatibility without depending on llama.cpp as a runtime. |
-| **whisper.cpp** | Speech-to-text inference | @mlxts/audio | 10 | Future | Whisper model architecture can be implemented in @mlxts/transformers. The .cpp version exists for broad hardware support; on Apple Silicon, MLX is the better backend. |
+| **whisper.cpp** | Speech-to-text inference | @mlxts/transformers | 10 | Future | Whisper belongs in the transformers package because it is an encoder-decoder generation architecture. |
 | **stable-diffusion.cpp** | Image generation inference | @mlxts/diffusion | 10 | Future | Same rationale as whisper.cpp. Native MLX diffusion is preferable to wrapping a C++ implementation. |
 
 ### 2m. WebGPU and Browser ML
@@ -189,9 +189,9 @@ Fine-tuning         @mlxts/lora (LoRA, QLoRA)                  [Phase 8]
 Training            @mlxts/train (training loop, checkpoints)      [Phase 5]
                     @mlxts/data (datasets, collation)               [Phase 5]
                          |
-Models              @mlxts/transformers (LLaMA, Mistral, GPT)            [Phase 7]
-                    (generation is part of @mlxts/transformers)       [Phase 7]
-                    @mlxts/vlm, @mlxts/audio, @mlxts/diffusion     [Phase 10]
+Models              @mlxts/transformers (dense text decoders now,      [Phase 7+]
+                    vision/audio/multimodal later in the same package)
+                    @mlxts/diffusion                                   [Phase 10]
                          |
 Hub / Interop       @mlxts/hub (HF Hub, safetensors, GGUF headers) [Phase 7]
                     @mlxts/tokenizers (BPE, tokenizer.json)         [Phase 7]
@@ -437,15 +437,13 @@ The goal is that steps 1-2 (understanding what exists and what's novel) take min
 | @mlxts/train | 5 | Exists | @mlxts/core, @mlxts/nn, @mlxts/optimizers |
 | @mlxts/data | 5 | Exists | @mlxts/core |
 | @mlxts/tokenizers | 5 | Exists (char tokenizer) | (mostly standalone today; broader tokenizer formats in Phase 7) |
-| @mlxts/hub | 7 | Planned | @mlxts/core (HF Hub REST client, safetensors, GGUF header parsing) |
-| @mlxts/transformers | 7 | Planned | @mlxts/nn, @mlxts/hub, @mlxts/tokenizers |
+| @mlxts/hub | 7 | Exists | @mlxts/core (HF Hub REST client, safetensors, GGUF header parsing) |
+| @mlxts/transformers | 7 | Exists | @mlxts/nn, @mlxts/hub, @mlxts/tokenizers |
 | @mlxts/lora | 8 | Planned | @mlxts/nn, @mlxts/train, @mlxts/transformers |
 | @mlxts/align | 8+ | Future | @mlxts/lora, @mlxts/train |
 | @mlxts/quantize | 9 | Planned | @mlxts/core (raw quantize/dequantize bindings already exist), GGUF tensor dequantization |
 | @mlxts/serve | 9 | Planned | @mlxts/transformers, @mlxts/quantize |
 | @mlxts/diffusion | 10 | Future | @mlxts/nn, @mlxts/transformers |
-| @mlxts/vlm | 10 | Future | @mlxts/nn, @mlxts/transformers |
-| @mlxts/audio | 10 | Future | @mlxts/nn, @mlxts/transformers |
 | @mlxts/webgpu | Future | Future | @mlxts/core (WebGPU backend) |
 | @mlxts/eval | 12 | Planned | @mlxts/transformers, @mlxts/tokenizers |
 | @mlxts/telemetry | 7+ | Future | (standalone) |

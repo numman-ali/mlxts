@@ -83,7 +83,7 @@ bun run validate
 ```
 
 This runs typecheck + lint + assertion checks + coverage-backed tests across all packages.
-It also runs the 500-line file-size gate, tensor-lifetime checks, and runtime-review validation. The current package-first coverage posture hard-enforces `@mlxts/core` and reports the newly extracted auxiliary packages while the migration settles.
+It also runs the 500-line file-size gate, tensor-lifetime checks, runtime-review validation, and the repo-wide package coverage gate (`95%` lines / `90%` functions, with branches enforced whenever LCOV reports them).
 
 When you are preparing package ergonomics rather than only runtime behavior, also run:
 
