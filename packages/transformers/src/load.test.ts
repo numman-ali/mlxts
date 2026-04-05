@@ -14,6 +14,7 @@ import { LlamaLikeCausalLM } from "./families/llama-like/model";
 import { generateText, generateTokens } from "./generation";
 import { KVCache, LayerPatternKVCache, SlidingWindowKVCache } from "./infrastructure/cache";
 import { loadCausalLM, loadPretrainedTokenizer } from "./load";
+import { quantizePretrainedSnapshot } from "./quantize";
 import { resolveFamily } from "./registry";
 import { ConfigParseError, MissingWeightsError, type SupportedModelFamily } from "./types";
 
@@ -928,6 +929,22 @@ describe("pretrained loading", () => {
     model[Symbol.dispose]();
   });
 
+  test("loadCausalLM attaches checkpoint generation defaults to the loaded model config", async () => {
+    const { directory, model } = await createTinySnapshot("llama");
+    await Bun.write(
+      join(directory, "generation_config.json"),
+      `${JSON.stringify({ do_sample: false, eos_token_id: [3, 4], top_p: 0.92 }, null, 2)}\n`,
+    );
+
+    using loadedModel = await loadCausalLM(directory);
+    expect(loadedModel.config.generationDefaults).toEqual({
+      temperature: 0,
+      eosTokenIds: [3, 4],
+      topP: 0.92,
+    });
+    model[Symbol.dispose]();
+  });
+
   test("loadCausalLM reports missing required weights", async () => {
     const { directory, model } = await createTinySnapshot("llama");
     await rewriteCheckpoint(directory, model, (tensors) => {
@@ -1039,6 +1056,83 @@ describe("pretrained loading", () => {
     expect(secondLayer.selfAttention.qProjection).toBeInstanceOf(QuantizedLinear);
     expect(firstLayer.selfAttention.kProjection).toBeInstanceOf(Linear);
     expect(secondLayer.selfAttention.kProjection).toBeInstanceOf(Linear);
+  });
+
+  test("quantizePretrainedSnapshot rewrites a dense snapshot into a loadable quantized snapshot", async () => {
+    const directory = createTempDir("mlxts-transformers-quantized-export-source-");
+    const rawConfig: Record<string, unknown> = {
+      ...rawConfigForFamily("llama"),
+      hidden_size: 64,
+      intermediate_size: 128,
+      num_attention_heads: 4,
+      num_key_value_heads: 4,
+      max_position_embeddings: 64,
+      vocab_size: 7,
+    };
+    const registration = resolveFamily("llama");
+    using model = registration.createModel(registration.parseConfig(rawConfig));
+    if (!(model instanceof LlamaLikeCausalLM)) {
+      throw new Error("Expected a LlamaLikeCausalLM for the quantized export fixture.");
+    }
+
+    const tensors = checkpointTensors(model);
+    const tokenizer = tokenizerFixture();
+    const outputDirectory = join(createTempDir("mlxts-transformers-quantized-export-"), "out");
+
+    try {
+      await Bun.write(join(directory, "config.json"), `${JSON.stringify(rawConfig, null, 2)}\n`);
+      await Bun.write(
+        join(directory, "tokenizer.json"),
+        `${JSON.stringify(tokenizer.tokenizerJson, null, 2)}\n`,
+      );
+      await Bun.write(
+        join(directory, "tokenizer_config.json"),
+        `${JSON.stringify(tokenizer.tokenizerConfig, null, 2)}\n`,
+      );
+      await Bun.write(
+        join(directory, "special_tokens_map.json"),
+        `${JSON.stringify(tokenizer.specialTokensMap, null, 2)}\n`,
+      );
+      await saveSafetensors(tensors, join(directory, "model.safetensors"));
+    } finally {
+      for (const tensor of Object.values(tensors)) {
+        tensor.free();
+      }
+    }
+
+    const result = await quantizePretrainedSnapshot(directory, {
+      outputDir: outputDirectory,
+      bits: 4,
+      groupSize: 64,
+      mode: "affine",
+    });
+
+    const writtenConfig = JSON.parse(
+      await Bun.file(join(outputDirectory, "config.json")).text(),
+    ) as {
+      quantization?: { group_size?: number; bits?: number; mode?: string };
+    };
+    expect(writtenConfig.quantization).toEqual({
+      group_size: 64,
+      bits: 4,
+      mode: "affine",
+    });
+    expect(result.quantizedTensorCount).toBeGreaterThan(0);
+
+    using loadedModel = await loadCausalLM(outputDirectory);
+    if (!(loadedModel instanceof LlamaLikeCausalLM)) {
+      throw new Error("Expected a LlamaLikeCausalLM after loading the quantized export.");
+    }
+
+    const firstLayer = loadedModel.model.layers[0];
+    if (firstLayer === undefined) {
+      throw new Error("Expected a decoder layer in the quantized export.");
+    }
+
+    expect(firstLayer.selfAttention.qProjection).toBeInstanceOf(QuantizedLinear);
+    expect(firstLayer.selfAttention.kProjection).toBeInstanceOf(QuantizedLinear);
+    expect(firstLayer.selfAttention.vProjection).toBeInstanceOf(QuantizedLinear);
+    expect(firstLayer.selfAttention.outputProjection).toBeInstanceOf(QuantizedLinear);
   });
 
   test("loadPretrainedTokenizer rejects snapshots without tokenizer artifacts", async () => {

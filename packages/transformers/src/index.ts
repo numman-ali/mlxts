@@ -8,12 +8,15 @@ export { type ChatMessage, type ChatTemplate, loadChatTemplate } from "./chat-te
 export { generateStep, generateText, generateTokens, makePromptCache } from "./generation";
 export { KVCache, LayerPatternKVCache, SlidingWindowKVCache } from "./infrastructure/cache";
 export { loadCausalLM, loadPretrainedTokenizer, resolvePretrainedSource } from "./load";
+export type { QuantizedSnapshotResult, QuantizePretrainedSnapshotOptions } from "./quantize";
+export { quantizePretrainedSnapshot } from "./quantize";
 export { FAMILY_REGISTRY, resolveFamily } from "./registry";
 export type {
   BaseModelConfig,
   CausalLM,
   FamilyRegistration,
   ForwardOptions,
+  GenerationDefaults,
   GenerationOptions,
   GenerationResult,
   LoadCausalLMOptions,

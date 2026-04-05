@@ -31,6 +31,8 @@ export type GenerationOptions = SamplerOptions & {
   prefillStepSize?: number;
 };
 
+export type GenerationDefaults = Omit<GenerationOptions, "addSpecialTokens" | "maxTokens">;
+
 export type GenerationResult = {
   tokenIds: number[];
   finishReason: "length" | "eos";
@@ -53,6 +55,7 @@ export type BaseModelConfig = {
   vocabSize: number;
   hiddenSize: number;
   numHiddenLayers: number;
+  generationDefaults?: GenerationDefaults;
 };
 
 export interface TransformerCache extends Disposable {

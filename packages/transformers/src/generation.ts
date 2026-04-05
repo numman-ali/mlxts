@@ -15,7 +15,7 @@ import {
   withDefaultStream,
 } from "@mlxts/core";
 import type { Tokenizer } from "@mlxts/tokenizers";
-
+import { resolveGenerationOptions } from "./infrastructure/generation-defaults";
 import {
   inputTensor,
   prefillPromptCache,
@@ -32,13 +32,6 @@ import type {
 } from "./types";
 
 const PERIODIC_CACHE_CLEAR_INTERVAL = 256;
-
-function resolveEosTokenIds(
-  tokenizer: Tokenizer | undefined,
-  options: GenerationOptions,
-): number[] {
-  return options.eosTokenIds ?? tokenizer?.eosTokenIds ?? [];
-}
 
 function predictNextTokenWithState(
   model: CausalLM,
@@ -260,16 +253,24 @@ export function generateTokens(
     return { tokenIds: [], finishReason: "length" };
   }
 
+  const resolvedOptions = resolveGenerationOptions(model, undefined, options);
   const generated: number[] = [];
-  const eosTokenIds = new Set(resolveEosTokenIds(undefined, options));
-  const useCache = options.useCache ?? true;
-  const prefillStepSize = options.prefillStepSize ?? 2048;
+  const eosTokenIds = new Set(resolvedOptions.eosTokenIds ?? []);
+  const useCache = resolvedOptions.useCache ?? true;
+  const prefillStepSize = resolvedOptions.prefillStepSize ?? 2048;
 
   validatePrefillStepSize(prefillStepSize, "generateTokens");
   return runGenerationScope(() =>
     useCache
-      ? generateWithCache(model, promptTokenIds, options, eosTokenIds, prefillStepSize, generated)
-      : generateWithoutCache(model, promptTokenIds, options, eosTokenIds, generated),
+      ? generateWithCache(
+          model,
+          promptTokenIds,
+          resolvedOptions,
+          eosTokenIds,
+          prefillStepSize,
+          generated,
+        )
+      : generateWithoutCache(model, promptTokenIds, resolvedOptions, eosTokenIds, generated),
   );
 }
 
@@ -280,12 +281,10 @@ export function generateText(
   prompt: string,
   options: GenerationOptions,
 ): string {
+  const resolvedOptions = resolveGenerationOptions(model, tokenizer, options);
   const promptTokenIds = tokenizer.encode(prompt, {
-    addSpecialTokens: options.addSpecialTokens ?? true,
+    addSpecialTokens: resolvedOptions.addSpecialTokens ?? true,
   });
-  const result = generateTokens(model, promptTokenIds, {
-    ...options,
-    eosTokenIds: resolveEosTokenIds(tokenizer, options),
-  });
+  const result = generateTokens(model, promptTokenIds, resolvedOptions);
   return tokenizer.decode(result.tokenIds, { skipSpecialTokens: true });
 }

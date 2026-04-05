@@ -11,7 +11,7 @@ import {
   translateCheckpointQuantizationPlanPaths,
 } from "@mlxts/quantize";
 import { loadTokenizer, type Tokenizer, type TokenizerFileSet } from "@mlxts/tokenizers";
-
+import { parseGenerationDefaults } from "./infrastructure/generation-defaults";
 import { assignWeightPath, listParameterPaths } from "./infrastructure/weight-assignment";
 import {
   inspectSnapshot,
@@ -281,6 +281,10 @@ export async function loadCausalLM(
   const snapshot = await resolvePretrainedSnapshot(source, options);
   const inspection = inspectSnapshot(snapshot);
   const { registration, config, model } = prepareModel(inspection.config);
+  const generationDefaults = parseGenerationDefaults(inspection.generationConfig);
+  if (generationDefaults !== undefined) {
+    config.generationDefaults = generationDefaults;
+  }
   prepareQuantizedCheckpointModel(model, inspection.config, registration, config);
   const expectedPaths = new Set(listParameterPaths(model.parameters()));
   const shardCount = listSafetensorShardPaths(snapshot).length;

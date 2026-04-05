@@ -105,8 +105,24 @@ export const ARRAY_LIFECYCLE_SYMBOLS = {
 
 export const STRING_SYMBOLS = {
   mlx_string_new: { args: [], returns: P },
+  mlx_string_new_data: { args: [CSTRING], returns: P },
+  mlx_string_set: { args: [P, P], returns: I32 },
   mlx_string_free: { args: [P], returns: I32 },
   mlx_string_data: { args: [P], returns: CSTRING },
+} as const;
+
+// ---------------------------------------------------------------------------
+// Map containers (map.h)
+// ---------------------------------------------------------------------------
+
+export const MAP_SYMBOLS = {
+  mlx_map_string_to_array_new: { args: [], returns: P },
+  mlx_map_string_to_array_free: { args: [P], returns: I32 },
+  mlx_map_string_to_array_insert: { args: [P, CSTRING, P], returns: I32 },
+  mlx_map_string_to_array_get: { args: [P, P, CSTRING], returns: I32 },
+  mlx_map_string_to_string_new: { args: [], returns: P },
+  mlx_map_string_to_string_free: { args: [P], returns: I32 },
+  mlx_map_string_to_string_insert: { args: [P, CSTRING, CSTRING], returns: I32 },
 } as const;
 
 // ---------------------------------------------------------------------------
@@ -185,6 +201,9 @@ export const ARITHMETIC_SYMBOLS = {
 
 export const MLXTS_NATIVE_SYMBOLS = {
   mlxts_gelu_approx: { args: [P, P, P], returns: I32 },
+  mlxts_load_gguf: { args: [P, P, CSTRING, P], returns: I32 },
+  mlxts_save_gguf: { args: [CSTRING, P, P], returns: I32 },
+  mlxts_map_string_to_array_keys: { args: [P, P], returns: I32 },
 } as const;
 
 // ---------------------------------------------------------------------------

@@ -3,6 +3,8 @@ export {
   resolveCheckpointQuantizationPlan,
   translateCheckpointQuantizationPlanPaths,
 } from "./checkpoint-plan";
+export type { GgufCheckpointMetadataValue, LoadedGgufCheckpoint } from "./gguf";
+export { loadGgufCheckpoint, saveGgufCheckpoint } from "./gguf";
 export { resolveQuantizationParameters } from "./parameters";
 export { quantizeModel, quantizeModule } from "./quantize-module";
 export { setupQuantizedModule } from "./setup-quantized-module";

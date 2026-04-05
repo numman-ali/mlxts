@@ -41,6 +41,8 @@ export {
 } from "./fast";
 export { formatShape } from "./format-shape";
 export type {
+  GgufMetadataValue,
+  LoadedGguf,
   LoadedSafetensors,
   SafetensorTensorChunkEntry,
   SafetensorTensorEntry,
@@ -48,7 +50,10 @@ export type {
 export {
   iterateSafetensors,
   iterateSafetensorTensorChunks,
+  loadGguf,
   loadSafetensors,
+  parseGgufMetadataJson,
+  saveGguf,
   saveSafetensors,
 } from "./io";
 export type { MemoryStats } from "./memory";
