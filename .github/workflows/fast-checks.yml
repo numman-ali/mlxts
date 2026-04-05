@@ -1,0 +1,42 @@
+name: Fast Checks
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+jobs:
+  fast-checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Typecheck
+        run: bun run typecheck
+
+      - name: Lint
+        run: bun run lint
+
+      - name: Static gates
+        run: |
+          bun run check:assertions
+          bun run check:file-lines
+          bun run check:tensor-lifetimes
+          bun run check:runtime-review
+
+      - name: Build package dist output
+        run: bun run build
+
+      - name: Generate API docs
+        run: bun run docs:api
+
+      - name: Changeset status
+        run: bun run changeset:status

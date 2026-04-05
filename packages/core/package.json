@@ -2,12 +2,41 @@
   "name": "@mlxts/core",
   "version": "0.0.1",
   "type": "module",
-  "main": "src/index.ts",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "native/CMakeLists.txt",
+    "scripts/build-native.ts",
+    "README.md"
+  ],
+  "license": "MIT",
+  "keywords": [
+    "mlxts",
+    "mlx",
+    "bun",
+    "typescript",
+    "apple-silicon"
+  ],
+  "engines": {
+    "bun": ">=1.3.4"
+  },
+  "os": [
+    "darwin"
+  ],
   "scripts": {
     "typecheck": "tsc --noEmit",
     "test": "bun test",
     "test:coverage": "bun test --coverage",
-    "build": "bun run build:native",
+    "build": "bun run ../../scripts/build-package.ts --entry src/index.ts",
     "build:native": "bun run scripts/build-native.ts"
   }
 }

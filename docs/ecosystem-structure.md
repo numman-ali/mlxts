@@ -331,7 +331,7 @@ For now the monorepo keeps only one transitional consumer:
 
 ```
 packages/
-  nanogpt/                    # Temporary validation fixture, not a publish target
+  nanogpt/                    # Temporary private validation fixture, not a publish target
     src/
       run/                    # Supervised run manager, soak, and acceptance infra
       bench/                  # Memory and throughput checks

@@ -85,6 +85,16 @@ bun run validate
 This runs typecheck + lint + assertion checks + coverage-backed tests across all packages.
 It also runs the 500-line file-size gate, tensor-lifetime checks, and runtime-review validation. The current package-first coverage posture hard-enforces `@mlxts/core` and reports the newly extracted auxiliary packages while the migration settles.
 
+When you are preparing package ergonomics rather than only runtime behavior, also run:
+
+```bash
+bun run build
+bun run docs:api
+bun run pack:dry-run
+```
+
+That verifies the repo's local release-prep surface: `dist/` builds, TypeDoc generation into `.tmp/api-docs/`, and dry-run tarball packing for the public `@mlxts/*` packages.
+
 Longer acceptance runs are separate on purpose:
 
 ```bash
@@ -113,7 +123,7 @@ bun run run:nanogpt resume --from <run-id> --max-steps 10000
 This supervised path is the canonical long-run surface. It writes a run-local directory under `.nanogpt-runs/` with structured events, status snapshots, stderr logs, and checkpoint directories.
 
 For now that operator surface still lives in `packages/nanogpt` because the
-current app is a temporary validation fixture. The package location is
+current app is a temporary private validation fixture. The package location is
 transitional even though the operator behavior is still canonical.
 
 Checkpoint kinds are explicit:

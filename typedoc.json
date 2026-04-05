@@ -1,0 +1,18 @@
+{
+  "$schema": "https://typedoc.org/schema.json",
+  "name": "mlxts API",
+  "entryPoints": [
+    "packages/core/src/index.ts",
+    "packages/nn/src/index.ts",
+    "packages/optimizers/src/index.ts",
+    "packages/train/src/index.ts",
+    "packages/data/src/index.ts",
+    "packages/tokenizers/src/index.ts"
+  ],
+  "out": ".tmp/api-docs",
+  "excludePrivate": true,
+  "excludeProtected": true,
+  "excludeInternal": true,
+  "readme": "none",
+  "tsconfig": "tsconfig.docs.json"
+}

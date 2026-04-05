@@ -1,10 +1,5 @@
 /**
- * Enforces a maximum physical line count for canonical production source files.
- *
- * The current Phase 5 posture is package-first. The extracted `@mlxts/*`
- * packages are canonical and stay under the hard 500-line cap. Temporary
- * migration surfaces such as `packages/nanogpt` are excluded until they are
- * deleted or rewritten.
+ * Enforces a maximum physical line count for active production source files.
  */
 
 import { readFileSync } from "fs";
@@ -13,14 +8,10 @@ import { join } from "path";
 const PROJECT_ROOT = join(import.meta.dirname, "..");
 const MAX_FILE_LINES = 500;
 const INCLUDED_GLOBS = ["packages/*/src/**/*.ts"];
-const EXCLUDED_PREFIXES = ["packages/nanogpt/"];
 
 function isCheckedFile(path: string): boolean {
   const normalized = path.replaceAll("\\", "/");
   if (normalized.endsWith(".test.ts")) {
-    return false;
-  }
-  if (EXCLUDED_PREFIXES.some((prefix) => normalized.startsWith(prefix))) {
     return false;
   }
   return true;
@@ -55,5 +46,5 @@ if (offenders.length > 0) {
 }
 
 console.log(
-  `Checked ${files.length} production source files. All canonical package files are <= ${MAX_FILE_LINES} lines.`,
+  `Checked ${files.length} production source files. All active production files are <= ${MAX_FILE_LINES} lines.`,
 );

@@ -102,7 +102,7 @@ src/
 - Canonical production source files must stay at or under 500 physical lines
 - Tests are excluded from that cap
 - If a file grows past the cap, split it by responsibility rather than adding another scroll-length blob
-- During the Phase 5 migration, the hard gate applies to the canonical `@mlxts/*` package sources; the temporary `packages/nanogpt` validation fixture is exempt until it is rewritten or deleted
+- The hard gate now applies to active production source across both the canonical `@mlxts/*` packages and the temporary `packages/nanogpt` validation fixture
 
 ## TypeScript Practices
 

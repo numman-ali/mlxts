@@ -7,7 +7,7 @@ This document provides context and instructions for AI coding agents working on 
 mlxts is a TypeScript-native ML stack for Apple Silicon. The repo currently
 centers on:
 
-- **`@mlxts/core` / `@mlxts/nn` / `@mlxts/optimizers`**: the extracted reusable ML stack
+- **`@mlxts/core` / `@mlxts/nn` / `@mlxts/optimizers` / `@mlxts/train` / `@mlxts/data` / `@mlxts/tokenizers`**: the extracted reusable ML stack
 - **`packages/nanogpt`**: a temporary GPT validation fixture built on the extracted packages
 
 ## Architecture Decisions
@@ -109,7 +109,10 @@ See [docs/code-standards.md](./docs/code-standards.md) for the full code standar
 bun install
 
 # Build native bindings
-cd packages/core && bun run build:native
+bun run build:native
+
+# Build package dist outputs
+bun run build
 
 # Run tests
 bun test
@@ -143,6 +146,11 @@ bun run typecheck
 
 # Full validation
 bun run validate
+
+# Local release-readiness checks
+bun run docs:api
+bun run pack:dry-run
+bun run release:check
 ```
 
 ## Agentic Workflow

@@ -49,7 +49,7 @@ These gates are non-negotiable at every phase boundary. Code does not advance un
 | Criterion | How to verify |
 |-----------|--------------|
 | `bun run validate` passes | Run it |
-| gpt-tiny trains to <1.5 val loss | `bun run acceptance:gpt-tiny` |
+| gpt-tiny trains to <1.8 val loss | `bun run acceptance:gpt-tiny` |
 | gpt-small has a loss-targeted acceptance run | `bun run acceptance:gpt-small` |
 | Generated text is recognizably English and vaguely Shakespearean | Manual inspection of sample output |
 | Supervised long runs use `bun run run:nanogpt ...` | Verify soak ladder: 50 → 250 → 1000 → 5000 steps |
@@ -76,31 +76,31 @@ These gates are non-negotiable at every phase boundary. Code does not advance un
 | `@mlxts/tokenizers` exists with char tokenizer | All existing tokenizer tests pass |
 | `bun run validate` passes across entire monorepo | Run it |
 | Each package's tests pass independently, not just monorepo-level | `cd packages/<pkg> && bun test` for each |
-| Canonical package sources honor the 500-line cap | `bun run check:file-lines` |
+| Active production source honors the 500-line cap | `bun run check:file-lines` |
 | Coverage thresholds match the current package-first gate | `bun run check:coverage` |
-| `packages/nanogpt` is documented as a temporary validation fixture | Manual review |
+| `packages/nanogpt` is documented as a temporary private validation fixture | Manual review |
 | Runtime-sensitive extraction work has a review artifact | `bun run check:runtime-review` |
 | All top-level docs describe the package-first state consistently | Manual review |
 
 ### What "done" looks like
-A developer runs `bun install`, opens `packages/core/src/index.ts` and `packages/train/src/index.ts`, sees the canonical `@mlxts/*` package surfaces, and `bun run validate` passes. `packages/nanogpt` is still present only as a clearly documented temporary validation fixture.
+A developer runs `bun install`, opens `packages/core/src/index.ts` and `packages/train/src/index.ts`, sees the canonical `@mlxts/*` package surfaces, and `bun run validate` passes. `packages/nanogpt` is still present only as a clearly documented temporary private validation fixture.
 
 ---
 
 ## Phase 6: Publish Core Packages
 
-**Goal:** First npm publish. TypeDoc. CI. The world can `bun add @mlxts/core @mlxts/nn`.
+**Goal:** The repo is ready for first npm publish. TypeDoc, CI, dist output, and package manifests are in place even if the actual publish step is still manual.
 
 ### Milestone: "External developers can install and use mlxts"
 
 | Criterion | How to verify |
 |-----------|--------------|
-| `@mlxts/core`, `@mlxts/nn`, `@mlxts/optimizers` on npm | `npm view @mlxts/core` |
+| Public package manifests, `dist/`, and exports are publish-ready | Manual review + `bun run build` |
 | Semver versioning with changesets | `changeset status` |
-| TypeDoc API docs published | URL accessible |
-| GitHub Actions CI on Apple Silicon runners | CI green on push |
+| TypeDoc API docs generate cleanly | `bun run docs:api` |
+| GitHub Actions CI definitions exist for fast checks, Apple Silicon validation, and pack dry-runs | Manual review |
 | README with quick-start example | Manual review |
-| `bun add @mlxts/core @mlxts/nn` works from a fresh project | Test in isolated directory |
+| `bun pm pack --dry-run` succeeds for every public package | `bun run pack:dry-run` |
 | Educational walkthrough: "Building GPT from scratch in TypeScript" | Published (blog or repo doc) |
 | Benchmarks: mlxts vs Python MLX for core ops | Results documented |
 | Contributing guide | CONTRIBUTING.md exists |

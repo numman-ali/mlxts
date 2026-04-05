@@ -41,6 +41,7 @@ checkpoints/
 data/
 !packages/data/
 !packages/data/**
+packages/*/dist/
 packages/data/node_modules/
 !examples/data/
 

@@ -1,59 +1,116 @@
-# nanogpt-ts
+# mlxts
 
-A from-scratch implementation of GPT in TypeScript, built on native MLX bindings for Apple Silicon.
+TypeScript-native MLX packages for Apple Silicon, built around Bun and Apple's
+official `mlx-c` C API.
 
-## What is this?
+The repo is package-first now. The canonical product surface is the extracted
+`@mlxts/*` package family:
 
-This project has three goals:
+- `@mlxts/core`
+- `@mlxts/nn`
+- `@mlxts/optimizers`
+- `@mlxts/train`
+- `@mlxts/data`
+- `@mlxts/tokenizers`
 
-1. **mlx-ts** — First-class TypeScript bindings for Apple's [MLX](https://github.com/ml-explore/mlx) framework, enabling GPU-accelerated machine learning on Apple Silicon directly from TypeScript/Bun.
-2. **nanogpt-ts** — A clean, educational GPT implementation in TypeScript, inspired by [Karpathy's nanoGPT](https://github.com/karpathy/nanoGPT), built on top of mlx-ts.
-3. **Education** — Every design decision is documented. The goal is to make transformers and LLM training accessible to the TypeScript/JavaScript developer community.
+`packages/nanogpt` is still here, but only as a private GPT validation fixture
+used to prove the package stack works end to end while the ecosystem settles.
 
-## Why TypeScript?
+## Why this repo exists
 
-The ML ecosystem is locked into Python — not because Python is the best tool, but because of momentum. The actual compute happens in C++/CUDA/Metal. Python is glue.
+Most JavaScript ML tooling stops at inference. mlxts is trying to make training,
+fine-tuning, and native Apple Silicon MLX workflows feel natural from
+TypeScript without smuggling Python in as the real runtime.
 
-TypeScript can be that glue too. With Bun's FFI and Apple's MLX, we can call the same Metal GPU kernels from TypeScript with near-zero overhead. The result: ML that feels native to the millions of developers who already think in TypeScript.
+The priorities are:
 
-This is not a toy reimplementation. It's a real, GPU-accelerated training stack.
+- correctness first
+- readable APIs and readable code
+- explicit ownership and runtime safety
+- package surfaces that can grow into a real ecosystem
 
-## Project Structure
+## Repo shape
 
-```
-nanogpt-ts/
-├── packages/
-│   ├── mlx-ts/          # MLX bindings for TypeScript (Bun FFI → MLX C++)
-│   └── nanogpt/         # GPT implementation using mlx-ts
-├── examples/            # Runnable demos and tutorials
-├── docs/                # Architecture docs, guides, technical references
-├── PLAN.md              # Phased build plan
-└── AGENTS.md            # Agent coordination instructions
+```text
+packages/
+  core/         Native MLX runtime, tensors, ops, transforms, I/O
+  nn/           Modules, layers, activations, losses
+  optimizers/   Adam, AdamW, SGD
+  train/        Schedules, gradient utilities, checkpoints, loop helpers
+  data/         Text loading and batching
+  tokenizers/   Tokenizer implementations
+  nanogpt/      Private GPT validation fixture
+docs/           Architecture, setup, standards, roadmap
+scripts/        Validation, packaging, and repo tooling
 ```
 
 ## Requirements
 
-- macOS with Apple Silicon (M1/M2/M3/M4)
-- [Xcode](https://developer.apple.com/xcode/) 16+ with Metal Toolchain
-- [CMake](https://cmake.org/) 3.24+ (`brew install cmake`)
-- [Bun](https://bun.sh) 1.3+ runtime
+- macOS on Apple Silicon
+- Xcode 16+ with the Metal Toolchain
+- CMake 3.24+
+- Bun 1.3+
 
-See [docs/setup.md](./docs/setup.md) for detailed setup instructions.
+See [docs/setup.md](./docs/setup.md) for the full environment setup.
 
-## Quick Start
+## Quick start
 
 ```bash
 bun install
-cd packages/mlx-ts && bun run build:native  # builds MLX + mlx-c (~5-15 min first time)
-bun test                                     # run all tests
+bun run build:native
+bun run validate
 ```
 
-## Status
+The native build step only applies to `@mlxts/core`; the other packages build
+on top of that runtime surface.
 
-**Phase 1: Core Bindings** — Building mlx-ts FFI layer over Apple's MLX.
+If you want to sanity-check the operator fixture after validation:
 
-See [PLAN.md](./PLAN.md) for the full roadmap.
+```bash
+bun run run:nanogpt --help
+bun run acceptance:gpt-tiny
+```
 
-## License
+## Package examples
 
-MIT
+```ts
+import { mxEval, ones, matmul } from "@mlxts/core";
+
+using a = ones([3, 3]);
+using b = matmul(a, a);
+mxEval(b);
+console.log(b.toList());
+```
+
+```ts
+import { Linear } from "@mlxts/nn";
+import { AdamW } from "@mlxts/optimizers";
+
+const layer = new Linear(4, 8);
+const optimizer = new AdamW(3e-4, 0.1);
+```
+
+## Repo ergonomics
+
+The repo now has explicit local release-prep tooling even though the actual npm
+publish step is manual:
+
+```bash
+bun run build
+bun run docs:api
+bun run pack:dry-run
+bun run release:check
+```
+
+That gives us dist builds, declaration output, TypeDoc generation, and tarball
+packing checks for the public packages before any real release happens.
+
+## What is intentionally deferred
+
+- moving nanoGPT into an in-repo `examples/` folder
+- a separate dedicated examples repo
+- real npm publishing
+- hosted API docs
+- Hugging Face Hub / transformer model loading
+
+Those come later in the roadmap once the core package ergonomics are finished.

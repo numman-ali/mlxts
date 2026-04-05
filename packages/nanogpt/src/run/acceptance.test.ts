@@ -167,6 +167,7 @@ describe("acceptance soak stability", () => {
     expect(options.parameterCount).toBeGreaterThan(0);
     expect(options.maxSlopeMbPerEvent).toBe(8);
     expect(options.stallTimeoutSeconds).toBe(600);
+    expect(options.lossTarget).toBe(1.8);
     expect(options.args).toContain("--early-stop-patience");
     expect(options.args).toContain("none");
   });
@@ -323,6 +324,17 @@ describe("acceptance soak stability", () => {
         lastValLoss: 1.25,
       }),
     ).toBe(1.25);
+    expect(
+      finalLossFromStatus({
+        runId: "run-2b",
+        state: "completed",
+        startedAt: "now",
+        updatedAt: "now",
+        supervisorHeartbeatAt: "now",
+        bestValLoss: 1.74,
+        lastValLoss: 1.73,
+      }),
+    ).toBe(1.73);
     expect(() =>
       finalLossFromStatus({
         runId: "run-3",

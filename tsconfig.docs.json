@@ -1,0 +1,18 @@
+{
+  "extends": "./tsconfig.json",
+  "include": [
+    "packages/core/src/**/*.ts",
+    "packages/nn/src/**/*.ts",
+    "packages/optimizers/src/**/*.ts",
+    "packages/train/src/**/*.ts",
+    "packages/data/src/**/*.ts",
+    "packages/tokenizers/src/**/*.ts"
+  ],
+  "exclude": [
+    "**/*.test.ts",
+    "**/dist/**",
+    "scripts/**",
+    "packages/core/native/**",
+    "packages/mlx-ts/**"
+  ]
+}

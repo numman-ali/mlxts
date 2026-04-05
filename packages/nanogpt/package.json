@@ -1,10 +1,20 @@
 {
   "name": "nanogpt",
   "version": "0.0.1",
+  "private": true,
   "type": "module",
-  "main": "src/index.ts",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    }
+  },
   "bin": {
-    "nanogpt": "src/cli.ts"
+    "nanogpt": "./dist/cli.js"
   },
   "dependencies": {
     "@mlxts/core": "workspace:*",
@@ -18,7 +28,7 @@
     "typecheck": "tsc --noEmit",
     "test": "bun test",
     "test:coverage": "bun test --coverage",
-    "build": "echo 'TODO: build'",
+    "build": "bun run ../../scripts/build-package.ts --entry src/index.ts --entry src/cli.ts --entry src/run/manager.ts --entry src/run/acceptance.ts --entry src/run/soak.ts --entry src/run/supervisor.ts --entry src/bench/memory.ts",
     "bench:memory": "bun run src/bench/memory.ts",
     "soak:tiny": "bun run src/run/soak.ts --preset gpt-tiny",
     "soak:small": "bun run src/run/soak.ts --preset gpt-small",

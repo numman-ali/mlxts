@@ -12,6 +12,16 @@ const ROOT = resolve(import.meta.dirname, "..");
 const NATIVE_DIR = resolve(ROOT, "native");
 const BUILD_DIR = resolve(NATIVE_DIR, "build");
 const LIB_DIR = resolve(NATIVE_DIR, "lib");
+const METALLIB_PATH = resolve(
+  BUILD_DIR,
+  "_deps",
+  "mlx-build",
+  "mlx",
+  "backend",
+  "metal",
+  "kernels",
+  "mlx.metallib",
+);
 
 /** Run a shell command, streaming output. Throws on non-zero exit. */
 async function run(command: string[], options: { cwd: string }): Promise<void> {
@@ -161,10 +171,12 @@ async function main(): Promise<void> {
   console.log("@mlxts/core native build");
   console.log("=".repeat(50));
 
-  // Check if dylibs already exist (skip rebuild)
+  // Skip rebuild only when both the copied dylibs and the compiled metallib
+  // are present. The dylibs alone are not sufficient for MLX's Metal runtime.
   const mlxcExists = existsSync(resolve(LIB_DIR, "libmlxc.dylib"));
   const mlxExists = existsSync(resolve(LIB_DIR, "libmlx.dylib"));
-  if (mlxcExists && mlxExists) {
+  const metallibExists = existsSync(METALLIB_PATH);
+  if (mlxcExists && mlxExists && metallibExists) {
     console.log("\nDylibs already exist in native/lib/. Skipping build.");
     console.log("To force rebuild, delete native/lib/ and native/build/.");
     return;

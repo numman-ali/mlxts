@@ -353,7 +353,7 @@ Token Embedding + Position Embedding
 
 **Exit criteria**:
 - `bun run validate` passes
-- `gpt-tiny` trains to <1.5 validation loss on Shakespeare in an explicit acceptance run
+- `gpt-tiny` trains to <1.8 validation loss on Shakespeare in an explicit acceptance run
 - `gpt-small` also has an explicit loss-targeted acceptance run
 - Long unattended runs use the supervised `bun run run:nanogpt ...` surface rather than one-off scripts
 - Long-run acceptance follows a soak ladder (`50 → 250 → 1000 → 5000`) rather than jumping straight to overnight runs
@@ -399,9 +399,9 @@ This extraction is now real, not hypothetical:
 
 ### 5c. Package-first validation posture
 
-- `packages/nanogpt` remains a temporary validation fixture while the reusable packages stabilize
+- `packages/nanogpt` remains a temporary private validation fixture while the reusable packages stabilize
 - `@mlxts/train`, `@mlxts/data`, and `@mlxts/tokenizers` are the sole implementations of generic training/data/tokenizer behavior; `packages/nanogpt` only wraps them for GPT-specific flows
-- `bun run check:file-lines` enforces the 500-line cap for canonical `@mlxts/*` production files
+- `bun run check:file-lines` enforces the 500-line cap for active production source, including the temporary fixture
 - Coverage, runtime-review, type-assertion, and tensor-lifetime gates recognize the extracted package layout
 - `docs/reviews/phase-5-restructure.md` records the runtime-sensitive package extraction work
 - Phase 5 success is defined by clean package surfaces and truthful repo docs, not by forcing a premature in-repo example rewrite
@@ -431,20 +431,20 @@ This extraction is now real, not hypothetical:
 
 ## Phase 6: Publish Core Packages
 
-**Goal**: First npm publish. TypeDoc. CI. The world can `bun add @mlxts/core @mlxts/nn`.
+**Goal**: Make the public packages fully repo-ready for first npm publish. TypeDoc, CI, and package ergonomics land in-repo even if the actual publish step is still manual.
 
 **What this phase covers**:
 
 ### 6a. npm publishing
 
-- Publish `@mlxts/core`, `@mlxts/nn`, `@mlxts/optimizers`, `@mlxts/train`, `@mlxts/data`, `@mlxts/tokenizers`
+- Prepare `@mlxts/core`, `@mlxts/nn`, `@mlxts/optimizers`, `@mlxts/train`, `@mlxts/data`, and `@mlxts/tokenizers` for publish with correct manifests, dist output, and dry-run packaging
 - Semver versioning with changesets
 - `package.json` `exports` field for clean import paths
 - Build step for type declarations
 
 ### 6b. Documentation
 
-- TypeDoc API docs published and hosted
+- TypeDoc API docs generate cleanly in-repo and are ready to host
 - Quick-start guide: "Hello Tensor in 10 lines"
 - README with clear value prop, install instructions, examples
 

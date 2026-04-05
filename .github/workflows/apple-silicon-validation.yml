@@ -1,0 +1,36 @@
+name: Apple Silicon Validation
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  validate:
+    runs-on:
+      - self-hosted
+      - macOS
+      - ARM64
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Build native MLX runtime
+        run: bun run build:native
+
+      - name: Full validation
+        run: bun run validate
+
+      - name: Build package dist output
+        run: bun run build
+
+      - name: Operator smoke check
+        run: bun run run:nanogpt --help

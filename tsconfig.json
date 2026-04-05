@@ -1,9 +1,19 @@
 {
   "compilerOptions": {
     "strict": true,
+    "ignoreDeprecations": "6.0",
     "target": "ESNext",
     "module": "ESNext",
     "moduleResolution": "bundler",
+    "baseUrl": ".",
+    "paths": {
+      "@mlxts/core": ["packages/core/src/index.ts"],
+      "@mlxts/nn": ["packages/nn/src/index.ts"],
+      "@mlxts/optimizers": ["packages/optimizers/src/index.ts"],
+      "@mlxts/train": ["packages/train/src/index.ts"],
+      "@mlxts/data": ["packages/data/src/index.ts"],
+      "@mlxts/tokenizers": ["packages/tokenizers/src/index.ts"]
+    },
     "noEmit": true,
     "esModuleInterop": true,
     "skipLibCheck": true,

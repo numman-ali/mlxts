@@ -292,7 +292,7 @@ for (const pkg of PACKAGES) {
   ) {
     failed = true;
     console.error(
-      `${pkg.name} coverage gate failed: expected at least ${pkg.thresholds.lines}% lines and ${pkg.thresholds.functions}% funcs${
+      `${pkg.label} coverage gate failed: expected at least ${pkg.thresholds.lines}% lines and ${pkg.thresholds.functions}% funcs${
         hasBranchData && pkg.thresholds.branches !== undefined
           ? ` and ${pkg.thresholds.branches}% branches`
           : ""
@@ -301,7 +301,7 @@ for (const pkg of PACKAGES) {
     printWeakestFiles(files);
   } else if (pkg.thresholds.branches !== undefined && !hasBranchData) {
     console.log(
-      `${pkg.name} coverage: branch data unavailable in LCOV output, so the branch threshold was not enforced.`,
+      `${pkg.label} coverage: branch data unavailable in LCOV output, so the branch threshold was not enforced.`,
     );
   }
 }

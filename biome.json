@@ -51,11 +51,14 @@
       "**/*.tsx",
       "**/*.js",
       "**/*.json",
+      "!**/dist",
+      "!**/.tmp",
       "!**/.nanogpt-cache",
       "!**/.nanogpt-checkpoints",
       "!**/.nanogpt-runs",
-      "!packages/mlx-ts/native/build",
-      "!packages/mlx-ts/native/lib"
+      "!packages/mlx-ts",
+      "!packages/core/native/build",
+      "!packages/core/native/lib"
     ]
   },
   "overrides": [

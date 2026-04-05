@@ -23,9 +23,10 @@ now package-canonical: `@mlxts/train`, `@mlxts/data`, and `@mlxts/tokenizers`
 own the reusable implementations, while `packages/nanogpt` carries only GPT-
 specific adapters and the operator-facing validation harness.
 
-As part of that cutover, the former fixture-local files `packages/nanogpt/src/data.ts`
-and `packages/nanogpt/src/tokenizer.ts` were deleted after their package-owned
-equivalents became the sole implementations.
+That fixture has now been split down below the repo-wide 500-line production
+file cap. The runtime-sensitive CLI and run-manager code is still present, but
+it is broken into smaller modules so tensor ownership, checkpoint behavior, and
+operator-state transitions remain inspectable by eye.
 
 The review is intentionally incremental. The `Files Reviewed` section is updated
 as runtime-sensitive files move or split, and the evidence sections are
@@ -66,8 +67,12 @@ refreshed as the migration reaches new validation checkpoints.
 - `packages/data/src/text.ts`
 - `packages/nanogpt/src/bench/memory.ts`
 - `packages/nanogpt/src/checkpoint.ts`
+- `packages/nanogpt/src/cli/commands.ts`
+- `packages/nanogpt/src/cli/help.ts`
+- `packages/nanogpt/src/cli/session.ts`
+- `packages/nanogpt/src/cli/shared.ts`
+- `packages/nanogpt/src/cli/train-events.ts`
 - `packages/nanogpt/src/cli.ts`
-- `packages/nanogpt/src/data.ts`
 - `packages/nanogpt/src/generate.ts`
 - `packages/nanogpt/src/index.ts`
 - `packages/nanogpt/src/model/causal-self-attention.ts`
@@ -77,9 +82,22 @@ refreshed as the migration reaches new validation checkpoints.
 - `packages/nanogpt/src/model/transformer-block.ts`
 - `packages/nanogpt/src/optimizer-defaults.ts`
 - `packages/nanogpt/src/run/acceptance.ts`
+- `packages/nanogpt/src/run/acceptance-options.ts`
+- `packages/nanogpt/src/run/acceptance-runtime.ts`
 - `packages/nanogpt/src/safetensors.ts`
-- `packages/nanogpt/src/tokenizer.ts`
 - `packages/nanogpt/src/train.ts`
+- `packages/nanogpt/src/run/files-health.ts`
+- `packages/nanogpt/src/run/files-json.ts`
+- `packages/nanogpt/src/run/files-paths.ts`
+- `packages/nanogpt/src/run/files-types.ts`
+- `packages/nanogpt/src/run/files.ts`
+- `packages/nanogpt/src/run/manager-args.ts`
+- `packages/nanogpt/src/run/manager-run.ts`
+- `packages/nanogpt/src/run/manager-status.ts`
+- `packages/nanogpt/src/run/manager.ts`
+- `packages/nanogpt/src/run/supervisor-events.ts`
+- `packages/nanogpt/src/run/supervisor-streams.ts`
+- `packages/nanogpt/src/run/supervisor.ts`
 - `packages/nn/src/activations.ts`
 - `packages/nn/src/checkpoint.ts`
 - `packages/nn/src/dropout.ts`
@@ -122,13 +140,18 @@ existing tensor-lifetime rules while files move or split:
 Current evidence:
 
 - `bun run validate` passes on the current package-first layout
+- `bun run release:check` passes for the current package manifests, build
+  pipeline, TypeDoc config, and public tarball dry-runs
 - `cd packages/core && bun test` passes after splitting `array.ts` and `transforms.ts`
 - `cd packages/train && bun test` passes after extracting the generic training
   schedule, loop, gradient, checkpoint, and step-orchestration surfaces
 - `cd packages/nanogpt && bun test` passes after rewiring the temporary fixture
   directly onto `@mlxts/core`, `@mlxts/nn`, `@mlxts/optimizers`,
   `@mlxts/train`, `@mlxts/data`, and `@mlxts/tokenizers`
-- `bun run check:file-lines` passes for the canonical `@mlxts/*` package sources
+- `bun run acceptance:gpt-tiny` passes on the current package-first fixture
+  with the re-baselined tiny-run loss target
+- `bun run check:file-lines` passes for all active production source, including
+  the temporary fixture
 
 Throughput-sensitive long-run evidence for the legacy `packages/nanogpt`
 fixture remains a follow-up once the package extraction settles and the example
