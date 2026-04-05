@@ -9,13 +9,22 @@ export type {
 } from "./io-gguf";
 export { loadGguf, parseGgufMetadataJson, saveGguf } from "./io-gguf";
 export type {
+  InspectedSafetensors,
   LoadedSafetensors,
+  SafetensorByteChunkEntry,
   SafetensorTensorChunkEntry,
   SafetensorTensorEntry,
+  SafetensorTensorInfo,
+  SafetensorWriteEntry,
+  SupportedSafetensorsDType,
 } from "./io-safetensors";
 export {
+  inspectSafetensors,
+  iterateSafetensorByteChunks,
   iterateSafetensors,
   iterateSafetensorTensorChunks,
   loadSafetensors,
   saveSafetensors,
+  saveSafetensorsStream,
+  tensorBytes,
 } from "./io-safetensors";

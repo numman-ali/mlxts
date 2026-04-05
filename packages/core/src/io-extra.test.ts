@@ -1,14 +1,18 @@
 import { describe, expect, test } from "bun:test";
-import { closeSync, ftruncateSync, mkdtempSync, openSync, writeSync } from "fs";
+import { closeSync, existsSync, ftruncateSync, mkdtempSync, openSync, writeSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 
 import { array } from "./array";
 import {
+  inspectSafetensors,
+  iterateSafetensorByteChunks,
   iterateSafetensors,
   iterateSafetensorTensorChunks,
   loadSafetensors,
   saveSafetensors,
+  saveSafetensorsStream,
+  tensorBytes,
 } from "./io";
 
 function writeFixturePath(name: string): string {
@@ -60,6 +64,30 @@ describe("io extra coverage", () => {
     expect(restored?.toList()).toEqual([1, 2, 3]);
   });
 
+  test("saveSafetensors round-trips bool tensors", async () => {
+    const path = writeFixturePath("bool-roundtrip");
+    using tensor = array(new Uint8Array([1, 0, 1]), "bool");
+
+    await saveSafetensors({ mask: tensor }, path);
+    const loaded = await loadSafetensors(path);
+    using restored = loaded.tensors.mask;
+    expect(restored).toBeDefined();
+    expect(restored?.dtype).toBe("bool");
+    expect(restored?.toList()).toEqual([1, 0, 1]);
+  });
+
+  test("saveSafetensors round-trips scalar tensors", async () => {
+    const path = writeFixturePath("scalar-roundtrip");
+    using tensor = array(7, "int32");
+
+    await saveSafetensors({ scalar: tensor }, path);
+    const loaded = await loadSafetensors(path);
+    using restored = loaded.tensors.scalar;
+    expect(restored).toBeDefined();
+    expect(restored?.shape).toEqual([]);
+    expect(restored?.item()).toBe(7);
+  });
+
   test("loadSafetensors rejects malformed tensor headers", async () => {
     const path = writeFixturePath("malformed-header");
     await Bun.write(
@@ -74,6 +102,15 @@ describe("io extra coverage", () => {
     );
 
     await expect(loadSafetensors(path)).rejects.toThrow('header entry "bad" is malformed');
+  });
+
+  test("loadSafetensors rejects files that are too small for a header prefix", async () => {
+    const path = writeFixturePath("too-small");
+    await Bun.write(path, new Uint8Array([1, 2, 3, 4]));
+
+    await expect(loadSafetensors(path)).rejects.toThrow(
+      "loadSafetensors: file is too small to contain a valid header",
+    );
   });
 
   test("loadSafetensors rejects tensors that extend past the file size", async () => {
@@ -207,5 +244,114 @@ describe("io extra coverage", () => {
         ],
       },
     ]);
+  });
+
+  test("inspectSafetensors reads tensor metadata without loading payloads", async () => {
+    const path = writeFixturePath("inspect-manifest");
+    using left = array([1, 2], "float32");
+    using right = array(
+      [
+        [3, 4],
+        [5, 6],
+      ],
+      "int32",
+    );
+    await saveSafetensors({ left, right }, path, { source: "inspect" });
+
+    const inspection = await inspectSafetensors(path);
+    expect(inspection.metadata).toEqual({ source: "inspect" });
+    expect(inspection.tensors).toEqual([
+      { name: "left", shape: [2], dtype: "float32", byteLength: 8 },
+      { name: "right", shape: [2, 2], dtype: "int32", byteLength: 16 },
+    ]);
+  });
+
+  test("iterateSafetensorByteChunks streams raw tensor bytes in bounded slices", async () => {
+    const path = writeFixturePath("byte-chunks");
+    using matrix = array(
+      [
+        [1, 2],
+        [3, 4],
+      ],
+      "float32",
+    );
+    await saveSafetensors({ matrix }, path);
+
+    const chunks: number[] = [];
+    for await (const entry of iterateSafetensorByteChunks(path, "matrix", {
+      maxBytesPerChunk: 8,
+    })) {
+      chunks.push(entry.byteLength);
+    }
+
+    expect(chunks).toEqual([8, 8]);
+  });
+
+  test("saveSafetensorsStream writes streamed byte entries", async () => {
+    const path = writeFixturePath("stream-save");
+    const leftBytes = new Uint8Array(new Float32Array([1, 2]).buffer.slice(0));
+    const rightBytes = new Uint8Array(new Int32Array([3, 4]).buffer.slice(0));
+
+    await saveSafetensorsStream(
+      [
+        {
+          name: "left",
+          shape: [2],
+          dtype: "float32",
+          chunks: function* () {
+            yield leftBytes.subarray(0, 4);
+            yield leftBytes.subarray(4);
+          },
+        },
+        {
+          name: "right",
+          shape: [2],
+          dtype: "int32",
+          chunks: function* () {
+            yield rightBytes;
+          },
+        },
+      ],
+      path,
+      { source: "stream" },
+    );
+
+    const loaded = await loadSafetensors(path);
+    using restoredLeft = loaded.tensors.left;
+    using restoredRight = loaded.tensors.right;
+    expect(loaded.metadata).toEqual({ source: "stream" });
+    expect(restoredLeft?.toList()).toEqual([1, 2]);
+    expect(restoredRight?.toList()).toEqual([3, 4]);
+  });
+
+  test("tensorBytes bridges tensor payloads into safetensors-compatible bytes", () => {
+    using tensor = array([1, 2, 3], "float32");
+
+    const bytes = tensorBytes(tensor);
+
+    expect(bytes.byteLength).toBe(12);
+    expect(new Float32Array(bytes.buffer.slice(0))).toEqual(new Float32Array([1, 2, 3]));
+  });
+
+  test("saveSafetensorsStream rejects mismatched byte counts and removes partial files", async () => {
+    const path = writeFixturePath("stream-save-mismatch");
+
+    await expect(
+      saveSafetensorsStream(
+        [
+          {
+            name: "broken",
+            shape: [2],
+            dtype: "float32",
+            chunks: function* () {
+              yield new Uint8Array(4);
+            },
+          },
+        ],
+        path,
+      ),
+    ).rejects.toThrow('saveSafetensorsStream: entry "broken" wrote 4 bytes, expected 8.');
+
+    expect(existsSync(path)).toBe(false);
   });
 });

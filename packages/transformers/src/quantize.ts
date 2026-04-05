@@ -1,5 +1,18 @@
-import type { DType, MxArray, QuantizationMode } from "@mlxts/core";
-import { iterateSafetensors, quantize, saveSafetensors } from "@mlxts/core";
+import type {
+  DType,
+  QuantizationMode,
+  SafetensorTensorInfo,
+  SafetensorWriteEntry,
+  SupportedSafetensorsDType,
+} from "@mlxts/core";
+import {
+  inspectSafetensors,
+  iterateSafetensorByteChunks,
+  iterateSafetensors,
+  quantize,
+  saveSafetensorsStream,
+  tensorBytes,
+} from "@mlxts/core";
 import { type QuantizationParameters, resolveQuantizationParameters } from "@mlxts/quantize";
 import { existsSync, mkdirSync, rmSync, statSync } from "fs";
 import { dirname, join, relative, resolve } from "path";
@@ -73,32 +86,6 @@ function parseConfigForQuantization(inspectionConfig: Record<string, unknown>): 
     registration,
     config: registration.parseConfig(inspectionConfig),
   };
-}
-
-function isQuantizableMappedWeight(
-  mappedPath: string | null,
-  tensor: MxArray,
-  params: QuantizationParameters,
-  options: Pick<QuantizePretrainedSnapshotOptions, "quantizeLmHead">,
-): mappedPath is string {
-  if (mappedPath === null || !mappedPath.endsWith(".weight")) {
-    return false;
-  }
-  if (tensor.shape.length !== 2 || !isFloatingDType(tensor.dtype)) {
-    return false;
-  }
-  if (
-    mappedPath.endsWith("embedTokens.weight") ||
-    mappedPath.endsWith("embedTokensPerLayer.weight")
-  ) {
-    return false;
-  }
-  if (options.quantizeLmHead === false && mappedPath === "lmHead.weight") {
-    return false;
-  }
-
-  const inputDims = tensor.shape[1];
-  return inputDims !== undefined && inputDims % params.groupSize === 0;
 }
 
 function quantizationConfigRecord(params: QuantizationParameters): Record<string, number | string> {
@@ -175,35 +162,179 @@ type QuantizedShardResult = {
   outputBytes: number;
 };
 
-function recordCopiedTensor(
-  rewritten: Record<string, MxArray>,
-  shardWeightMap: Record<string, string>,
-  name: string,
-  tensor: MxArray,
-  relativeShardPath: string,
-): void {
-  rewritten[name] = tensor;
-  shardWeightMap[name] = relativeShardPath;
+const COPY_CHUNK_BYTES = 8 * 1024 * 1024;
+
+function packedColumnCount(inputDims: number, bits: number): number {
+  const packedColumns = (inputDims * bits) / 32;
+  if (!Number.isInteger(packedColumns)) {
+    throw new Error(
+      `quantizePretrainedSnapshot: inputDims ${inputDims} and bits ${bits} do not form a valid packed layout.`,
+    );
+  }
+  return packedColumns;
 }
 
-function recordQuantizedTensor(
-  rewritten: Record<string, MxArray>,
-  shardWeightMap: Record<string, string>,
-  name: string,
-  quantizedTensor: ReturnType<typeof quantize>,
-  relativeShardPath: string,
-): void {
-  const scalesKey = quantizedTensorKey(name, ".scales");
-  rewritten[name] = quantizedTensor.weight;
-  rewritten[scalesKey] = quantizedTensor.scales;
-  shardWeightMap[name] = relativeShardPath;
-  shardWeightMap[scalesKey] = relativeShardPath;
-
-  if (quantizedTensor.biases !== undefined) {
-    const biasesKey = quantizedTensorKey(name, ".biases");
-    rewritten[biasesKey] = quantizedTensor.biases;
-    shardWeightMap[biasesKey] = relativeShardPath;
+function quantizationGroupCount(inputDims: number, groupSize: number): number {
+  if (inputDims % groupSize !== 0) {
+    throw new Error(
+      `quantizePretrainedSnapshot: inputDims ${inputDims} must be divisible by groupSize ${groupSize}.`,
+    );
   }
+  return inputDims / groupSize;
+}
+
+function isQuantizableMappedWeight(
+  mappedPath: string | null,
+  tensor: Pick<SafetensorTensorInfo, "shape" | "dtype">,
+  params: QuantizationParameters,
+  options: Pick<QuantizePretrainedSnapshotOptions, "quantizeLmHead">,
+): mappedPath is string {
+  if (mappedPath === null || !mappedPath.endsWith(".weight")) {
+    return false;
+  }
+  if (tensor.shape.length !== 2 || !isFloatingDType(tensor.dtype)) {
+    return false;
+  }
+  if (
+    mappedPath.endsWith("embedTokens.weight") ||
+    mappedPath.endsWith("embedTokensPerLayer.weight")
+  ) {
+    return false;
+  }
+  if (options.quantizeLmHead === false && mappedPath === "lmHead.weight") {
+    return false;
+  }
+
+  const inputDims = tensor.shape[1];
+  return inputDims !== undefined && inputDims % params.groupSize === 0;
+}
+
+function copyTensorEntry(shardPath: string, tensor: SafetensorTensorInfo): SafetensorWriteEntry {
+  return {
+    name: tensor.name,
+    shape: tensor.shape,
+    dtype: tensor.dtype,
+    chunks: () =>
+      (async function* (): AsyncGenerator<Uint8Array, void, void> {
+        for await (const chunk of iterateSafetensorByteChunks(shardPath, tensor.name, {
+          maxBytesPerChunk: COPY_CHUNK_BYTES,
+        })) {
+          yield chunk.bytes;
+        }
+      })(),
+  };
+}
+
+type OutputTensorDescriptor = {
+  name: string;
+  shape: number[];
+  dtype: SupportedSafetensorsDType;
+};
+
+function quantizedOutputDescriptors(
+  tensor: SafetensorTensorInfo,
+  params: QuantizationParameters,
+): OutputTensorDescriptor[] {
+  const [outputDims, inputDims] = tensor.shape;
+  if (outputDims === undefined || inputDims === undefined || tensor.shape.length !== 2) {
+    throw new Error(
+      `quantizePretrainedSnapshot: expected a 2D weight tensor for "${tensor.name}".`,
+    );
+  }
+
+  const groupCount = quantizationGroupCount(inputDims, params.groupSize);
+  const descriptors: OutputTensorDescriptor[] = [
+    {
+      name: tensor.name,
+      shape: [outputDims, packedColumnCount(inputDims, params.bits)],
+      dtype: "uint32",
+    },
+    {
+      name: quantizedTensorKey(tensor.name, ".scales"),
+      shape: [outputDims, groupCount],
+      dtype: "float32",
+    },
+  ];
+
+  if (params.mode === "affine") {
+    descriptors.push({
+      name: quantizedTensorKey(tensor.name, ".biases"),
+      shape: [outputDims, groupCount],
+      dtype: "float32",
+    });
+  }
+
+  return descriptors;
+}
+
+async function loadShardTensorByName(shardPath: string, name: string) {
+  for await (const entry of iterateSafetensors(shardPath, {
+    include: (candidate) => candidate === name,
+  })) {
+    return entry.tensor;
+  }
+
+  throw new Error(`quantizePretrainedSnapshot: tensor "${name}" was not found in "${shardPath}".`);
+}
+
+function quantizedTensorEntries(
+  shardPath: string,
+  tensor: SafetensorTensorInfo,
+  params: QuantizationParameters,
+): SafetensorWriteEntry[] {
+  const descriptors = quantizedOutputDescriptors(tensor, params);
+  let cachedBytes: Record<string, Uint8Array> | null = null;
+  let remainingEntries = descriptors.length;
+
+  async function ensureBytes(): Promise<Record<string, Uint8Array>> {
+    if (cachedBytes !== null) {
+      return cachedBytes;
+    }
+
+    using sourceTensor = await loadShardTensorByName(shardPath, tensor.name);
+    const quantizedTensor = quantize(sourceTensor, params);
+    try {
+      cachedBytes = {
+        [tensor.name]: tensorBytes(quantizedTensor.weight, "uint32"),
+        [quantizedTensorKey(tensor.name, ".scales")]: tensorBytes(
+          quantizedTensor.scales,
+          "float32",
+        ),
+        ...(quantizedTensor.biases === undefined
+          ? {}
+          : {
+              [quantizedTensorKey(tensor.name, ".biases")]: tensorBytes(
+                quantizedTensor.biases,
+                "float32",
+              ),
+            }),
+      };
+    } finally {
+      quantizedTensor.weight.free();
+      quantizedTensor.scales.free();
+      quantizedTensor.biases?.free();
+    }
+
+    return cachedBytes;
+  }
+
+  return descriptors.map((descriptor) => ({
+    ...descriptor,
+    chunks: () =>
+      (async function* (): AsyncGenerator<Uint8Array, void, void> {
+        const bytes = (await ensureBytes())[descriptor.name];
+        if (bytes === undefined) {
+          throw new Error(
+            `quantizePretrainedSnapshot: missing quantized bytes for "${descriptor.name}".`,
+          );
+        }
+        yield bytes;
+        remainingEntries -= 1;
+        if (remainingEntries === 0) {
+          cachedBytes = null;
+        }
+      })(),
+  }));
 }
 
 async function quantizeShard(
@@ -216,37 +347,34 @@ async function quantizeShard(
   options: Pick<QuantizePretrainedSnapshotOptions, "quantizeLmHead">,
   shardWeightMap: Record<string, string>,
 ): Promise<QuantizedShardResult> {
-  const rewritten: Record<string, MxArray> = {};
+  const shardInspection = await inspectSafetensors(shardPath);
+  const outputEntries: SafetensorWriteEntry[] = [];
   let quantizedTensorCount = 0;
   let copiedTensorCount = 0;
 
-  try {
-    for await (const { name, tensor } of iterateSafetensors(shardPath)) {
-      const mappedPath = registration.sanitizeWeight(config, name);
-      if (!isQuantizableMappedWeight(mappedPath, tensor, params, options)) {
-        recordCopiedTensor(rewritten, shardWeightMap, name, tensor, relativeShardPath);
-        copiedTensorCount += 1;
-        continue;
-      }
-
-      const quantizedTensor = quantize(tensor, params);
-      tensor.free();
-      recordQuantizedTensor(rewritten, shardWeightMap, name, quantizedTensor, relativeShardPath);
-      quantizedTensorCount += 1;
+  for (const tensor of shardInspection.tensors) {
+    const mappedPath = registration.sanitizeWeight(config, tensor.name);
+    if (!isQuantizableMappedWeight(mappedPath, tensor, params, options)) {
+      outputEntries.push(copyTensorEntry(shardPath, tensor));
+      shardWeightMap[tensor.name] = relativeShardPath;
+      copiedTensorCount += 1;
+      continue;
     }
 
-    const outputShardPath = join(outputDir, relativeShardPath);
-    await saveSafetensors(rewritten, outputShardPath);
-    return {
-      quantizedTensorCount,
-      copiedTensorCount,
-      outputBytes: fileSize(outputShardPath),
-    };
-  } finally {
-    for (const tensor of Object.values(rewritten)) {
-      tensor.free();
+    for (const entry of quantizedTensorEntries(shardPath, tensor, params)) {
+      outputEntries.push(entry);
+      shardWeightMap[entry.name] = relativeShardPath;
     }
+    quantizedTensorCount += 1;
   }
+
+  const outputShardPath = join(outputDir, relativeShardPath);
+  await saveSafetensorsStream(outputEntries, outputShardPath, shardInspection.metadata);
+  return {
+    quantizedTensorCount,
+    copiedTensorCount,
+    outputBytes: fileSize(outputShardPath),
+  };
 }
 
 function resolvedIndexRelativePath(

@@ -42,12 +42,19 @@ export {
 export { formatShape } from "./format-shape";
 export type {
   GgufMetadataValue,
+  InspectedSafetensors,
   LoadedGguf,
   LoadedSafetensors,
+  SafetensorByteChunkEntry,
   SafetensorTensorChunkEntry,
   SafetensorTensorEntry,
+  SafetensorTensorInfo,
+  SafetensorWriteEntry,
+  SupportedSafetensorsDType,
 } from "./io";
 export {
+  inspectSafetensors,
+  iterateSafetensorByteChunks,
   iterateSafetensors,
   iterateSafetensorTensorChunks,
   loadGguf,
@@ -55,6 +62,8 @@ export {
   parseGgufMetadataJson,
   saveGguf,
   saveSafetensors,
+  saveSafetensorsStream,
+  tensorBytes,
 } from "./io";
 export type { MemoryStats } from "./memory";
 export {

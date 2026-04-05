@@ -26,6 +26,7 @@ MLX array construction at the batch boundary.
 - `packages/core/src/index.ts`
 - `packages/core/src/io.ts`
 - `packages/core/src/io-gguf.ts`
+- `packages/core/src/io-safetensors.ts`
 - `packages/core/src/quantization.ts`
 - `packages/data/src/chat.ts`
 - `packages/data/src/collation.ts`
@@ -68,10 +69,19 @@ MLX array construction at the batch boundary.
   still keeps checkpoint tensor ownership explicit: ignored weights are skipped
   before assignment, assigned tensors transfer into the module tree, and loader
   errors still dispose the partially built model.
-- `quantizePretrainedSnapshot()` keeps shard rewriting bounded to one shard at a
-  time. Each shard accumulates explicit `rewritten` tensor locals, saves the
-  shard, and then frees every retained tensor in a `finally` block before the
-  next shard begins.
+- `saveSafetensors()` now writes headers and tensor payloads incrementally
+  instead of concatenating one giant JavaScript buffer for the entire file.
+  That keeps ordinary safetensors writes readable while removing a major
+  large-file peak-memory hazard from the core I/O layer.
+- `inspectSafetensors()` and `iterateSafetensorByteChunks()` let higher layers
+  inspect shard metadata and copy raw tensor payloads without bridging those
+  bytes through temporary `MxArray` ownership. That is important for giant
+  copied tensors like Gemma 4's per-layer embeddings.
+- `quantizePretrainedSnapshot()` no longer accumulates one `Record<string,
+  MxArray>` for the whole rewritten shard. It now plans output tensor metadata
+  up front, raw-copies non-quantized tensors in bounded byte chunks, and only
+  caches one quantized source tensor's output bytes at a time while its
+  `.weight`, `.scales`, and optional `.biases` entries are emitted.
 - `loadGguf()` uses MLX's native `load_gguf()` path behind a custom bridge, then
   copies named map entries into owned `MxArray` handles on the TypeScript side
   before freeing the native map container. GGUF metadata is serialized to JSON
@@ -99,9 +109,15 @@ MLX array construction at the batch boundary.
   `bun run --filter '@mlxts/core' typecheck`,
   `bun run --filter '@mlxts/quantize' typecheck`,
   `bun run --filter '@mlxts/transformers' typecheck`,
+  `bun test packages/core/src/io.test.ts packages/core/src/io-extra.test.ts`,
   `bun test packages/core/src/io-gguf.test.ts packages/quantize/src/gguf.test.ts`,
   and
   `bun test packages/transformers/src/infrastructure/generation-defaults.test.ts packages/transformers/src/load.test.ts`.
+- A real cached-model export attempt on `google/gemma-4-E2B-it` now stays under
+  roughly `1.1 GB` peak RSS instead of blowing up into multi-gigabyte shard
+  buffering. The run still crashes inside Bun during the long-running
+  large-file export path before completion, so the current blocker is runtime
+  stability rather than the quantization algorithm's memory shape.
 - Focused quantization correctness coverage now includes a direct
   `quantizedMatmul` parity test against dense matmul with dequantized weights.
 - Focused loader coverage now includes checkpoint-driven quantized module setup
@@ -135,6 +151,12 @@ before this milestone should be considered fully closed.
   Gemma-family chat behavior should still be evaluated through the full
   chat-template and generation-default path rather than blamed on quantization
   or LoRA by default.
+- The new streaming export path materially improves memory behavior for large
+  checkpoints, but full end-to-end quantization of `google/gemma-4-E2B-it`
+  still exposes a Bun crash in the mixed large-file copy plus quantization
+  flow. Until that runtime issue is worked around or fixed upstream, the
+  Gemma-4-class self-quantization proof remains partially blocked even though
+  the repo-side algorithm is no longer the obvious source of the failure.
 - Alignment recipes now exist as reusable package surfaces, but longer
   convergence evidence and recipe-level operator UX still belong to later
   training and serving milestones.
