@@ -19,6 +19,18 @@ interoperability enters through a thin custom MLX bridge instead of a repo-owned
 format parser, and the new data surfaces remain plain TypeScript plus explicit
 MLX array construction at the batch boundary.
 
+This review also covers the follow-on generation change that makes the
+transformers package usable for real interactive checkpoint validation. The
+generation surface can now reuse an external prompt cache across turns and
+stream decoded text chunks through an explicit callback while keeping the
+underlying token-decode loop and cache-update structure unchanged.
+
+It also now covers the Phase 7 fidelity follow-up that surfaced while testing
+Gemma-family chat checkpoints: tokenizer encoding must match inline
+`added_tokens` before ordinary BPE segmentation, and prompt compilation for
+chat-capable checkpoints now lives behind a shared interaction profile instead
+of being duplicated in the example layer.
+
 ## Files Reviewed
 
 - `packages/core/src/ffi/symbols.ts`
@@ -38,9 +50,14 @@ MLX array construction at the batch boundary.
 - `packages/nn/src/lora-linear.ts`
 - `packages/nn/src/module.ts`
 - `packages/nn/src/quantized-linear.ts`
+- `packages/transformers/src/families/gemma4/model.ts`
 - `packages/transformers/src/generation.ts`
+- `packages/tokenizers/src/bpe-added-tokens.ts`
+- `packages/tokenizers/src/bpe-base.ts`
+- `packages/tokenizers/src/bpe-merges.ts`
 - `packages/transformers/src/infrastructure/generation-defaults.ts`
 - `packages/transformers/src/index.ts`
+- `packages/transformers/src/interaction-profile.ts`
 - `packages/transformers/src/load.ts`
 - `packages/transformers/src/quantize.ts`
 - `packages/transformers/src/types.ts`
@@ -91,6 +108,33 @@ MLX array construction at the batch boundary.
   defaults with explicit options and tokenizer EOS ids before decode begins, so
   EOS handling stays a simple named local set instead of model-specific stop
   logic being scattered through the decode loop.
+- `BPETokenizer.encodeWithOffsets()` now splits raw text around inline
+  `added_tokens` before byte-level or sentencepiece segmentation. That keeps
+  Gemma-style turn markers and byte-level control tokens visible as owned named
+  chunks instead of being buried inside ordinary token-piece fallback logic.
+- The added-token matcher and BPE merge helpers were split into dedicated
+  internal helpers so `bpe-base.ts` stays under the repo line-limit gate
+  without hiding ownership or prompt-compilation logic behind a monolithic
+  tokenizer file.
+- `generateTokens()` can now accept an explicitly owned prompt cache, but it
+  still keeps ownership visible in code: internally created caches stay scoped
+  to the helper, externally provided caches are never auto-disposed, and the
+  option combination `cache + useCache: false` throws immediately instead of
+  leaving ambiguous ownership or partially warmed cache state.
+- `generateTextStream()` is callback-based rather than iterator-based on
+  purpose. That keeps the existing dedicated generation stream scope,
+  asynchronous MLX eval scheduling, and wired-memory limit logic in the same
+  synchronous decode path instead of splitting ownership across a long-lived JS
+  iterator object.
+- `InteractionProfile.compileMessages()` now owns chat-template rendering plus
+  tokenizer encoding in one shared place. That keeps checkpoint-specific prompt
+  compilation out of examples and creates a single contract that later serving
+  adapters can reuse without re-implementing model-family prompt logic.
+- `Gemma4TextModel.createPerLayerInputs()` now scales per-layer token
+  embeddings by `sqrt(hidden_size_per_layer_input)` before they are combined
+  with the projected model-side per-layer inputs. That matches mlx-lm’s Gemma 4
+  dense path and fixes the degraded Gemma 4 dense-generation canary without
+  changing the generic generation stack.
 - `collateTokenSupervisionBatch()` and `collatePreferenceBatch()` keep the data
   boundary explicit: host-side typed arrays are filled first, then wrapped into
   MLX arrays with named `using` locals before reshape. There are no nested
@@ -113,6 +157,29 @@ MLX array construction at the batch boundary.
   `bun test packages/core/src/io-gguf.test.ts packages/quantize/src/gguf.test.ts`,
   and
   `bun test packages/transformers/src/infrastructure/generation-defaults.test.ts packages/transformers/src/load.test.ts`.
+- The streaming generation follow-up passes `bun run typecheck` across the full
+  workspace and focused transformers coverage for the new path:
+  `bun test packages/transformers/src/load.test.ts packages/transformers/src/chat-template.test.ts`.
+  That coverage now explicitly checks that streamed text matches buffered text,
+  that a caller-owned prompt cache can be reused across turns, and that invalid
+  `cache + useCache: false` combinations fail fast.
+- The tokenizer and prompt-compilation follow-up now passes direct parity-style
+  coverage for inline special-token encoding and shared chat compilation:
+  `bun test packages/tokenizers/src/bpe.test.ts`,
+  `bun test packages/transformers/src/interaction-profile.test.ts packages/transformers/src/chat-template.test.ts`.
+  That coverage explicitly checks sentencepiece-style turn markers, byte-level
+  inline control tokens, and compiled prompt text plus token IDs for llama-,
+  mistral-, phi-, and gemma-style chat templates.
+- The Gemma 4 follow-up now also passes focused regression coverage for the
+  per-layer input scale path:
+  `bun test packages/transformers/src/families/gemma4/model.test.ts packages/transformers/src/families/gemma4/weights.test.ts`.
+  The new test captures the per-layer input tensor handed to the decoder block
+  and verifies that the token-embedding branch is scaled by
+  `sqrt(hiddenSizePerLayerInput)` before the standard `2^-0.5` combine step.
+- Real dense-model validation now shows the repaired Gemma 4 E2B path behaving
+  coherently in `examples/chat/`: the same `Hello there` prompt that
+  previously devolved into repeated `wiwi...` tokens now produces
+  `Hello! How can I help you today? 😊` under the greedy chat canary.
 - A real cached-model export attempt on `google/gemma-4-E2B-it` now stays under
   roughly `1.1 GB` peak RSS instead of blowing up into multi-gigabyte shard
   buffering. The run still crashes inside Bun during the long-running
@@ -157,6 +224,12 @@ before this milestone should be considered fully closed.
   flow. Until that runtime issue is worked around or fixed upstream, the
   Gemma-4-class self-quantization proof remains partially blocked even though
   the repo-side algorithm is no longer the obvious source of the failure.
+- The interactive `examples/chat/` surface now matches the intended minimal
+  validation shape more closely, but it still intentionally stops short of full
+  tokenizer-side chat-feature parity. If a supported checkpoint still shows
+  turn-marker leakage after this change, the next fix should stay in the
+  checkpoint defaults / template boundary rather than expanding into tool
+  calling or `@mlxts/serve`.
 - Alignment recipes now exist as reusable package surfaces, but longer
   convergence evidence and recipe-level operator UX still belong to later
   training and serving milestones.

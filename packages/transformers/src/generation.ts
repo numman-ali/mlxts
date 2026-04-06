@@ -28,6 +28,7 @@ import type {
   GenerationOptions,
   GenerationResult,
   SamplerOptions,
+  TextGenerationResult,
   TransformerCache,
 } from "./types";
 
@@ -106,9 +107,10 @@ function generateWithCache(
   eosTokenIds: ReadonlySet<number>,
   prefillStepSize: number,
   generated: number[],
+  cache: TransformerCache,
+  onToken?: (tokenId: number, generatedTokenIds: readonly number[]) => void,
 ): GenerationResult {
   using samplerState = new SamplerState(promptTokenIds, options);
-  using cache = makePromptCache(model);
   const initialPrompt =
     promptTokenIds.length > 1
       ? prefillPromptCache(model, promptTokenIds, cache, prefillStepSize)
@@ -131,6 +133,7 @@ function generateWithCache(
       mxEval(currentToken);
       const tokenId = currentToken.item();
       generated.push(tokenId);
+      onToken?.(tokenId, generated);
 
       const eosFinishReason = finishIfEos(eosTokenIds, tokenId);
       if (eosFinishReason !== null) {
@@ -170,6 +173,7 @@ function generateWithoutCache(
   options: GenerationOptions,
   eosTokenIds: ReadonlySet<number>,
   generated: number[],
+  onToken?: (tokenId: number, generatedTokenIds: readonly number[]) => void,
 ): GenerationResult {
   using samplerState = new SamplerState(promptTokenIds, options);
   const runningPrompt = [...promptTokenIds];
@@ -187,6 +191,7 @@ function generateWithoutCache(
       currentToken.eval();
       const tokenId = currentToken.item();
       generated.push(tokenId);
+      onToken?.(tokenId, generated);
       runningPrompt.push(tokenId);
 
       const eosFinishReason = finishIfEos(eosTokenIds, tokenId);
@@ -223,6 +228,87 @@ export function makePromptCache(model: CausalLM): TransformerCache {
   return model.createCache();
 }
 
+function validateCacheOptions(options: GenerationOptions): void {
+  if (options.cache !== undefined && options.useCache === false) {
+    throw new Error("generation: cache cannot be provided when useCache is false.");
+  }
+}
+
+function generateTokensInternal(
+  model: CausalLM,
+  promptTokenIds: readonly number[],
+  options: GenerationOptions,
+  onToken?: (tokenId: number, generatedTokenIds: readonly number[]) => void,
+): GenerationResult {
+  validateCacheOptions(options);
+
+  if (promptTokenIds.length === 0) {
+    throw new Error("generateTokens: promptTokenIds must contain at least one token.");
+  }
+  if (options.maxTokens < 0) {
+    throw new Error(`generateTokens: maxTokens must be >= 0, got ${options.maxTokens}.`);
+  }
+  if (options.maxTokens === 0) {
+    return { tokenIds: [], finishReason: "length" };
+  }
+
+  const resolvedOptions = resolveGenerationOptions(model, undefined, options);
+  const generated: number[] = [];
+  const eosTokenIds = new Set(resolvedOptions.eosTokenIds ?? []);
+  const useCache = resolvedOptions.useCache ?? true;
+  const prefillStepSize = resolvedOptions.prefillStepSize ?? 2048;
+
+  validatePrefillStepSize(prefillStepSize, "generateTokens");
+
+  return runGenerationScope(() => {
+    if (!useCache) {
+      return generateWithoutCache(
+        model,
+        promptTokenIds,
+        resolvedOptions,
+        eosTokenIds,
+        generated,
+        onToken,
+      );
+    }
+
+    const externalCache = resolvedOptions.cache;
+    if (externalCache !== undefined) {
+      return generateWithCache(
+        model,
+        promptTokenIds,
+        resolvedOptions,
+        eosTokenIds,
+        prefillStepSize,
+        generated,
+        externalCache,
+        onToken,
+      );
+    }
+
+    using cache = makePromptCache(model);
+    return generateWithCache(
+      model,
+      promptTokenIds,
+      resolvedOptions,
+      eosTokenIds,
+      prefillStepSize,
+      generated,
+      cache,
+      onToken,
+    );
+  });
+}
+
+function commonPrefixLength(left: string, right: string): number {
+  const limit = Math.min(left.length, right.length);
+  let index = 0;
+  while (index < limit && left[index] === right[index]) {
+    index += 1;
+  }
+  return index;
+}
+
 /** Run one generation step and sample a token from the final logits. */
 export function generateStep(
   model: CausalLM,
@@ -243,35 +329,37 @@ export function generateTokens(
   promptTokenIds: readonly number[],
   options: GenerationOptions,
 ): GenerationResult {
-  if (promptTokenIds.length === 0) {
-    throw new Error("generateTokens: promptTokenIds must contain at least one token.");
-  }
-  if (options.maxTokens < 0) {
-    throw new Error(`generateTokens: maxTokens must be >= 0, got ${options.maxTokens}.`);
-  }
-  if (options.maxTokens === 0) {
-    return { tokenIds: [], finishReason: "length" };
-  }
+  return generateTokensInternal(model, promptTokenIds, options);
+}
 
-  const resolvedOptions = resolveGenerationOptions(model, undefined, options);
-  const generated: number[] = [];
-  const eosTokenIds = new Set(resolvedOptions.eosTokenIds ?? []);
-  const useCache = resolvedOptions.useCache ?? true;
-  const prefillStepSize = resolvedOptions.prefillStepSize ?? 2048;
-
-  validatePrefillStepSize(prefillStepSize, "generateTokens");
-  return runGenerationScope(() =>
-    useCache
-      ? generateWithCache(
-          model,
-          promptTokenIds,
-          resolvedOptions,
-          eosTokenIds,
-          prefillStepSize,
-          generated,
-        )
-      : generateWithoutCache(model, promptTokenIds, resolvedOptions, eosTokenIds, generated),
+/** Tokenize a prompt, stream decoded continuation chunks, and return the final text. */
+export function generateTextStream(
+  model: CausalLM,
+  tokenizer: Tokenizer,
+  prompt: string,
+  options: GenerationOptions,
+  onText: (chunk: string) => void,
+): TextGenerationResult {
+  const resolvedOptions = resolveGenerationOptions(model, tokenizer, options);
+  const promptTokenIds = tokenizer.encode(prompt, {
+    addSpecialTokens: resolvedOptions.addSpecialTokens ?? true,
+  });
+  let text = "";
+  const result = generateTokensInternal(
+    model,
+    promptTokenIds,
+    resolvedOptions,
+    (_tokenId, tokenIds) => {
+      const decoded = tokenizer.decode([...tokenIds], { skipSpecialTokens: true });
+      const delta = decoded.slice(commonPrefixLength(text, decoded));
+      text = decoded;
+      if (delta !== "") {
+        onText(delta);
+      }
+    },
   );
+
+  return { ...result, text };
 }
 
 /** Tokenize a prompt, generate new tokens, and decode the continuation text. */
@@ -281,10 +369,5 @@ export function generateText(
   prompt: string,
   options: GenerationOptions,
 ): string {
-  const resolvedOptions = resolveGenerationOptions(model, tokenizer, options);
-  const promptTokenIds = tokenizer.encode(prompt, {
-    addSpecialTokens: resolvedOptions.addSpecialTokens ?? true,
-  });
-  const result = generateTokens(model, promptTokenIds, resolvedOptions);
-  return tokenizer.decode(result.tokenIds, { skipSpecialTokens: true });
+  return generateTextStream(model, tokenizer, prompt, options, () => undefined).text;
 }

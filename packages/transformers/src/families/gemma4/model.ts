@@ -82,6 +82,7 @@ export class Gemma4TextModel extends Module {
   perLayerModelProjection: Linear | null;
   perLayerProjectionNorm: Gemma4RMSNorm | null;
   #embeddingScale: number;
+  #perLayerEmbeddingScale: number;
   #perLayerInputScale: number;
   #perLayerProjectionScale: number;
   #hiddenSizePerLayerInput: number;
@@ -91,6 +92,7 @@ export class Gemma4TextModel extends Module {
   constructor(config: Gemma4TextConfig) {
     super();
     this.#embeddingScale = config.embeddingScale;
+    this.#perLayerEmbeddingScale = config.hiddenSizePerLayerInput ** 0.5;
     this.#perLayerInputScale = 2 ** -0.5;
     this.#perLayerProjectionScale = config.hiddenSize ** -0.5;
     this.#hiddenSizePerLayerInput = config.hiddenSizePerLayerInput;
@@ -188,7 +190,8 @@ export class Gemma4TextModel extends Module {
     }
 
     using embeddedPerLayer = this.embedTokensPerLayer.forward(inputIds);
-    using reshapedEmbeddedPerLayer = reshape(embeddedPerLayer, [
+    using scaledEmbeddedPerLayer = multiply(embeddedPerLayer, this.#perLayerEmbeddingScale);
+    using reshapedEmbeddedPerLayer = reshape(scaledEmbeddedPerLayer, [
       batch,
       sequenceLength,
       this.layers.length,

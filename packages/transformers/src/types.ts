@@ -27,15 +27,23 @@ export type GenerationOptions = SamplerOptions & {
   maxTokens: number;
   eosTokenIds?: number[];
   useCache?: boolean;
+  cache?: TransformerCache;
   addSpecialTokens?: boolean;
   prefillStepSize?: number;
 };
 
-export type GenerationDefaults = Omit<GenerationOptions, "addSpecialTokens" | "maxTokens">;
+export type GenerationDefaults = Omit<
+  GenerationOptions,
+  "addSpecialTokens" | "maxTokens" | "cache"
+>;
 
 export type GenerationResult = {
   tokenIds: number[];
   finishReason: "length" | "eos";
+};
+
+export type TextGenerationResult = GenerationResult & {
+  text: string;
 };
 
 export type LoadCausalLMOptions = LoadSourceOptions & {

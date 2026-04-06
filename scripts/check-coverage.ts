@@ -3,8 +3,9 @@
  *
  * Bun now supports built-in coverage thresholds, but this repo keeps a custom
  * package-aware gate so we can enforce different thresholds per workspace and
- * print the weakest source files directly. Long soak and acceptance runs remain
- * separate from this fast gate.
+ * print the weakest source files directly. Long soak, acceptance, and the
+ * temporary nanogpt fixture remain separate from this fast gate while the GPT
+ * operator surface moves toward examples.
  */
 
 import { existsSync, readFileSync, rmSync } from "fs";
@@ -113,13 +114,6 @@ const PACKAGES: PackageConfig[] = [
     sourceDir: "transformers",
     cwd: join(PROJECT_ROOT, "packages", "transformers"),
     coverageDir: join(PROJECT_ROOT, "coverage", "transformers"),
-    thresholds: DEFAULT_THRESHOLDS,
-  },
-  {
-    label: "nanogpt",
-    sourceDir: "nanogpt",
-    cwd: join(PROJECT_ROOT, "packages", "nanogpt"),
-    coverageDir: join(PROJECT_ROOT, "coverage", "nanogpt"),
     thresholds: DEFAULT_THRESHOLDS,
   },
 ];

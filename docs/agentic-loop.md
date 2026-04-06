@@ -139,7 +139,8 @@ Every piece of code or documentation that enters the project must be reviewed by
 - `bun run check:runtime-review` enforces the review artifact requirement for runtime-sensitive diffs and verifies that the artifact names the changed runtime-sensitive files
 - `bun run check:coverage` remains truthful about branch data: it enforces branch thresholds only when LCOV reports them, and otherwise says branch data was unavailable
 - Pre-commit should call `bun run validate` directly rather than maintaining a weaker parallel checklist
-- The canonical package stack and the temporary `packages/nanogpt/` validation fixture must stay at or above `95%` lines and `90%` functions
+- The canonical `@mlxts/*` package stack must stay at or above `95%` lines and `90%` functions
+- `packages/nanogpt` remains tested, but it is no longer part of the default hard coverage gate while that operator surface moves toward examples
 - Agents should prefer the smallest meaningful Bun test run while iterating locally, for example `bun test packages/core/src/fast.test.ts`, before moving back to `bun run validate`
 - Tests, lint, and build remain required, but type errors are treated as design failures, not cosmetic issues
 - Type assertions and `any` do not count as "fixing" a type problem unless they are isolated to a justified boundary such as FFI

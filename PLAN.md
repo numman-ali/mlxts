@@ -22,6 +22,7 @@ This file is the roadmap. Detailed designs live in separate docs:
 | [docs/future-backends.md](./docs/future-backends.md) | Multi-backend vision (WebGPU, CUDA) — not part of current plan |
 | [docs/python-equivalence-map.md](./docs/python-equivalence-map.md) | Python ML ecosystem → mlxts mapping |
 | [docs/gates-and-milestones.md](./docs/gates-and-milestones.md) | Exit criteria for every phase |
+| [docs/inference-optimizations.md](./docs/inference-optimizations.md) | Inference optimization catalog — techniques, papers, reference implementations |
 | [docs/architecture.md](./docs/architecture.md) | System architecture and layer responsibilities |
 | [docs/code-standards.md](./docs/code-standards.md) | Code quality, naming, structure, testing standards |
 | [docs/agentic-loop.md](./docs/agentic-loop.md) | Multi-agent engineering workflow |
@@ -539,6 +540,8 @@ See [docs/python-equivalence-map.md](./docs/python-equivalence-map.md) for the f
 
 - ByteLevel BPE from `tokenizer.json` (covers LLaMA/Mistral/GPT-2). Full 5-stage HF tokenizer pipeline is future work.
 - Batch encode/decode with offset tracking
+- Special-token-aware prompt encoding from tokenizer sidecars and `added_tokens`, so control markers emitted by chat templates encode as their intended token IDs instead of ordinary text fragments
+- Conformance fixtures against Hugging Face tokenizers for every supported chat-capable family: canonical rendered prompts must encode to the same token IDs and decode losslessly with `skipSpecialTokens: false`
 
 ### 7c. Model architectures (`@mlxts/transformers`)
 
@@ -563,14 +566,37 @@ LLaMA first, done right, then expand:
 - `AutoModel.fromPretrained(modelId)` auto-dispatch
 - `AutoTokenizer.fromPretrained(modelId)`
 
-### 7d. Examples
+### 7d. Interaction profiles and prompt compilation
 
-- `examples/llama-chat/` — interactive chat with a local LLaMA model
+Before Phase 9 serving, chat behavior must be a first-class contract inside
+`@mlxts/transformers`, not ad hoc logic in examples or future HTTP handlers.
+
+- `InteractionProfile`-style surface in `@mlxts/transformers` for checkpoint-aware prompting behavior
+- Owns chat-template selection, special-token handling, checkpoint generation defaults, and full EOS / end-of-turn stop sets
+- Prompt compiler that turns a normalized request into:
+  - rendered prompt text
+  - prompt token IDs
+  - resolved generation defaults
+  - resolved stop-token behavior
+- Hugging Face parity coverage for every supported chat-capable family:
+  - rendered prompt text matches `apply_chat_template(..., tokenize=False)`
+  - encoded prompt token IDs match Hugging Face tokenizer output
+  - single-user, system+user, and multi-turn assistant-history prompts are all covered
+- The interactive `examples/chat/` surface is the first real consumer of this path and should remain thin over the shared compiler
+
+**Why now:** This is the contract that future serving depends on. If prompt
+rendering, special tokens, and stop behavior diverge by endpoint or by example,
+the server will return incorrect model behavior even when the model math is
+correct.
+
+### 7e. Examples
+
+- `examples/chat/` — interactive chat with a local supported decoder model
 - The later dedicated examples repo can adopt `@mlxts/transformers` where it improves the rewritten examples
 
 **Exit criteria**: See [gates-and-milestones.md](./docs/gates-and-milestones.md#phase-7-model-architectures).
 
-### 7e. MoE text architectures (follows Phase 7 dense completion)
+### 7f. MoE text architectures (follows Phase 7 dense completion)
 
 MoE (Mixture of Experts) models use the same `CausalLM` contract as dense models. The difference is entirely inside the decoder block: instead of a single dense MLP, an MoE block routes tokens through a subset of expert MLPs via a learned router.
 
@@ -591,7 +617,7 @@ MoE (Mixture of Experts) models use the same `CausalLM` contract as dense models
 
 **Exit criteria**: Mixtral loads and generates coherent text. Forward parity with Python mlx-lm Mixtral.
 
-### 7f. Performance observability (follows Phase 7 performance optimization)
+### 7g. Performance observability (follows Phase 7 performance optimization)
 
 Generation performance must be measurable, comparable, and regression-protected. This phase builds the infrastructure that keeps performance visible going forward — it does not include the performance fixes themselves (those are part of completing 7c).
 
@@ -657,7 +683,11 @@ Generation performance must be measurable, comparable, and regression-protected.
 
 ## Phase 9: Inference and Serving
 
-**Goal**: Production-quality inference server. Quantized inference. Any OpenAI-compatible client can connect.
+**Goal**: Production-quality inference server. Quantized inference. Any OpenAI-compatible client can connect. Architecturally flexible enough that new optimization techniques (from papers or upstream projects) slot in without rewiring the stack.
+
+**Research basis**: Deep analysis of three MLX inference servers — Rapid-MLX (speed-focused), vLLM-MLX (foundational batching/paging), oMLX (production serving/memory management). These share lineage (vLLM-MLX → forks) but diverged into complementary specializations. Key findings are documented in [docs/inference-optimizations.md](./docs/inference-optimizations.md). Reference repos at `.reference/rapid-mlx`, `.reference/vllm-mlx`, `.reference/omlx`.
+
+**Design principle — strategy-agnostic boundaries**: These reference projects study research papers and implement them as needed — MTP from one paper, speculative decoding from another, sparse prefill from a third. Our architecture must be flexible enough to swap strategies at each boundary: different cache backends, different decoding strategies, different scheduling algorithms. The interfaces must be stable even as the implementations behind them evolve. No technique should be hardwired in a way that prevents replacing it with a better one.
 
 **What this phase covers**:
 
@@ -668,27 +698,79 @@ Generation performance must be measurable, comparable, and regression-protected.
 - GGUF export (create GGUF files from mlxts models)
 - Calibration dataset support for quantization quality
 - Quantized inference at full speed
+- Mixed-precision budget planner — per-layer bit allocation based on sensitivity measurement (informed by oMLX's oQ approach: temporarily quantize-dequantize each block against calibration data, rank by MSE, greedy allocate extra bits to sensitive layers). MoE experts stay at base bits, attention value projections and down projections get protection floors.
+- Streaming quantizer — process one safetensor shard at a time, never load the full model. Essential for large models on constrained memory.
 
-### 9b. KV cache and efficient generation
+### 9b. KV cache architecture
 
-- KV cache for autoregressive generation (prerequisite for serving)
-- PagedAttention-style cache management is a major engineering effort. Start with simple KV cache, optimize later.
+KV cache is the critical infrastructure for both single-user generation and multi-user serving. The design must support progressive enhancement from simple to sophisticated.
 
-### 9c. Serving (`@mlxts/serve`)
+**Core cache interface**: Design with an `isTrimmable()` discriminator from the start. Standard KV cache layers are trimmable (can roll back to any prefix length). Future hybrid RNN+attention architectures (Qwen3.5 DeltaNet, Mamba hybrids) have non-trimmable recurrent layers. The interface must accommodate both without widening the contract later.
 
+**Progression**:
+
+1. **Simple KV cache** (already in `@mlxts/transformers`) — one contiguous cache per sequence. Sufficient for single-user generation.
+2. **Paged KV cache** — 64-token blocks with reference counting, doubly-linked free list (O(1) alloc/free), Copy-on-Write when shared blocks diverge. Chain hashing (block N's SHA-256 includes blocks 0..N-1) for O(1) prefix dedup without explicit trie traversal. This is the foundation for concurrent serving. (Reference: vLLM-MLX `paged_cache.py`)
+3. **Prompt cache with LCP matching** — memory-aware prefix cache that handles the agentic multi-turn pattern: divergent sequences sharing a common head. Sorted key index with binary search for O(log N) prefix lookup. Deep-copy-on-fetch for mutable cache offsets. Optional 4/8-bit quantization for stored entries. (Reference: Rapid-MLX `memory_cache.py`)
+4. **SSD-persistent cache** (future) — serialize KV blocks to safetensors on disk, survive server restarts. Write-back RAM hot cache with LRU eviction to SSD. Background writer thread with pure-JS safetensors serializer (no MLX calls, thread-safe). ~2ms read per 10MB block on NVMe. (Reference: oMLX `paged_ssd_cache.py`)
+
+**Cache backend must be pluggable** — the generation loop and scheduler interact with the cache through a stable interface. Swapping from simple → paged → SSD-backed should not require changing model code or the serving API.
+
+### 9c. Generation engine architecture
+
+**Dual-strategy engine**: A single loaded model can serve through two strategies — a serial engine (maximum single-user throughput, supports speculative decoding) and a batched engine (concurrent users, continuous batching). Switch based on active request count: when requests >= threshold, use batched; switch back to serial only when idle. Saves memory by sharing one model instance. (Reference: Rapid-MLX HybridEngine)
+
+**Chunked prefill with decode interleaving**: Break large prefills into configurable chunks (2048-8192 tokens). Between chunks, run one decode step for all active requests. This prevents decode starvation during long-context prefills. The chunk boundary is prefix-aware: if a request has a cached prefix, the first chunk aligns to that boundary for optimal cache capture. (Reference: all three servers implement this)
+
+**Output streaming**: Per-request output collector with non-blocking put and smart merge when producer outpaces consumer. Maps directly to TypeScript async iterators. Pre-computed SSE envelope — template-compile the JSON structure once at request start, substitute only content per token. 20-30% CPU reduction in streaming overhead. (Reference: Rapid-MLX)
+
+### 9d. Multi-model serving and memory management
+
+**Engine pool**: Manage multiple loaded models with LRU eviction, model pinning (priority models never evicted), per-model TTL (idle timeout). Estimate model memory from safetensors file sizes + 25% KV headroom before loading. (Reference: oMLX EnginePool)
+
+**Dual-layer memory management**: Bookkeeping-based estimates for fast pre-load decisions (will this model fit?) + real `mx.get_active_memory()` polling as safety net. Do NOT use `mx.set_memory_limit()` — it causes alloc/free churn during model loading that triggers swap. When only one model is loaded and memory is critical: abort active requests but keep model loaded (frees KV cache so short-context requests can still be served). (Reference: oMLX ProcessMemoryEnforcer)
+
+**Model discovery**: Auto-detect model type from `config.json` fields (`architectures`, `model_type`, presence of `vision_config`), not from model name strings. Two-level directory scan (org/model convention). Size estimation from safetensors file totals.
+
+### 9e. Tool calling and structured output
+
+**Parser registry**: Pluggable tool call parsers registered by model family. Auto-detection from model path via ordered `(regex, config)` list, first-match. Cascading "auto" parser tries multiple formats on unknown models. Auto-recovery for quantized model degradation (4-bit models emit broken tool calls as text after multiple rounds — detect and convert back to structured format). (Reference: Rapid-MLX, 17 parser formats)
+
+**Reasoning separation**: Streaming state machine for `<think>` tag parsing with correction-on-finalize. Handles three scenarios: both tags present, implicit think (only closing tag), no tags. Separate `reasoning_content` field in SSE chunks. (Reference: Rapid-MLX reasoning parsers)
+
+**Model auto-configuration**: Zero-flag model setup. Detect model family → apply optimal tool parser, reasoning parser, prefill chunk size, sampling defaults. Users run `mlxts serve <model>` and get the best configuration automatically. (Reference: Rapid-MLX `model_auto_config.py`)
+
+### 9f. Serving (`@mlxts/serve`)
+
+- Shared internal request model and prompt compiler inherited from Phase 7 interaction profiles; endpoint handlers are protocol adapters, not model-specific prompt logic
 - OpenAI-compatible API: `/v1/chat/completions`, `/v1/completions`, `/v1/embeddings`
+- Future OpenAI `/v1/responses` support maps into the same internal request model
+- Future Anthropic-compatible API adapter maps into the same internal request model
 - `Bun.serve()` — no Express, no Node HTTP
-- Server-sent events for token streaming
-- KV cache management for concurrent requests
-- Continuous batching (serve multiple requests)
-- Model loading/unloading without restart
+- Server-sent events for token streaming with pre-computed envelope optimization
+- Concurrent request handling via paged KV cache and continuous batching
+- Model loading/unloading without restart via engine pool
+- Per-model settings (sampling params, TTL, aliases) persisted to JSON
+- Disconnect guard — monitor client disconnection and cancel generation
 
-### 9d. CLI expansion (`@mlxts/cli`)
+### 9g. CLI expansion (`@mlxts/cli`)
 
 - `mlxts serve --model Llama-3.2-1B --quantize 4bit`
 - `mlxts convert --source hf --model meta-llama/Llama-3.2-1B`
 - `mlxts quantize --model ./my-model --bits 4`
 - `mlxts download --model meta-llama/Llama-3.2-1B`
+
+### 9h. Future optimization hooks
+
+The architecture must accommodate these techniques without requiring them at launch. Each is documented in [docs/inference-optimizations.md](./docs/inference-optimizations.md) with source references and implementation requirements.
+
+- **Multi-Token Prediction (MTP)**: 1.4x decode speedup for models with MTP heads. Requires model architecture support (`return_hidden`, `mtp_forward`).
+- **Speculative decoding**: 1.5-2.3x decode via draft-model or prompt-lookup (n-gram index, no draft model). Requires O(1) cache trim.
+- **Jump-forward decoding**: Logits bias toward structural tokens during tool calls. State machine tracks position in markup patterns. 2-5x faster structured output.
+- **DeltaNet state snapshots**: Deep-copy non-trimmable RNN layers at prefix boundaries for hybrid architectures. ~0.1ms restore.
+- **KV cache quantization**: Quantize stored KV entries to 4/8-bit, dequantize on fetch. Or run attention directly on quantized states via custom Metal kernel (TurboQuant approach).
+- **SpecPrefill**: Attention-based sparse prefill — draft model scores token importance, target prefills only top-K%. Reduces TTFT on long prompts.
+- **Cloud routing**: Pre-generation middleware. When uncached tokens exceed threshold, forward to external API.
 
 **Exit criteria**: See [gates-and-milestones.md](./docs/gates-and-milestones.md#phase-9-inference-and-serving).
 

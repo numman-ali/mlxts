@@ -11,7 +11,7 @@ import { Gemma4TextMLP } from "./families/gemma4/mlp";
 import { Gemma4TextCausalLM } from "./families/gemma4/model";
 import { LlamaLikeMLP } from "./families/llama-like/mlp";
 import { LlamaLikeCausalLM } from "./families/llama-like/model";
-import { generateText, generateTokens } from "./generation";
+import { generateText, generateTextStream, generateTokens } from "./generation";
 import { KVCache, LayerPatternKVCache, SlidingWindowKVCache } from "./infrastructure/cache";
 import { loadCausalLM, loadPretrainedTokenizer } from "./load";
 import { quantizePretrainedSnapshot } from "./quantize";
@@ -1170,6 +1170,95 @@ describe("generation helpers", () => {
     expect(
       typeof generateText(loadedModel, tokenizer, "Hi", { maxTokens: 2, temperature: 0 }),
     ).toBe("string");
+
+    originalModel[Symbol.dispose]();
+  });
+
+  test("generateTextStream emits the same continuation text that generateText returns", async () => {
+    const { directory, model: originalModel } = await createTinySnapshot("llama");
+    using loadedModel = await loadCausalLM(directory);
+    const tokenizer = await loadPretrainedTokenizer(directory);
+    const chunks: string[] = [];
+
+    const streamed = generateTextStream(
+      loadedModel,
+      tokenizer,
+      "Hi",
+      {
+        maxTokens: 4,
+        temperature: 0,
+        useCache: true,
+      },
+      (chunk) => {
+        chunks.push(chunk);
+      },
+    );
+
+    expect(streamed.text).toBe(
+      generateText(loadedModel, tokenizer, "Hi", { maxTokens: 4, temperature: 0, useCache: true }),
+    );
+    expect(chunks.join("")).toBe(streamed.text);
+
+    originalModel[Symbol.dispose]();
+  });
+
+  test("generateTextStream can reuse an external prompt cache across turns", async () => {
+    const { directory, model: originalModel } = await createTinySnapshot("llama");
+    using loadedModel = await loadCausalLM(directory);
+    const tokenizer = await loadPretrainedTokenizer(directory);
+    using cache = loadedModel.createCache();
+
+    const firstChunks: string[] = [];
+    const first = generateTextStream(
+      loadedModel,
+      tokenizer,
+      "Hi",
+      {
+        maxTokens: 2,
+        temperature: 0,
+        cache,
+      },
+      (chunk) => {
+        firstChunks.push(chunk);
+      },
+    );
+
+    const secondChunks: string[] = [];
+    const second = generateTextStream(
+      loadedModel,
+      tokenizer,
+      "!",
+      {
+        maxTokens: 2,
+        temperature: 0,
+        cache,
+      },
+      (chunk) => {
+        secondChunks.push(chunk);
+      },
+    );
+
+    expect(firstChunks.join("")).toBe(first.text);
+    expect(secondChunks.join("")).toBe(second.text);
+    expect(cache.offset).toBeGreaterThan(0);
+
+    originalModel[Symbol.dispose]();
+  });
+
+  test("generation rejects an external cache when cache usage is disabled", async () => {
+    const { directory, model: originalModel } = await createTinySnapshot("llama");
+    using loadedModel = await loadCausalLM(directory);
+    const tokenizer = await loadPretrainedTokenizer(directory);
+    using cache = loadedModel.createCache();
+
+    expect(() =>
+      generateText(loadedModel, tokenizer, "Hi", {
+        maxTokens: 1,
+        temperature: 0,
+        useCache: false,
+        cache,
+      }),
+    ).toThrow("cache cannot be provided when useCache is false");
 
     originalModel[Symbol.dispose]();
   });

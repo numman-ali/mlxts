@@ -67,6 +67,9 @@ The `.reference/` folder contains local clones of upstream repositories for rese
 | `.reference/transformers` | HuggingFace Transformers — reference for model configs, tokenizer formats, weight naming conventions                           |
 | `.reference/trl`          | HuggingFace TRL — reference for SFT, DPO, alignment training patterns                                                          |
 | `.reference/mlx-examples` | Apple's MLX examples — reference for LLaVA, Stable Diffusion, Whisper implementations                                          |
+| `.reference/rapid-mlx`    | Rapid-MLX — reference for inference speed (MTP, speculative decode, DeltaNet snapshots, prompt caching, tool parsing, jump-forward decoding) |
+| `.reference/vllm-mlx`     | vLLM-MLX — foundational reference for paged KV cache, continuous batching, multimodal engine composition on MLX                 |
+| `.reference/omlx`         | oMLX — reference for production serving (tiered SSD KV cache, multi-model memory management, oQ mixed-precision quantization)   |
 
 
 **These should be kept up to date.** When investigating a new model family, architecture pattern, or training technique, check `.reference/` first. Pull latest before starting research for a new phase.

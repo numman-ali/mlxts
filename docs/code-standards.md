@@ -272,8 +272,8 @@ export class CausalSelfAttention extends Module {
 
 ### Coverage is part of the contract
 
-- The canonical package stack and the temporary `packages/nanogpt/` validation fixture must stay at or above `95%` line coverage and `90%` function coverage
-- `packages/nanogpt` remains a heavily tested validation fixture even though it is not part of the current hard coverage gate
+- The canonical `@mlxts/*` package stack must stay at or above `95%` line coverage and `90%` function coverage
+- `packages/nanogpt` remains a heavily tested temporary validation fixture, but it is no longer part of the default hard coverage gate while that operator surface moves toward examples
 - Enforced by: `bun run check:coverage` for package coverage, plus `bun run check:runtime-review` for runtime-sensitive diffs. If coverage reports branch counters, the gate also enforces branch coverage instead of inventing one.
 - `bun run validate` includes both gates and is the standard pre-commit/review-ready path
 - Prefer tests that exercise real behavior, edge cases, and failure paths over tests written only to bump percentages

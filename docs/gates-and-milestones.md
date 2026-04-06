@@ -143,13 +143,15 @@ A developer runs `bun install`, opens `packages/core/src/index.ts` and `packages
 | Pretrained loading downloads from HuggingFace Hub via official `@huggingface/hub` | Test: download a small model |
 | Pretrained loading parses `config.json` and tokenizer sidecars | Test: parse known configs |
 | `@mlxts/transformers` streams safetensors weights into mlxts arrays | Test: load and verify shapes/dtypes |
-| `@mlxts/tokenizers` implements ByteLevel BPE from `tokenizer.json` (covers LLaMA/Mistral/GPT-2) | Test: encode/decode matches Python tokenizer output |
+| `@mlxts/tokenizers` implements special-token-aware `tokenizer.json` encoding for supported families | Test: encode/decode and special-token IDs match Hugging Face tokenizer output |
+| Chat prompt compilation matches Hugging Face for supported chat-capable checkpoints | Test: rendered prompt text and token IDs match `apply_chat_template` + tokenizer output |
 | `@mlxts/transformers` implements LLaMA architecture | Test: forward pass matches MLX Python output for same weights |
 | KV cache works for efficient generation | Test: generate 100 tokens, verify speed improvement vs no cache |
+| Checkpoint generation defaults and end-of-turn stop behavior are honored | Test: generation stops on the checkpoint's full EOS / turn-boundary token set |
 | `AutoModel.fromPretrained("mlx-community/Llama-3.2-1B")` works | End-to-end test |
 | At least 3 model architectures supported | LLaMA, Mistral, Phi or Gemma |
 | Generation quality: coherent multi-sentence output | Manual inspection |
-| `examples/llama-chat/` runs interactively | Demo it |
+| `examples/chat/` runs interactively | Demo it |
 
 ### What "done" looks like
 A developer writes:
@@ -229,8 +231,11 @@ A developer fine-tunes LLaMA-3.2-1B on their custom dataset using 4 lines of con
 | `@mlxts/serve` starts a server on `Bun.serve()` | Test: server responds to health check |
 | `/v1/chat/completions` endpoint works | Test: curl request returns valid response |
 | `/v1/completions` endpoint works | Test: completion request returns text |
+| `/v1/responses` endpoint works | Test: responses request returns valid response |
+| Anthropic-compatible API endpoint works | Test: Anthropic client can connect |
 | `/v1/embeddings` endpoint works | Test: embedding request returns vector |
 | Streaming responses (SSE) | Test: stream tokens one at a time |
+| Protocol adapters share one prompt compiler path | Test: chat, completions, responses, and Anthropic requests normalize to the same internal generation request |
 | `mlxts serve --model mlx-community/Llama-3.2-1B` works | End-to-end demo |
 | Ollama-compatible API (same as OpenAI compat) | Test: Ollama client can connect |
 | Model loading/unloading | Test: switch models without restart |

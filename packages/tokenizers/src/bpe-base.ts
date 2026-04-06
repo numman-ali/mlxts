@@ -3,6 +3,8 @@
  * @module
  */
 
+import { sortAddedTokenMatches, splitInputByAddedTokens } from "./bpe-added-tokens";
+import { createMergeKey, findBestMerge, mergeWordPieces } from "./bpe-merges";
 import { decodeByteLevelTokens, encodeByteLevelSegment, splitByteLevelText } from "./byte-level";
 import type {
   BatchEncoding,
@@ -38,66 +40,13 @@ export type BPEConfig = {
   unkTokenId?: number;
 };
 
-type RankedMerge = {
-  left: string;
-  right: string;
-  rank: number;
-};
-
-function pairKey(left: string, right: string): string {
-  return `${left}\u0000${right}`;
-}
-
-function findBestMerge(word: string[], merges: Map<string, number>): RankedMerge | null {
-  let best: RankedMerge | null = null;
-  for (let index = 0; index < word.length - 1; index += 1) {
-    const left = word[index];
-    const right = word[index + 1];
-    if (left === undefined || right === undefined) {
-      continue;
-    }
-
-    const rank = merges.get(pairKey(left, right));
-    if (rank === undefined) {
-      continue;
-    }
-
-    if (best === null || rank < best.rank) {
-      best = { left, right, rank };
-    }
-  }
-  return best;
-}
-
-function mergeWordPieces(word: string[], merge: RankedMerge): string[] {
-  const merged: string[] = [];
-  let index = 0;
-  while (index < word.length) {
-    const left = word[index];
-    const right = word[index + 1];
-    if (left === undefined) {
-      index += 1;
-      continue;
-    }
-
-    if (left === merge.left && right === merge.right) {
-      merged.push(`${left}${right}`);
-      index += 2;
-      continue;
-    }
-
-    merged.push(left);
-    index += 1;
-  }
-  return merged;
-}
-
-function normalizeSentencePieceText(text: string): string {
-  return `▁${text.replaceAll(" ", "▁")}`;
-}
-
 function denormalizeSentencePieceText(text: string): string {
   return text.replaceAll("▁", " ").replace(/^ /, "");
+}
+
+function normalizeSentencePieceSegment(text: string, isLeadingSegment: boolean): string {
+  const replaced = text.replaceAll(" ", "▁");
+  return isLeadingSegment ? `▁${replaced}` : replaced;
 }
 
 function addedTokenMap(addedTokens: AddedToken[]): Map<string, AddedToken> {
@@ -134,6 +83,7 @@ export class BPETokenizer implements Tokenizer {
   #idToToken: string[];
   #merges: Map<string, number>;
   #addedTokens: Map<string, AddedToken>;
+  #addedTokenMatches: AddedToken[];
   #specialIds: Set<number>;
   #bosTokenId: number | undefined;
   #eosTokenIds: number[];
@@ -164,9 +114,10 @@ export class BPETokenizer implements Tokenizer {
       if (left === undefined || right === undefined) {
         continue;
       }
-      this.#merges.set(pairKey(left, right), index);
+      this.#merges.set(createMergeKey(left, right), index);
     }
     this.#addedTokens = addedTokenMap(config.addedTokens);
+    this.#addedTokenMatches = sortAddedTokenMatches(config.addedTokens);
     this.#specialIds = new Set(
       config.addedTokens.filter((token) => token.special).map((token) => token.id),
     );
@@ -202,16 +153,6 @@ export class BPETokenizer implements Tokenizer {
     return this.encodeWithOffsets(text, options).ids;
   }
 
-  private normalizeForEncoding(text: string): string {
-    if (this.#variant === "sentencepiece") {
-      return normalizeSentencePieceText(text);
-    }
-    if (this.#addPrefixSpace && text !== "" && !/^\s/.test(text)) {
-      return ` ${text}`;
-    }
-    return text;
-  }
-
   private appendToken(
     ids: number[],
     offsets: Offset[],
@@ -230,18 +171,26 @@ export class BPETokenizer implements Tokenizer {
   }
 
   private encodeByteLevel(
-    normalized: string,
+    text: string,
+    textStart: number,
     ids: number[],
     offsets: Offset[],
     specialTokensMask: number[],
     returnOffsets: boolean,
   ): void {
+    if (text === "") {
+      return;
+    }
+
+    const normalized =
+      this.#addPrefixSpace && textStart === 0 && !/^\s/.test(text) ? ` ${text}` : text;
+    const leadingPrefixSize = normalized.length - text.length;
     const segments = splitByteLevelText(normalized, this.#useRegex, this.#splitPattern);
     for (const [segment, start, end] of segments) {
       const encoded = encodeByteLevelSegment(segment);
       const tokens = this.segmentToTokens(encoded);
-      const adjustedStart = Math.max(0, this.#addPrefixSpace ? start - 1 : start);
-      const adjustedEnd = Math.max(0, this.#addPrefixSpace ? end - 1 : end);
+      const adjustedStart = Math.max(textStart, textStart + start - leadingPrefixSize);
+      const adjustedEnd = Math.max(adjustedStart, textStart + end - leadingPrefixSize);
       for (const tokenId of tokens) {
         this.appendToken(
           ids,
@@ -258,18 +207,28 @@ export class BPETokenizer implements Tokenizer {
   }
 
   private encodeSentencePiece(
-    normalized: string,
+    text: string,
+    textStart: number,
     ids: number[],
     offsets: Offset[],
     specialTokensMask: number[],
     returnOffsets: boolean,
   ): void {
+    if (text === "") {
+      return;
+    }
+
+    const normalized = normalizeSentencePieceSegment(text, textStart === 0);
+    const leadingPrefixSize = textStart === 0 ? 1 : 0;
     const chars = Array.from(normalized);
     let cursor = 0;
     while (cursor < chars.length) {
       const [tokenStrings, consumed] = this.segmentSentencePiece(chars, cursor);
-      const adjustedStart = Math.max(0, cursor - 1);
-      const adjustedEnd = Math.max(adjustedStart, cursor + consumed - 1);
+      const adjustedStart = Math.max(textStart, textStart + cursor - leadingPrefixSize);
+      const adjustedEnd = Math.max(
+        adjustedStart,
+        textStart + cursor + consumed - leadingPrefixSize,
+      );
       for (const tokenString of tokenStrings) {
         this.appendToken(
           ids,
@@ -287,7 +246,6 @@ export class BPETokenizer implements Tokenizer {
   }
 
   encodeWithOffsets(text: string, options: EncodeOptions = {}): Encoding {
-    const normalized = this.normalizeForEncoding(text);
     const ids: number[] = [];
     const offsets: Offset[] = [];
     const specialTokensMask: number[] = [];
@@ -298,10 +256,41 @@ export class BPETokenizer implements Tokenizer {
       this.pushLeadingSpecialTokens(ids, offsets, specialTokensMask, returnOffsets);
     }
 
-    if (this.#variant === "bytelevel") {
-      this.encodeByteLevel(normalized, ids, offsets, specialTokensMask, returnOffsets);
-    } else {
-      this.encodeSentencePiece(normalized, ids, offsets, specialTokensMask, returnOffsets);
+    const chunks = splitInputByAddedTokens(text, this.#addedTokenMatches);
+    for (const chunk of chunks) {
+      if (chunk.kind === "added-token") {
+        this.appendToken(
+          ids,
+          offsets,
+          specialTokensMask,
+          chunk.token.id,
+          returnOffsets,
+          chunk.token.special,
+          chunk.start,
+          chunk.end,
+        );
+        continue;
+      }
+
+      if (this.#variant === "bytelevel") {
+        this.encodeByteLevel(
+          chunk.text,
+          chunk.start,
+          ids,
+          offsets,
+          specialTokensMask,
+          returnOffsets,
+        );
+      } else {
+        this.encodeSentencePiece(
+          chunk.text,
+          chunk.start,
+          ids,
+          offsets,
+          specialTokensMask,
+          returnOffsets,
+        );
+      }
     }
 
     if (addSpecialTokens) {

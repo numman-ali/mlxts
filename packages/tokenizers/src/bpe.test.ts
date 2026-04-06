@@ -168,6 +168,66 @@ function createGemmaStyleTokenizer() {
   );
 }
 
+function createGemmaTurnTokenizer() {
+  return loadBPEFromTokenizerJson(
+    {
+      model: {
+        type: "BPE",
+        vocab: {
+          "<pad>": 0,
+          "<eos>": 1,
+          "<bos>": 2,
+          "<unk>": 3,
+          "\n": 107,
+          user: 2364,
+          model: 4368,
+          Hello: 9259,
+          "▁there": 993,
+        },
+        merges: [],
+        unk_token: "<unk>",
+        byte_fallback: false,
+      },
+      added_tokens: [
+        { id: 0, content: "<pad>", special: true },
+        { id: 1, content: "<eos>", special: true },
+        { id: 2, content: "<bos>", special: true },
+        { id: 3, content: "<unk>", special: true },
+        { id: 105, content: "<|turn>", special: true },
+        { id: 106, content: "<turn|>", special: true },
+      ],
+      pre_tokenizer: {
+        type: "Split",
+        pattern: { String: " " },
+        behavior: "MergedWithPrevious",
+        invert: false,
+      },
+      decoder: {
+        type: "Sequence",
+        decoders: [
+          { type: "Replace", pattern: { String: "▁" }, content: " " },
+          { type: "ByteFallback" },
+          { type: "Fuse" },
+        ],
+      },
+    },
+    {
+      bos_token: "<bos>",
+      eos_token: "<eos>",
+      pad_token: "<pad>",
+      unk_token: "<unk>",
+      add_bos_token: false,
+      add_eos_token: false,
+    },
+    {
+      bos_token: { content: "<bos>" },
+      eos_token: { content: "<eos>" },
+      pad_token: { content: "<pad>" },
+      unk_token: { content: "<unk>" },
+    },
+  );
+}
+
 describe("BPETokenizer", () => {
   test("encodes and decodes a ByteLevel tokenizer", () => {
     const tokenizer = createPhiStyleTokenizer();
@@ -200,5 +260,19 @@ describe("BPETokenizer", () => {
     const ids = tokenizer.encode("Hi!");
     expect(ids).toEqual([2, 8, 7]);
     expect(tokenizer.decode(ids, { skipSpecialTokens: true })).toBe("Hi!");
+  });
+
+  test("matches inline special turn tokens before sentencepiece segmentation", () => {
+    const tokenizer = createGemmaTurnTokenizer();
+    const ids = tokenizer.encode("<bos><|turn>user\nHello there<turn|>\n<|turn>model\n", {
+      addSpecialTokens: false,
+    });
+    expect(ids).toEqual([2, 105, 2364, 107, 9259, 993, 106, 107, 105, 4368, 107]);
+  });
+
+  test("matches inline added tokens for ByteLevel tokenizers", () => {
+    const tokenizer = createPhiStyleTokenizer();
+    const ids = tokenizer.encode("Hi<|endoftext|>Hi", { addSpecialTokens: false });
+    expect(ids).toEqual([0, 1, 6, 0, 1]);
   });
 });

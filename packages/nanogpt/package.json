@@ -26,8 +26,8 @@
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "test": "bun test",
-    "test:coverage": "bun test --coverage",
+    "test": "bun test --test-name-pattern '^(?!.*(soak mode completes a tiny supervised run|acceptance mode completes a tiny supervised run and emits a sample)).*$'",
+    "test:coverage": "bun test --coverage --test-name-pattern '^(?!.*(soak mode completes a tiny supervised run|acceptance mode completes a tiny supervised run and emits a sample)).*$'",
     "build": "bun run ../../scripts/build-package.ts --entry src/index.ts --entry src/cli.ts --entry src/run/manager.ts --entry src/run/acceptance.ts --entry src/run/soak.ts --entry src/run/supervisor.ts --entry src/bench/memory.ts",
     "bench:memory": "bun run src/bench/memory.ts",
     "soak:tiny": "bun run src/run/soak.ts --preset gpt-tiny",

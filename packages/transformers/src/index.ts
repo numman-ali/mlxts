@@ -5,8 +5,20 @@
 
 export { AutoModel, AutoTokenizer } from "./auto";
 export { type ChatMessage, type ChatTemplate, loadChatTemplate } from "./chat-template";
-export { generateStep, generateText, generateTokens, makePromptCache } from "./generation";
+export {
+  generateStep,
+  generateText,
+  generateTextStream,
+  generateTokens,
+  makePromptCache,
+} from "./generation";
 export { KVCache, LayerPatternKVCache, SlidingWindowKVCache } from "./infrastructure/cache";
+export {
+  createInteractionProfile,
+  type InteractionProfile,
+  loadInteractionProfile,
+  type PromptCompilation,
+} from "./interaction-profile";
 export { loadCausalLM, loadPretrainedTokenizer, resolvePretrainedSource } from "./load";
 export type { QuantizedSnapshotResult, QuantizePretrainedSnapshotOptions } from "./quantize";
 export { quantizePretrainedSnapshot } from "./quantize";
@@ -25,6 +37,7 @@ export type {
   PretrainedLoadProgressEvent,
   SamplerOptions,
   SupportedModelFamily,
+  TextGenerationResult,
   TransformerCache,
 } from "./types";
 export {
