@@ -27,4 +27,5 @@ export {
   saveSafetensors,
   saveSafetensorsStream,
   tensorBytes,
+  toSupportedSafetensorsDType,
 } from "./io-safetensors";

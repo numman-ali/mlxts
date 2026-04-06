@@ -8,6 +8,10 @@ import {
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "fs";
 import { join, resolve } from "path";
 
+import {
+  type RemoteSnapshotFile,
+  selectSupportedRemoteSnapshotFiles,
+} from "./snapshot-supported-files";
 import type {
   LoadSourceOptions,
   ModelArtifacts,
@@ -21,11 +25,6 @@ const DEFAULT_REVISION = "main";
 const HIDDEN_DIRECTORIES = new Set([".cache", ".git"]);
 const HIDDEN_FILES = new Set([".DS_Store"]);
 const COMMIT_HASH = /^[0-9a-f]{40}$/;
-
-type RemoteSnapshotFile = {
-  relativePath: string;
-  size: number;
-};
 
 function emitProgress(
   options: LoadSourceOptions,
@@ -330,7 +329,11 @@ async function resolveRemoteSnapshot(
   }
 
   writeRevisionRef(source, cacheDir, revision, resolvedRevision);
-  const remoteFiles = await listRemoteSnapshotFiles(source, resolvedRevision, accessToken);
+  const remoteFiles = selectSupportedRemoteSnapshotFiles(
+    source,
+    resolvedRevision,
+    await listRemoteSnapshotFiles(source, resolvedRevision, accessToken),
+  );
   await downloadRemoteSnapshotFiles(
     source,
     cacheDir,

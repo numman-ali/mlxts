@@ -64,6 +64,7 @@ export {
   saveSafetensors,
   saveSafetensorsStream,
   tensorBytes,
+  toSupportedSafetensorsDType,
 } from "./io";
 export type { MemoryStats } from "./memory";
 export {

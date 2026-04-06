@@ -12,6 +12,7 @@ import {
   quantize,
   saveSafetensorsStream,
   tensorBytes,
+  toSupportedSafetensorsDType,
 } from "@mlxts/core";
 import { type QuantizationParameters, resolveQuantizationParameters } from "@mlxts/quantize";
 import { existsSync, mkdirSync, rmSync, statSync } from "fs";
@@ -243,6 +244,8 @@ function quantizedOutputDescriptors(
   }
 
   const groupCount = quantizationGroupCount(inputDims, params.groupSize);
+  const floatingAuxiliaryDType = toSupportedSafetensorsDType(tensor.dtype);
+  const auxiliaryDType = params.mode === "affine" ? floatingAuxiliaryDType : "uint8";
   const descriptors: OutputTensorDescriptor[] = [
     {
       name: tensor.name,
@@ -252,7 +255,7 @@ function quantizedOutputDescriptors(
     {
       name: quantizedTensorKey(tensor.name, ".scales"),
       shape: [outputDims, groupCount],
-      dtype: "float32",
+      dtype: auxiliaryDType,
     },
   ];
 
@@ -260,7 +263,7 @@ function quantizedOutputDescriptors(
     descriptors.push({
       name: quantizedTensorKey(tensor.name, ".biases"),
       shape: [outputDims, groupCount],
-      dtype: "float32",
+      dtype: floatingAuxiliaryDType,
     });
   }
 
@@ -283,6 +286,7 @@ function quantizedTensorEntries(
   params: QuantizationParameters,
 ): SafetensorWriteEntry[] {
   const descriptors = quantizedOutputDescriptors(tensor, params);
+  const descriptorByName = new Map(descriptors.map((descriptor) => [descriptor.name, descriptor]));
   let cachedBytes: Record<string, Uint8Array> | null = null;
   let remainingEntries = descriptors.length;
 
@@ -294,18 +298,20 @@ function quantizedTensorEntries(
     using sourceTensor = await loadShardTensorByName(shardPath, tensor.name);
     const quantizedTensor = quantize(sourceTensor, params);
     try {
+      const scaleDescriptor = descriptorByName.get(quantizedTensorKey(tensor.name, ".scales"));
+      const biasDescriptor = descriptorByName.get(quantizedTensorKey(tensor.name, ".biases"));
       cachedBytes = {
         [tensor.name]: tensorBytes(quantizedTensor.weight, "uint32"),
         [quantizedTensorKey(tensor.name, ".scales")]: tensorBytes(
           quantizedTensor.scales,
-          "float32",
+          scaleDescriptor?.dtype ?? toSupportedSafetensorsDType(quantizedTensor.scales.dtype),
         ),
         ...(quantizedTensor.biases === undefined
           ? {}
           : {
               [quantizedTensorKey(tensor.name, ".biases")]: tensorBytes(
                 quantizedTensor.biases,
-                "float32",
+                biasDescriptor?.dtype ?? toSupportedSafetensorsDType(quantizedTensor.biases.dtype),
               ),
             }),
       };

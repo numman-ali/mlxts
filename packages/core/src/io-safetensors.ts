@@ -355,3 +355,5 @@ export type {
   SafetensorTensorEntry,
   SupportedSafetensorsDType,
 };
+
+export { toSupportedSafetensorsDType };

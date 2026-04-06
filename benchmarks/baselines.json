@@ -24,6 +24,17 @@
         "explicitEvalCountPerToken": 1
       },
       {
+        "name": "gemma-4-e2b",
+        "model": "google/gemma-4-E2B-it",
+        "promptTokens": 1024,
+        "generationTokens": 128,
+        "prefillStepSize": 2048,
+        "promptTps": 8152.219,
+        "generationTps": 74.882,
+        "peakMemoryGb": 9.985,
+        "explicitEvalCountPerToken": 1
+      },
+      {
         "name": "phi-4-mini",
         "model": "microsoft/Phi-4-mini-instruct",
         "promptTokens": 1024,
@@ -71,6 +82,17 @@
           "peakMemoryGb": 2.683,
           "capturedAt": "2026-04-05"
         }
+      },
+      {
+        "name": "gemma-4-e2b",
+        "model": "google/gemma-4-E2B-it",
+        "promptTokens": 1024,
+        "generationTokens": 128,
+        "prefillStepSize": 2048,
+        "promptTps": 7659.4,
+        "generationTps": 75.07,
+        "peakMemoryGb": 9.985,
+        "explicitEvalCountPerToken": 1
       },
       {
         "name": "phi-4-mini",

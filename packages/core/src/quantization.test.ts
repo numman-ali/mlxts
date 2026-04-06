@@ -22,6 +22,30 @@ function meanAbsoluteError(actual: number[][], expected: number[][]): number {
 }
 
 describe("quantization", () => {
+  test("affine quantize preserves the source floating dtype for scales and biases", () => {
+    for (const dtype of ["float16", "bfloat16", "float32"] as const) {
+      using weight = array(
+        Array.from({ length: 2 }, (_, row) =>
+          Array.from({ length: 64 }, (_, column) => (row * 64 + column - 32) / 16),
+        ),
+        dtype,
+      );
+
+      const result = quantize(weight, {
+        groupSize: 32,
+        bits: 4,
+        mode: "affine",
+      });
+      using quantized = result.weight;
+      using quantizedScales = result.scales;
+      using quantizedBiases = result.biases ?? array([0], dtype);
+
+      expect(quantized.dtype).toBe("uint32");
+      expect(quantizedScales.dtype).toBe(dtype);
+      expect(quantizedBiases.dtype).toBe(dtype);
+    }
+  });
+
   test("affine quantize/dequantize round-trips approximately", () => {
     const rows = Array.from({ length: 2 }, (_, row) =>
       Array.from({ length: 64 }, (_, column) => (row * 64 + column - 32) / 16),
@@ -72,6 +96,7 @@ describe("quantization", () => {
 
     expect(result.biases).toBeUndefined();
     expect(quantized.shape[0]).toBe(2);
+    expect(scales.dtype).toBe("uint8");
     expect(scales.shape.length).toBeGreaterThan(0);
   });
 

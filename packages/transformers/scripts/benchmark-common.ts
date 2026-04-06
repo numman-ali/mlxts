@@ -7,6 +7,7 @@ import {
   synchronize,
   withDefaultStream,
 } from "@mlxts/core";
+import type { Tokenizer } from "@mlxts/tokenizers";
 
 export const BASELINE_PATH = "benchmarks/baselines.json";
 const TRACE_DIR = "benchmarks/traces";
@@ -304,6 +305,21 @@ export function selectTargets(
   return baselineTargets;
 }
 
+export function formatMlxLmReference(target: BenchmarkTarget): string | null {
+  const reference = target.mlxLmReference;
+  if (reference === undefined) {
+    return null;
+  }
+
+  return [
+    "MLX-LM reference:",
+    `prompt_tps=${reference.promptTps.toFixed(3)}`,
+    `generation_tps=${reference.generationTps.toFixed(3)}`,
+    `peak_memory=${reference.peakMemoryGb.toFixed(3)}`,
+    `captured_at=${reference.capturedAt}`,
+  ].join(" ");
+}
+
 export function compareAgainstBaseline(target: BenchmarkTarget, metrics: TrialMetrics): string[] {
   const warnings: string[] = [];
 
@@ -342,6 +358,17 @@ export function printTrial(prefix: string, metrics: TrialMetrics): void {
   console.log(
     `${prefix}prompt_tps=${metrics.promptTps.toFixed(3)}, generation_tps=${metrics.generationTps.toFixed(3)}, peak_memory=${metrics.peakMemoryGb.toFixed(3)}, evals_per_token=${metrics.explicitEvalCountPerToken.toFixed(2)}, total_time=${metrics.totalTimeSeconds.toFixed(3)}`,
   );
+}
+
+export function safeDecodedTokenLength(tokenizer: Tokenizer, tokenId: number): number {
+  try {
+    return tokenizer.decode([tokenId], { skipSpecialTokens: false }).length;
+  } catch (error) {
+    if (error instanceof Error && error.message.includes("out of range")) {
+      return 0;
+    }
+    throw error;
+  }
 }
 
 export function sanitizePathSegment(value: string): string {
@@ -385,7 +412,9 @@ export async function resolveCachedSnapshotPath(modelSource: string): Promise<st
     }
   }
 
-  return modelSource;
+  throw new Error(
+    `benchmark-generation: no cached snapshot for ${modelSource}. Benchmark commands must run against local cached checkpoints only.`,
+  );
 }
 
 function createTracePath(targetName: string): string {

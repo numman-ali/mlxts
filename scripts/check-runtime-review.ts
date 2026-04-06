@@ -23,6 +23,17 @@ const REQUIRED_HEADINGS = [
   "## Remaining Risks / Follow-ups",
 ] as const;
 
+const GENERATION_HOT_PATH_PREFIXES = [
+  "packages/transformers/src/families/",
+  "packages/transformers/src/infrastructure/",
+] as const;
+
+const GENERATION_HOT_PATH_FILES = new Set([
+  "packages/transformers/src/generation.ts",
+  "packages/nn/src/grouped-query-attention.ts",
+  "packages/core/src/fast.ts",
+]);
+
 function runGit(args: string[]): string {
   const result = Bun.spawnSync(["git", ...args], {
     cwd: PROJECT_ROOT,
@@ -135,9 +146,40 @@ function extractReviewedFiles(content: string): string[] {
   return reviewedFiles;
 }
 
-function validateReviewArtifact(path: string): { errors: string[]; reviewedFiles: string[] } {
+function extractSectionContent(content: string, heading: string): string {
+  const lines = content.split("\n");
+  let inSection = false;
+  const sectionLines: string[] = [];
+
+  for (const rawLine of lines) {
+    const line = rawLine.trim();
+    if (!inSection) {
+      if (line === heading) {
+        inSection = true;
+      }
+      continue;
+    }
+
+    if (line.startsWith("## ")) {
+      break;
+    }
+    sectionLines.push(rawLine);
+  }
+
+  return sectionLines.join("\n");
+}
+
+function validateReviewArtifact(path: string): {
+  errors: string[];
+  reviewedFiles: string[];
+  performanceEvidence: string;
+} {
   if (!existsSync(join(PROJECT_ROOT, path))) {
-    return { errors: [`${path}: file does not exist`], reviewedFiles: [] };
+    return {
+      errors: [`${path}: file does not exist`],
+      reviewedFiles: [],
+      performanceEvidence: "",
+    };
   }
 
   const content = readFileSync(join(PROJECT_ROOT, path), "utf8");
@@ -145,7 +187,18 @@ function validateReviewArtifact(path: string): { errors: string[]; reviewedFiles
     content.includes(heading) ? [] : [`${path}: missing heading "${heading}"`],
   );
 
-  return { errors, reviewedFiles: extractReviewedFiles(content) };
+  return {
+    errors,
+    reviewedFiles: extractReviewedFiles(content),
+    performanceEvidence: extractSectionContent(content, "## Memory / Performance Evidence"),
+  };
+}
+
+function touchesGenerationHotPath(path: string): boolean {
+  return (
+    GENERATION_HOT_PATH_FILES.has(path) ||
+    GENERATION_HOT_PATH_PREFIXES.some((prefix) => path.startsWith(prefix))
+  );
 }
 
 const changedFiles = uniqueSorted([...listChangedTrackedFiles(), ...listUntrackedFiles()]);
@@ -176,10 +229,12 @@ if (changedReviewArtifacts.length === 0) {
 
 const reviewFileSet = new Set<string>();
 const artifactErrors: string[] = [];
+const performanceEvidenceSections: string[] = [];
 
 for (const path of changedReviewArtifacts) {
-  const { errors, reviewedFiles } = validateReviewArtifact(path);
+  const { errors, reviewedFiles, performanceEvidence } = validateReviewArtifact(path);
   artifactErrors.push(...errors);
+  performanceEvidenceSections.push(performanceEvidence);
   for (const reviewedFile of reviewedFiles) {
     reviewFileSet.add(reviewedFile);
   }
@@ -203,6 +258,30 @@ if (missingReviewedFiles.length > 0) {
   console.error("");
   console.error("Add the missing paths to the Files Reviewed section of the review artifact.");
   process.exit(1);
+}
+
+const requiresGenerationBenchmarks = changedRuntimeFiles.some((path) =>
+  touchesGenerationHotPath(path),
+);
+if (requiresGenerationBenchmarks) {
+  const combinedEvidence = performanceEvidenceSections.join("\n");
+  const missingBenchmarks: string[] = [];
+  if (!combinedEvidence.includes("bench:generation")) {
+    missingBenchmarks.push("bench:generation");
+  }
+  if (!combinedEvidence.includes("bench:generation:parity")) {
+    missingBenchmarks.push("bench:generation:parity");
+  }
+
+  if (missingBenchmarks.length > 0) {
+    console.error(
+      "Generation hot-path changes require benchmark evidence in the runtime review:\n",
+    );
+    for (const benchmark of missingBenchmarks) {
+      console.error(`  missing mention of ${benchmark} in "## Memory / Performance Evidence"`);
+    }
+    process.exit(1);
+  }
 }
 
 console.log("Runtime-sensitive production changes detected.");

@@ -1,5 +1,13 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { array, type MxArray, mxEval, quantize, retainArray, saveSafetensors } from "@mlxts/core";
+import {
+  array,
+  inspectSafetensors,
+  type MxArray,
+  mxEval,
+  quantize,
+  retainArray,
+  saveSafetensors,
+} from "@mlxts/core";
 import { Linear, QuantizedLinear } from "@mlxts/nn";
 import { mkdtempSync, rmSync } from "fs";
 import { tmpdir } from "os";
@@ -271,6 +279,17 @@ function checkpointTensors(model: LlamaLikeCausalLM): Record<string, MxArray> {
   }
 
   return tensors;
+}
+
+function castCheckpointTensors(
+  tensors: Record<string, MxArray>,
+  dtype: "float16" | "bfloat16" | "float32",
+): Record<string, MxArray> {
+  const converted: Record<string, MxArray> = {};
+  for (const [name, tensor] of Object.entries(tensors)) {
+    converted[name] = tensor.asType(dtype);
+  }
+  return converted;
 }
 
 function quantizeCheckpointTensors(
@@ -1133,6 +1152,74 @@ describe("pretrained loading", () => {
     expect(firstLayer.selfAttention.kProjection).toBeInstanceOf(QuantizedLinear);
     expect(firstLayer.selfAttention.vProjection).toBeInstanceOf(QuantizedLinear);
     expect(firstLayer.selfAttention.outputProjection).toBeInstanceOf(QuantizedLinear);
+  });
+
+  test("quantizePretrainedSnapshot preserves MLX quantized auxiliary dtypes", async () => {
+    const directory = createTempDir("mlxts-transformers-quantized-export-bf16-source-");
+    const rawConfig: Record<string, unknown> = {
+      ...rawConfigForFamily("llama"),
+      hidden_size: 64,
+      intermediate_size: 128,
+      num_attention_heads: 4,
+      num_key_value_heads: 4,
+      max_position_embeddings: 64,
+      vocab_size: 7,
+    };
+    const registration = resolveFamily("llama");
+    using model = registration.createModel(registration.parseConfig(rawConfig));
+    if (!(model instanceof LlamaLikeCausalLM)) {
+      throw new Error("Expected a LlamaLikeCausalLM for the quantized export dtype fixture.");
+    }
+
+    const baseTensors = checkpointTensors(model);
+    const bf16Tensors = castCheckpointTensors(baseTensors, "bfloat16");
+    const tokenizer = tokenizerFixture();
+    const outputDirectory = join(createTempDir("mlxts-transformers-quantized-export-bf16-"), "out");
+
+    try {
+      await Bun.write(join(directory, "config.json"), `${JSON.stringify(rawConfig, null, 2)}\n`);
+      await Bun.write(
+        join(directory, "tokenizer.json"),
+        `${JSON.stringify(tokenizer.tokenizerJson, null, 2)}\n`,
+      );
+      await Bun.write(
+        join(directory, "tokenizer_config.json"),
+        `${JSON.stringify(tokenizer.tokenizerConfig, null, 2)}\n`,
+      );
+      await Bun.write(
+        join(directory, "special_tokens_map.json"),
+        `${JSON.stringify(tokenizer.specialTokensMap, null, 2)}\n`,
+      );
+      await saveSafetensors(bf16Tensors, join(directory, "model.safetensors"));
+    } finally {
+      for (const tensor of Object.values(baseTensors)) {
+        tensor.free();
+      }
+      for (const tensor of Object.values(bf16Tensors)) {
+        tensor.free();
+      }
+    }
+
+    await quantizePretrainedSnapshot(directory, {
+      outputDir: outputDirectory,
+      bits: 4,
+      groupSize: 64,
+      mode: "affine",
+    });
+
+    const inspection = await inspectSafetensors(join(outputDirectory, "model.safetensors"));
+    const scales = inspection.tensors.find(
+      (tensor) => tensor.name === "model.layers.0.self_attn.q_proj.scales",
+    );
+    const biases = inspection.tensors.find(
+      (tensor) => tensor.name === "model.layers.0.self_attn.q_proj.biases",
+    );
+    if (scales === undefined || biases === undefined) {
+      throw new Error("Expected quantized q_proj auxiliary tensors in the exported snapshot.");
+    }
+
+    expect(scales.dtype).toBe("bfloat16");
+    expect(biases.dtype).toBe("bfloat16");
   });
 
   test("loadPretrainedTokenizer rejects snapshots without tokenizer artifacts", async () => {

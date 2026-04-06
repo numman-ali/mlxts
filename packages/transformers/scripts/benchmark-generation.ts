@@ -144,7 +144,7 @@ async function benchmarkTarget(target: BenchmarkTarget, options: BenchmarkOption
     `Benchmarking ${target.name} (${resolvedModelSource}) with prompt_tokens=${targetOptions.promptTokens}, generation_tokens=${targetOptions.generationTokens}, trials=${targetOptions.trials}.`,
   );
 
-  using model = await loadCausalLM(resolvedModelSource);
+  using model = await loadCausalLM(resolvedModelSource, { localFilesOnly: true });
   const promptTokenIds = createPromptTokenIds(targetOptions.promptTokens, model.config.vocabSize);
   runSyntheticBenchmarks(model, promptTokenIds, target, targetOptions);
 }

@@ -14,11 +14,13 @@ import {
   type BenchmarkTarget,
   compareAgainstBaseline,
   createPromptTokenIds,
+  formatMlxLmReference,
   loadBaselines,
   mean,
   parseBenchmarkArgs,
   printTrial,
   resolveCachedSnapshotPath,
+  safeDecodedTokenLength,
   selectTargets,
   type TrialMetrics,
   withBenchmarkRuntimeScope,
@@ -41,7 +43,7 @@ class BenchmarkDecodeSink {
   }
 
   addToken(tokenId: number): void {
-    this.#decodedLength += this.#tokenizer.decode([tokenId], { skipSpecialTokens: false }).length;
+    this.#decodedLength += safeDecodedTokenLength(this.#tokenizer, tokenId);
   }
 
   finalize(): number {
@@ -178,9 +180,13 @@ async function benchmarkTarget(target: BenchmarkTarget, options: BenchmarkOption
   console.log(
     `Benchmarking ${target.name} parity (${resolvedModelSource}) with prompt_tokens=${targetOptions.promptTokens}, generation_tokens=${targetOptions.generationTokens}, trials=${targetOptions.trials}.`,
   );
+  const reference = formatMlxLmReference(target);
+  if (reference !== null) {
+    console.log(reference);
+  }
 
-  using model = await loadCausalLM(resolvedModelSource);
-  const tokenizer = await loadPretrainedTokenizer(resolvedModelSource);
+  using model = await loadCausalLM(resolvedModelSource, { localFilesOnly: true });
+  const tokenizer = await loadPretrainedTokenizer(resolvedModelSource, { localFilesOnly: true });
   const promptTokenIds = createPromptTokenIds(targetOptions.promptTokens, model.config.vocabSize);
   runParityBenchmarks(model, tokenizer, promptTokenIds, target, targetOptions);
 }
