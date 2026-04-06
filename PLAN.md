@@ -561,7 +561,14 @@ LLaMA first, done right, then expand:
 | Qwen | Medium | Strong multilingual |
 | GPT-2 | Already done | From nanoGPT |
 
-**Scope: dense text models only.** MoE variants (Mixtral, DeepSeek) are deferred to Phase 7e. The architecture accommodates this — the decoder block's MLP slot is a swappable `Module` property, and `FamilyRegistration.sanitizeWeight()` handles per-family weight name translation including expert weight stacking. The `CausalLM` contract does not change for MoE because MoE is a block-internal optimization, not a different model contract. See [design-reasoning.md § Contract Boundaries](./docs/design-reasoning.md#contract-boundaries) for the rationale.
+**Scope: dense text models only.** MoE variants (Mixtral, DeepSeek) are deferred
+to Phase 7f. The architecture accommodates this — the decoder block's MLP slot
+is a swappable `Module` property, and
+`FamilyRegistration.sanitizeWeight()` handles per-family weight name
+translation including expert weight stacking. The `CausalLM` contract does not
+change for MoE because MoE is a block-internal optimization, not a different
+model contract. See [design-reasoning.md § Contract Boundaries](./docs/design-reasoning.md#contract-boundaries)
+for the rationale.
 
 - `AutoModel.fromPretrained(modelId)` auto-dispatch
 - `AutoTokenizer.fromPretrained(modelId)`
@@ -644,6 +651,20 @@ Generation performance must be measurable, comparable, and regression-protected.
 
 **Exit criteria**: `bun run bench:generation` and `bun run bench:generation:parity` both run and report numbers. Baselines are recorded. A diff that makes decode 2x slower is caught by the benchmark comparison. The review gate requires performance numbers for hot-path diffs.
 
+**Near-term sequencing note:** Once the dense Phase 7 base is stable, the next
+implementation priority is not "whatever phase number comes next." The priority
+order is:
+
+1. Official-checkpoint quantization proofs and long-context evidence
+2. MoE text architectures
+3. Minimal serving on the shared request / prompt-compiler path
+4. Phase 10 multimodal and diffusion model families
+5. Deeper training orchestration ergonomics
+
+Training remains a first-class product surface throughout. The deferral is
+about orchestration ergonomics, not about deprioritizing fine-tuning or
+alignment correctness.
+
 ---
 
 ## Phase 8: Fine-Tuning
@@ -651,6 +672,13 @@ Generation performance must be measurable, comparable, and regression-protected.
 **Goal**: LoRA fine-tuning, DPO alignment, dataset loading. A TS developer can fine-tune a model on their own data.
 
 **What this phase covers**:
+
+This phase establishes the canonical fine-tuning packages, real-data proof
+surfaces, and regression expectations now. More opinionated training
+orchestration ergonomics — policy-driven checkpointing, evaluation hooks,
+artifact sinks, and higher-level composition helpers — are intentionally a
+follow-on after official-model quantization proofs, long-context evidence, MoE,
+and minimal serving are in place.
 
 ### 8a. LoRA (`@mlxts/lora`)
 
@@ -676,6 +704,26 @@ Generation performance must be measurable, comparable, and regression-protected.
 ### 8d. Examples
 
 - `examples/lora-finetune/` — fine-tune LLaMA on custom data, merge, generate
+
+### 8e. Training orchestration and proof gates (deferred follow-on)
+
+- Keep `@mlxts/train` explicit and model-agnostic. Future composition work
+  should add small package-owned primitives such as train hooks, checkpoint
+  policies, evaluation policies, artifact sinks, and `AsyncIterable`-style
+  train events.
+- Do **not** turn `@mlxts/train` into a black-box pipeline framework and do not
+  add reactive framework dependencies such as RxJS or Effect to the core
+  training layer.
+- Recipe-specific orchestration belongs above the core loop: in `@mlxts/align`,
+  example surfaces, and later CLI/application layers.
+- The canonical training proof uses official checkpoints plus pinned real-data
+  subsets:
+  - `meta-llama/Llama-3.2-1B-Instruct` as the training anchor
+  - `HuggingFaceH4/ultrachat_200k` subsets for LoRA / QLoRA / SFT
+  - `HuggingFaceH4/ultrafeedback_binarized` subsets for DPO
+- This proof path must become a CI-gated regression. If a model-architecture,
+  quantization, tokenizer, or trainer change breaks LoRA / QLoRA / SFT / DPO on
+  the canonical proof, the build should fail.
 
 **Exit criteria**: See [gates-and-milestones.md](./docs/gates-and-milestones.md#phase-8-fine-tuning).
 
@@ -781,6 +829,11 @@ The architecture must accommodate these techniques without requiring them at lau
 **Goal**: On-device generative AI across modalities — image, video, and audio generation via diffusion models; multimodal understanding via transformer encoders and VLM composition.
 
 **Design principle**: Packages are organized by **generation paradigm**, not by input/output modality. See [design-reasoning.md § Generation Paradigms](./docs/design-reasoning.md#generation-paradigms). There is no `@mlxts/vlm`, `@mlxts/audio`, or `@mlxts/multimodal` package — vision/audio encoders are transformer architectures (→ `@mlxts/transformers`), media generation uses diffusion/flow (→ `@mlxts/diffusion`).
+
+**Research basis:** Phase 10 should be grounded in MLX-native reference work from
+`.reference/mlx-examples` plus diffusion pipeline and checkpoint-structure
+reference work from Hugging Face Diffusers. Clone that reference into
+`.reference/diffusers` before Phase 10 research begins.
 
 **What this phase covers**:
 

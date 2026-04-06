@@ -148,7 +148,7 @@ A developer runs `bun install`, opens `packages/core/src/index.ts` and `packages
 | `@mlxts/transformers` implements LLaMA architecture | Test: forward pass matches MLX Python output for same weights |
 | KV cache works for efficient generation | Test: generate 100 tokens, verify speed improvement vs no cache |
 | Checkpoint generation defaults and end-of-turn stop behavior are honored | Test: generation stops on the checkpoint's full EOS / turn-boundary token set |
-| `AutoModel.fromPretrained("mlx-community/Llama-3.2-1B")` works | End-to-end test |
+| `AutoModel.fromPretrained("meta-llama/Llama-3.2-1B-Instruct")` works | End-to-end test |
 | At least 3 model architectures supported | LLaMA, Mistral, Phi or Gemma |
 | Generation quality: coherent multi-sentence output | Manual inspection |
 | `examples/chat/` runs interactively | Demo it |
@@ -157,8 +157,8 @@ A developer runs `bun install`, opens `packages/core/src/index.ts` and `packages
 A developer writes:
 ```typescript
 import { AutoModel, AutoTokenizer, generateText } from '@mlxts/transformers';
-const model = await AutoModel.fromPretrained('mlx-community/Llama-3.2-1B');
-const tokenizer = await AutoTokenizer.fromPretrained('mlx-community/Llama-3.2-1B');
+const model = await AutoModel.fromPretrained('meta-llama/Llama-3.2-1B-Instruct');
+const tokenizer = await AutoTokenizer.fromPretrained('meta-llama/Llama-3.2-1B-Instruct');
 const output = generateText(model, tokenizer, 'Hello, world!', { maxTokens: 100 });
 console.log(output);
 ```
@@ -180,12 +180,18 @@ And it works. On their Mac. From TypeScript.
 | `@mlxts/align` implements DPO trainer | Test: DPO loss decreases on preference pairs |
 | `@mlxts/data` supports HuggingFace datasets format | Test: load a dataset from Hub |
 | Chat template support for instruction tuning | Test: format conversations correctly |
+| Canonical proof uses pinned real-data subsets | Test: short runs on `HuggingFaceH4/ultrachat_200k` and `HuggingFaceH4/ultrafeedback_binarized` produce held-out metrics |
+| Canonical training proof is CI-gated | CI runs `bun run proof:training` on the official anchor and fails on regression |
 | `examples/lora-finetune/` runs end-to-end | Fine-tune, merge, generate |
 | Memory fits within 64GB for 1B-3B parameter models with LoRA | Measure peak memory |
 | QLoRA works with 4-bit base model | Test: load quantized model, apply LoRA, train |
+| Training orchestration stays explicit | Review: no black-box pipeline framework or reactive dependency lands inside `@mlxts/train` |
 
 ### What "done" looks like
-A developer fine-tunes LLaMA-3.2-1B on their custom dataset using 4 lines of config and `mlxts train --lora`, then merges the adapter and serves the result.
+A developer fine-tunes `meta-llama/Llama-3.2-1B-Instruct` on a pinned real-data
+subset using 4 lines of config and `mlxts train --lora`, then merges the
+adapter and serves the result. The same short proof run is cheap enough to stay
+in CI as a regression gate.
 
 ---
 
@@ -236,12 +242,12 @@ A developer fine-tunes LLaMA-3.2-1B on their custom dataset using 4 lines of con
 | `/v1/embeddings` endpoint works | Test: embedding request returns vector |
 | Streaming responses (SSE) | Test: stream tokens one at a time |
 | Protocol adapters share one prompt compiler path | Test: chat, completions, responses, and Anthropic requests normalize to the same internal generation request |
-| `mlxts serve --model mlx-community/Llama-3.2-1B` works | End-to-end demo |
+| `mlxts serve --model meta-llama/Llama-3.2-1B-Instruct` works | End-to-end demo |
 | Ollama-compatible API (same as OpenAI compat) | Test: Ollama client can connect |
 | Model loading/unloading | Test: switch models without restart |
 
 ### What "done" looks like
-`mlxts serve --model Llama-3.2-1B --quantize 4bit` starts a server. Any OpenAI-compatible client (Cursor, Continue, LangChain.js, etc.) connects and gets fast, streaming responses.
+`mlxts serve --model meta-llama/Llama-3.2-1B-Instruct --quantize 4bit` starts a server. Any OpenAI-compatible client (Cursor, Continue, LangChain.js, etc.) connects and gets fast, streaming responses.
 
 ---
 
@@ -346,6 +352,7 @@ If a developer can follow the example and do the same for a different paper, the
 - Coverage thresholds enforced per package
 - Type assertion check prevents `as` leaking out of FFI
 - Tensor lifetime check prevents anonymous intermediate leaks
+- Phase 8 adds `bun run proof:training` as a regression gate on Apple Silicon CI
 
 ### Semi-Automated (Agent Review)
 - Runtime review artifacts required for hot-path changes

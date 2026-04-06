@@ -16,7 +16,7 @@ Phase 1–4: Complete (core bindings, autograd, nn, nanoGPT).
 Phase 5: Ecosystem Restructure — complete. Renamed to mlxts, extracted @mlxts/* packages.
 Phase 6: Publish Core Packages — complete. Modern transformer primitives in @mlxts/nn.
 Phase 6.5: Modern Transformer Primitives — complete.
-Phase 7: Model Architectures — **in progress**. Dense text families (LLaMA, Mistral, Gemma) working. Expanding to Phi-3, Gemma 3, Mistral 3. MoE (Phase 7e) follows.
+Phase 7: Model Architectures — **in progress**. Dense text families (LLaMA, Mistral, Gemma) working. Expanding to Phi-3, Gemma 3, Mistral 3. MoE (Phase 7f) follows.
 
 ## Quick Reference
 
@@ -29,4 +29,3 @@ Phase 7: Model Architectures — **in progress**. Dense text families (LLaMA, Mi
 - Build all packages: `bun run build`
 - API docs: `bun run docs:api`
 - Pack dry run: `bun run pack:dry-run`
-

@@ -115,10 +115,17 @@ Model-agnostic training loop, checkpointing, gradient utilities.
 | Gradient utils | `accumulateGradients`, `clipGradientTree`, `scaleGradientTree`, norm/eval/free helpers |
 | Schedules | `warmupCosineSchedule`, `getLearningRate`, schedule validation |
 | Config | `TrainLoopConfig`, `TrainLoopOptions`, learning-rate config types |
+| Composition follow-ons (planned) | Explicit hooks, checkpoint/eval policies, artifact sinks, and train-event streams — not a reactive framework |
 
 **Dependencies:** `@mlxts/core`, `@mlxts/nn`, `@mlxts/optimizers`
 
 **Source origin:** Extracted from the model-agnostic parts of the former `packages/nanogpt/src/train.ts` and `packages/nanogpt/src/checkpoint.ts`. The package now also owns the canonical metadata-driven checkpoint format and reusable step-orchestration helpers used by the temporary GPT fixture.
+
+`@mlxts/train` is intentionally not a black-box pipeline framework. Recipe-level
+orchestration lives above it, in `@mlxts/align`, examples, and later CLI/app
+surfaces. Future composition work should stay explicit and package-owned rather
+than introducing RxJS/Effect-style reactive dependencies into the core training
+layer.
 
 #### `@mlxts/data`
 
@@ -137,7 +144,7 @@ Dataset loading, batching, and preprocessing.
 
 ---
 
-### Layer 3: Tokenization and Hub
+### Layer 3: Tokenization and Pretrained Loading
 
 #### `@mlxts/tokenizers`
 
@@ -178,7 +185,7 @@ All transformer-based model architectures — the mlxts equivalent of HuggingFac
 | Concern | What it provides |
 |---------|-----------------|
 | Text decoder families | LLaMA, Mistral, Mistral 3, Gemma, Gemma 3, Gemma 4 text, Phi 3/4-mini |
-| MoE families (Phase 7e) | Mixtral, DeepSeek — block-level MoE swap, same CausalLM contract |
+| MoE families (Phase 7f) | Mixtral, DeepSeek — block-level MoE swap, same CausalLM contract |
 | Vision encoder families (Phase 10) | CLIP, SigLIP, ViT — for VLM composition and diffusion conditioning |
 | VLM wrapper families (Phase 10) | LLaVA, PaliGemma, Gemma 3/4 — compose vision encoder + text decoder |
 | Encoder-decoder families (Phase 10) | Whisper (speech → text), T5, BART |
@@ -235,7 +242,7 @@ Parameter-efficient fine-tuning.
 
 **Dependencies:** `@mlxts/core`, `@mlxts/nn`
 
-#### `@mlxts/align` (Phase 8 — future)
+#### `@mlxts/align`
 
 Alignment and RLHF.
 
@@ -245,8 +252,14 @@ Alignment and RLHF.
 | DPO | Direct Preference Optimization |
 | Reward modeling | Reward model training |
 | Data | Preference pair formatting, chat template support |
+| Proof surface | Canonical real-data proof via `examples/train-proof/` on pinned dataset subsets |
 
-**Dependencies:** `@mlxts/core`, `@mlxts/nn`, `@mlxts/train`, `@mlxts/lora`
+**Dependencies:** `@mlxts/core`, `@mlxts/data`, `@mlxts/lora`, `@mlxts/nn`, `@mlxts/tokenizers`, `@mlxts/train`, `@mlxts/transformers`
+
+The short real-data training proof is the regression path for this layer. Once
+Phase 8 is active, architecture or quantization changes that break LoRA, QLoRA,
+SFT, or DPO on the canonical proof should fail CI rather than relying on manual
+spot checks.
 
 ---
 
@@ -264,6 +277,7 @@ Production inference server with OpenAI-compatible API.
 | Streaming | Server-sent events for token streaming |
 | Model management | Load/unload models, model registry |
 | Quantized inference | Run quantized models at full speed |
+| Protocol adapters | OpenAI chat/completions/responses and Anthropic-style APIs over one shared request model |
 
 **Dependencies:** `@mlxts/core`, `@mlxts/nn`, `@mlxts/transformers`, `@mlxts/tokenizers`
 
@@ -475,6 +489,7 @@ mlxts/                                # Monorepo root
 
 @mlxts/train                          # Core + nn + optimizers
 @mlxts/lora                           # Core + nn
+@mlxts/align                          # Core + data + lora + nn + tokenizers + train + transformers
 
 @mlxts/transformers                   # Core + nn + tokenizers + official HF JS
 @mlxts/serve                          # Core + nn + transformers + tokenizers
@@ -535,8 +550,8 @@ work is deferred unless a row says otherwise.
 - **`@mlxts/core` contains everything MLX-related:** FFI, array, ops, transforms, device, memory, random, I/O, fast fused ops. This is one package because MLX is one coherent system — splitting it would create artificial boundaries.
 - **Phase 5 creates:** `core`, `nn`, `optimizers`, `train`, `data`, `tokenizers`. These are already extracted, with the temporary nanoGPT fixture still acting as the validation harness while the package surfaces settle.
 - **Phase 7 creates:** `transformers`. Pretrained loading uses official Hugging Face JS packages plus repo-owned helpers under `packages/transformers/src/pretrained/`.
-- **Phase 8 creates:** `lora`, `align`. These appear when fine-tuning lands.
-- **Phase 9 creates:** `serve`, `quantize`. These appear when inference serving lands.
+- **Phase 8 surfaces now exist:** `lora`, `align`, and their proof/example surfaces are in-repo while the real-world evidence and CI gates continue to harden.
+- **Phase 9 surfaces now exist:** `quantize` is in-repo; `serve` remains the next major serving surface to complete.
 - **Phase 10 creates:** `diffusion`. Vision/audio encoders extend `transformers`, not a separate package. Generative media (image/video/audio) uses diffusion/flow → `@mlxts/diffusion`.
 - **Phase 12 creates:** `eval`. This appears when benchmark evaluation lands.
 - **`cli` grows incrementally** — subcommands arrive as their backing packages ship.
