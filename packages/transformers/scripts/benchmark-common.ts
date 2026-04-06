@@ -11,6 +11,7 @@ import type { Tokenizer } from "@mlxts/tokenizers";
 
 export const BASELINE_PATH = "benchmarks/baselines.json";
 const TRACE_DIR = "benchmarks/traces";
+const MLX_LM_DECODE_TOLERANCE_RATIO = 0.98;
 
 export type BenchmarkMode = "synthetic" | "parity";
 
@@ -32,6 +33,8 @@ export type BenchmarkTarget = {
   };
 };
 
+export type MlxLmReference = NonNullable<BenchmarkTarget["mlxLmReference"]>;
+
 export type BenchmarkSection = {
   targets: BenchmarkTarget[];
 };
@@ -52,6 +55,13 @@ export type BenchmarkOptions = {
 export type ParsedBenchmarkArgs = {
   model?: string;
   options: BenchmarkOptions;
+  reference: ReferenceBenchmarkOptions;
+};
+
+export type ReferenceBenchmarkOptions = {
+  captureMlxLmReference: boolean;
+  enforceMlxLmDecodeBar: boolean;
+  mlxLmPython?: string;
 };
 
 export type TrialMetrics = {
@@ -69,6 +79,9 @@ type MutableBenchmarkOptions = {
   trials: number;
   prefillStepSize: number;
   metalTrace: boolean;
+  captureMlxLmReference: boolean;
+  enforceMlxLmDecodeBar: boolean;
+  mlxLmPython?: string;
 };
 
 function defaultOptions(): MutableBenchmarkOptions {
@@ -79,6 +92,9 @@ function defaultOptions(): MutableBenchmarkOptions {
     trials: 3,
     prefillStepSize: 2048,
     metalTrace: false,
+    captureMlxLmReference: true,
+    enforceMlxLmDecodeBar: false,
+    mlxLmPython: undefined,
   };
 }
 
@@ -110,6 +126,16 @@ function validateOptions(options: BenchmarkOptions): void {
   if (!Number.isInteger(options.prefillStepSize) || options.prefillStepSize <= 0) {
     throw new Error("benchmark-generation: prefillStepSize must be a positive integer.");
   }
+}
+
+function mergedOfflineEnv(): Record<string, string> {
+  return {
+    HF_HUB_OFFLINE: "1",
+    HF_DATASETS_OFFLINE: "1",
+    TRANSFORMERS_OFFLINE: "1",
+    HF_HUB_DISABLE_TELEMETRY: "1",
+    PYTHONNOUSERSITE: "1",
+  };
 }
 
 function parseTarget(entry: unknown, context: string): BenchmarkTarget {
@@ -196,6 +222,48 @@ function applyIntegerFlag(
   }
 }
 
+function applyBooleanFlag(mutable: MutableBenchmarkOptions, flag: string): boolean {
+  switch (flag) {
+    case "--metal-trace":
+      mutable.metalTrace = true;
+      return true;
+    case "--capture-mlx-lm-reference":
+      mutable.captureMlxLmReference = true;
+      return true;
+    case "--enforce-mlx-lm-decode-bar":
+      mutable.enforceMlxLmDecodeBar = true;
+      return true;
+    default:
+      return false;
+  }
+}
+
+function applyStringFlag(
+  mutable: MutableBenchmarkOptions,
+  flag: string,
+  value: string | undefined,
+): boolean {
+  switch (flag) {
+    case "--model":
+      mutable.model = value;
+      return true;
+    case "--mlx-lm-python":
+      mutable.mlxLmPython = value;
+      return true;
+    default:
+      return false;
+  }
+}
+
+function handlePositionalModel(mutable: MutableBenchmarkOptions, arg: string): void {
+  if (mutable.model === undefined) {
+    mutable.model = arg;
+    return;
+  }
+
+  throw new Error(`benchmark-generation: unexpected positional argument "${arg}".`);
+}
+
 export function parseBenchmarkArgs(argv: readonly string[]): ParsedBenchmarkArgs {
   const mutable = defaultOptions();
 
@@ -205,13 +273,11 @@ export function parseBenchmarkArgs(argv: readonly string[]): ParsedBenchmarkArgs
       continue;
     }
 
-    if (arg === "--metal-trace") {
-      mutable.metalTrace = true;
+    if (applyBooleanFlag(mutable, arg)) {
       continue;
     }
 
-    if (arg === "--model") {
-      mutable.model = argv[index + 1];
+    if (applyStringFlag(mutable, arg, argv[index + 1])) {
       index += 1;
       continue;
     }
@@ -225,12 +291,7 @@ export function parseBenchmarkArgs(argv: readonly string[]): ParsedBenchmarkArgs
       throw new Error(`benchmark-generation: unknown flag "${arg}".`);
     }
 
-    if (mutable.model === undefined) {
-      mutable.model = arg;
-      continue;
-    }
-
-    throw new Error(`benchmark-generation: unexpected positional argument "${arg}".`);
+    handlePositionalModel(mutable, arg);
   }
 
   const options: BenchmarkOptions = {
@@ -241,7 +302,15 @@ export function parseBenchmarkArgs(argv: readonly string[]): ParsedBenchmarkArgs
     metalTrace: mutable.metalTrace,
   };
   validateOptions(options);
-  return { model: mutable.model, options };
+  return {
+    model: mutable.model,
+    options,
+    reference: {
+      captureMlxLmReference: mutable.captureMlxLmReference,
+      enforceMlxLmDecodeBar: mutable.enforceMlxLmDecodeBar,
+      mlxLmPython: mutable.mlxLmPython,
+    },
+  };
 }
 
 export async function loadBaselines(): Promise<BenchmarkBaselines> {
@@ -320,6 +389,18 @@ export function formatMlxLmReference(target: BenchmarkTarget): string | null {
   ].join(" ");
 }
 
+/** Compare our benchmark metrics against mlx-lm's own averages. */
+export function compareAgainstMlxLmReference(
+  metrics: TrialMetrics,
+  reference: MlxLmReference,
+): string[] {
+  return metrics.generationTps < reference.generationTps * MLX_LM_DECODE_TOLERANCE_RATIO
+    ? [
+        `generation_tps below mlx-lm: mlx_lm=${reference.generationTps.toFixed(1)}, current=${metrics.generationTps.toFixed(1)}`,
+      ]
+    : [];
+}
+
 export function compareAgainstBaseline(target: BenchmarkTarget, metrics: TrialMetrics): string[] {
   const warnings: string[] = [];
 
@@ -369,6 +450,98 @@ export function safeDecodedTokenLength(tokenizer: Tokenizer, tokenId: number): n
     }
     throw error;
   }
+}
+
+function benchmarkHelperPath(): string {
+  return `${import.meta.dir}/benchmark-mlx-lm.py`;
+}
+
+function inheritedStringEnv(): Record<string, string> {
+  return Object.fromEntries(
+    Object.entries(Bun.env).filter((entry): entry is [string, string] => {
+      const value = entry[1];
+      return typeof value === "string";
+    }),
+  );
+}
+
+function parseMlxLmReferencePayload(output: string): MlxLmReference {
+  const parsed = JSON.parse(output) as Record<string, unknown>;
+  if (
+    typeof parsed.prompt_tps !== "number" ||
+    typeof parsed.generation_tps !== "number" ||
+    typeof parsed.peak_memory_gb !== "number" ||
+    typeof parsed.captured_at !== "string"
+  ) {
+    throw new Error("benchmark-generation: MLX-LM helper returned malformed benchmark JSON.");
+  }
+
+  return {
+    promptTps: parsed.prompt_tps,
+    generationTps: parsed.generation_tps,
+    peakMemoryGb: parsed.peak_memory_gb,
+    capturedAt: parsed.captured_at,
+  };
+}
+
+/** Run the local MLX-LM helper on the exact prompt-token sequence used by mlxts. */
+export async function captureMlxLmReference(
+  modelPath: string,
+  promptTokenIds: readonly number[],
+  generationTokens: number,
+  referenceOptions: ReferenceBenchmarkOptions,
+): Promise<MlxLmReference | null> {
+  if (!referenceOptions.captureMlxLmReference) {
+    return null;
+  }
+
+  const pythonExecutable =
+    referenceOptions.mlxLmPython ??
+    Bun.env.MLX_LM_BENCH_PYTHON ??
+    Bun.env.MLX_LM_PYTHON ??
+    "python3";
+  const process = Bun.spawn(
+    [
+      pythonExecutable,
+      benchmarkHelperPath(),
+      "--model",
+      modelPath,
+      "--prompt-token-ids-json",
+      JSON.stringify(promptTokenIds),
+      "--max-tokens",
+      String(generationTokens),
+    ],
+    {
+      stdout: "pipe",
+      stderr: "pipe",
+      env: {
+        ...inheritedStringEnv(),
+        ...mergedOfflineEnv(),
+      },
+    },
+  );
+
+  const [stdout, stderr, exitCode] = await Promise.all([
+    new Response(process.stdout).text(),
+    new Response(process.stderr).text(),
+    process.exited,
+  ]);
+
+  if (exitCode !== 0) {
+    const message = stderr.trim() || stdout.trim();
+    if (
+      message.includes("No module named mlx_lm") ||
+      message.includes("No such file or directory") ||
+      message.includes("command not found")
+    ) {
+      return null;
+    }
+    throw new Error(
+      `benchmark-generation: MLX-LM reference benchmark failed${message === "" ? "" : `: ${message}`}`,
+    );
+  }
+
+  return parseMlxLmReferencePayload(stdout);
 }
 
 export function sanitizePathSegment(value: string): string {
@@ -459,4 +632,24 @@ export function createPromptTokenIds(length: number, vocabSize: number): number[
   }
 
   return tokenIds;
+}
+
+/** Throw when the current decode throughput is below the chosen MLX-LM reference bar. */
+export function enforceMlxLmDecodeBar(
+  modelName: string,
+  metrics: TrialMetrics,
+  reference: MlxLmReference | null,
+  options: ReferenceBenchmarkOptions,
+): void {
+  if (!options.enforceMlxLmDecodeBar || reference === null) {
+    return;
+  }
+
+  if (metrics.generationTps >= reference.generationTps * MLX_LM_DECODE_TOLERANCE_RATIO) {
+    return;
+  }
+
+  throw new Error(
+    `benchmark-generation: decode throughput ${metrics.generationTps.toFixed(3)} tokens/s is below MLX-LM reference ${reference.generationTps.toFixed(3)} tokens/s for ${modelName}.`,
+  );
 }

@@ -37,6 +37,52 @@ function suffixIds(fullIds: readonly number[], prefixIds: readonly number[]): nu
   return fullIds.slice(prefixIds.length);
 }
 
+type SplitRenderedTokens = {
+  promptIds: number[];
+  completionIds: number[];
+  fullIds: number[];
+  completionStartIndex: number;
+};
+
+function splitRenderedCompletion(
+  tokenizer: Tokenizer,
+  promptText: string,
+  fullText: string,
+): SplitRenderedTokens {
+  if (!fullText.startsWith(promptText)) {
+    throw new Error("align: full chat rendering did not preserve the prompt prefix text.");
+  }
+
+  const boundary = promptText.length;
+  const encoding = tokenizer.encodeWithOffsets(fullText, {
+    addSpecialTokens: false,
+    returnOffsets: true,
+  });
+  const fullIds = encoding.ids;
+  const offsets = encoding.offsets;
+  if (offsets === undefined) {
+    const promptIds = tokenizer.encode(promptText, { addSpecialTokens: false });
+    return {
+      promptIds,
+      completionIds: suffixIds(fullIds, promptIds),
+      fullIds,
+      completionStartIndex: promptIds.length,
+    };
+  }
+
+  const completionStartIndex = offsets.findIndex((offset) => offset.end > boundary);
+  if (completionStartIndex === -1) {
+    throw new Error("align: assistant completion produced no trainable tokens.");
+  }
+
+  return {
+    promptIds: fullIds.slice(0, completionStartIndex),
+    completionIds: fullIds.slice(completionStartIndex),
+    fullIds,
+    completionStartIndex,
+  };
+}
+
 /** Render a chat transcript with a loaded model template. */
 export function renderChatMessages(
   template: RenderableChatTemplate,
@@ -54,23 +100,21 @@ export function buildChatSupervisionExample(
 ): TokenSupervisionExample {
   const assistant = assertAssistantTurn(messages.at(-1));
   const promptMessages = messages.slice(0, -1);
-  const promptIds = tokenizer.encode(renderWithTemplate(template, promptMessages, true), {
-    addSpecialTokens: false,
-  });
-  const fullIds = tokenizer.encode(
-    renderWithTemplate(template, [...promptMessages, assistant], false),
-    {
-      addSpecialTokens: false,
-    },
+  const promptText = renderWithTemplate(template, promptMessages, true);
+  const fullText = renderWithTemplate(template, [...promptMessages, assistant], false);
+  const { fullIds, completionIds, completionStartIndex } = splitRenderedCompletion(
+    tokenizer,
+    promptText,
+    fullText,
   );
-  const completionIds = suffixIds(fullIds, promptIds);
   if (completionIds.length === 0) {
     throw new Error("align: assistant completion produced no trainable tokens.");
   }
 
   const inputIds = fullIds.slice(0, -1);
   const targetIds = fullIds.slice(1);
-  const lossMask = targetIds.map((_, index) => (index >= promptIds.length - 1 ? 1 : 0));
+  const firstTrainableTargetIndex = Math.max(0, completionStartIndex - 1);
+  const lossMask = targetIds.map((_, index) => (index >= firstTrainableTargetIndex ? 1 : 0));
   return {
     inputIds,
     targetIds,
@@ -90,24 +134,23 @@ export function buildChatPreferenceExample(
     throw new Error("align: chosen and rejected replies must both be assistant messages.");
   }
 
-  const promptIds = tokenizer.encode(renderWithTemplate(template, promptMessages, true), {
-    addSpecialTokens: false,
-  });
-  const chosenIds = suffixIds(
-    tokenizer.encode(renderWithTemplate(template, [...promptMessages, chosen], false), {
-      addSpecialTokens: false,
-    }),
-    promptIds,
+  const promptText = renderWithTemplate(template, promptMessages, true);
+  const chosenSplit = splitRenderedCompletion(
+    tokenizer,
+    promptText,
+    renderWithTemplate(template, [...promptMessages, chosen], false),
   );
-  const rejectedIds = suffixIds(
-    tokenizer.encode(renderWithTemplate(template, [...promptMessages, rejected], false), {
-      addSpecialTokens: false,
-    }),
-    promptIds,
+  const rejectedSplit = splitRenderedCompletion(
+    tokenizer,
+    promptText,
+    renderWithTemplate(template, [...promptMessages, rejected], false),
   );
+  if (chosenSplit.promptIds.length !== rejectedSplit.promptIds.length) {
+    throw new Error("align: chosen and rejected prompt prefixes diverged after tokenization.");
+  }
   return {
-    promptIds,
-    chosenIds,
-    rejectedIds,
+    promptIds: chosenSplit.promptIds,
+    chosenIds: chosenSplit.completionIds,
+    rejectedIds: rejectedSplit.completionIds,
   };
 }

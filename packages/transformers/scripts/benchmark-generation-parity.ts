@@ -12,13 +12,17 @@ import { loadCausalLM, loadPretrainedTokenizer } from "../src/load";
 import {
   type BenchmarkOptions,
   type BenchmarkTarget,
+  captureMlxLmReference,
   compareAgainstBaseline,
+  compareAgainstMlxLmReference,
   createPromptTokenIds,
+  enforceMlxLmDecodeBar,
   formatMlxLmReference,
   loadBaselines,
   mean,
   parseBenchmarkArgs,
   printTrial,
+  type ReferenceBenchmarkOptions,
   resolveCachedSnapshotPath,
   safeDecodedTokenLength,
   selectTargets,
@@ -146,8 +150,8 @@ function runParityBenchmarks(
   promptTokenIds: readonly number[],
   target: BenchmarkTarget,
   options: BenchmarkOptions,
-): void {
-  withBenchmarkRuntimeScope(target.name, options.metalTrace, () => {
+): TrialMetrics {
+  return withBenchmarkRuntimeScope(target.name, options.metalTrace, () => {
     runParityTrial(model, tokenizer, promptTokenIds, options);
     clearMemoryCache();
 
@@ -165,10 +169,16 @@ function runParityBenchmarks(
     for (const warning of compareAgainstBaseline(target, averages)) {
       console.warn(`Warning: ${warning}`);
     }
+
+    return averages;
   });
 }
 
-async function benchmarkTarget(target: BenchmarkTarget, options: BenchmarkOptions): Promise<void> {
+async function benchmarkTarget(
+  target: BenchmarkTarget,
+  options: BenchmarkOptions,
+  referenceOptions: ReferenceBenchmarkOptions,
+): Promise<void> {
   const resolvedModelSource = await resolveCachedSnapshotPath(target.model);
   const targetOptions: BenchmarkOptions = {
     ...options,
@@ -180,15 +190,56 @@ async function benchmarkTarget(target: BenchmarkTarget, options: BenchmarkOption
   console.log(
     `Benchmarking ${target.name} parity (${resolvedModelSource}) with prompt_tokens=${targetOptions.promptTokens}, generation_tokens=${targetOptions.generationTokens}, trials=${targetOptions.trials}.`,
   );
-  const reference = formatMlxLmReference(target);
-  if (reference !== null) {
-    console.log(reference);
-  }
+  let mlxLmReference = target.mlxLmReference ?? null;
 
   using model = await loadCausalLM(resolvedModelSource, { localFilesOnly: true });
   const tokenizer = await loadPretrainedTokenizer(resolvedModelSource, { localFilesOnly: true });
   const promptTokenIds = createPromptTokenIds(targetOptions.promptTokens, model.config.vocabSize);
-  runParityBenchmarks(model, tokenizer, promptTokenIds, target, targetOptions);
+
+  try {
+    const liveReference = await captureMlxLmReference(
+      resolvedModelSource,
+      promptTokenIds,
+      targetOptions.generationTokens,
+      referenceOptions,
+    );
+    if (liveReference !== null) {
+      mlxLmReference = liveReference;
+    } else if (mlxLmReference === null) {
+      console.warn(
+        `Warning: MLX-LM reference unavailable for ${target.name}; falling back to no external comparison.`,
+      );
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.warn(`Warning: unable to run mlx-lm reference for ${target.name}: ${message}`);
+  }
+
+  if (mlxLmReference !== null) {
+    console.log(
+      formatMlxLmReference({
+        ...target,
+        mlxLmReference,
+      }),
+    );
+  }
+
+  const averages = runParityBenchmarks(
+    model,
+    tokenizer,
+    promptTokenIds,
+    mlxLmReference === null ? target : { ...target, mlxLmReference },
+    targetOptions,
+  );
+
+  if (mlxLmReference !== null) {
+    const comparisonWarnings = compareAgainstMlxLmReference(averages, mlxLmReference);
+    for (const warning of comparisonWarnings) {
+      console.warn(`Warning: ${warning}`);
+    }
+  }
+
+  enforceMlxLmDecodeBar(target.model, averages, mlxLmReference, referenceOptions);
 }
 
 async function main(): Promise<void> {
@@ -197,7 +248,7 @@ async function main(): Promise<void> {
   const targets = selectTargets("parity", baselines, parsed);
 
   for (const [index, target] of targets.entries()) {
-    await benchmarkTarget(target, parsed.options);
+    await benchmarkTarget(target, parsed.options, parsed.reference);
     if (index + 1 < targets.length) {
       console.log("");
     }

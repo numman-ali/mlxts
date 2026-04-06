@@ -1,4 +1,5 @@
-import { LoRALinear, type Module } from "@mlxts/nn";
+import { MxArray } from "@mlxts/core";
+import { LoRALinear, Module } from "@mlxts/nn";
 
 import { collectLoRATargetSlots, collectLoRAWrapperSlots } from "./traversal";
 import type { ApplyLoRAOptions, LoRAConfig, LoRAModuleResult } from "./types";
@@ -69,6 +70,37 @@ function normalizeConfig(options: ApplyLoRAOptions): LoRAConfig {
   return config;
 }
 
+function freezeLeafParameters(module: Module): void {
+  const parameterKeys: string[] = [];
+
+  for (const key of Object.keys(module)) {
+    const value = Reflect.get(module, key);
+    if (value instanceof MxArray) {
+      parameterKeys.push(key);
+      continue;
+    }
+
+    if (value instanceof LoRALinear) {
+      continue;
+    }
+
+    if (value instanceof Module) {
+      freezeLeafParameters(value);
+      continue;
+    }
+
+    if (Array.isArray(value) && value.every((entry) => entry instanceof Module)) {
+      for (const child of value) {
+        freezeLeafParameters(child);
+      }
+    }
+  }
+
+  if (parameterKeys.length > 0) {
+    module.freeze(parameterKeys);
+  }
+}
+
 function selectedByDefaultPath(
   path: string,
   layerSet: Set<number> | null,
@@ -90,6 +122,8 @@ export function applyLoRAToModule(
   module: Module,
   options: ApplyLoRAOptions = {},
 ): LoRAModuleResult {
+  freezeLeafParameters(module);
+
   const result: LoRAModuleResult = {
     targets: [],
     skipped: [],

@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { treeFlatten } from "@mlxts/core";
 import { Linear, LoRALinear, Module, QuantizedLinear } from "@mlxts/nn";
 
 import { applyLoRAToModule, mergeLoRAInModule, removeLoRAFromModule } from "./apply-module";
@@ -49,6 +50,19 @@ describe("applyLoRAToModule", () => {
     expect(model.model.layers[1]?.qProjection).toBeInstanceOf(LoRALinear);
     expect(model.model.layers[1]?.kProjection).toBeInstanceOf(Linear);
     expect(result.targets).toEqual(["model.layers.1.qProjection"]);
+  });
+
+  test("freezes non-adapter weights before LoRA training", () => {
+    using model = new TinyModel();
+
+    applyLoRAToModule(model, {
+      paths: ["model.layers.1.qProjection"],
+    });
+
+    const paths = treeFlatten(model.trainableParameters())
+      .map(([path]) => path.join("."))
+      .sort();
+    expect(paths).toEqual(["model.layers.1.qProjection.loraA", "model.layers.1.qProjection.loraB"]);
   });
 
   test("can merge and remove LoRA wrappers", () => {

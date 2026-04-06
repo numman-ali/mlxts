@@ -17,7 +17,10 @@ const tokenizer: Tokenizer = {
     return [...text].map((char) => char.charCodeAt(0));
   },
   encodeWithOffsets(text: string) {
-    return { ids: this.encode(text) };
+    return {
+      ids: this.encode(text),
+      offsets: [...text].map((_, index) => ({ start: index, end: index + 1 })),
+    };
   },
   encodeBatch(texts: string[]) {
     return texts.map((text) => ({ ids: this.encode(text) }));
@@ -89,6 +92,12 @@ describe("chat template helpers", () => {
     ).toBe("user:Hi");
   });
 
+  test("defaults to adding a generation prompt when rendering chat messages", () => {
+    expect(renderChatMessages(template, [{ role: "user", content: "Hi" }])).toBe(
+      "user:Hi|assistant:",
+    );
+  });
+
   test("rejects empty assistant completions that add no trainable tokens", () => {
     expect(() =>
       buildChatSupervisionExample(tokenizer, template, [
@@ -114,6 +123,97 @@ describe("chat template helpers", () => {
         { role: "user", content: "Hi" },
         { role: "assistant", content: "Hello" },
       ]),
-    ).toThrow("at least as long as the prompt prefix");
+    ).toThrow("prompt prefix text");
+  });
+
+  test("handles assistant boundaries that are not a standalone prompt-token prefix", () => {
+    const boundaryTokenizer: Tokenizer = {
+      ...tokenizer,
+      encode(text: string) {
+        if (text.endsWith("|assistant:")) {
+          return [...text.slice(0, -1)].map((char) => char.charCodeAt(0)).concat(999);
+        }
+        return [...text].map((char) => char.charCodeAt(0));
+      },
+      encodeWithOffsets(text: string) {
+        return {
+          ids: [...text].map((char) => char.charCodeAt(0)),
+          offsets: [...text].map((_, index) => ({ start: index, end: index + 1 })),
+        };
+      },
+    };
+
+    const example = buildChatSupervisionExample(boundaryTokenizer, template, [
+      { role: "user", content: "Hi" },
+      { role: "assistant", content: "Hello" },
+    ]);
+
+    expect(example.lossMask?.some((value) => value === 1)).toBe(true);
+  });
+
+  test("falls back to prompt-prefix token checks when offsets are unavailable", () => {
+    const tokenizerWithoutOffsets: Tokenizer = {
+      ...tokenizer,
+      encodeWithOffsets(text: string) {
+        return {
+          ids: this.encode(text),
+        };
+      },
+    };
+
+    const example = buildChatSupervisionExample(tokenizerWithoutOffsets, template, [
+      { role: "user", content: "Hi" },
+      { role: "assistant", content: "Hello" },
+    ]);
+
+    expect(example.lossMask?.some((value) => value === 1)).toBe(true);
+  });
+
+  test("rejects offset-less tokenizations that do not preserve the prompt prefix", () => {
+    const tokenizerWithoutOffsets: Tokenizer = {
+      ...tokenizer,
+      encode(text: string) {
+        if (text.endsWith("Hello")) {
+          return [999, ...[...text].map((char) => char.charCodeAt(0))];
+        }
+        return [...text].map((char) => char.charCodeAt(0));
+      },
+      encodeWithOffsets(text: string) {
+        return {
+          ids: this.encode(text),
+        };
+      },
+    };
+
+    expect(() =>
+      buildChatSupervisionExample(tokenizerWithoutOffsets, template, [
+        { role: "user", content: "Hi" },
+        { role: "assistant", content: "Hello" },
+      ]),
+    ).toThrow("prompt prefix tokenization");
+  });
+
+  test("rejects preference examples when chosen and rejected prompt boundaries diverge", () => {
+    const divergentTokenizer: Tokenizer = {
+      ...tokenizer,
+      encodeWithOffsets(text: string) {
+        const ids = [...text].map((char) => char.charCodeAt(0));
+        const offsets = [...text].map((_, index) => ({ start: index, end: index + 1 }));
+        if (text.endsWith("No")) {
+          offsets[offsets.length - 3] = { start: offsets.length - 3, end: offsets.length - 1 };
+        }
+        return { ids, offsets };
+      },
+    };
+
+    expect(() =>
+      buildChatPreferenceExample(
+        divergentTokenizer,
+        template,
+        [{ role: "user", content: "Hi" }],
+        { role: "assistant", content: "Hello" },
+        { role: "assistant", content: "No" },
+      ),
+    ).toThrow("prompt prefixes diverged");
   });
 });

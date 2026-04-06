@@ -4,6 +4,7 @@ import type { Tokenizer } from "@mlxts/tokenizers";
 import {
   type BenchmarkBaselines,
   compareAgainstBaseline,
+  compareAgainstMlxLmReference,
   formatMlxLmReference,
   parseBaselineData,
   parseBenchmarkArgs,
@@ -35,6 +36,28 @@ describe("benchmark-common", () => {
       trials: 5,
       prefillStepSize: 1024,
       metalTrace: true,
+    });
+    expect(parsed.reference).toEqual({
+      captureMlxLmReference: true,
+      enforceMlxLmDecodeBar: false,
+      mlxLmPython: undefined,
+    });
+  });
+
+  test("parseBenchmarkArgs reads mlx-lm reference flags", () => {
+    const parsed = parseBenchmarkArgs([
+      "--model",
+      "google/gemma-4-E2B-it",
+      "--capture-mlx-lm-reference",
+      "--enforce-mlx-lm-decode-bar",
+      "--mlx-lm-python",
+      "/tmp/venv/bin/python",
+    ]);
+
+    expect(parsed.reference).toEqual({
+      captureMlxLmReference: true,
+      enforceMlxLmDecodeBar: true,
+      mlxLmPython: "/tmp/venv/bin/python",
     });
   });
 
@@ -85,6 +108,11 @@ describe("benchmark-common", () => {
         trials: 1,
         prefillStepSize: 256,
         metalTrace: false,
+      },
+      reference: {
+        captureMlxLmReference: true,
+        enforceMlxLmDecodeBar: false,
+        mlxLmPython: undefined,
       },
     });
 
@@ -152,6 +180,46 @@ describe("benchmark-common", () => {
     ).toBe(
       "MLX-LM reference: prompt_tps=45.000 generation_tps=49.000 peak_memory=2.500 captured_at=2026-04-05",
     );
+  });
+
+  test("compareAgainstMlxLmReference warns when current metrics trail mlx-lm", () => {
+    expect(
+      compareAgainstMlxLmReference(
+        {
+          promptTps: 100,
+          generationTps: 20,
+          peakMemoryGb: 5,
+          explicitEvalCountPerToken: 1,
+          totalTimeSeconds: 1,
+        },
+        {
+          promptTps: 120,
+          generationTps: 25,
+          peakMemoryGb: 4.5,
+          capturedAt: "2026-04-05",
+        },
+      ),
+    ).toEqual(["generation_tps below mlx-lm: mlx_lm=25.0, current=20.0"]);
+  });
+
+  test("compareAgainstMlxLmReference tolerates tiny decode variance", () => {
+    expect(
+      compareAgainstMlxLmReference(
+        {
+          promptTps: 100,
+          generationTps: 24.7,
+          peakMemoryGb: 5,
+          explicitEvalCountPerToken: 1,
+          totalTimeSeconds: 1,
+        },
+        {
+          promptTps: 120,
+          generationTps: 25,
+          peakMemoryGb: 4.5,
+          capturedAt: "2026-04-05",
+        },
+      ),
+    ).toEqual([]);
   });
 
   test("resolveCachedSnapshotPath rejects uncached repo ids", async () => {
