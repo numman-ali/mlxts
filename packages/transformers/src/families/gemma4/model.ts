@@ -12,8 +12,8 @@ import {
   MxArray,
   multiply,
   reshape,
-  split,
-  squeeze,
+  retainArray,
+  slice,
   tanh,
 } from "@mlxts/core";
 import { Embedding, Linear, Module } from "@mlxts/nn";
@@ -64,13 +64,34 @@ function releaseKeyValues(values: (Gemma4SharedKeyValues | null)[]): void {
   }
 }
 
-function releasePerLayerInputs(values: MxArray[] | null): void {
-  if (values === null) {
-    return;
+function releasePerLayerInputs(value: MxArray | null): void {
+  value?.free();
+}
+
+function assertPerLayerInputShape(
+  perLayerInputs: MxArray,
+  context: string,
+): { batch: number; sequenceLength: number } {
+  const [batch, sequenceLength] = perLayerInputs.shape;
+  if (batch === undefined || sequenceLength === undefined) {
+    throw new Error(`${context}: per-layer inputs are missing batch or sequence axes.`);
   }
-  for (const value of values) {
-    value.free();
-  }
+  return { batch, sequenceLength };
+}
+
+function extractPerLayerInput(
+  combinedPerLayer: MxArray,
+  batch: number,
+  sequenceLength: number,
+  layerIndex: number,
+  hiddenSizePerLayerInput: number,
+): MxArray {
+  using layerView = slice(
+    combinedPerLayer,
+    [0, 0, layerIndex, 0],
+    [batch, sequenceLength, layerIndex + 1, hiddenSizePerLayerInput],
+  );
+  return reshape(layerView, [batch, sequenceLength, hiddenSizePerLayerInput]);
 }
 
 /** Decoder backbone shared by Gemma 4 dense text-family checkpoints. */
@@ -87,6 +108,7 @@ export class Gemma4TextModel extends Module {
   #perLayerProjectionScale: number;
   #hiddenSizePerLayerInput: number;
   #sharedKeyValueSourceIndices: (number | null)[];
+  #retainedSharedKeyValueSources: boolean[];
   #slidingWindow: number;
 
   constructor(config: Gemma4TextConfig) {
@@ -101,6 +123,12 @@ export class Gemma4TextModel extends Module {
       config.layerTypes,
       config.numKvSharedLayers,
     );
+    this.#retainedSharedKeyValueSources = Array<boolean>(config.numHiddenLayers).fill(false);
+    for (const sourceIndex of this.#sharedKeyValueSourceIndices) {
+      if (sourceIndex !== null && sourceIndex !== undefined) {
+        this.#retainedSharedKeyValueSources[sourceIndex] = true;
+      }
+    }
     this.embedTokens = new Embedding(config.vocabSize, config.hiddenSize);
     this.layers = Array.from(
       { length: config.numHiddenLayers },
@@ -172,7 +200,7 @@ export class Gemma4TextModel extends Module {
     }
   }
 
-  private createPerLayerInputs(inputIds: MxArray, inputsEmbeds: MxArray): MxArray[] | null {
+  private createPerLayerInputs(inputIds: MxArray, inputsEmbeds: MxArray): MxArray | null {
     if (
       this.#hiddenSizePerLayerInput === 0 ||
       this.embedTokensPerLayer === null ||
@@ -209,12 +237,7 @@ export class Gemma4TextModel extends Module {
       this.perLayerProjectionNorm.forward(reshapedProjectedPerLayer);
     using combinedPerLayer = add(reshapedEmbeddedPerLayer, normalizedProjectedPerLayer);
     using scaledCombinedPerLayer = multiply(combinedPerLayer, this.#perLayerInputScale);
-    const chunks = split(scaledCombinedPerLayer, this.layers.length, 2);
-    return chunks.map((chunk) => {
-      const squeezedChunk = squeeze(chunk, 2);
-      chunk.free();
-      return squeezedChunk;
-    });
+    return retainArray(scaledCombinedPerLayer);
   }
 
   private assertTokenIds(inputIds: MxArray, context: string): void {
@@ -242,10 +265,41 @@ export class Gemma4TextModel extends Module {
     return sharedKeyValues;
   }
 
+  private resolvePerLayerInput(perLayerInputs: MxArray | null, layerIndex: number): MxArray | null {
+    if (perLayerInputs === null) {
+      return null;
+    }
+    const { batch, sequenceLength } = assertPerLayerInputShape(
+      perLayerInputs,
+      "Gemma4TextModel.forward",
+    );
+    return extractPerLayerInput(
+      perLayerInputs,
+      batch,
+      sequenceLength,
+      layerIndex,
+      this.#hiddenSizePerLayerInput,
+    );
+  }
+
+  private storeLayerKeyValues(
+    keyValues: (Gemma4SharedKeyValues | null)[],
+    layerIndex: number,
+    nextKeyValues: Gemma4SharedKeyValues | null,
+  ): void {
+    if (nextKeyValues !== null && !this.#retainedSharedKeyValueSources[layerIndex]) {
+      nextKeyValues.keys.free();
+      nextKeyValues.values.free();
+      keyValues[layerIndex] = null;
+      return;
+    }
+    keyValues[layerIndex] = nextKeyValues;
+  }
+
   private runLayers(
     hidden: MxArray,
     cache: TransformerCache | undefined,
-    perLayerInputs: MxArray[] | null,
+    perLayerInputs: MxArray | null,
     attentionMasks: AttentionMask[],
   ): { hidden: MxArray; keyValues: (Gemma4SharedKeyValues | null)[] } {
     let currentHidden = hidden;
@@ -258,16 +312,21 @@ export class Gemma4TextModel extends Module {
           continue;
         }
 
-        const { hidden: nextHidden, keyValues: nextKeyValues } = layer.run(
-          currentHidden,
-          cache,
-          this.sharedKeyValuesForLayer(keyValues, layerIndex),
-          perLayerInputs?.[layerIndex],
-          attentionMasks[layerIndex],
-        );
-        currentHidden.free();
-        currentHidden = nextHidden;
-        keyValues[layerIndex] = nextKeyValues;
+        const currentPerLayerInput = this.resolvePerLayerInput(perLayerInputs, layerIndex);
+        try {
+          const { hidden: nextHidden, keyValues: nextKeyValues } = layer.run(
+            currentHidden,
+            cache,
+            this.sharedKeyValuesForLayer(keyValues, layerIndex),
+            currentPerLayerInput ?? undefined,
+            attentionMasks[layerIndex],
+          );
+          currentHidden.free();
+          currentHidden = nextHidden;
+          this.storeLayerKeyValues(keyValues, layerIndex, nextKeyValues);
+        } finally {
+          currentPerLayerInput?.free();
+        }
       }
 
       return { hidden: currentHidden, keyValues };

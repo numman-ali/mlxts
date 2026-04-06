@@ -1,12 +1,6 @@
 #!/usr/bin/env bun
 
-import {
-  clearMemoryCache,
-  getPeakMemoryBytes,
-  mxAsyncEval,
-  mxEval,
-  resetPeakMemory,
-} from "@mlxts/core";
+import { clearMemoryCache, getPeakMemoryBytes, mxAsyncEval, resetPeakMemory } from "@mlxts/core";
 import type { Tokenizer } from "@mlxts/tokenizers";
 import { loadCausalLM, loadPretrainedTokenizer } from "../src/load";
 import {
@@ -76,7 +70,7 @@ function runParityTrial(
     cache,
     options.prefillStepSize,
   );
-  let explicitEvalCount = 0;
+  let decodeSyncCount = 0;
   let promptSeconds = 0;
   let decodeStarted = 0;
   let currentStep = predictGreedyStep(model, remainingPrompt, cache);
@@ -93,8 +87,7 @@ function runParityTrial(
           mxAsyncEval(nextStep.token, nextStep.logprobs);
         }
 
-        mxEval(currentStep.token);
-        explicitEvalCount += 1;
+        decodeSyncCount += 1;
         if (index === 0) {
           promptSeconds = (performance.now() - promptStarted) / 1000;
           decodeStarted = performance.now();
@@ -129,7 +122,8 @@ function runParityTrial(
     promptTps: promptTokenIds.length / promptSeconds,
     generationTps: options.generationTokens / decodeSeconds,
     peakMemoryGb: getPeakMemoryBytes() / 1e9,
-    explicitEvalCountPerToken: explicitEvalCount / options.generationTokens,
+    // item() performs one blocking scalar sync per token in the steady-state decode loop.
+    explicitEvalCountPerToken: decodeSyncCount / options.generationTokens,
     totalTimeSeconds: promptSeconds + decodeSeconds,
   };
 }

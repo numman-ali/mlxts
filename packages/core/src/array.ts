@@ -1,13 +1,4 @@
-/**
- * MxArray — the core array type wrapping an mlx-c opaque pointer.
- *
- * Every MxArray owns an `mlx_array` handle (a C++ object behind `void* ctx`).
- * Memory is managed via:
- * 1. Explicit disposal with `using` / `[Symbol.dispose]()` (preferred in hot paths)
- * 2. FinalizationRegistry as a GC safety net (prevents leaks if dispose is missed)
- *
- * @module
- */
+/** MxArray wraps an mlx-c opaque pointer. Prefer explicit disposal with `using`; FinalizationRegistry is only a safety net. @module */
 
 import type { Pointer } from "bun:ffi";
 import {
@@ -23,6 +14,12 @@ import {
   type SupportedTypedArray,
 } from "./array-data";
 import { getDataPointer } from "./array-ffi-data";
+import {
+  type ArrayMetadata,
+  freezeShapeMetadata,
+  inferArangeLength,
+  inferElementCount,
+} from "./array-metadata";
 import { defaultStream } from "./device";
 import { DTYPE_BYTE_SIZE, DTYPE_TO_MLX, type DType, MLX_TO_DTYPE } from "./dtype";
 import { checkStatus, initializeErrorHandler } from "./error";
@@ -31,7 +28,6 @@ import { nativeSlice, OutSlot, ptr, readI32, sizeToNumber, unwrapPointer } from 
 
 export type { NestedArray } from "./array-data";
 
-// Ensure error handler is registered before any array operations.
 initializeErrorHandler();
 
 /** Read an FFI pointer result written into a temporary output slot. */
@@ -44,6 +40,15 @@ export function readResultPointer(label: string, invoke: (out: Pointer) => void)
 /** Read an FFI array result written into a temporary output slot. */
 export function readResultArray(label: string, invoke: (out: Pointer) => void): MxArray {
   return MxArray._fromCtx(readResultPointer(label, invoke));
+}
+
+/** Read an FFI array result written into a temporary output slot with known metadata. */
+export function readResultArrayWithMetadata(
+  label: string,
+  metadata: ArrayMetadata,
+  invoke: (out: Pointer) => void,
+): MxArray {
+  return MxArray._fromCtx(readResultPointer(label, invoke), metadata);
 }
 
 // FinalizationRegistry is a safety net for missed explicit disposal.
@@ -67,14 +72,23 @@ export class MxArray implements Disposable {
   private _ndim: number | null = null;
   private _size: number | null = null;
 
-  private constructor(ctx: Pointer) {
+  private constructor(ctx: Pointer, metadata?: ArrayMetadata) {
     this._ctx = ctx;
+    if (metadata?.shape !== undefined) {
+      this._shape = freezeShapeMetadata(metadata.shape);
+      this._ndim = metadata.ndim ?? metadata.shape.length;
+      this._size = metadata.size ?? inferElementCount(metadata.shape);
+    } else {
+      this._ndim = metadata?.ndim ?? null;
+      this._size = metadata?.size ?? null;
+    }
+    this._dtype = metadata?.dtype ?? null;
     registry.register(this, ctx, this);
   }
 
   /** Wrap an existing mlx_array context pointer and take ownership of it. */
-  static _fromCtx(ctx: Pointer): MxArray {
-    return new MxArray(ctx);
+  static _fromCtx(ctx: Pointer, metadata?: ArrayMetadata): MxArray {
+    return new MxArray(ctx, metadata);
   }
 
   /** Create an array from JavaScript numbers or a supported TypedArray. */
@@ -101,6 +115,7 @@ export class MxArray implements Disposable {
         ),
         "mlx_array_new_data",
       ),
+      { shape: inferredShape, dtype: storageDtype },
     );
 
     if (storageDtype === inferredDtype) {
@@ -349,7 +364,7 @@ export class MxArray implements Disposable {
 /** Create an array filled with zeros. */
 export function zeros(shape: number[], dtype: DType = "float32"): MxArray {
   const shapeArray = new Int32Array(shape);
-  return readResultArray("zeros", (out) => {
+  return readResultArrayWithMetadata("zeros", { shape, dtype }, (out) => {
     checkStatus(
       ffi.mlx_zeros(out, ptr(shapeArray), shape.length, DTYPE_TO_MLX[dtype], defaultStream()),
       "zeros",
@@ -360,7 +375,7 @@ export function zeros(shape: number[], dtype: DType = "float32"): MxArray {
 /** Create an array filled with ones. */
 export function ones(shape: number[], dtype: DType = "float32"): MxArray {
   const shapeArray = new Int32Array(shape);
-  return readResultArray("ones", (out) => {
+  return readResultArrayWithMetadata("ones", { shape, dtype }, (out) => {
     checkStatus(
       ffi.mlx_ones(out, ptr(shapeArray), shape.length, DTYPE_TO_MLX[dtype], defaultStream()),
       "ones",
@@ -374,7 +389,7 @@ export function full(shape: number[], value: number, dtype: DType = "float32"): 
   const valueHandle = createScalarHandle(value, dtype);
 
   try {
-    return readResultArray("full", (out) => {
+    return readResultArrayWithMetadata("full", { shape, dtype }, (out) => {
       checkStatus(
         ffi.mlx_full(
           out,
@@ -394,7 +409,8 @@ export function full(shape: number[], value: number, dtype: DType = "float32"): 
 
 /** Create an array with evenly spaced values. */
 export function arange(start: number, stop: number, step = 1, dtype: DType = "float32"): MxArray {
-  return readResultArray("arange", (out) => {
+  const length = inferArangeLength(start, stop, step);
+  return readResultArrayWithMetadata("arange", { shape: [length], dtype }, (out) => {
     checkStatus(
       ffi.mlx_arange(out, start, stop, step, DTYPE_TO_MLX[dtype], defaultStream()),
       "arange",
@@ -421,9 +437,18 @@ export function array(
  * disposal ownership with their inputs.
  */
 export function retainArray(source: MxArray): MxArray {
-  return readResultArray("retained array", (out) => {
-    checkStatus(ffi.mlx_array_set(out, source._ctx), "array_set");
-  });
+  return readResultArrayWithMetadata(
+    "retained array",
+    {
+      shape: source.shape,
+      dtype: source.dtype,
+      ndim: source.ndim,
+      size: source.size,
+    },
+    (out) => {
+      checkStatus(ffi.mlx_array_set(out, source._ctx), "array_set");
+    },
+  );
 }
 
 function createScalarHandle(value: number, dtype: DType): Pointer {

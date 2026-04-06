@@ -8,8 +8,9 @@
  */
 
 import type { Pointer } from "bun:ffi";
-import { array, type MxArray, readResultArray } from "../array";
+import { array, type MxArray, readResultArray, readResultArrayWithMetadata } from "../array";
 import { defaultStream } from "../device";
+import type { DType } from "../dtype";
 import { checkStatus } from "../error";
 import { ffi } from "../ffi";
 
@@ -45,14 +46,48 @@ function withCoerced(
   }
 }
 
+function inferElementwiseMetadata(
+  a: MxArray,
+  b: MxArray,
+): { shape?: readonly number[]; dtype?: DType; ndim?: number; size?: number } {
+  const aShape = a.shape;
+  const bShape = b.shape;
+  const sharedDtype = a.dtype === b.dtype ? a.dtype : null;
+  const fromShape = (shape: readonly number[]) =>
+    sharedDtype === null ? { shape } : { shape, dtype: sharedDtype };
+  if (aShape.length === 0) {
+    return fromShape(bShape);
+  }
+  if (bShape.length === 0) {
+    return fromShape(aShape);
+  }
+  if (
+    aShape.length === bShape.length &&
+    aShape.every((extent, axis) => extent === (bShape[axis] ?? Number.NaN))
+  ) {
+    return fromShape(aShape);
+  }
+  return {};
+}
+
+function runBinaryOp(
+  label: string,
+  a: Operand,
+  b: Operand,
+  invoke: (out: Pointer, aArr: MxArray, bArr: MxArray) => void,
+): MxArray {
+  return withCoerced(a, b, (aArr, bArr) => {
+    const metadata = inferElementwiseMetadata(aArr, bArr);
+    return readResultArrayWithMetadata(label, metadata, (out) => invoke(out, aArr, bArr));
+  });
+}
+
 // --- Binary ops ---
 
 /** Element-wise addition. Accepts MxArray or number operands. */
 export function add(a: Operand, b: Operand, stream?: S): MxArray {
-  return withCoerced(a, b, (aArr, bArr) => {
-    return readResultArray("add", (out) => {
-      checkStatus(ffi.mlx_add(out, aArr._ctx, bArr._ctx, s(stream)), "add");
-    });
+  return runBinaryOp("add", a, b, (out, aArr, bArr) => {
+    checkStatus(ffi.mlx_add(out, aArr._ctx, bArr._ctx, s(stream)), "add");
   });
 }
 
@@ -67,19 +102,15 @@ export function subtract(a: Operand, b: Operand, stream?: S): MxArray {
 
 /** Element-wise multiplication. Accepts MxArray or number operands. */
 export function multiply(a: Operand, b: Operand, stream?: S): MxArray {
-  return withCoerced(a, b, (aArr, bArr) => {
-    return readResultArray("multiply", (out) => {
-      checkStatus(ffi.mlx_multiply(out, aArr._ctx, bArr._ctx, s(stream)), "multiply");
-    });
+  return runBinaryOp("multiply", a, b, (out, aArr, bArr) => {
+    checkStatus(ffi.mlx_multiply(out, aArr._ctx, bArr._ctx, s(stream)), "multiply");
   });
 }
 
 /** Element-wise division. Accepts MxArray or number operands. */
 export function divide(a: Operand, b: Operand, stream?: S): MxArray {
-  return withCoerced(a, b, (aArr, bArr) => {
-    return readResultArray("divide", (out) => {
-      checkStatus(ffi.mlx_divide(out, aArr._ctx, bArr._ctx, s(stream)), "divide");
-    });
+  return runBinaryOp("divide", a, b, (out, aArr, bArr) => {
+    checkStatus(ffi.mlx_divide(out, aArr._ctx, bArr._ctx, s(stream)), "divide");
   });
 }
 

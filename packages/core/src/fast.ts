@@ -9,7 +9,7 @@
  */
 
 import type { Pointer } from "bun:ffi";
-import { type MxArray, readResultArray } from "./array";
+import { type MxArray, readResultArray, readResultArrayWithMetadata } from "./array";
 import { defaultStream } from "./device";
 import { checkStatus } from "./error";
 import { optionalFloat, ptr } from "./ffi";
@@ -120,22 +120,29 @@ export function scaledDotProductAttention(
 ): MxArray {
   const maskMode = normalizeAttentionMaskMode(options.maskMode, options.maskArray);
   const encodedMaskMode = encodeMaskMode(maskMode);
-  return readResultArray("fast_scaled_dot_product_attention", (out) => {
-    checkStatus(
-      ffi.mlx_fast_scaled_dot_product_attention(
-        out,
-        queries._ctx,
-        keys._ctx,
-        values._ctx,
-        options.scale,
-        ptr(encodedMaskMode),
-        options.maskArray?._ctx ?? null,
-        options.sinks?._ctx ?? null,
-        s(options.stream),
-      ),
-      "fast_scaled_dot_product_attention",
-    );
-  });
+  const [batch, heads, sequenceLength] = queries.shape;
+  const headDim = values.shape[3];
+  const shape = [batch ?? 0, heads ?? 0, sequenceLength ?? 0, headDim ?? 0];
+  return readResultArrayWithMetadata(
+    "fast_scaled_dot_product_attention",
+    { shape, dtype: queries.dtype },
+    (out) => {
+      checkStatus(
+        ffi.mlx_fast_scaled_dot_product_attention(
+          out,
+          queries._ctx,
+          keys._ctx,
+          values._ctx,
+          options.scale,
+          ptr(encodedMaskMode),
+          options.maskArray?._ctx ?? null,
+          options.sinks?._ctx ?? null,
+          s(options.stream),
+        ),
+        "fast_scaled_dot_product_attention",
+      );
+    },
+  );
 }
 
 /**
@@ -171,18 +178,22 @@ export function layerNorm(
  * optionally applies a learnable weight.
  */
 export function rmsNorm(x: MxArray, weight?: MxArray, options?: FastRMSNormOptions): MxArray {
-  return readResultArray("fast_rms_norm", (out) => {
-    checkStatus(
-      ffi.mlx_fast_rms_norm(
-        out,
-        x._ctx,
-        weight?._ctx ?? null,
-        options?.eps ?? 1e-5,
-        s(options?.stream),
-      ),
-      "fast_rms_norm",
-    );
-  });
+  return readResultArrayWithMetadata(
+    "fast_rms_norm",
+    { shape: x.shape, dtype: x.dtype, ndim: x.ndim, size: x.size },
+    (out) => {
+      checkStatus(
+        ffi.mlx_fast_rms_norm(
+          out,
+          x._ctx,
+          weight?._ctx ?? null,
+          options?.eps ?? 1e-5,
+          s(options?.stream),
+        ),
+        "fast_rms_norm",
+      );
+    },
+  );
 }
 
 /**

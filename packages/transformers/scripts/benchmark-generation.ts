@@ -5,7 +5,6 @@ import {
   getPeakMemoryBytes,
   type MxArray,
   mxAsyncEval,
-  mxEval,
   resetPeakMemory,
 } from "@mlxts/core";
 import { loadCausalLM } from "../src/load";
@@ -41,10 +40,9 @@ function runSyntheticTrial(
     cache,
     options.prefillStepSize,
   );
-  let decodeEvalCount = 0;
+  let decodeSyncCount = 0;
   let currentToken = predictGreedyToken(model, remainingPrompt, cache);
 
-  mxEval(currentToken);
   currentToken.item();
   const promptSeconds = (performance.now() - promptStarted) / 1000;
 
@@ -60,8 +58,7 @@ function runSyntheticTrial(
         mxAsyncEval(nextToken);
       }
 
-      mxEval(currentToken);
-      decodeEvalCount += 1;
+      decodeSyncCount += 1;
       currentToken.item();
 
       if ((index + 1) % PERIODIC_CACHE_CLEAR_INTERVAL === 0) {
@@ -89,7 +86,8 @@ function runSyntheticTrial(
     promptTps: promptTokenIds.length / promptSeconds,
     generationTps: options.generationTokens / decodeSeconds,
     peakMemoryGb: getPeakMemoryBytes() / 1e9,
-    explicitEvalCountPerToken: decodeEvalCount / options.generationTokens,
+    // item() performs one blocking scalar sync per token in the steady-state decode loop.
+    explicitEvalCountPerToken: decodeSyncCount / options.generationTokens,
     totalTimeSeconds: promptSeconds + decodeSeconds,
   };
 }

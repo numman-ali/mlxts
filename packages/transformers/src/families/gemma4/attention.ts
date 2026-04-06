@@ -28,6 +28,17 @@ type Gemma4AttentionResult = {
   keyValues: Gemma4SharedKeyValues | null;
 };
 
+type Gemma4FreshKeyValues = {
+  keys: MxArray;
+  values: MxArray;
+};
+
+type Gemma4ActiveKeyValues = {
+  keys: MxArray;
+  values: MxArray;
+  ownsBuffers: boolean;
+};
+
 /** Self-attention module used by Gemma 4 dense text decoder blocks. */
 export class Gemma4TextAttention extends Module {
   qProjection: Linear;
@@ -119,16 +130,20 @@ export class Gemma4TextAttention extends Module {
     using normalizedQueries = this.qNorm.forward(queryInputs);
     using queryHeads = transpose(normalizedQueries, [0, 2, 1, 3]);
     using rotatedQueries = this.rope.forward(queryHeads, cache?.offset ?? 0);
-    const activeKeyValues =
-      sharedKeyValues === undefined
-        ? this.buildFreshKeyValues(x, batch, sequenceLength, cache)
-        : { keys: sharedKeyValues.keys, values: sharedKeyValues.values, retainedKeyValues: null };
-    const retainedMask =
-      attentionMask === undefined
-        ? this.createMask(sequenceLength, activeKeyValues.keys, rotatedQueries.dtype)
-        : attentionMask === null || attentionMask === "causal"
-          ? attentionMask
-          : retainArray(attentionMask);
+    const activeKeyValues = this.resolveActiveKeyValues(
+      x,
+      batch,
+      sequenceLength,
+      cache,
+      sharedKeyValues,
+    );
+    const retainedMask = this.resolveAttentionMask(
+      attentionMask,
+      sequenceLength,
+      activeKeyValues.keys,
+      rotatedQueries.dtype,
+    );
+    let returnedKeyValues: Gemma4SharedKeyValues | null = null;
 
     try {
       const totalKeyLength = activeKeyValues.keys.shape[2];
@@ -154,23 +169,59 @@ export class Gemma4TextAttention extends Module {
         sequenceLength,
         this.#numHeads * this.#headDim,
       ]);
+      returnedKeyValues = activeKeyValues.ownsBuffers ? activeKeyValues : null;
       return {
         output: this.outputProjection.forward(mergedOutput),
-        keyValues: activeKeyValues.retainedKeyValues,
+        keyValues: returnedKeyValues,
       };
     } catch (error) {
-      activeKeyValues.retainedKeyValues?.keys.free();
-      activeKeyValues.retainedKeyValues?.values.free();
+      returnedKeyValues?.keys.free();
+      returnedKeyValues?.values.free();
       throw error;
     } finally {
       if (retainedMask instanceof MxArray) {
         retainedMask.free();
       }
-      if (sharedKeyValues === undefined) {
+      if (activeKeyValues.ownsBuffers && returnedKeyValues === null) {
         activeKeyValues.keys.free();
         activeKeyValues.values.free();
       }
     }
+  }
+
+  private resolveActiveKeyValues(
+    x: MxArray,
+    batch: number,
+    sequenceLength: number,
+    cache: TransformerCache | undefined,
+    sharedKeyValues: Gemma4SharedKeyValues | undefined,
+  ): Gemma4ActiveKeyValues {
+    if (sharedKeyValues !== undefined) {
+      return {
+        keys: sharedKeyValues.keys,
+        values: sharedKeyValues.values,
+        ownsBuffers: false,
+      };
+    }
+    return {
+      ...this.buildFreshKeyValues(x, batch, sequenceLength, cache),
+      ownsBuffers: true,
+    };
+  }
+
+  private resolveAttentionMask(
+    attentionMask: AttentionMask | undefined,
+    sequenceLength: number,
+    keys: MxArray,
+    dtype: MxArray["dtype"],
+  ): AttentionMask {
+    if (attentionMask === undefined) {
+      return this.createMask(sequenceLength, keys, dtype);
+    }
+    if (attentionMask === null || attentionMask === "causal") {
+      return attentionMask;
+    }
+    return retainArray(attentionMask);
   }
 
   private assertInputShape(x: MxArray): { batch: number; sequenceLength: number } {
@@ -193,7 +244,7 @@ export class Gemma4TextAttention extends Module {
     batch: number,
     sequenceLength: number,
     cache?: TransformerCache,
-  ): { keys: MxArray; values: MxArray; retainedKeyValues: Gemma4SharedKeyValues } {
+  ): Gemma4FreshKeyValues {
     using projectedKeys = this.kProjection.forward(x);
     using keyInputs = reshape(projectedKeys, [
       batch,
@@ -225,14 +276,7 @@ export class Gemma4TextAttention extends Module {
         cache === undefined
           ? { keys: retainArray(rotatedKeys), values: retainArray(valueHeads) }
           : cache.updateAndFetch(this.#layerIndex, rotatedKeys, valueHeads);
-      return {
-        keys: keyValues.keys,
-        values: keyValues.values,
-        retainedKeyValues: {
-          keys: retainArray(keyValues.keys),
-          values: retainArray(keyValues.values),
-        },
-      };
+      return keyValues;
     } finally {
       valueInputs?.free();
     }

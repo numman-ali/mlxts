@@ -1,12 +1,6 @@
 #!/usr/bin/env bun
 
-import {
-  clearMemoryCache,
-  getMemoryStats,
-  mxAsyncEval,
-  mxEval,
-  resetPeakMemory,
-} from "@mlxts/core";
+import { clearMemoryCache, getMemoryStats, mxAsyncEval, resetPeakMemory } from "@mlxts/core";
 import type { Tokenizer } from "@mlxts/tokenizers";
 import {
   type InteractionProfile,
@@ -328,7 +322,6 @@ function runLongContextRung(
 
       try {
         mxAsyncEval(currentToken);
-        mxEval(currentToken);
         const firstTokenId = currentToken.item();
         generated.push(firstTokenId);
         const firstTokenSeconds = (performance.now() - firstTokenStarted) / 1000;
@@ -341,7 +334,6 @@ function runLongContextRung(
           currentToken.free();
           currentToken = nextToken;
           nextToken = null;
-          mxEval(currentToken);
           generated.push(currentToken.item());
         }
         const decodeSeconds = Math.max((performance.now() - decodeStarted) / 1000, 1e-9);

@@ -4,7 +4,7 @@
  */
 
 import type { Pointer } from "bun:ffi";
-import { MxArray, readResultArray, readResultPointer } from "../array";
+import { MxArray, readResultArray, readResultArrayWithMetadata, readResultPointer } from "../array";
 import { defaultStream } from "../device";
 import { DTYPE_TO_MLX, type DType } from "../dtype";
 import { checkStatus } from "../error";
@@ -13,17 +13,30 @@ import { ffi, OutSlot, ptr, sizeToNumber, unwrapPointer } from "../ffi";
 type S = Pointer | undefined;
 const s = (stream?: S) => stream ?? defaultStream();
 
+function sliceExtent(start: number, stop: number, stride: number): number {
+  if (stride <= 0) {
+    throw new Error(`slice: strides must be positive integers, got ${stride}.`);
+  }
+  if (stop <= start) {
+    return 0;
+  }
+  return Math.ceil((stop - start) / stride);
+}
+
 /** Reshape an array to a new shape. */
 export function reshape(a: MxArray, shape: number[], stream?: S): MxArray {
   const shapeBuf = new Int32Array(shape);
-  return readResultArray("reshape", (out) => {
+  return readResultArrayWithMetadata("reshape", { shape, dtype: a.dtype }, (out) => {
     checkStatus(ffi.mlx_reshape(out, a._ctx, ptr(shapeBuf), shape.length, s(stream)), "reshape");
   });
 }
 
 /** Transpose an array. Without axes: reverses dimensions. With axes: permutes. */
 export function transpose(a: MxArray, axes?: number[], stream?: S): MxArray {
-  return readResultArray("transpose", (out) => {
+  const sourceShape = a.shape;
+  const shape =
+    axes === undefined ? [...sourceShape].reverse() : axes.map((axis) => sourceShape[axis] ?? 0);
+  return readResultArrayWithMetadata("transpose", { shape, dtype: a.dtype }, (out) => {
     if (axes === undefined) {
       checkStatus(ffi.mlx_transpose(out, a._ctx, s(stream)), "transpose");
     } else {
@@ -183,7 +196,10 @@ export function slice(
   const startBuf = new Int32Array(start);
   const stopBuf = new Int32Array(stop);
   const strideBuf = new Int32Array(normalizedStrides);
-  return readResultArray("slice", (out) => {
+  const shape = start.map((startIndex, axis) =>
+    sliceExtent(startIndex, stop[axis] ?? startIndex, normalizedStrides[axis] ?? 1),
+  );
+  return readResultArrayWithMetadata("slice", { shape, dtype: a.dtype }, (out) => {
     checkStatus(
       ffi.mlx_slice(
         out,
@@ -261,23 +277,27 @@ export function sliceUpdate(
   const startBuf = new Int32Array(start);
   const stopBuf = new Int32Array(stop);
   const strideBuf = new Int32Array(normalizedStrides);
-  return readResultArray("slice_update", (out) => {
-    checkStatus(
-      ffi.mlx_slice_update(
-        out,
-        src._ctx,
-        update._ctx,
-        ptr(startBuf),
-        start.length,
-        ptr(stopBuf),
-        stop.length,
-        ptr(strideBuf),
-        normalizedStrides.length,
-        s(stream),
-      ),
-      "slice_update",
-    );
-  });
+  return readResultArrayWithMetadata(
+    "slice_update",
+    { shape: src.shape, dtype: src.dtype },
+    (out) => {
+      checkStatus(
+        ffi.mlx_slice_update(
+          out,
+          src._ctx,
+          update._ctx,
+          ptr(startBuf),
+          start.length,
+          ptr(stopBuf),
+          stop.length,
+          ptr(strideBuf),
+          normalizedStrides.length,
+          s(stream),
+        ),
+        "slice_update",
+      );
+    },
+  );
 }
 
 /** Update a slice with a dynamic start index along one or more axes. */

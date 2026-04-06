@@ -9,7 +9,6 @@ import {
   getRecommendedWorkingSetBytes,
   MxArray,
   mxAsyncEval,
-  mxEval,
   setWiredLimitBytes,
   synchronize,
   withDefaultStream,
@@ -130,7 +129,6 @@ function generateWithCache(
         nextToken = scheduleAsyncCachedToken(model, currentToken, cache, samplerState, options);
       }
 
-      mxEval(currentToken);
       const tokenId = currentToken.item();
       generated.push(tokenId);
       onToken?.(tokenId, generated);
@@ -188,7 +186,6 @@ function generateWithoutCache(
 
   try {
     for (let index = 0; index < options.maxTokens; index += 1) {
-      currentToken.eval();
       const tokenId = currentToken.item();
       generated.push(tokenId);
       onToken?.(tokenId, generated);
@@ -319,7 +316,6 @@ export function generateStep(
 ): number {
   using samplerState = new SamplerState(history, options);
   using nextToken = predictNextTokenWithState(model, tokenIds, cache, samplerState, options);
-  nextToken.eval();
   return nextToken.item();
 }
 
