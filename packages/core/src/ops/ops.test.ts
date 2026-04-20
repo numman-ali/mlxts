@@ -9,6 +9,7 @@ import {
   argmin,
   argpartition,
   argsort,
+  arrayAssignInPlace,
   asType,
   broadcastTo,
   concatenate,
@@ -45,6 +46,8 @@ import {
   sliceDynamic,
   sliceUpdate,
   sliceUpdateDynamic,
+  sliceUpdateInPlace,
+  sliceViewInPlace,
   softmax,
   sort,
   split,
@@ -799,6 +802,67 @@ describe("Shape ops", () => {
     base.free();
     update.free();
     updated.free();
+  });
+
+  test("sliceUpdateInPlace mutates the existing array handle", () => {
+    const base = zeros([1, 1, 6, 2], "float32");
+    const update = ones([1, 1, 2, 2], "float32");
+    sliceUpdateInPlace(base, update, [0, 0, 2, 0], [1, 1, 4, 2]);
+    base.eval();
+    expect(base.toList()).toEqual([
+      [
+        [
+          [0, 0],
+          [0, 0],
+          [1, 1],
+          [1, 1],
+          [0, 0],
+          [0, 0],
+        ],
+      ],
+    ]);
+    base.free();
+    update.free();
+  });
+
+  test("arrayAssignInPlace retargets an existing handle and updates metadata", () => {
+    const source = array(
+      [
+        [1, 2, 3],
+        [4, 5, 6],
+      ],
+      "float32",
+    );
+    const target = array([0], "float32");
+    arrayAssignInPlace(target, source);
+    target.eval();
+    expect(target.shape).toEqual([2, 3]);
+    expect(target.toList()).toEqual([
+      [1, 2, 3],
+      [4, 5, 6],
+    ]);
+    source.free();
+    target.free();
+  });
+
+  test("sliceViewInPlace retargets an existing handle to a slice view", () => {
+    const source = array(
+      [
+        [1, 2, 3, 4],
+        [5, 6, 7, 8],
+      ],
+      "float32",
+    );
+    const target = array([0], "float32");
+    sliceViewInPlace(target, source, [0, 1], [2, 3]);
+    target.eval();
+    expect(target.shape).toEqual([2, 2]);
+    expect(target.toList()).toEqual([
+      [2, 3],
+      [6, 7],
+    ]);
+    source.free();
+    target.free();
   });
 });
 

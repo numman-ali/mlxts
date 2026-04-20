@@ -2,6 +2,17 @@
 
 import { clearMemoryCache, getPeakMemoryBytes, mxAsyncEval, resetPeakMemory } from "@mlxts/core";
 import type { Tokenizer } from "@mlxts/tokenizers";
+import { acquireRuntimeCommandLock } from "../../../scripts/runtime-command-lock";
+import {
+  isCoreRuntimeProfilingEnabled,
+  resetCoreRuntimeProfile,
+  snapshotCoreRuntimeProfile,
+} from "../../core/src/runtime-profile";
+import {
+  isTransformerRuntimeProfilingEnabled,
+  resetTransformerRuntimeProfile,
+  snapshotTransformerRuntimeProfile,
+} from "../src/infrastructure/runtime-profile";
 import { loadCausalLM, loadPretrainedTokenizer } from "../src/load";
 import {
   type BenchmarkOptions,
@@ -31,6 +42,47 @@ import {
 } from "./benchmark-model";
 
 const PERIODIC_CACHE_CLEAR_INTERVAL = 256;
+
+function formatNsPerToken(totalNs: number, generationTokens: number, trials: number): string {
+  const tokenCount = Math.max(generationTokens * trials, 1);
+  return (totalNs / tokenCount / 1e6).toFixed(4);
+}
+
+function resetRuntimeProfiles(): void {
+  resetCoreRuntimeProfile();
+  resetTransformerRuntimeProfile();
+}
+
+function printRuntimeProfile(generationTokens: number, trials: number): void {
+  if (!isCoreRuntimeProfilingEnabled() && !isTransformerRuntimeProfilingEnabled()) {
+    return;
+  }
+
+  const core = snapshotCoreRuntimeProfile();
+  const transformer = snapshotTransformerRuntimeProfile();
+  console.log("Runtime profile (steady-state decode):");
+  if (core.enabled) {
+    console.log(
+      `  core: out_slot_ms_per_token=${formatNsPerToken(core.outSlot.totalNs, generationTokens, trials)} ffi_ms_per_token=${formatNsPerToken(core.ffiInvoke.totalNs, generationTokens, trials)} wrapper_ms_per_token=${formatNsPerToken(core.wrapperConstruct.totalNs, generationTokens, trials)} free_ms_per_token=${formatNsPerToken(core.explicitFree.totalNs, generationTokens, trials)}`,
+    );
+    const topLabels = Object.entries(core.ffiLabels)
+      .sort((left, right) => right[1].totalNs - left[1].totalNs)
+      .slice(0, 8)
+      .map(
+        ([label, metric]) =>
+          `${label}:${(metric.count / Math.max(trials, 1)).toFixed(1)}/trial@${formatNsPerToken(metric.totalNs, generationTokens, trials)}ms`,
+      );
+    console.log(`  core labels: ${topLabels.join(", ")}`);
+  }
+  if (transformer.enabled) {
+    const activeCounters = Object.entries(transformer.counters).filter(([, count]) => count > 0);
+    const formattedCounters = activeCounters.map(
+      ([name, count]) =>
+        `${name}:${(count / Math.max(generationTokens * trials, 1)).toFixed(3)}/token`,
+    );
+    console.log(`  transformer: ${formattedCounters.join(", ")}`);
+  }
+}
 
 class BenchmarkDecodeSink {
   #tokenizer: Tokenizer;
@@ -90,6 +142,7 @@ function runParityTrial(
         decodeSyncCount += 1;
         if (index === 0) {
           promptSeconds = (performance.now() - promptStarted) / 1000;
+          resetRuntimeProfiles();
           decodeStarted = performance.now();
         }
 
@@ -148,6 +201,7 @@ function runParityBenchmarks(
   return withBenchmarkRuntimeScope(target.name, options.metalTrace, () => {
     runParityTrial(model, tokenizer, promptTokenIds, options);
     clearMemoryCache();
+    resetRuntimeProfiles();
 
     const trials: TrialMetrics[] = [];
     for (let index = 0; index < options.trials; index += 1) {
@@ -159,6 +213,7 @@ function runParityBenchmarks(
 
     const averages = averageTrialMetrics(trials);
     printTrial("Averages: ", averages);
+    printRuntimeProfile(options.generationTokens, options.trials);
 
     for (const warning of compareAgainstBaseline(target, averages)) {
       console.warn(`Warning: ${warning}`);
@@ -237,6 +292,7 @@ async function benchmarkTarget(
 }
 
 async function main(): Promise<void> {
+  using _runtimeLock = acquireRuntimeCommandLock("bench:generation:parity");
   const parsed = parseBenchmarkArgs(Bun.argv.slice(2));
   const baselines = await loadBaselines();
   const targets = selectTargets("parity", baselines, parsed);

@@ -4,12 +4,11 @@
  */
 
 import type { MxArray } from "@mlxts/core";
-import { add, geluApprox, multiply, ones } from "@mlxts/core";
+import { add, multiply, ones } from "@mlxts/core";
 import { Linear, Module } from "@mlxts/nn";
-
+import { gegluApprox } from "../../infrastructure/gated-activations";
 import type { AttentionMask } from "../../infrastructure/masks";
 import type { TransformerCache } from "../../types";
-import type { ForwardModule } from "../llama-like/types";
 import { Gemma4TextAttention } from "./attention";
 import { Gemma4TextMLP } from "./mlp";
 import { Gemma4RMSNorm } from "./norm";
@@ -21,11 +20,11 @@ export class Gemma4TextDecoderBlock extends Module {
   selfAttention: Gemma4TextAttention;
   postAttentionLayerNorm: Gemma4RMSNorm;
   preFeedforwardLayerNorm: Gemma4RMSNorm;
-  mlp: ForwardModule;
+  mlp: Gemma4TextMLP;
   postFeedforwardLayerNorm: Gemma4RMSNorm;
   layerScalar: MxArray;
-  perLayerInputGate: ForwardModule | null;
-  perLayerProjection: ForwardModule | null;
+  perLayerInputGate: Linear | null;
+  perLayerProjection: Linear | null;
   postPerLayerInputNorm: Gemma4RMSNorm | null;
 
   constructor(config: Gemma4TextConfig, layerIndex: number) {
@@ -75,40 +74,12 @@ export class Gemma4TextDecoderBlock extends Module {
     );
 
     try {
-      using normalizedAttentionOutput = this.postAttentionLayerNorm.forward(attentionOutput);
-      using residualAfterAttention = add(x, normalizedAttentionOutput);
-      using normalizedForMlp = this.preFeedforwardLayerNorm.forward(residualAfterAttention);
-      using mlpOutput = this.mlp.forward(normalizedForMlp);
-      using normalizedMlpOutput = this.postFeedforwardLayerNorm.forward(mlpOutput);
-
-      let hidden = add(residualAfterAttention, normalizedMlpOutput);
-
-      try {
-        if (
-          perLayerInput !== undefined &&
-          this.perLayerInputGate !== null &&
-          this.perLayerProjection !== null &&
-          this.postPerLayerInputNorm !== null
-        ) {
-          using gatedInput = this.perLayerInputGate.forward(hidden);
-          using activatedGate = geluApprox(gatedInput);
-          using gatedPerLayerInput = multiply(activatedGate, perLayerInput);
-          using projectedPerLayerInput = this.perLayerProjection.forward(gatedPerLayerInput);
-          using normalizedPerLayerInput =
-            this.postPerLayerInputNorm.forward(projectedPerLayerInput);
-          const nextHidden = add(hidden, normalizedPerLayerInput);
-          hidden.free();
-          hidden = nextHidden;
-        }
-
-        const scaledHidden = multiply(hidden, this.layerScalar);
-        hidden.free();
-        hidden = scaledHidden;
-        return { hidden, keyValues };
-      } catch (error) {
-        hidden.free();
-        throw error;
+      using hiddenAfterMlp = this.runFeedforwardTail(x, attentionOutput);
+      if (perLayerInput !== undefined) {
+        using hiddenWithPerLayerInput = this.applyPerLayerInput(hiddenAfterMlp, perLayerInput);
+        return { hidden: multiply(hiddenWithPerLayerInput, this.layerScalar), keyValues };
       }
+      return { hidden: multiply(hiddenAfterMlp, this.layerScalar), keyValues };
     } catch (error) {
       keyValues?.keys.free();
       keyValues?.values.free();
@@ -116,5 +87,30 @@ export class Gemma4TextDecoderBlock extends Module {
     } finally {
       attentionOutput.free();
     }
+  }
+
+  private runFeedforwardTail(residualInput: MxArray, attentionOutput: MxArray): MxArray {
+    using normalizedAttentionOutput = this.postAttentionLayerNorm.forward(attentionOutput);
+    using residualAfterAttention = add(residualInput, normalizedAttentionOutput);
+    using normalizedForMlp = this.preFeedforwardLayerNorm.forward(residualAfterAttention);
+    using mlpOutput = this.mlp.forward(normalizedForMlp);
+    using normalizedMlpOutput = this.postFeedforwardLayerNorm.forward(mlpOutput);
+    return add(residualAfterAttention, normalizedMlpOutput);
+  }
+
+  private applyPerLayerInput(hidden: MxArray, perLayerInput: MxArray): MxArray {
+    if (
+      this.perLayerInputGate === null ||
+      this.perLayerProjection === null ||
+      this.postPerLayerInputNorm === null
+    ) {
+      throw new Error("Gemma4TextDecoderBlock: expected per-layer input modules to be enabled.");
+    }
+
+    using gatedInput = this.perLayerInputGate.forward(hidden);
+    using gatedPerLayerInput = gegluApprox(gatedInput, perLayerInput);
+    using projectedPerLayerInput = this.perLayerProjection.forward(gatedPerLayerInput);
+    using normalizedPerLayerInput = this.postPerLayerInputNorm.forward(projectedPerLayerInput);
+    return add(hidden, normalizedPerLayerInput);
   }
 }

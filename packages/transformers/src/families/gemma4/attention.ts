@@ -3,20 +3,27 @@
  * @module
  */
 
-import {
-  formatShape,
-  MxArray,
-  reshape,
-  retainArray,
-  scaledDotProductAttention,
-  transpose,
-} from "@mlxts/core";
+import { formatShape, MxArray } from "@mlxts/core";
 import { Linear, Module } from "@mlxts/nn";
 
+import {
+  createBorrowedTransformerCacheView,
+  retainTransformerCacheView,
+  type TransformerCacheView,
+  updateAndFetchTransformerCacheView,
+} from "../../infrastructure/cache/view";
 import { type AttentionMask, createCausalMask } from "../../infrastructure/masks";
+import { recordTransformerRuntimeCounter } from "../../infrastructure/runtime-profile";
 import type { TransformerCache } from "../../types";
 import { Gemma4RMSNorm } from "./norm";
-import { createGemma4RoPE, type Gemma4RotaryEmbedding } from "./rope";
+import { createRoPE, type RotaryEmbedding } from "./rope";
+import type { AttentionRuntimeLayout, AttentionRuntimeWeights } from "./runtime/attention";
+import {
+  prepareKeyHeadsAndRope,
+  prepareQueryHeadsAndRope,
+  prepareValueHeads,
+  runSdpaAndOutput,
+} from "./runtime/attention";
 import {
   type Gemma4SharedKeyValues,
   type Gemma4TextConfig,
@@ -28,17 +35,6 @@ type Gemma4AttentionResult = {
   keyValues: Gemma4SharedKeyValues | null;
 };
 
-type Gemma4FreshKeyValues = {
-  keys: MxArray;
-  values: MxArray;
-};
-
-type Gemma4ActiveKeyValues = {
-  keys: MxArray;
-  values: MxArray;
-  ownsBuffers: boolean;
-};
-
 /** Self-attention module used by Gemma 4 dense text decoder blocks. */
 export class Gemma4TextAttention extends Module {
   qProjection: Linear;
@@ -48,7 +44,7 @@ export class Gemma4TextAttention extends Module {
   qNorm: Gemma4RMSNorm;
   kNorm: Gemma4RMSNorm;
   vNorm: Gemma4RMSNorm;
-  rope: Gemma4RotaryEmbedding;
+  rope: RotaryEmbedding;
   readonly layerType: Gemma4TextConfig["layerTypes"][number];
   #layerIndex: number;
   #hiddenSize: number;
@@ -98,7 +94,7 @@ export class Gemma4TextAttention extends Module {
     this.qNorm = new Gemma4RMSNorm(this.#headDim, config.rmsNormEps);
     this.kNorm = new Gemma4RMSNorm(this.#headDim, config.rmsNormEps);
     this.vNorm = new Gemma4RMSNorm(this.#headDim, config.rmsNormEps, false);
-    this.rope = createGemma4RoPE(
+    this.rope = createRoPE(
       this.#headDim,
       this.layerType === "full_attention" ? config.fullRopeTheta : config.slidingRopeTheta,
       this.layerType === "full_attention" ? config.fullRotaryDimensions : undefined,
@@ -118,26 +114,34 @@ export class Gemma4TextAttention extends Module {
     sharedKeyValues?: Gemma4SharedKeyValues,
     attentionMask?: AttentionMask,
   ): Gemma4AttentionResult {
-    const { batch, sequenceLength } = this.assertInputShape(x);
+    const { sequenceLength } = this.assertInputShape(x);
+    const offset = cache?.offset ?? 0;
+    const layout = this.runtimeLayout();
+    const weights = this.runtimeWeights();
 
-    using projectedQueries = this.qProjection.forward(x);
-    using queryInputs = reshape(projectedQueries, [
-      batch,
-      sequenceLength,
-      this.#numHeads,
-      this.#headDim,
-    ]);
-    using normalizedQueries = this.qNorm.forward(queryInputs);
-    using queryHeads = transpose(normalizedQueries, [0, 2, 1, 3]);
-    using rotatedQueries = this.rope.forward(queryHeads, cache?.offset ?? 0);
-    const activeKeyValues = this.resolveActiveKeyValues(
-      x,
-      batch,
-      sequenceLength,
-      cache,
+    using rotatedQueries = prepareQueryHeadsAndRope(layout, weights, x, offset);
+    using activeKeyValues = this.resolveActiveKeyValues(x, cache, sharedKeyValues, offset);
+    return this.runSDPAAndOutput(
+      layout,
+      weights,
+      rotatedQueries,
+      activeKeyValues,
       sharedKeyValues,
+      attentionMask,
+      sequenceLength,
     );
-    const retainedMask = this.resolveAttentionMask(
+  }
+
+  private runSDPAAndOutput(
+    layout: AttentionRuntimeLayout,
+    weights: AttentionRuntimeWeights,
+    rotatedQueries: MxArray,
+    activeKeyValues: TransformerCacheView,
+    sharedKeyValues: Gemma4SharedKeyValues | undefined,
+    attentionMask: AttentionMask | undefined,
+    sequenceLength: number,
+  ): Gemma4AttentionResult {
+    const { mask: attentionMaskValue, ownedMask } = this.resolveAttentionMask(
       attentionMask,
       sequenceLength,
       activeKeyValues.keys,
@@ -146,67 +150,57 @@ export class Gemma4TextAttention extends Module {
     let returnedKeyValues: Gemma4SharedKeyValues | null = null;
 
     try {
-      const totalKeyLength = activeKeyValues.keys.shape[2];
-      if (totalKeyLength === undefined) {
-        throw new Error("Gemma4TextAttention.forward: key states are missing a sequence axis.");
-      }
-
-      const attentionOptions =
-        retainedMask === null
-          ? { scale: 1.0 }
-          : retainedMask === "causal"
-            ? { scale: 1.0, maskMode: "causal" as const }
-            : { scale: 1.0, maskArray: retainedMask };
-      using attentionOutput = scaledDotProductAttention(
+      const output = runSdpaAndOutput(
+        layout,
+        weights,
         rotatedQueries,
         activeKeyValues.keys,
         activeKeyValues.values,
-        attentionOptions,
+        attentionMaskValue,
       );
-      using transposedOutput = transpose(attentionOutput, [0, 2, 1, 3]);
-      using mergedOutput = reshape(transposedOutput, [
-        batch,
-        sequenceLength,
-        this.#numHeads * this.#headDim,
-      ]);
-      returnedKeyValues = activeKeyValues.ownsBuffers ? activeKeyValues : null;
-      return {
-        output: this.outputProjection.forward(mergedOutput),
-        keyValues: returnedKeyValues,
-      };
+      returnedKeyValues =
+        sharedKeyValues === undefined ? activeKeyValues.materializeOwnedPair() : null;
+      return { output, keyValues: returnedKeyValues };
     } catch (error) {
       returnedKeyValues?.keys.free();
       returnedKeyValues?.values.free();
       throw error;
     } finally {
-      if (retainedMask instanceof MxArray) {
-        retainedMask.free();
-      }
-      if (activeKeyValues.ownsBuffers && returnedKeyValues === null) {
-        activeKeyValues.keys.free();
-        activeKeyValues.values.free();
-      }
+      ownedMask?.free();
     }
+  }
+
+  private runtimeLayout(): AttentionRuntimeLayout {
+    return {
+      numHeads: this.#numHeads,
+      numKeyValueHeads: this.#numKeyValueHeads,
+      headDim: this.#headDim,
+    };
+  }
+
+  private runtimeWeights(): AttentionRuntimeWeights {
+    return {
+      qProjection: this.qProjection,
+      kProjection: this.kProjection,
+      vProjection: this.vProjection,
+      outputProjection: this.outputProjection,
+      qNorm: this.qNorm,
+      kNorm: this.kNorm,
+      vNorm: this.vNorm,
+      rope: this.rope,
+    };
   }
 
   private resolveActiveKeyValues(
     x: MxArray,
-    batch: number,
-    sequenceLength: number,
     cache: TransformerCache | undefined,
     sharedKeyValues: Gemma4SharedKeyValues | undefined,
-  ): Gemma4ActiveKeyValues {
+    offset: number,
+  ): TransformerCacheView {
     if (sharedKeyValues !== undefined) {
-      return {
-        keys: sharedKeyValues.keys,
-        values: sharedKeyValues.values,
-        ownsBuffers: false,
-      };
+      return createBorrowedTransformerCacheView(sharedKeyValues.keys, sharedKeyValues.values);
     }
-    return {
-      ...this.buildFreshKeyValues(x, batch, sequenceLength, cache),
-      ownsBuffers: true,
-    };
+    return this.buildFreshKeyValues(x, cache, offset);
   }
 
   private resolveAttentionMask(
@@ -214,14 +208,19 @@ export class Gemma4TextAttention extends Module {
     sequenceLength: number,
     keys: MxArray,
     dtype: MxArray["dtype"],
-  ): AttentionMask {
+  ): { mask: AttentionMask; ownedMask: MxArray | null } {
     if (attentionMask === undefined) {
-      return this.createMask(sequenceLength, keys, dtype);
+      const createdMask = this.createMask(sequenceLength, keys, dtype);
+      if (createdMask instanceof MxArray) {
+        recordTransformerRuntimeCounter("attention.mask_created");
+      }
+      return { mask: createdMask, ownedMask: createdMask };
     }
     if (attentionMask === null || attentionMask === "causal") {
-      return attentionMask;
+      return { mask: attentionMask, ownedMask: null };
     }
-    return retainArray(attentionMask);
+    recordTransformerRuntimeCounter("attention.mask_borrowed");
+    return { mask: attentionMask, ownedMask: null };
   }
 
   private assertInputShape(x: MxArray): { batch: number; sequenceLength: number } {
@@ -241,45 +240,17 @@ export class Gemma4TextAttention extends Module {
 
   private buildFreshKeyValues(
     x: MxArray,
-    batch: number,
-    sequenceLength: number,
-    cache?: TransformerCache,
-  ): Gemma4FreshKeyValues {
-    using projectedKeys = this.kProjection.forward(x);
-    using keyInputs = reshape(projectedKeys, [
-      batch,
-      sequenceLength,
-      this.#numKeyValueHeads,
-      this.#headDim,
-    ]);
-    let valueInputs: MxArray | null = null;
-    try {
-      if (this.vProjection === null) {
-        valueInputs = retainArray(keyInputs);
-      } else {
-        using projectedValues = this.vProjection.forward(x);
-        valueInputs = reshape(projectedValues, [
-          batch,
-          sequenceLength,
-          this.#numKeyValueHeads,
-          this.#headDim,
-        ]);
-      }
+    cache: TransformerCache | undefined,
+    offset: number,
+  ): TransformerCacheView {
+    const layout = this.runtimeLayout();
+    const weights = this.runtimeWeights();
+    using rotatedKeys = prepareKeyHeadsAndRope(layout, weights, x, offset);
+    using valueHeads = prepareValueHeads(layout, weights, x);
 
-      using normalizedKeys = this.kNorm.forward(keyInputs);
-      using normalizedValues = this.vNorm.forward(valueInputs);
-      using keyHeads = transpose(normalizedKeys, [0, 2, 1, 3]);
-      using valueHeads = transpose(normalizedValues, [0, 2, 1, 3]);
-      using rotatedKeys = this.rope.forward(keyHeads, cache?.offset ?? 0);
-
-      const keyValues =
-        cache === undefined
-          ? { keys: retainArray(rotatedKeys), values: retainArray(valueHeads) }
-          : cache.updateAndFetch(this.#layerIndex, rotatedKeys, valueHeads);
-      return keyValues;
-    } finally {
-      valueInputs?.free();
-    }
+    return cache === undefined
+      ? retainTransformerCacheView(rotatedKeys, valueHeads)
+      : updateAndFetchTransformerCacheView(cache, this.#layerIndex, rotatedKeys, valueHeads);
   }
 
   private createMask(

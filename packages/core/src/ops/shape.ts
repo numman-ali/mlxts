@@ -9,6 +9,7 @@ import { defaultStream } from "../device";
 import { DTYPE_TO_MLX, type DType } from "../dtype";
 import { checkStatus } from "../error";
 import { ffi, OutSlot, ptr, sizeToNumber, unwrapPointer } from "../ffi";
+import { coreRuntimeProfileTimestamp, recordFfiInvokeDuration } from "../runtime-profile";
 
 type S = Pointer | undefined;
 const s = (stream?: S) => stream ?? defaultStream();
@@ -300,6 +301,43 @@ export function sliceUpdate(
   );
 }
 
+/** Mutate an existing array handle in place using slice-update semantics. */
+export function sliceUpdateInPlace(
+  src: MxArray,
+  update: MxArray,
+  start: number[],
+  stop: number[],
+  strides?: number[],
+  stream?: S,
+): void {
+  const normalizedStrides = strides ?? Array.from({ length: start.length }, () => 1);
+  if (start.length !== stop.length || start.length !== normalizedStrides.length) {
+    throw new Error(
+      `sliceUpdateInPlace: start, stop, and strides must have the same rank, got ${start.length}, ${stop.length}, and ${normalizedStrides.length}.`,
+    );
+  }
+
+  const startBuf = new Int32Array(start);
+  const stopBuf = new Int32Array(stop);
+  const strideBuf = new Int32Array(normalizedStrides);
+  const started = coreRuntimeProfileTimestamp();
+  checkStatus(
+    ffi.mlxts_slice_update_inplace(
+      src._ctx,
+      update._ctx,
+      ptr(startBuf),
+      start.length,
+      ptr(stopBuf),
+      stop.length,
+      ptr(strideBuf),
+      normalizedStrides.length,
+      s(stream),
+    ),
+    "slice_update_inplace",
+  );
+  recordFfiInvokeDuration("slice_update_inplace", coreRuntimeProfileTimestamp() - started);
+}
+
 /** Update a slice with a dynamic start index along one or more axes. */
 export function sliceUpdateDynamic(
   src: MxArray,
@@ -322,6 +360,65 @@ export function sliceUpdateDynamic(
       ),
       "slice_update_dynamic",
     );
+  });
+}
+
+/** Retarget an existing array handle to another array value in place. */
+export function arrayAssignInPlace(target: MxArray, source: MxArray): void {
+  const started = coreRuntimeProfileTimestamp();
+  checkStatus(ffi.mlxts_array_assign_inplace(target._ctx, source._ctx), "array_assign_inplace");
+  recordFfiInvokeDuration("array_assign_inplace", coreRuntimeProfileTimestamp() - started);
+  target._replaceMetadata({
+    shape: source.shape,
+    dtype: source.dtype,
+    ndim: source.ndim,
+    size: source.size,
+  });
+}
+
+/** Retarget an existing array handle to a slice view of another array in place. */
+export function sliceViewInPlace(
+  target: MxArray,
+  source: MxArray,
+  start: number[],
+  stop: number[],
+  strides?: number[],
+  stream?: S,
+): void {
+  const normalizedStrides = strides ?? Array.from({ length: start.length }, () => 1);
+  if (start.length !== stop.length || start.length !== normalizedStrides.length) {
+    throw new Error(
+      `sliceViewInPlace: start, stop, and strides must have the same rank, got ${start.length}, ${stop.length}, and ${normalizedStrides.length}.`,
+    );
+  }
+
+  const startBuf = new Int32Array(start);
+  const stopBuf = new Int32Array(stop);
+  const strideBuf = new Int32Array(normalizedStrides);
+  const shape = start.map((startIndex, axis) =>
+    sliceExtent(startIndex, stop[axis] ?? startIndex, normalizedStrides[axis] ?? 1),
+  );
+  const started = coreRuntimeProfileTimestamp();
+  checkStatus(
+    ffi.mlxts_slice_view_inplace(
+      target._ctx,
+      source._ctx,
+      ptr(startBuf),
+      start.length,
+      ptr(stopBuf),
+      stop.length,
+      ptr(strideBuf),
+      normalizedStrides.length,
+      s(stream),
+    ),
+    "slice_view_inplace",
+  );
+  recordFfiInvokeDuration("slice_view_inplace", coreRuntimeProfileTimestamp() - started);
+  target._replaceMetadata({
+    shape,
+    dtype: source.dtype,
+    ndim: shape.length,
+    size: shape.reduce((product, dimension) => product * dimension, 1),
   });
 }
 

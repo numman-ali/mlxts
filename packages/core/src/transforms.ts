@@ -16,6 +16,7 @@ export {
   checkpoint,
   clearCompileCache,
   compile,
+  compileMany,
   disableCompile,
   enableCompile,
   setCompileMode,

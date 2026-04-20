@@ -1,6 +1,7 @@
 #!/usr/bin/env bun
 
 import { resolve } from "path";
+import { acquireRuntimeCommandLock } from "../../../../scripts/runtime-command-lock";
 
 export type PresetName = "gpt-tiny" | "gpt-small";
 type SoakDefaults = {
@@ -165,6 +166,7 @@ export function buildAcceptanceArgs(args: string[]): string[] {
 }
 
 export function main(argv = process.argv.slice(2)): number {
+  using _runtimeLock = acquireRuntimeCommandLock("soak:nanogpt");
   const result = Bun.spawnSync(["bun", ...buildAcceptanceArgs(argv)], {
     cwd: packageRoot(),
     stdout: "inherit",

@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { array, mxEval, zeros } from "@mlxts/core";
-import { crossEntropy, mse } from "./losses";
+import { crossEntropy, mse } from "./index";
 
 describe("crossEntropy", () => {
   test("basic correctness — single sample", () => {
@@ -96,6 +96,30 @@ describe("crossEntropy", () => {
 
     logits.free();
     targets.free();
+  });
+
+  test("reuses the internal transform across different logits shapes", () => {
+    using firstLogits = array([[2.0, 1.0, 0.1]], "float32");
+    using firstTargets = array([0], "int32");
+    using secondLogits = array(
+      [
+        [
+          [2.0, 1.0, 0.1],
+          [0.1, 1.0, 2.0],
+        ],
+      ],
+      "float32",
+    );
+    using secondTargets = array([[0, 2]], "int32");
+    using firstLoss = crossEntropy(firstLogits, firstTargets);
+    using secondLoss = crossEntropy(secondLogits, secondTargets);
+
+    mxEval(firstLoss, secondLoss);
+
+    expect(firstLoss.ndim).toBe(0);
+    expect(secondLoss.ndim).toBe(0);
+    expect(Number.isFinite(firstLoss.item())).toBe(true);
+    expect(Number.isFinite(secondLoss.item())).toBe(true);
   });
 });
 

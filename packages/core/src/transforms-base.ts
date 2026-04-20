@@ -4,7 +4,9 @@ import {
   extractAllArrays,
   extractSingleArray,
   type GradFn,
+  type MultiOutputFn,
   ReusableClosure,
+  ReusableMultiClosure,
 } from "./ffi/closure-bridge";
 import { ffi } from "./ffi/lib";
 import { OutSlot, type Pointer, ptr, sizeToNumber, unwrapPointer } from "./ffi/pointer";
@@ -283,6 +285,92 @@ export function applyClosureTransform(
       }
 
       return extractSingleArray(outputsVec, label);
+    } finally {
+      if (outputsVec !== null) {
+        ffi.mlx_vector_array_free(outputsVec);
+      }
+    }
+  } finally {
+    ffi.mlx_vector_array_free(inputVec);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Multi-output closure transform infrastructure
+// ---------------------------------------------------------------------------
+
+export type CachedClosureMultiTransform = {
+  closure: ReusableMultiClosure;
+  transform: Pointer;
+  freeTransform: (transform: Pointer) => void;
+};
+
+export const closureMultiTransformRegistry = new FinalizationRegistry<CachedClosureMultiTransform>(
+  (cached) => {
+    cached.freeTransform(cached.transform);
+    cached.closure[Symbol.dispose]();
+  },
+);
+
+export function disposeCachedClosureMultiTransform(cached: CachedClosureMultiTransform): void {
+  cached.freeTransform(cached.transform);
+  cached.closure[Symbol.dispose]();
+}
+
+export function createCachedClosureMultiTransform(
+  fn: MultiOutputFn,
+  label: string,
+  buildTransform: (out: Pointer, closure: Pointer) => void,
+  freeTransform: (transform: Pointer) => void,
+): CachedClosureMultiTransform {
+  const closure = new ReusableMultiClosure(fn);
+  try {
+    const transformSlot = new OutSlot();
+    buildTransform(transformSlot.prepare(), closure.pointer);
+    return {
+      closure,
+      transform: transformSlot.read(`${label} transform`),
+      freeTransform,
+    };
+  } catch (error) {
+    closure[Symbol.dispose]();
+    throw error;
+  }
+}
+
+export function applyClosureMultiTransform(
+  cached: CachedClosureMultiTransform,
+  args: MxArray[],
+  label: string,
+): MxArray[] {
+  cached.closure.consumeCapturedError();
+
+  const inputVec = unwrapPointer(ffi.mlx_vector_array_new(), `${label}_input_vec_new`);
+  try {
+    for (const arg of args) {
+      checkStatus(ffi.mlx_vector_array_append_value(inputVec, arg._ctx), `${label}_input_append`);
+    }
+
+    const outputSlot = new OutSlot();
+    let outputsVec: Pointer | null = null;
+    try {
+      try {
+        checkStatus(ffi.mlx_closure_apply(outputSlot.prepare(), cached.transform, inputVec), label);
+      } catch (error) {
+        const capturedError = cached.closure.consumeCapturedError();
+        if (capturedError !== null) {
+          throw capturedError;
+        }
+        throw error;
+      }
+
+      const capturedError = cached.closure.consumeCapturedError();
+      if (capturedError !== null) {
+        throw capturedError;
+      }
+
+      outputsVec = outputSlot.read(`${label} outputs`);
+      return extractAllArrays(outputsVec, label);
     } finally {
       if (outputsVec !== null) {
         ffi.mlx_vector_array_free(outputsVec);

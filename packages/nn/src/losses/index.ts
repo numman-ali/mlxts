@@ -7,18 +7,8 @@
  */
 
 import type { MxArray } from "@mlxts/core";
-import {
-  expandDims,
-  formatShape,
-  isIntegerDType,
-  logsumexp,
-  mean,
-  multiply,
-  square,
-  squeeze,
-  subtract,
-  takeAlongAxis,
-} from "@mlxts/core";
+import { formatShape, isIntegerDType, mean, square, subtract } from "@mlxts/core";
+import { runCrossEntropy } from "./runtime";
 
 function assertIntegerDtype(arr: MxArray, name: string): void {
   if (!isIntegerDType(arr.dtype)) {
@@ -86,19 +76,7 @@ function assertCrossEntropyShapes(logits: MxArray, targets: MxArray): void {
 export function crossEntropy(logits: MxArray, targets: MxArray): MxArray {
   assertIntegerDtype(targets, "crossEntropy");
   assertCrossEntropyShapes(logits, targets);
-
-  // Log-softmax: logits - logsumexp(logits, axis=-1, keepdims=true)
-  using lse = logsumexp(logits, -1, true);
-  using logProbs = subtract(logits, lse);
-
-  // Gather log-prob of the correct class
-  using targetIndices = expandDims(targets, -1); // [...] → [..., 1]
-  using gathered = takeAlongAxis(logProbs, targetIndices, -1); // [..., 1]
-  using squeezed = squeeze(gathered, -1); // [..., 1] → [...]
-
-  // Mean negative log-probability
-  using meanLogProb = mean(squeezed);
-  return multiply(meanLogProb, -1.0);
+  return runCrossEntropy(logits, targets);
 }
 
 /**

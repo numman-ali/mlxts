@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 
 import { array } from "@mlxts/core";
 
-import { SamplerState } from "./sampling";
+import { SamplerState } from "./index";
 
 describe("sampling", () => {
   test("SamplerState uses argmax when temperature is zero or negative", () => {
@@ -38,6 +38,25 @@ describe("sampling", () => {
     expect(token.item()).toBe(1);
   });
 
+  test("SamplerState keeps top-k behavior correct across vocab shapes for the same config", () => {
+    using firstLogits = array([[1, 5, 3, 4]], "float32");
+    using secondLogits = array([[1, 5, 3, 4, 2]], "float32");
+    using state = new SamplerState([], {});
+    using firstToken = state.sampleTokenTensor(firstLogits, {
+      temperature: 1,
+      topK: 1,
+      seed: 0,
+    });
+    using secondToken = state.sampleTokenTensor(secondLogits, {
+      temperature: 1,
+      topK: 1,
+      seed: 0,
+    });
+
+    expect(firstToken.item()).toBe(1);
+    expect(secondToken.item()).toBe(1);
+  });
+
   test("SamplerState applies top-p pruning on the device", () => {
     using logits = array([[8, 2, 1]], "float32");
     using state = new SamplerState([], {});
@@ -48,6 +67,25 @@ describe("sampling", () => {
     });
 
     expect(token.item()).toBe(0);
+  });
+
+  test("SamplerState keeps top-p behavior correct across vocab shapes for the same config", () => {
+    using firstLogits = array([[8, 2, 1]], "float32");
+    using secondLogits = array([[9, 2, 1, 0]], "float32");
+    using state = new SamplerState([], {});
+    using firstToken = state.sampleTokenTensor(firstLogits, {
+      temperature: 1,
+      topP: 0.1,
+      seed: 0,
+    });
+    using secondToken = state.sampleTokenTensor(secondLogits, {
+      temperature: 1,
+      topP: 0.1,
+      seed: 0,
+    });
+
+    expect(firstToken.item()).toBe(0);
+    expect(secondToken.item()).toBe(0);
   });
 
   test("SamplerState applies top-p before temperature scaling", () => {

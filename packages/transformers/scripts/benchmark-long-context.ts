@@ -2,6 +2,7 @@
 
 import { clearMemoryCache, getMemoryStats, mxAsyncEval, resetPeakMemory } from "@mlxts/core";
 import type { Tokenizer } from "@mlxts/tokenizers";
+import { acquireRuntimeCommandLock } from "../../../scripts/runtime-command-lock";
 import {
   type InteractionProfile,
   loadCausalLM,
@@ -390,6 +391,7 @@ function printResult(result: LongContextResult): void {
 }
 
 async function main(): Promise<void> {
+  using _runtimeLock = acquireRuntimeCommandLock("bench:generation:context");
   const options = parseArgs(Bun.argv.slice(2));
   const resolvedModelSource = await resolveCachedSnapshotPath(options.model);
   console.log(`Benchmarking long-context ladder for ${resolvedModelSource}`);

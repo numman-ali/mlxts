@@ -1,5 +1,17 @@
 # Runtime Review: Phase 7 Tokenizers and Transformers
 
+## Status
+
+This review remains useful as the closeout for the original Phase 7
+tokenizer/transformer expansion, but its runtime framing is historical.
+
+Read it with
+[`docs/reviews/2026-04-08-runtime-runtime-research-retrospective.md`](./2026-04-08-runtime-runtime-research-retrospective.md)
+and
+[`docs/proposals/2026-04-08-readable-runtime-restructure.md`](../proposals/2026-04-08-readable-runtime-restructure.md)
+before treating any of its performance or runtime-direction language as current
+mainline guidance.
+
 ## Summary
 
 This review covers the runtime-sensitive production changes for Phase 7's
@@ -153,7 +165,7 @@ compiled logit-softcap closure when the checkpoint actually enables softcapping.
   `Gemma4TextModel.runLayers()` owns the retained shared-KV snapshots that later
   layers borrow for the config-driven KV-sharing path.
 - Gemma 4's proportional full-attention RoPE stays local to transformers via
-  `Gemma4ProportionalRoPE`, which owns its precomputed frequency tensor as a
+  `ProportionalRoPE`, which owns its precomputed frequency tensor as a
   private field and disposes it explicitly rather than smuggling non-parameter
   arrays onto the module tree.
 - Gemma 4's optional per-layer input stream also keeps all disposable arrays

@@ -1,13 +1,13 @@
 import { describe, expect, test } from "bun:test";
 import type { ParameterTree } from "@mlxts/core";
 import { array, type MxArray, retainArray, zeros } from "@mlxts/core";
-import type { CausalLM, TransformerCache } from "../types";
+import type { CausalLM, TransformerCache } from "../../types";
 import {
   inputTensor,
   prefillPromptCache,
   takeLastLogits,
   validatePrefillStepSize,
-} from "./generation-helpers";
+} from "./helpers";
 
 class FakeCache implements TransformerCache {
   readonly layerCount = 0;

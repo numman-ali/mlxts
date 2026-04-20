@@ -2,6 +2,7 @@
 
 import { CharTokenizer } from "@mlxts/tokenizers";
 import { resolve } from "path";
+import { acquireRuntimeCommandLock } from "../../../../scripts/runtime-command-lock";
 import { applyCheckpoint, loadCheckpoint } from "../checkpoint";
 import { generate } from "../generate";
 import { GPT } from "../model/gpt";
@@ -52,6 +53,7 @@ function assertSoakStability(
 }
 
 export async function main(argv = process.argv): Promise<void> {
+  using _runtimeLock = acquireRuntimeCommandLock("acceptance:nanogpt");
   const flags = parseArgs(argv);
   const {
     presetName,

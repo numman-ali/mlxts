@@ -8,15 +8,12 @@
  */
 
 import type { MxArray } from "@mlxts/core";
-import { add, divide, erf, maximum, multiply, sigmoid } from "@mlxts/core";
+import { maximum } from "@mlxts/core";
+import { runGelu, runSilu, runSwiglu } from "./runtime";
 
 /** Exact GELU activation. Prefer `geluApprox` from `@mlxts/core` on inference hot paths. */
 export function gelu(x: MxArray): MxArray {
-  using xScaled = divide(x, Math.sqrt(2));
-  using erfResult = erf(xScaled);
-  using inner = add(erfResult, 1.0);
-  using scaled = multiply(x, 0.5);
-  return multiply(scaled, inner);
+  return runGelu(x);
 }
 
 /** ReLU activation: max(x, 0). */
@@ -26,12 +23,10 @@ export function relu(x: MxArray): MxArray {
 
 /** SiLU (Swish) activation: x * sigmoid(x). */
 export function silu(x: MxArray): MxArray {
-  using sig = sigmoid(x);
-  return multiply(x, sig);
+  return runSilu(x);
 }
 
 /** SwiGLU activation: silu(gate) * value. */
 export function swiglu(gate: MxArray, value: MxArray): MxArray {
-  using activatedGate = silu(gate);
-  return multiply(activatedGate, value);
+  return runSwiglu(gate, value);
 }

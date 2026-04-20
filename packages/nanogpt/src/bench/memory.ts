@@ -12,6 +12,7 @@ import {
   transpose,
 } from "@mlxts/core";
 import { crossEntropy } from "@mlxts/nn";
+import { acquireRuntimeCommandLock } from "../../../../scripts/runtime-command-lock";
 
 import { GPT_SMALL, GPT_TINY, type ModelPreset, resolveConfig } from "../config";
 import { CausalSelfAttention } from "../model/causal-self-attention";
@@ -235,6 +236,7 @@ function average(values: number[]): number {
 }
 
 function main(): void {
+  using _runtimeLock = acquireRuntimeCommandLock("bench:memory");
   const flags = parseArgs(process.argv);
   if (flags.has("help")) {
     process.stdout.write(`${usage()}\n`);

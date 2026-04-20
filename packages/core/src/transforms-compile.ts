@@ -1,14 +1,19 @@
 import type { MxArray } from "./array";
 import { checkStatus } from "./error";
-import type { GradFn } from "./ffi/closure-bridge";
+import type { GradFn, MultiOutputFn } from "./ffi/closure-bridge";
 import { ffi } from "./ffi/lib";
 import {
+  applyClosureMultiTransform,
   applyClosureTransform,
   attachDisposableTransform,
+  type CachedClosureMultiTransform,
   type CachedClosureTransform,
+  closureMultiTransformRegistry,
   closureTransformRegistry,
+  createCachedClosureMultiTransform,
   createCachedClosureTransform,
   type DisposableTransform,
+  disposeCachedClosureMultiTransform,
   disposeCachedClosureTransform,
 } from "./transforms-base";
 
@@ -96,6 +101,54 @@ export function checkpoint(fn: GradFn): DisposableTransform<(...args: MxArray[])
       closureTransformRegistry.unregister(transformed);
       if (cached !== null) {
         disposeCachedClosureTransform(cached);
+        cached = null;
+      }
+    },
+  );
+
+  return transformed;
+}
+
+/**
+ * Compile a multi-output function. Like `compile()` but supports functions
+ * that return multiple arrays. Used for fusing multiple head projections
+ * into a single compiled graph.
+ */
+export function compileMany(
+  fn: MultiOutputFn,
+  options?: { shapeless?: boolean },
+): DisposableTransform<(...args: MxArray[]) => MxArray[]> {
+  let cached: CachedClosureMultiTransform | null = null;
+  let disposed = false;
+
+  const transformed = attachDisposableTransform(
+    (...args: MxArray[]): MxArray[] => {
+      if (disposed) {
+        throw new Error("compileMany: transform has already been disposed");
+      }
+      if (cached === null) {
+        cached = createCachedClosureMultiTransform(
+          fn,
+          "compileMany",
+          (out, closure) => {
+            checkStatus(ffi.mlx_compile(out, closure, options?.shapeless ?? false), "compileMany");
+          },
+          (transform) => {
+            ffi.mlx_closure_free(transform);
+          },
+        );
+        closureMultiTransformRegistry.register(transformed, cached, transformed);
+      }
+      return applyClosureMultiTransform(cached, args, "compileMany_apply");
+    },
+    () => {
+      if (disposed) {
+        return;
+      }
+      disposed = true;
+      closureMultiTransformRegistry.unregister(transformed);
+      if (cached !== null) {
+        disposeCachedClosureMultiTransform(cached);
         cached = null;
       }
     },

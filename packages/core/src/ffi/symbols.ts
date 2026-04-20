@@ -201,6 +201,15 @@ export const ARITHMETIC_SYMBOLS = {
 
 export const MLXTS_NATIVE_SYMBOLS = {
   mlxts_gelu_approx: { args: [P, P, P], returns: I32 },
+  mlxts_array_assign_inplace: { args: [P, P], returns: I32 },
+  mlxts_slice_update_inplace: {
+    args: [P, P, P, U64_FAST, P, U64_FAST, P, U64_FAST, P],
+    returns: I32,
+  },
+  mlxts_slice_view_inplace: {
+    args: [P, P, P, U64_FAST, P, U64_FAST, P, U64_FAST, P],
+    returns: I32,
+  },
   mlxts_load_gguf: { args: [P, P, CSTRING, P], returns: I32 },
   mlxts_save_gguf: { args: [CSTRING, P, P], returns: I32 },
   mlxts_map_string_to_array_keys: { args: [P, P], returns: I32 },

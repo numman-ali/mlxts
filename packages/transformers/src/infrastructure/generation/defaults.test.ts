@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import type { Tokenizer } from "@mlxts/tokenizers";
-import type { CausalLM } from "../types";
-import { parseGenerationDefaults, resolveGenerationOptions } from "./generation-defaults";
+import type { CausalLM } from "../../types";
+import { parseGenerationDefaults, resolveGenerationOptions } from "./defaults";
 
 function fakeModel(defaults: CausalLM["config"]["generationDefaults"]): CausalLM {
   const config: CausalLM["config"] = {

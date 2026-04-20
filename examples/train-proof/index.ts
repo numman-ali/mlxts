@@ -34,6 +34,7 @@ import {
 } from "@mlxts/transformers";
 import { existsSync, mkdirSync, readdirSync, rmSync } from "fs";
 import { dirname } from "path";
+import { acquireRuntimeCommandLock } from "../../scripts/runtime-command-lock";
 
 import {
   loadTrainingProofRawDatasets,
@@ -784,6 +785,7 @@ function printStage(report: StageReport): void {
 }
 
 async function main(): Promise<void> {
+  using _runtimeLock = acquireRuntimeCommandLock("proof:training");
   const parsed: TrainingProofArgs = parseTrainingProofArgs(Bun.argv.slice(2));
   const sourceOptions: LoadSourceOptions = {};
 

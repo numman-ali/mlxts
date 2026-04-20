@@ -1,6 +1,6 @@
 import type { Tokenizer } from "@mlxts/tokenizers";
 
-import type { CausalLM, GenerationDefaults, GenerationOptions } from "../types";
+import type { CausalLM, GenerationDefaults, GenerationOptions } from "../../types";
 
 function readNumber(value: unknown): number | undefined {
   return typeof value === "number" && Number.isFinite(value) ? value : undefined;

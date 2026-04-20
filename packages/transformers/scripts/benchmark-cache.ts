@@ -1,5 +1,6 @@
 #!/usr/bin/env bun
 
+import { acquireRuntimeCommandLock } from "../../../scripts/runtime-command-lock";
 import { generateTokens } from "../src/generation";
 import { loadCausalLM, loadPretrainedTokenizer } from "../src/load";
 
@@ -35,6 +36,7 @@ async function measure(
 }
 
 async function main(): Promise<void> {
+  using _runtimeLock = acquireRuntimeCommandLock("bench:cache");
   const modelSource = Bun.argv[2];
   if (modelSource === undefined) {
     usage();

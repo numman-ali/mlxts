@@ -1,6 +1,6 @@
 import { argmax, array, logsumexp, MxArray, reshape, subtract } from "@mlxts/core";
 
-import { prefillPromptCache, takeLastLogits } from "../src/infrastructure/generation-helpers";
+import { prefillPromptCache, takeLastLogits } from "../src/infrastructure/generation/helpers";
 import type { loadCausalLM } from "../src/load";
 import type { CausalLM, TransformerCache } from "../src/types";
 

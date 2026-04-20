@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { array, mxEval } from "@mlxts/core";
-import { gelu, relu, silu, swiglu } from "./activations";
+import { gelu, relu, silu, swiglu } from "./index";
 
 describe("relu", () => {
   test("positive values pass through", () => {
@@ -105,5 +105,37 @@ describe("swiglu", () => {
     gate.free();
     value.free();
     result.free();
+  });
+
+  test("reuses the internal transform across shapes", () => {
+    using firstGate = array([1.0, -1.0], "float32");
+    using firstValue = array([2.0, 3.0], "float32");
+    using secondGate = array([[1.0, -1.0, 0.5]], "float32");
+    using secondValue = array([[2.0, 3.0, 4.0]], "float32");
+    using firstResult = swiglu(firstGate, firstValue);
+    using secondResult = swiglu(secondGate, secondValue);
+
+    mxEval(firstResult, secondResult);
+
+    expect(firstResult.shape).toEqual([2]);
+    expect(secondResult.shape).toEqual([1, 3]);
+  });
+});
+
+describe("activation transform reuse", () => {
+  test("gelu and silu can be called across shapes without retracing in user code", () => {
+    using first = array([1.0], "float32");
+    using second = array([[1.0, -1.0]], "float32");
+    using geluFirst = gelu(first);
+    using geluSecond = gelu(second);
+    using siluFirst = silu(first);
+    using siluSecond = silu(second);
+
+    mxEval(geluFirst, geluSecond, siluFirst, siluSecond);
+
+    expect(geluFirst.shape).toEqual([1]);
+    expect(geluSecond.shape).toEqual([1, 2]);
+    expect(siluFirst.shape).toEqual([1]);
+    expect(siluSecond.shape).toEqual([1, 2]);
   });
 });

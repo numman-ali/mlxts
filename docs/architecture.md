@@ -173,6 +173,71 @@ The operator semantics in `packages/nanogpt/src/run/` are still important, but
 the package location is transitional. Rich examples and a ground-up nanoGPT
 rewrite are deferred to a later dedicated examples effort.
 
+## Execution Strategy Composition
+
+`mlxts` should treat three things as separate:
+
+- **model config** — checkpoint truth
+- **runtime strategy** — how we choose to run a family on this machine
+- **backend implementation** — the concrete mechanism that carries out that
+  strategy
+
+Model config remains architecture truth: layer counts, KV-sharing pattern,
+sliding-window rules, rope settings, vocabulary sizes, and similar checkpoint
+facts.
+
+Runtime strategy is different. It covers choices such as:
+
+- eager versus selective compiled transform reuse
+- managed versus native-assisted cache updates
+- later, dense versus compressed or quantized KV backends
+
+Backend implementation is the concrete realization of that strategy:
+
+- eager TypeScript-composed MLX ops
+- compiled MLX closure
+- thin private native helper
+- full native cache module
+
+The important rule is:
+
+**runtime strategy is not model identity.**
+
+We do not create duplicate model configs for runtime variants. Gemma 4 with a
+managed cache and Gemma 4 with a future native cache are the same model config
+running under different execution strategies.
+
+For now, runtime strategy selection stays private to `@mlxts/transformers`
+until there is a validated winner worth carrying as public surface. See
+[docs/proposals/2026-04-06-runtime-execution-architecture.md](./proposals/2026-04-06-runtime-execution-architecture.md)
+and
+[docs/proposals/2026-04-08-readable-runtime-restructure.md](./proposals/2026-04-08-readable-runtime-restructure.md)
+for the current system-wide plan.
+
+## Readable Reference Surfaces
+
+The runtime strategy split above is not only about flexibility. It is also
+about readability.
+
+`mlxts` is supposed to help people understand ML top to bottom, so the repo
+needs clear reference surfaces for both inference and training.
+
+That means:
+
+- top-level inference code should read in terms of model and generation steps
+- top-level training code should read in terms of batch, loss, gradients,
+  update, and materialization
+- compile and native strategy should live beneath those semantic surfaces
+
+The practical rule is:
+
+**model code should explain the model; runtime backends should hide execution
+tricks.**
+
+We do not let model-family files become the permanent home of ad hoc fusion
+islands, native ABI details, or runtime-strategy experiments. Those belong in
+backend-facing helpers beneath the readable orchestration layer.
+
 ## Memory Management
 
 This is the most critical cross-cutting concern.

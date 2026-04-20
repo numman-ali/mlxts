@@ -1,14 +1,18 @@
-#include <algorithm>
-#include <iomanip>
 #include <cmath>
+#include <algorithm>
+#include <array>
+#include <iomanip>
 #include <sstream>
 #include <string_view>
+#include <vector>
 
 #include "mlx/c/error.h"
 #include "mlx/c/map.h"
 #include "mlx/c/ops.h"
+#include "mlx/c/private/array.h"
 #include "mlx/c/private/map.h"
 #include "mlx/c/private/mlx.h"
+#include "mlx/c/private/vector.h"
 #include "mlx/c/private/string.h"
 #include "mlx/c/string.h"
 #include "mlx/io.h"
@@ -39,6 +43,72 @@ mlxts_gelu_approx(mlx_array* res, const mlx_array a, const mlx_stream s) {
     auto shifted = add(activated, one, stream);
     auto scaled_input = multiply(input, half, stream);
     mlx_array_set_(*res, multiply(scaled_input, shifted, stream));
+  } catch (std::exception& e) {
+    mlx_error(e.what());
+    return 1;
+  }
+  return 0;
+}
+
+extern "C" int mlxts_slice_update_inplace(
+    const mlx_array src,
+    const mlx_array update,
+    const int* start,
+    size_t start_num,
+    const int* stop,
+    size_t stop_num,
+    const int* strides,
+    size_t strides_num,
+    const mlx_stream s) {
+  try {
+    auto updated = mlx::core::slice_update(
+        mlx_array_get_(src),
+        mlx_array_get_(update),
+        mlx::core::Shape(start, start + start_num),
+        mlx::core::Shape(stop, stop + stop_num),
+        mlx::core::Shape(strides, strides + strides_num),
+        mlx_stream_get_(s));
+    auto mutable_src = src;
+    mlx_array_set_(mutable_src, std::move(updated));
+  } catch (std::exception& e) {
+    mlx_error(e.what());
+    return 1;
+  }
+  return 0;
+}
+
+extern "C" int mlxts_array_assign_inplace(
+    const mlx_array target,
+    const mlx_array source) {
+  try {
+    auto mutable_target = target;
+    mlx_array_set_(mutable_target, mlx_array_get_(source));
+  } catch (std::exception& e) {
+    mlx_error(e.what());
+    return 1;
+  }
+  return 0;
+}
+
+extern "C" int mlxts_slice_view_inplace(
+    const mlx_array target,
+    const mlx_array source,
+    const int* start,
+    size_t start_num,
+    const int* stop,
+    size_t stop_num,
+    const int* strides,
+    size_t strides_num,
+    const mlx_stream s) {
+  try {
+    auto view = mlx::core::slice(
+        mlx_array_get_(source),
+        mlx::core::Shape(start, start + start_num),
+        mlx::core::Shape(stop, stop + stop_num),
+        mlx::core::Shape(strides, strides + strides_num),
+        mlx_stream_get_(s));
+    auto mutable_target = target;
+    mlx_array_set_(mutable_target, std::move(view));
   } catch (std::exception& e) {
     mlx_error(e.what());
     return 1;

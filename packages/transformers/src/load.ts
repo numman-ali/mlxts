@@ -11,7 +11,7 @@ import {
   translateCheckpointQuantizationPlanPaths,
 } from "@mlxts/quantize";
 import { loadTokenizer, type Tokenizer, type TokenizerFileSet } from "@mlxts/tokenizers";
-import { parseGenerationDefaults } from "./infrastructure/generation-defaults";
+import { parseGenerationDefaults } from "./infrastructure/generation/defaults";
 import { assignWeightPath, listParameterPaths } from "./infrastructure/weight-assignment";
 import {
   inspectSnapshot,

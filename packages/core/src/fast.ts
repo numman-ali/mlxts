@@ -215,38 +215,46 @@ export function rope(x: MxArray, dims: number, options: FastRoPEOptions = {}): M
       throw new Error(`fast.rope: numeric offset must be a non-negative integer, got ${offset}.`);
     }
 
-    return readResultArray("fast_rope", (out) => {
+    return readResultArrayWithMetadata(
+      "fast_rope",
+      { shape: x.shape, dtype: x.dtype, ndim: x.ndim, size: x.size },
+      (out) => {
+        checkStatus(
+          ffi.mlx_fast_rope(
+            out,
+            x._ctx,
+            dims,
+            traditional,
+            optionalFloat(resolvedBase),
+            scale,
+            offset,
+            options.freqs?._ctx ?? null,
+            s(options.stream),
+          ),
+          "fast_rope",
+        );
+      },
+    );
+  }
+
+  return readResultArrayWithMetadata(
+    "fast_rope_dynamic",
+    { shape: x.shape, dtype: x.dtype, ndim: x.ndim, size: x.size },
+    (out) => {
       checkStatus(
-        ffi.mlx_fast_rope(
+        ffi.mlx_fast_rope_dynamic(
           out,
           x._ctx,
           dims,
           traditional,
           optionalFloat(resolvedBase),
           scale,
-          offset,
+          offset._ctx,
           options.freqs?._ctx ?? null,
           s(options.stream),
         ),
-        "fast_rope",
+        "fast_rope_dynamic",
       );
-    });
-  }
-
-  return readResultArray("fast_rope_dynamic", (out) => {
-    checkStatus(
-      ffi.mlx_fast_rope_dynamic(
-        out,
-        x._ctx,
-        dims,
-        traditional,
-        optionalFloat(resolvedBase),
-        scale,
-        offset._ctx,
-        options.freqs?._ctx ?? null,
-        s(options.stream),
-      ),
-      "fast_rope_dynamic",
-    );
-  });
+    },
+  );
 }

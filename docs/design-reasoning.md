@@ -200,11 +200,61 @@ This is why `@mlxts/train` is extracted when the training code is proven (nanoGP
 
 Premature abstraction is worse than duplication. Three similar training loops in three examples is better than one generic `TrainingPipeline<TModel, TData, TConfig>` that nobody can read.
 
+The same rule applies to runtime execution choices inside inference code:
+
+- keep runtime selection private until there is a validated winner
+- do not widen public API around a hot-path idea that has not earned permanence
+- let measured wins decide which execution choices deserve long-term surface
+- keep semantic function names about math and model behavior; execution
+  strategy such as eager, keyed compile reuse, or native help should stay
+  behind those semantic names unless the API itself is explicitly a transform utility
+
+There is a second rule that matters just as much:
+
+**do not let runtime optimization consume the teaching surface of the repo.**
+
+If an optimization makes the main model-family or training flow unreadable, the
+optimization is living in the wrong layer. The right answer is usually not "do
+less optimization"; it is "move the strategy behind a better seam."
+
 ---
 
 ## Contract Boundaries
 
 Contracts describe what a thing **does** (predict next tokens from a sequence), not **how** it does it internally (dense MLP vs sparse expert routing, attention variant, norm placement).
+
+### Runtime strategy is not model identity
+
+There is a similar distinction lower in the stack:
+
+- model config describes checkpoint truth
+- runtime strategy describes how we execute that checkpoint
+- backend implementation is the concrete mechanism that realizes that strategy
+
+That means we do **not** create duplicate model configs for:
+
+- managed cache versus native-assisted cache
+- eager helpers versus selective compiled transform reuse
+- later, dense KV versus compressed or quantized KV
+
+Those are execution choices, not model identity.
+
+This matters because it keeps the architecture composable. A future
+TurboQuant-style KV path should arrive as a runtime/backend pairing between
+cache representation and attention compute path, not as "another Gemma
+config."
+
+The same naming rule applies lower down in the stack: the semantic function
+name should describe the math, while compile or native selection stays an
+internal execution choice. We want people reading `swiglu` or `crossEntropy`,
+not `compiledSwiglu` or `compiledCrossEntropy`.
+
+The same separation should hold one level higher too:
+
+- reference surfaces explain inference and training flow
+- backend surfaces implement execution strategy
+
+This is how the repo can stay both understandable and fast.
 
 ### CausalLM is a text generation contract
 

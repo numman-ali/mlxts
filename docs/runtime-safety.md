@@ -44,7 +44,7 @@ Long unattended runs must go through the supervised `bun run run:nanogpt ...` su
 
 ## Generation Performance
 
-Performance is an observable, not a review opinion. The generation hot path (`generation.ts`, `sampling.ts`, `cache.ts`, `attention.ts`, `model.ts`) must have measurable, comparable, regression-protected performance.
+Performance is an observable, not a review opinion. The generation hot path (`generation.ts`, `infrastructure/sampling/index.ts`, `infrastructure/cache/index.ts`, family `attention.ts`, family `model.ts`) must have measurable, comparable, regression-protected performance.
 
 ### Benchmark infrastructure
 
@@ -84,6 +84,9 @@ The invariants above protect the macro loop (one eval per token, no idle gaps). 
 - **SDPA must receive `null` mask during single-token decode when all positions are visible.** MLX's fused scaled-dot-product attention has a fast maskless kernel and a slower masked kernel. Passing a dense all-true boolean mask is functionally equivalent to `null` but routes to the slow path. During single-token decode, if the query can attend to every key in the cache (no sliding window, or the window covers the entire visible range), the mask must be `null`. This is a qualitative GPU utilization change, not a minor optimization.
 - **KV cache updates must be O(1) amortized.** Pre-allocate cache buffers in chunks and write via `sliceUpdateDynamic` (or equivalent in-place scatter). Concatenating the full cache history per token is O(n) and creates a new allocation every step — forbidden in steady-state decode. This applies to all cache types: standard, rotating, and mixed-pattern caches.
 - **Composite activation functions must collapse to one hot-path primitive.** Multi-op activations like tanh-based GELU create multiple graph nodes and intermediate tensor allocations per call if expressed naively. The preferred order is: use an existing native/core primitive when one exists; otherwise `compile({ shapeless: true })` the full composite helper until a native primitive is warranted by measurements. The hot path should not carry a long chain of elementwise ops per layer when one fused activation is what the model semantically needs.
+- **Repeated pure decode motifs should try compile before native helper work.** If the hot path repeatedly rebuilds the same pure subgraph with explicit tensor inputs, a bounded compile spike should be attempted before introducing custom native bindings. Compile is the first lever for reducing Bun/FFI boundary churn; native helpers are for the remaining hot state that compile cannot express cleanly.
+- **Compile is an internal strategy, not a semantic API name.** Call sites and public helpers should read in terms of the math they perform. Keep compile reuse behind semantic function names such as `swiglu`, `crossEntropy`, or `repetition penalty`; do not turn runtime strategy into the dominant vocabulary of model code.
+- **Readable reference surfaces are a performance constraint too.** If a hot-path optimization makes the main inference or training flow hard to read, move that strategy behind a backend/helper seam instead of normalizing the complexity into the teaching surface of the repo.
 - **Weight-derived invariants must be computed once, not per forward call.** If a value depends only on model weights and does not change between tokens (e.g., `add(weight, 1.0)` for Gemma-style offset norms), compute it once after weight loading and store the result. Recomputing invariants per call creates unnecessary graph nodes and FFI round-trips that compound across layers.
 - **Per-token graph node count must be comparable to mlx-lm.** When implementing a new model family, count the MLX ops and FFI round-trips per decode token and compare against the equivalent mlx-lm model. If yours is 5x higher, something is structurally wrong — investigate before benchmarking. Common sources of excess nodes: uncompiled composite ops, materialized masks that should be `null`, O(n) cache ops, and per-call recomputation of invariants.
 
@@ -94,6 +97,7 @@ The invariants above protect the macro loop (one eval per token, no idle gaps). 
 - `bun run soak:gpt-tiny` runs the canonical supervised soak for the tiny preset.
 - `bun run soak:gpt-small` runs the canonical supervised soak for the small preset.
 - `bun run acceptance:gpt-tiny` and `bun run acceptance:gpt-small` are the loss-targeted acceptance runs.
+- These commands are intentionally lock-guarded. If one is already running, the next heavy MLX command must fail fast rather than contending for GPU/runtime state.
 
 ## Forward-Only Posture
 
@@ -114,7 +118,7 @@ When upgrading Bun, run the full soak ladder before trusting the new version. FF
 
 ### mlx-c
 
-mlx-c (Apple's C API for MLX) is pre-1.0 (currently v0.2.0). There is no published changelog, semver policy, or stability contract.
+mlx-c (Apple's C API for MLX) is pre-1.0 (currently v0.6.0). There is no published changelog, semver policy, or stability contract.
 
 - **ABI audit required on upgrade.** When mlx-c is upgraded, `src/core/ffi/symbols.ts` must be re-verified against the new headers. This is documented in AGENTS.md as an ABI integrity rule.
 - **No guarantee of backward compatibility.** The 0.1.x → 0.2.0 jump shows willingness to break.

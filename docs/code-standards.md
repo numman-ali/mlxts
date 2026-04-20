@@ -14,6 +14,12 @@ This project is maintained primarily by AI agents but read and collaborated on b
 
 **Bun is the runtime.** Do not design for multiple JS runtimes. Prefer Bun-native APIs and Bun runtime semantics. Avoid `node:*` imports; if you need a standard-library helper that Bun already supports, use the neutral module specifier under Bun rather than a Node-branded one.
 
+**Ergonomics should be consistent at the pattern level.** Similar concepts
+across model families and packages should read similarly. A reader should not
+have to relearn a new style for every family. The goal is consistent semantic
+patterns and control flow, not forced identical file counts or identical helper
+extraction everywhere.
+
 ## Naming
 
 ### Files
@@ -103,6 +109,38 @@ src/
 - Tests are excluded from that cap
 - If a file grows past the cap, split it by responsibility rather than adding another scroll-length blob
 - The hard gate now applies to active production source across both the canonical `@mlxts/*` packages and the temporary `packages/nanogpt` validation fixture
+
+### Semantic surface versus runtime helpers
+
+When a surface needs backend strategy, keep the shape consistent:
+
+- semantic files explain the model, loop, or math
+- runtime/helper files own execution strategy details
+- names at the semantic layer stay about behavior, not implementation strategy
+
+Examples:
+
+- model-family `attention.ts`, `block.ts`, and `model.ts` should read like
+  model semantics
+- training loop files should read like explicit training flow
+- inference infrastructure surfaces such as `generation.ts` or
+  `sampling/index.ts` should expose the semantic step while lower runtime
+  helpers hold transform reuse or backend plumbing
+- `@mlxts/nn` semantic files such as `activations/index.ts` or
+  `losses/index.ts` should read like math surfaces while any compile-backed
+  execution details live underneath them
+- compile maps, transform reuse, and native-dispatch plumbing belong in lower
+  helper layers when they would otherwise dominate the semantic file
+
+When a concern grows beyond a couple of files, prefer a small role-based
+subfolder over a crowded flat directory. Examples:
+
+- family `runtime/` folders for private execution helpers
+- infrastructure folders such as `cache/`, `generation/`, or `sampling/`
+- semantic `index.ts` entrypoints with lower runtime/helper files beside them
+
+Do not force every family to have the same number of files or identical helper
+layouts. Apply the same pattern, not the same ceremony.
 
 ## TypeScript Practices
 

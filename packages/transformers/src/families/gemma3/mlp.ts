@@ -4,8 +4,9 @@
  */
 
 import type { MxArray } from "@mlxts/core";
-import { geluApprox, multiply } from "@mlxts/core";
 import { Linear, Module } from "@mlxts/nn";
+
+import { gegluApprox } from "../../infrastructure/gated-activations";
 import type { Gemma3TextConfig } from "./types";
 
 /** Gated GELU MLP used by Gemma 3 text layers. */
@@ -24,8 +25,7 @@ export class Gemma3MLP extends Module {
   forward(x: MxArray): MxArray {
     using gate = this.gateProjection.forward(x);
     using value = this.upProjection.forward(x);
-    using geluResult = geluApprox(gate);
-    using activated = multiply(geluResult, value);
+    using activated = gegluApprox(gate, value);
     return this.downProjection.forward(activated);
   }
 }

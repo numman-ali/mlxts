@@ -51,6 +51,7 @@ export {
   topk,
 } from "./reduction";
 export {
+  arrayAssignInPlace,
   asType,
   broadcastTo,
   concatenate,
@@ -63,6 +64,8 @@ export {
   sliceDynamic,
   sliceUpdate,
   sliceUpdateDynamic,
+  sliceUpdateInPlace,
+  sliceViewInPlace,
   split,
   squeeze,
   stack,

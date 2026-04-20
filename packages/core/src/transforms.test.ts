@@ -12,6 +12,7 @@ import {
   checkpoint,
   clearCompileCache,
   compile,
+  compileMany,
   disableCompile,
   enableCompile,
   grad,
@@ -19,6 +20,14 @@ import {
   setCompileMode,
   valueAndGrad,
 } from "./transforms";
+
+function requireCompiledOutput(outputs: MxArray[], index: number): MxArray {
+  const output = outputs[index];
+  if (output === undefined) {
+    throw new Error(`Expected compiled output at index ${index}.`);
+  }
+  return output;
+}
 
 describe("transforms", () => {
   test("eval forces computation of a single array", () => {
@@ -111,6 +120,71 @@ describe("transforms", () => {
     disableCompile();
     enableCompile();
     setCompileMode("enabled");
+  });
+
+  test("compileMany returns a single output correctly", () => {
+    using compiled = compileMany((x: MxArray) => {
+      return [add(x, 1)];
+    });
+
+    using x = array([1, 2, 3], "float32");
+    const results = compiled(x);
+    using r = requireCompiledOutput(results, 0);
+    mxEval(r);
+
+    expect(r.toList()).toEqual([2, 3, 4]);
+  });
+
+  test("compileMany returns multiple outputs", () => {
+    using compiled = compileMany((x: MxArray) => {
+      const doubled = add(x, x);
+      const tripled = add(doubled, x);
+      return [doubled, tripled];
+    });
+
+    using x = array([1, 2, 3], "float32");
+    const results = compiled(x);
+    using d = requireCompiledOutput(results, 0);
+    using t = requireCompiledOutput(results, 1);
+    mxEval(d, t);
+
+    expect(d.toList()).toEqual([2, 4, 6]);
+    expect(t.toList()).toEqual([3, 6, 9]);
+  });
+
+  test("compileMany with 3 outputs returns correct shapes and values", () => {
+    using compiled = compileMany((a: MxArray, b: MxArray) => {
+      const s = add(a, b);
+      const d = subtract(a, b);
+      const p = multiply(a, b);
+      return [s, d, p];
+    });
+
+    using a = array([4, 5], "float32");
+    using b = array([1, 2], "float32");
+    const results = compiled(a, b);
+    using sum_ = requireCompiledOutput(results, 0);
+    using diff = requireCompiledOutput(results, 1);
+    using prod = requireCompiledOutput(results, 2);
+    mxEval(sum_, diff, prod);
+
+    expect(sum_.toList()).toEqual([5, 7]);
+    expect(diff.toList()).toEqual([3, 3]);
+    expect(prod.toList()).toEqual([4, 10]);
+  });
+
+  test("compileMany disposal frees native resources", () => {
+    using compiled = compileMany((x: MxArray) => [add(x, 1), multiply(x, 2)]);
+    using x = array([1], "float32");
+    const results = compiled(x);
+    using a_ = requireCompiledOutput(results, 0);
+    using b_ = requireCompiledOutput(results, 1);
+    mxEval(a_, b_);
+    expect(a_.item()).toBe(2);
+    expect(b_.item()).toBe(2);
+
+    compiled[Symbol.dispose]();
+    expect(() => compiled(x)).toThrow("disposed");
   });
 });
 

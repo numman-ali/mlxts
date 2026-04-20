@@ -39,6 +39,7 @@ export {
   rope as fastRoPE,
   scaledDotProductAttention,
 } from "./fast";
+export type { MultiOutputFn } from "./ffi/closure-bridge";
 export { formatShape } from "./format-shape";
 export type {
   GgufMetadataValue,
@@ -88,6 +89,7 @@ export {
   argmin,
   argpartition,
   argsort,
+  arrayAssignInPlace,
   asType,
   broadcastTo,
   concatenate,
@@ -124,6 +126,8 @@ export {
   sliceDynamic,
   sliceUpdate,
   sliceUpdateDynamic,
+  sliceUpdateInPlace,
+  sliceViewInPlace,
   softmax,
   sort,
   split,
@@ -159,6 +163,7 @@ export {
   checkpoint,
   clearCompileCache,
   compile,
+  compileMany,
   disableCompile,
   enableCompile,
   grad,

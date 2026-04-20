@@ -1,5 +1,6 @@
 #!/usr/bin/env bun
 
+import { acquireRuntimeCommandLock } from "../../../../scripts/runtime-command-lock";
 import {
   DEFAULT_STALL_TIMEOUT_SECONDS,
   type RunStatus,
@@ -30,6 +31,7 @@ function readRunDirectory(argv: string[]): string {
 }
 
 export async function main(argv = process.argv): Promise<void> {
+  using _runtimeLock = acquireRuntimeCommandLock("train:nanogpt-supervisor");
   const runDirectory = readRunDirectory(argv);
   const spec = readRunSpec(runDirectory);
   const stallTimeoutMs = (spec.stallTimeoutSeconds ?? DEFAULT_STALL_TIMEOUT_SECONDS) * 1000;

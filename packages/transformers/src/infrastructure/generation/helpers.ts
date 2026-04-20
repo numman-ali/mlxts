@@ -4,8 +4,8 @@
  */
 
 import { array, clearMemoryCache, MxArray, mxEval, slice, squeeze } from "@mlxts/core";
-import type { CausalLM, TransformerCache } from "../types";
-import { cacheStateArrays } from "./cache";
+import type { CausalLM, TransformerCache } from "../../types";
+import { cacheStateArrays } from "../cache";
 
 /** Convert prompt tokens into the `[batch, sequence]` input tensor shape. */
 export function inputTensor(tokenIds: readonly number[] | MxArray): MxArray {

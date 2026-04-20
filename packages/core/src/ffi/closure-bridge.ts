@@ -19,10 +19,50 @@ import { MxArray } from "../array";
 import { checkStatus } from "../error";
 import { ffi } from "./lib";
 import type { Pointer } from "./pointer";
-import { OutSlot, sizeToNumber, unwrapPointer } from "./pointer";
+import { OutSlot, readPtr, sizeToNumber, unwrapPointer } from "./pointer";
 
 /** A function from MxArrays to a single MxArray (e.g., a loss function). */
 export type GradFn = (...args: MxArray[]) => MxArray;
+
+/** A function from MxArrays to multiple MxArrays (e.g., multi-output compiled transforms). */
+export type MultiOutputFn = (...args: MxArray[]) => MxArray[];
+
+function requireClosureResult(results: MxArray[], index: number, label: string): MxArray {
+  const result = results[index];
+  if (result === undefined) {
+    throw new Error(`${label}: result ${index} is undefined.`);
+  }
+  return result;
+}
+
+function writeMultiClosureResults(outVecPtr: Pointer, results: MxArray[]): void {
+  if (results.length === 0) {
+    throw new Error("Multi-output closure function returned 0 outputs; expected at least 1.");
+  }
+
+  const firstResult = requireClosureResult(results, 0, "Multi-output closure");
+  checkStatus(
+    ffi.mlx_vector_array_set_value(outVecPtr, firstResult._ctx),
+    "multi_closure_output_set_first",
+  );
+
+  if (results.length === 1) {
+    return;
+  }
+
+  const vecHandle = readPtr(outVecPtr, 0);
+  if (vecHandle === null) {
+    throw new Error("Multi-output closure: output vector handle is null.");
+  }
+
+  for (let i = 1; i < results.length; i++) {
+    const result = requireClosureResult(results, i, "Multi-output closure");
+    checkStatus(
+      ffi.mlx_vector_array_append_value(vecHandle, result._ctx),
+      "multi_closure_output_append",
+    );
+  }
+}
 
 /**
  * Reusable mlx_closure backed by a JSCallback.
@@ -86,6 +126,67 @@ export class ReusableClosure implements Disposable {
 
     const callbackPtr = unwrapPointer(this.#callback.ptr, "closure callback pointer");
     this.#closurePtr = unwrapPointer(ffi.mlx_closure_new_func(callbackPtr), "mlx_closure_new_func");
+  }
+
+  get pointer(): Pointer {
+    return this.#closurePtr;
+  }
+
+  consumeCapturedError(): unknown {
+    const captured = this.#capturedError;
+    this.#capturedError = null;
+    return captured;
+  }
+
+  [Symbol.dispose](): void {
+    ffi.mlx_closure_free(this.#closurePtr);
+    this.#callback.close();
+  }
+}
+
+/**
+ * Reusable mlx_closure that supports N outputs.
+ *
+ * Same lifecycle as ReusableClosure but removes the single-output restriction,
+ * appending each result array to the output vector.
+ */
+export class ReusableMultiClosure implements Disposable {
+  #capturedError: unknown = null;
+  #callback: JSCallback;
+  #closurePtr: Pointer;
+
+  constructor(fn: MultiOutputFn) {
+    this.#callback = new JSCallback(
+      (outVecPtr: Pointer | null, inVec: Pointer | null): number => {
+        if (outVecPtr === null || inVec === null) return 1;
+
+        let inputs: MxArray[] = [];
+        let results: MxArray[] = [];
+        try {
+          inputs = extractAllArrays(inVec, "multi_closure_input");
+          results = fn(...inputs);
+          writeMultiClosureResults(outVecPtr, results);
+          return 0;
+        } catch (error) {
+          this.#capturedError = error;
+          return 1;
+        } finally {
+          for (const result of results) {
+            result.free();
+          }
+          for (const input of inputs) {
+            input.free();
+          }
+        }
+      },
+      { args: [FFIType.ptr, FFIType.ptr], returns: FFIType.i32 },
+    );
+
+    const callbackPtr = unwrapPointer(this.#callback.ptr, "multi_closure callback pointer");
+    this.#closurePtr = unwrapPointer(
+      ffi.mlx_closure_new_func(callbackPtr),
+      "mlx_closure_new_func (multi)",
+    );
   }
 
   get pointer(): Pointer {

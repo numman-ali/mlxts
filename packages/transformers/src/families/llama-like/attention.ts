@@ -15,6 +15,10 @@ import {
 } from "@mlxts/core";
 import { Linear, Module, RoPE } from "@mlxts/nn";
 
+import {
+  retainTransformerCacheView,
+  updateAndFetchTransformerCacheView,
+} from "../../infrastructure/cache/view";
 import { type AttentionMask, createCausalMask } from "../../infrastructure/masks";
 import type { TransformerCache } from "../../types";
 import type { LlamaLikeConfig } from "./types";
@@ -130,20 +134,12 @@ export class LlamaLikeAttention extends Module {
       using valueHeads = transpose(valueInputs, [0, 2, 1, 3]);
       using rotatedQueries = this.rope.forward(queryHeads, cache?.offset ?? 0);
       using rotatedKeys = this.rope.forward(keyHeads, cache?.offset ?? 0);
-
-      let attentionKeys: MxArray | null = null;
-      let attentionValues: MxArray | null = null;
+      using activeKeyValues =
+        cache === undefined
+          ? retainTransformerCacheView(rotatedKeys, valueHeads)
+          : updateAndFetchTransformerCacheView(cache, layerIndex, rotatedKeys, valueHeads);
       const retainedMask = (() => {
-        if (cache === undefined) {
-          attentionKeys = retainArray(rotatedKeys);
-          attentionValues = retainArray(valueHeads);
-        } else {
-          const cached = cache.updateAndFetch(layerIndex, rotatedKeys, valueHeads);
-          attentionKeys = cached.keys;
-          attentionValues = cached.values;
-        }
-
-        const totalKeyLength = attentionKeys.shape[2];
+        const totalKeyLength = activeKeyValues.keys.shape[2];
         if (totalKeyLength === undefined) {
           throw new Error(
             "LlamaLikeAttention.forward: attention key cache is missing a sequence axis.",
@@ -166,7 +162,7 @@ export class LlamaLikeAttention extends Module {
       })();
 
       try {
-        const totalKeyLength = attentionKeys.shape[2];
+        const totalKeyLength = activeKeyValues.keys.shape[2];
         if (totalKeyLength === undefined) {
           throw new Error(
             "LlamaLikeAttention.forward: attention key cache is missing a sequence axis.",
@@ -181,8 +177,8 @@ export class LlamaLikeAttention extends Module {
               : { scale: this.#headDim ** -0.5, maskArray: retainedMask };
         using attentionOutput = scaledDotProductAttention(
           rotatedQueries,
-          attentionKeys,
-          attentionValues,
+          activeKeyValues.keys,
+          activeKeyValues.values,
           attentionOptions,
         );
         using transposedOutput = transpose(attentionOutput, [0, 2, 1, 3]);
@@ -196,8 +192,6 @@ export class LlamaLikeAttention extends Module {
         if (retainedMask instanceof MxArray) {
           retainedMask.free();
         }
-        attentionKeys?.free();
-        attentionValues?.free();
       }
     } finally {
       projected.queries.free();

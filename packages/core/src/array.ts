@@ -13,7 +13,6 @@ import {
   reshapeFlat,
   type SupportedTypedArray,
 } from "./array-data";
-import { getDataPointer } from "./array-ffi-data";
 import {
   type ArrayMetadata,
   freezeShapeMetadata,
@@ -24,7 +23,15 @@ import { defaultStream } from "./device";
 import { DTYPE_BYTE_SIZE, DTYPE_TO_MLX, type DType, MLX_TO_DTYPE } from "./dtype";
 import { checkStatus, initializeErrorHandler } from "./error";
 import { ffi } from "./ffi/lib";
-import { nativeSlice, OutSlot, ptr, readI32, sizeToNumber, unwrapPointer } from "./ffi/pointer";
+import { OutSlot, ptr, readI32, sizeToNumber, unwrapPointer } from "./ffi/pointer";
+import {
+  coreRuntimeProfileTimestamp,
+  recordExplicitFreeDuration,
+  recordFfiInvokeDuration,
+  recordOutSlotDuration,
+  recordWrapperConstructDuration,
+} from "./runtime-profile";
+import { copyTypedArrayFromContiguous, scalarFromTypedArrayCopy } from "./typed-array-copy";
 
 export type { NestedArray } from "./array-data";
 
@@ -32,8 +39,12 @@ initializeErrorHandler();
 
 /** Read an FFI pointer result written into a temporary output slot. */
 export function readResultPointer(label: string, invoke: (out: Pointer) => void): Pointer {
+  const outSlotStarted = coreRuntimeProfileTimestamp();
   const slot = new OutSlot();
+  recordOutSlotDuration(coreRuntimeProfileTimestamp() - outSlotStarted);
+  const invokeStarted = coreRuntimeProfileTimestamp();
   invoke(slot.prepare());
+  recordFfiInvokeDuration(label, coreRuntimeProfileTimestamp() - invokeStarted);
   return slot.read(label);
 }
 
@@ -73,6 +84,7 @@ export class MxArray implements Disposable {
   private _size: number | null = null;
 
   private constructor(ctx: Pointer, metadata?: ArrayMetadata) {
+    const constructStarted = coreRuntimeProfileTimestamp();
     this._ctx = ctx;
     if (metadata?.shape !== undefined) {
       this._shape = freezeShapeMetadata(metadata.shape);
@@ -83,12 +95,32 @@ export class MxArray implements Disposable {
       this._size = metadata?.size ?? null;
     }
     this._dtype = metadata?.dtype ?? null;
+    const registerStarted = coreRuntimeProfileTimestamp();
     registry.register(this, ctx, this);
+    const registerEnded = coreRuntimeProfileTimestamp();
+    recordWrapperConstructDuration(
+      registerEnded - constructStarted,
+      registerEnded - registerStarted,
+    );
   }
 
   /** Wrap an existing mlx_array context pointer and take ownership of it. */
   static _fromCtx(ctx: Pointer, metadata?: ArrayMetadata): MxArray {
     return new MxArray(ctx, metadata);
+  }
+
+  /** Internal: refresh cached metadata after a native in-place retarget. */
+  _replaceMetadata(metadata: ArrayMetadata): void {
+    if (metadata.shape !== undefined) {
+      this._shape = freezeShapeMetadata(metadata.shape);
+      this._ndim = metadata.ndim ?? metadata.shape.length;
+      this._size = metadata.size ?? inferElementCount(metadata.shape);
+    } else {
+      this._shape = null;
+      this._ndim = metadata.ndim ?? null;
+      this._size = metadata.size ?? null;
+    }
+    this._dtype = metadata.dtype ?? null;
   }
 
   /** Create an array from JavaScript numbers or a supported TypedArray. */
@@ -202,54 +234,7 @@ export class MxArray implements Disposable {
   toTypedArray(): DirectTypedArray {
     const contiguous = this._makeContiguous();
     try {
-      contiguous.eval();
-
-      const dtype = contiguous.dtype;
-      const size = contiguous.size;
-
-      switch (dtype) {
-        case "float32":
-          return new Float32Array(
-            nativeSlice(getDataPointer(contiguous, dtype), 0, size * 4).slice(0),
-          );
-        case "float64":
-          return new Float64Array(
-            nativeSlice(getDataPointer(contiguous, dtype), 0, size * 8).slice(0),
-          );
-        case "int8":
-          return new Int8Array(nativeSlice(getDataPointer(contiguous, dtype), 0, size).slice(0));
-        case "int16":
-          return new Int16Array(
-            nativeSlice(getDataPointer(contiguous, dtype), 0, size * 2).slice(0),
-          );
-        case "int32":
-          return new Int32Array(
-            nativeSlice(getDataPointer(contiguous, dtype), 0, size * 4).slice(0),
-          );
-        case "uint8":
-        case "bool":
-          return new Uint8Array(
-            nativeSlice(getDataPointer(contiguous, dtype), 0, size * DTYPE_BYTE_SIZE[dtype]).slice(
-              0,
-            ),
-          );
-        case "uint16":
-          return new Uint16Array(
-            nativeSlice(getDataPointer(contiguous, dtype), 0, size * 2).slice(0),
-          );
-        case "uint32":
-          return new Uint32Array(
-            nativeSlice(getDataPointer(contiguous, dtype), 0, size * 4).slice(0),
-          );
-        default: {
-          const asFloat32 = contiguous.asType("float32");
-          try {
-            return asFloat32.toTypedArray();
-          } finally {
-            asFloat32.free();
-          }
-        }
-      }
+      return copyTypedArrayFromContiguous(contiguous);
     } finally {
       contiguous.free();
     }
@@ -259,7 +244,7 @@ export class MxArray implements Disposable {
   toList(): NestedArray<number> {
     const flat = this.toTypedArray();
     if (this.ndim === 0) {
-      return Number(expectPresent(flat[0], "scalar array value"));
+      return scalarFromTypedArrayCopy(flat);
     }
     return reshapeFlat(Array.from(flat, Number), this.shape);
   }
@@ -343,9 +328,19 @@ export class MxArray implements Disposable {
       return;
     }
 
+    const freeStarted = coreRuntimeProfileTimestamp();
     this._disposed = true;
+    const unregisterStarted = coreRuntimeProfileTimestamp();
     registry.unregister(this);
+    const unregisterEnded = coreRuntimeProfileTimestamp();
+    const nativeFreeStarted = coreRuntimeProfileTimestamp();
     ffi.mlx_array_free(this._ctx);
+    const nativeFreeEnded = coreRuntimeProfileTimestamp();
+    recordExplicitFreeDuration(
+      nativeFreeEnded - freeStarted,
+      unregisterEnded - unregisterStarted,
+      nativeFreeEnded - nativeFreeStarted,
+    );
   }
 
   /** Support `using` declarations for explicit resource management. */

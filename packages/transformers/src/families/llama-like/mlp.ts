@@ -4,9 +4,10 @@
  */
 
 import type { MxArray } from "@mlxts/core";
-import { geluApprox, multiply, split } from "@mlxts/core";
+import { split } from "@mlxts/core";
 import { Linear, Module, swiglu } from "@mlxts/nn";
 
+import { gegluApprox } from "../../infrastructure/gated-activations";
 import type { LlamaLikeConfig } from "./types";
 
 /** Shared gated MLP used by the supported LLaMA-like families. */
@@ -44,8 +45,7 @@ export class LlamaLikeMLP extends Module {
         using activated = swiglu(gate, value);
         return this.downProjection.forward(activated);
       }
-      using geluResult = geluApprox(gate);
-      using activated = multiply(geluResult, value);
+      using activated = gegluApprox(gate, value);
       return this.downProjection.forward(activated);
     } finally {
       projected.gate.free();

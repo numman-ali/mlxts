@@ -3,6 +3,7 @@
 import { array, loadSafetensors, mxEval } from "@mlxts/core";
 import { readFileSync } from "fs";
 import { join, resolve } from "path";
+import { acquireRuntimeCommandLock } from "../../../scripts/runtime-command-lock";
 
 import { loadCausalLM } from "../src/load";
 
@@ -55,6 +56,7 @@ function loadFixture(fixtureDirectory: string): ParityFixture {
 }
 
 async function main(): Promise<void> {
+  using _runtimeLock = acquireRuntimeCommandLock("verify:llama-parity");
   const modelSource = Bun.argv[2];
   const fixtureDirectoryArg = Bun.argv[3];
   if (modelSource === undefined || fixtureDirectoryArg === undefined) {
