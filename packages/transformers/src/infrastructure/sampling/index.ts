@@ -52,7 +52,7 @@ export class SamplerState implements Disposable {
         return sampleCategoricalToken(logprobs, temperature, rngKey);
       }
 
-      using logprobs = buildFilteredSamplingLogprobs(logits, this.#historyIds, options);
+      using logprobs = buildFilteredSamplingLogprobs(repetitionAdjusted, options);
       return sampleCategoricalToken(logprobs, temperature, rngKey);
     } finally {
       rngKey?.free();

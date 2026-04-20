@@ -211,17 +211,8 @@ export function normalizeSamplingLogits(logits: MxArray): MxArray {
   return subtract(logits, normalizer);
 }
 
-export function buildFilteredSamplingLogprobs(
-  logits: MxArray,
-  historyIds: MxArray | null,
-  options: SamplerOptions,
-): MxArray {
-  using repetitionAdjusted = applySamplingRepetitionPenalty(
-    logits,
-    historyIds,
-    options.repetitionPenalty,
-  );
-  let filteredLogprobs = normalizeSamplingLogits(repetitionAdjusted);
+export function buildFilteredSamplingLogprobs(logits: MxArray, options: SamplerOptions): MxArray {
+  let filteredLogprobs = normalizeSamplingLogits(logits);
 
   try {
     using topPFiltered = applyTopP(filteredLogprobs, options.topP);

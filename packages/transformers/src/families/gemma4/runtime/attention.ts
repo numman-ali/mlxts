@@ -94,35 +94,58 @@ export function prepareKeyHeadsAndRope(
   return weights.rope.forward(keyHeads, offset);
 }
 
-export function prepareValueHeads(
+export function prepareKeyValueHeads(
   layout: AttentionRuntimeLayout,
   weights: AttentionRuntimeWeights,
   x: MxArray,
-): MxArray {
-  const batchSize = x.shape[0] ?? 0;
-  const sequenceLength = x.shape[1] ?? 0;
-
+  offset: number,
+): { keys: MxArray; values: MxArray } {
   if (weights.vProjection === null) {
+    const batchSize = x.shape[0] ?? 0;
+    const sequenceLength = x.shape[1] ?? 0;
     using projectedKeys = weights.kProjection.forward(x);
-    using valueHeads = reshapeHeads(
+    using keyInputs = reshapeHeads(
       projectedKeys,
       batchSize,
       sequenceLength,
       layout.numKeyValueHeads,
       layout.headDim,
     );
-    return weights.vNorm.forward(valueHeads);
+    using normalizedKeys = weights.kNorm.forward(keyInputs);
+    const valueHeads = weights.vNorm.forward(keyInputs);
+    let rotatedKeys: MxArray | null = null;
+
+    try {
+      rotatedKeys = weights.rope.forward(normalizedKeys, offset);
+      return { keys: rotatedKeys, values: valueHeads };
+    } catch (error) {
+      valueHeads.free();
+      rotatedKeys?.free();
+      throw error;
+    }
   }
 
-  using projectedValues = weights.vProjection.forward(x);
-  using valueHeads = reshapeHeads(
-    projectedValues,
-    batchSize,
-    sequenceLength,
-    layout.numKeyValueHeads,
-    layout.headDim,
-  );
-  return weights.vNorm.forward(valueHeads);
+  const keys = prepareKeyHeadsAndRope(layout, weights, x, offset);
+  let values: MxArray | null = null;
+
+  try {
+    const batchSize = x.shape[0] ?? 0;
+    const sequenceLength = x.shape[1] ?? 0;
+    using projectedValues = weights.vProjection.forward(x);
+    using valueInputs = reshapeHeads(
+      projectedValues,
+      batchSize,
+      sequenceLength,
+      layout.numKeyValueHeads,
+      layout.headDim,
+    );
+    values = weights.vNorm.forward(valueInputs);
+    return { keys, values };
+  } catch (error) {
+    keys.free();
+    values?.free();
+    throw error;
+  }
 }
 
 function projectAttentionOutput(

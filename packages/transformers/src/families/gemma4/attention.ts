@@ -19,9 +19,8 @@ import { Gemma4RMSNorm } from "./norm";
 import { createRoPE, type RotaryEmbedding } from "./rope";
 import type { AttentionRuntimeLayout, AttentionRuntimeWeights } from "./runtime/attention";
 import {
-  prepareKeyHeadsAndRope,
+  prepareKeyValueHeads,
   prepareQueryHeadsAndRope,
-  prepareValueHeads,
   runSdpaAndOutput,
 } from "./runtime/attention";
 import {
@@ -245,12 +244,21 @@ export class Gemma4TextAttention extends Module {
   ): TransformerCacheView {
     const layout = this.runtimeLayout();
     const weights = this.runtimeWeights();
-    using rotatedKeys = prepareKeyHeadsAndRope(layout, weights, x, offset);
-    using valueHeads = prepareValueHeads(layout, weights, x);
+    const keyValues = prepareKeyValueHeads(layout, weights, x, offset);
 
-    return cache === undefined
-      ? retainTransformerCacheView(rotatedKeys, valueHeads)
-      : updateAndFetchTransformerCacheView(cache, this.#layerIndex, rotatedKeys, valueHeads);
+    try {
+      return cache === undefined
+        ? retainTransformerCacheView(keyValues.keys, keyValues.values)
+        : updateAndFetchTransformerCacheView(
+            cache,
+            this.#layerIndex,
+            keyValues.keys,
+            keyValues.values,
+          );
+    } finally {
+      keyValues.keys.free();
+      keyValues.values.free();
+    }
   }
 
   private createMask(

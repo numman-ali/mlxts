@@ -38,6 +38,19 @@ describe("sampling", () => {
     expect(token.item()).toBe(1);
   });
 
+  test("SamplerState combines repetition penalty with top-k filtering", () => {
+    using logits = array([[4, 3, 1]], "float32");
+    using state = new SamplerState([0], { repetitionPenalty: 1.2 });
+    using token = state.sampleTokenTensor(logits, {
+      temperature: 1,
+      topK: 1,
+      repetitionPenalty: 1.2,
+      seed: 0,
+    });
+
+    expect(token.item()).toBe(0);
+  });
+
   test("SamplerState keeps top-k behavior correct across vocab shapes for the same config", () => {
     using firstLogits = array([[1, 5, 3, 4]], "float32");
     using secondLogits = array([[1, 5, 3, 4, 2]], "float32");
