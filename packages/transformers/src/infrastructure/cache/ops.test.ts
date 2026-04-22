@@ -67,4 +67,13 @@ describe("cache ops", () => {
     expect(prefixCopied.toList()).toEqual([[[[1], [2], [0], [0], [0], [0]]]]);
     expect(grown.toList()).toEqual([[[[1], [2], [9], [10], [0], [0]]]]);
   });
+
+  test("growCacheBuffer extends a fully used buffer without rewriting the existing prefix", () => {
+    using existing = array([[[[1], [2], [3], [4]]]], "float32");
+    using grown = growCacheBuffer(existing, 4, existing, 6);
+
+    mxEval(grown);
+
+    expect(grown.toList()).toEqual([[[[1], [2], [3], [4], [0], [0]]]]);
+  });
 });

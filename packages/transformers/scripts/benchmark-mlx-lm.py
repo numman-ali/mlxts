@@ -31,6 +31,9 @@ def main() -> None:
         raise ValueError("--prompt-token-ids-json must decode to a JSON array of integers.")
 
     model, tokenizer = load(args.model)
+    # Match mlx-lm's own benchmark behavior: throughput timing should run the
+    # full requested decode window instead of stopping on EOS.
+    tokenizer._eos_token_ids = {}
     final_response = None
     for response in stream_generate(
         model,

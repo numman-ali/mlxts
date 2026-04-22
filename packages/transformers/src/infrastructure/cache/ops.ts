@@ -87,10 +87,17 @@ export function growCacheBuffer(
   update: MxArray,
   capacity: number,
 ): MxArray {
-  const base = allocateCacheBufferLike(update, capacity);
   if (existing === null || usedLength === 0) {
-    return base;
+    return allocateCacheBufferLike(update, capacity);
   }
+
+  const existingCapacity = sequenceAxisLength(existing, "growCacheBuffer");
+  if (usedLength === existingCapacity && capacity > existingCapacity) {
+    using extra = allocateCacheBufferLike(update, capacity - existingCapacity);
+    return concatenate([existing, extra], 2);
+  }
+
+  const base = allocateCacheBufferLike(update, capacity);
   using prefix = cachePrefixView(existing, usedLength);
   sliceUpdateInPlace(
     base,

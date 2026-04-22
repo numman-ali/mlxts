@@ -465,13 +465,20 @@ function inheritedStringEnv(): Record<string, string> {
   );
 }
 
-function parseMlxLmReferencePayload(output: string): MlxLmReference {
+type ParsedMlxLmReferencePayload = MlxLmReference & {
+  generationTokens: number;
+  finishReason: string;
+};
+
+function parseMlxLmReferencePayload(output: string): ParsedMlxLmReferencePayload {
   const parsed = JSON.parse(output) as Record<string, unknown>;
   if (
     typeof parsed.prompt_tps !== "number" ||
     typeof parsed.generation_tps !== "number" ||
     typeof parsed.peak_memory_gb !== "number" ||
-    typeof parsed.captured_at !== "string"
+    typeof parsed.captured_at !== "string" ||
+    typeof parsed.generation_tokens !== "number" ||
+    typeof parsed.finish_reason !== "string"
   ) {
     throw new Error("benchmark-generation: MLX-LM helper returned malformed benchmark JSON.");
   }
@@ -481,6 +488,8 @@ function parseMlxLmReferencePayload(output: string): MlxLmReference {
     generationTps: parsed.generation_tps,
     peakMemoryGb: parsed.peak_memory_gb,
     capturedAt: parsed.captured_at,
+    generationTokens: parsed.generation_tokens,
+    finishReason: parsed.finish_reason,
   };
 }
 
@@ -541,7 +550,19 @@ export async function captureMlxLmReference(
     );
   }
 
-  return parseMlxLmReferencePayload(stdout);
+  const parsed = parseMlxLmReferencePayload(stdout);
+  if (parsed.generationTokens !== generationTokens || parsed.finishReason !== "length") {
+    throw new Error(
+      `benchmark-generation: MLX-LM helper did not complete the requested fixed-length decode (tokens=${parsed.generationTokens}, finish_reason=${parsed.finishReason}).`,
+    );
+  }
+
+  return {
+    promptTps: parsed.promptTps,
+    generationTps: parsed.generationTps,
+    peakMemoryGb: parsed.peakMemoryGb,
+    capturedAt: parsed.capturedAt,
+  };
 }
 
 export function sanitizePathSegment(value: string): string {

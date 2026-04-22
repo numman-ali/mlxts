@@ -1,7 +1,6 @@
 #!/usr/bin/env bun
 
 import { clearMemoryCache, getPeakMemoryBytes, mxAsyncEval, resetPeakMemory } from "@mlxts/core";
-import type { Tokenizer } from "@mlxts/tokenizers";
 import { acquireRuntimeCommandLock } from "../../../scripts/runtime-command-lock";
 import {
   isCoreRuntimeProfilingEnabled,
@@ -13,7 +12,7 @@ import {
   resetTransformerRuntimeProfile,
   snapshotTransformerRuntimeProfile,
 } from "../src/infrastructure/runtime-profile";
-import { loadCausalLM, loadPretrainedTokenizer } from "../src/load";
+import { loadCausalLM } from "../src/load";
 import {
   type BenchmarkOptions,
   type BenchmarkTarget,
@@ -29,7 +28,6 @@ import {
   printTrial,
   type ReferenceBenchmarkOptions,
   resolveCachedSnapshotPath,
-  safeDecodedTokenLength,
   selectTargets,
   type TrialMetrics,
   withBenchmarkRuntimeScope,
@@ -84,23 +82,6 @@ function printRuntimeProfile(generationTokens: number, trials: number): void {
   }
 }
 
-class BenchmarkDecodeSink {
-  #tokenizer: Tokenizer;
-  #decodedLength = 0;
-
-  constructor(tokenizer: Tokenizer) {
-    this.#tokenizer = tokenizer;
-  }
-
-  addToken(tokenId: number): void {
-    this.#decodedLength += safeDecodedTokenLength(this.#tokenizer, tokenId);
-  }
-
-  finalize(): number {
-    return this.#decodedLength;
-  }
-}
-
 function freeGreedyStep(step: GreedyStepResult | null): void {
   step?.token.free();
   step?.logprobs.free();
@@ -108,13 +89,11 @@ function freeGreedyStep(step: GreedyStepResult | null): void {
 
 function runParityTrial(
   model: BenchmarkModel,
-  tokenizer: Tokenizer,
   promptTokenIds: readonly number[],
   options: BenchmarkOptions,
 ): TrialMetrics {
   resetPeakMemory();
   using cache = model.createCache();
-  const decodeSink = new BenchmarkDecodeSink(tokenizer);
   const promptStarted = performance.now();
   const remainingPrompt = prefillBenchmarkCache(
     model,
@@ -146,7 +125,7 @@ function runParityTrial(
           decodeStarted = performance.now();
         }
 
-        decodeSink.addToken(currentStep.token.item());
+        currentStep.token.item();
         if ((index + 1) % PERIODIC_CACHE_CLEAR_INTERVAL === 0) {
           clearMemoryCache();
         }
@@ -169,7 +148,6 @@ function runParityTrial(
     freeGreedyStep(currentStep);
   }
 
-  decodeSink.finalize();
   const decodeSeconds = (performance.now() - decodeStarted) / 1000;
   return {
     promptTps: promptTokenIds.length / promptSeconds,
@@ -193,19 +171,18 @@ function averageTrialMetrics(trials: readonly TrialMetrics[]): TrialMetrics {
 
 function runParityBenchmarks(
   model: BenchmarkModel,
-  tokenizer: Tokenizer,
   promptTokenIds: readonly number[],
   target: BenchmarkTarget,
   options: BenchmarkOptions,
 ): TrialMetrics {
   return withBenchmarkRuntimeScope(target.name, options.metalTrace, () => {
-    runParityTrial(model, tokenizer, promptTokenIds, options);
+    runParityTrial(model, promptTokenIds, options);
     clearMemoryCache();
     resetRuntimeProfiles();
 
     const trials: TrialMetrics[] = [];
     for (let index = 0; index < options.trials; index += 1) {
-      const metrics = runParityTrial(model, tokenizer, promptTokenIds, options);
+      const metrics = runParityTrial(model, promptTokenIds, options);
       trials.push(metrics);
       printTrial(`Trial ${index + 1}:  `, metrics);
       clearMemoryCache();
@@ -242,7 +219,6 @@ async function benchmarkTarget(
   let mlxLmReference = target.mlxLmReference ?? null;
 
   using model = await loadCausalLM(resolvedModelSource, { localFilesOnly: true });
-  const tokenizer = await loadPretrainedTokenizer(resolvedModelSource, { localFilesOnly: true });
   const promptTokenIds = createPromptTokenIds(targetOptions.promptTokens, model.config.vocabSize);
 
   try {
@@ -275,7 +251,6 @@ async function benchmarkTarget(
 
   const averages = runParityBenchmarks(
     model,
-    tokenizer,
     promptTokenIds,
     mlxLmReference === null ? target : { ...target, mlxLmReference },
     targetOptions,
