@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { array, matmul, mxEval, transpose } from "@mlxts/core";
+import { LoRALinear, QuantizedLinear } from "@mlxts/nn";
 
 import { gegluApprox } from "../../infrastructure/gated-activations";
 import { Gemma4TextMLP } from "./mlp";
@@ -37,6 +38,10 @@ function gemma4Config(overrides: Partial<Gemma4TextConfig> = {}): Gemma4TextConf
     embeddingScale: 2,
     ...overrides,
   };
+}
+
+function repeatedRow(width: number, scale: number): number[] {
+  return Array.from({ length: width }, (_, index) => (index - width / 2) * scale);
 }
 
 describe("Gemma4TextMLP", () => {
@@ -92,5 +97,89 @@ describe("Gemma4TextMLP", () => {
 
     expect(firstOutput.shape).toEqual([1, 1, 4]);
     expect(secondOutput.shape).toEqual([2, 2, 4]);
+  });
+
+  test("falls back to semantic projection flow for quantized MLP weights", () => {
+    using mlp = new Gemma4TextMLP(gemma4Config({ hiddenSize: 32, intermediateSize: 64 }), 0);
+    using input = array([[repeatedRow(32, 0.0625), repeatedRow(32, -0.03125)]], "float32");
+
+    const quantizedGate = QuantizedLinear.fromLinear(mlp.gateProjection, {
+      groupSize: 32,
+      bits: 4,
+      mode: "affine",
+    });
+    const previousGate = mlp.replaceChild("gateProjection", quantizedGate);
+    previousGate[Symbol.dispose]();
+
+    const quantizedUp = QuantizedLinear.fromLinear(mlp.upProjection, {
+      groupSize: 32,
+      bits: 4,
+      mode: "affine",
+    });
+    const previousUp = mlp.replaceChild("upProjection", quantizedUp);
+    previousUp[Symbol.dispose]();
+
+    const quantizedDown = QuantizedLinear.fromLinear(mlp.downProjection, {
+      groupSize: 32,
+      bits: 4,
+      mode: "affine",
+    });
+    const previousDown = mlp.replaceChild("downProjection", quantizedDown);
+    previousDown[Symbol.dispose]();
+
+    using output = mlp.forward(input);
+    using gate = mlp.gateProjection.forward(input);
+    using value = mlp.upProjection.forward(input);
+    using activated = gegluApprox(gate, value);
+    using expected = mlp.downProjection.forward(activated);
+
+    mxEval(output, expected);
+
+    expect(output.toList()).toEqual(expected.toList());
+  });
+
+  test("falls back to semantic projection flow for QLoRA-wrapped MLP weights", () => {
+    using mlp = new Gemma4TextMLP(gemma4Config({ hiddenSize: 32, intermediateSize: 64 }), 0);
+    using input = array([[repeatedRow(32, 0.0625), repeatedRow(32, -0.03125)]], "float32");
+
+    const wrappedGate = LoRALinear.fromBase(
+      QuantizedLinear.fromLinear(mlp.gateProjection, {
+        groupSize: 32,
+        bits: 4,
+        mode: "affine",
+      }),
+    );
+    const previousGate = mlp.replaceChild("gateProjection", wrappedGate);
+    previousGate[Symbol.dispose]();
+
+    const wrappedUp = LoRALinear.fromBase(
+      QuantizedLinear.fromLinear(mlp.upProjection, {
+        groupSize: 32,
+        bits: 4,
+        mode: "affine",
+      }),
+    );
+    const previousUp = mlp.replaceChild("upProjection", wrappedUp);
+    previousUp[Symbol.dispose]();
+
+    const wrappedDown = LoRALinear.fromBase(
+      QuantizedLinear.fromLinear(mlp.downProjection, {
+        groupSize: 32,
+        bits: 4,
+        mode: "affine",
+      }),
+    );
+    const previousDown = mlp.replaceChild("downProjection", wrappedDown);
+    previousDown[Symbol.dispose]();
+
+    using output = mlp.forward(input);
+    using gate = mlp.gateProjection.forward(input);
+    using value = mlp.upProjection.forward(input);
+    using activated = gegluApprox(gate, value);
+    using expected = mlp.downProjection.forward(activated);
+
+    mxEval(output, expected);
+
+    expect(output.toList()).toEqual(expected.toList());
   });
 });

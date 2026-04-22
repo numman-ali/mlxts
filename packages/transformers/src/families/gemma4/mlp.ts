@@ -4,7 +4,9 @@
  */
 
 import { formatShape, type MxArray } from "@mlxts/core";
-import { Linear, Module } from "@mlxts/nn";
+import { Linear, LoRALinear, Module, QuantizedLinear } from "@mlxts/nn";
+
+import { gegluApprox } from "../../infrastructure/gated-activations";
 import { runMlp } from "./runtime/mlp";
 import type { Gemma4TextConfig } from "./types";
 
@@ -41,11 +43,35 @@ export class Gemma4TextMLP extends Module {
       );
     }
 
-    return runMlp(
-      x,
-      this.gateProjection.weight,
-      this.upProjection.weight,
-      this.downProjection.weight,
-    );
+    const gateProjection = this.runtimeProjection("gateProjection");
+    const upProjection = this.runtimeProjection("upProjection");
+    const downProjection = this.runtimeProjection("downProjection");
+
+    if (
+      gateProjection instanceof Linear &&
+      upProjection instanceof Linear &&
+      downProjection instanceof Linear
+    ) {
+      return runMlp(x, gateProjection.weight, upProjection.weight, downProjection.weight);
+    }
+
+    using gate = gateProjection.forward(x);
+    using value = upProjection.forward(x);
+    using activated = gegluApprox(gate, value);
+    return downProjection.forward(activated);
+  }
+
+  private runtimeProjection(
+    key: "gateProjection" | "upProjection" | "downProjection",
+  ): Linear | QuantizedLinear | LoRALinear {
+    const projection: unknown = Reflect.get(this, key);
+    if (
+      projection instanceof Linear ||
+      projection instanceof QuantizedLinear ||
+      projection instanceof LoRALinear
+    ) {
+      return projection;
+    }
+    throw new Error(`Gemma4TextMLP.forward: ${key} is not a supported linear module.`);
   }
 }
