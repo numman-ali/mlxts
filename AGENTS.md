@@ -12,6 +12,15 @@ centers on:
 - `**Official Hugging Face JS packages**`: `@huggingface/hub` for snapshot download/cache and `@huggingface/jinja` for chat-template rendering inside the transformers loading surface
 - `**packages/nanogpt**`: a temporary GPT validation fixture built on the extracted packages
 
+## Repo Memory
+
+`MEMORY.md` is the repo's shared cross-session memory for durable learnings and sharp edges.
+
+- **Start of session**: read Tier 1 in [`MEMORY.md`](./MEMORY.md) after `AGENTS.md`.
+- **During work**: search `MEMORY.md` for the area you are touching instead of rereading it end to end.
+- **End of session**: append durable learnings to Tier 2, and promote only broadly important items into Tier 1.
+- Keep doctrine in `AGENTS.md` and durable operational learnings in `MEMORY.md`; do not duplicate both unless the repetition is temporary and intentional.
+
 ## Architecture Decisions
 
 - **Runtime**: Bun (for FFI, speed, TypeScript-first)
@@ -98,6 +107,15 @@ The `.reference/` folder contains local clones of upstream repositories for rese
 | [docs/product-surfaces.md](./docs/product-surfaces.md) | API, CLI, TUI, GUI design guidelines                                               |
 | [docs/setup.md](./docs/setup.md)                       | Development environment setup and build instructions                               |
 
+
+## Session Startup
+
+Before non-trivial work, agents should:
+
+1. Read `AGENTS.md`, then Tier 1 of [`MEMORY.md`](./MEMORY.md).
+2. Inspect `git status` and recent local changes before editing.
+3. Read the relevant source-of-truth docs and search `MEMORY.md` for the area being changed.
+4. Prefer the narrowest validation that proves the change, then run required repo gates before handoff.
 
 ## Key Technical Context
 
