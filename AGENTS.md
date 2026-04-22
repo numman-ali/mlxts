@@ -76,16 +76,25 @@ See [docs/code-standards.md](./docs/code-standards.md) for the full code standar
 The `.reference/` folder contains local clones of upstream repositories for research and cross-referencing:
 
 
-| Repo                      | Purpose                                                                                                                        |
-| ------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
-| `.reference/mlx-lm`       | Apple's MLX language model library — primary reference for model architectures, weight loading, generation, LoRA, quantization |
-| `.reference/transformers` | HuggingFace Transformers — reference for model configs, tokenizer formats, weight naming conventions                           |
-| `.reference/trl`          | HuggingFace TRL — reference for SFT, DPO, alignment training patterns                                                          |
-| `.reference/mlx-examples` | Apple's MLX examples — reference for LLaVA, Stable Diffusion, Whisper implementations                                          |
-| `.reference/diffusers`    | HuggingFace Diffusers — planned Phase 10 reference for diffusion pipeline structure and checkpoint conventions; clone before Phase 10 research begins |
-| `.reference/rapid-mlx`    | Rapid-MLX — reference for inference speed (MTP, speculative decode, DeltaNet snapshots, prompt caching, tool parsing, jump-forward decoding) |
-| `.reference/vllm-mlx`     | vLLM-MLX — foundational reference for paged KV cache, continuous batching, multimodal engine composition on MLX                 |
-| `.reference/omlx`         | oMLX — reference for production serving (tiered SSD KV cache, multi-model memory management, oQ mixed-precision quantization)   |
+| Repo                             | Purpose                                                                                                                          |
+| -------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| `.reference/mlx-lm`              | Apple's MLX language model library — primary reference for model architectures, weight loading, generation, LoRA, quantization   |
+| `.reference/mlx-examples`        | Apple's MLX examples — reference for LLaVA, Stable Diffusion, Whisper, and other end-to-end MLX application patterns            |
+| `.reference/mlx-swift`           | Apple's Swift MLX bindings — reference for first-party API shape, compile surfaces, and native runtime ergonomics               |
+| `.reference/mlx-swift-lm`        | Apple's Swift language-model stack — reference for higher-level MLX LM orchestration, chat, cache, and adapter patterns         |
+| `.reference/transformers`        | Hugging Face Transformers — reference for model configs, tokenizer formats, weight naming conventions, and architecture truth    |
+| `.reference/trl`                 | Hugging Face TRL — reference for SFT, DPO, alignment training patterns, and current trainer surfaces                             |
+| `.reference/peft`                | Hugging Face PEFT — primary reference for LoRA, QLoRA, adapter injection, merge semantics, and target-module conventions         |
+| `.reference/datasets`            | Hugging Face Datasets — reference for realistic dataset loading, streaming, caching, formatting, and pinned proof subsets       |
+| `.reference/alignment-handbook`  | Hugging Face Alignment Handbook — recipe reference for realistic SFT/DPO proof paths, evaluation expectations, and data shaping |
+| `.reference/ml-intern`           | Hugging Face ML Intern — reference for agentic ML-engineering workflows and research/implementation loops inside the HF ecosystem |
+| `.reference/safetensors`         | Safetensors format reference — canonical source for shard layout, metadata conventions, and safe tensor I/O semantics           |
+| `.reference/huggingface.js`      | Hugging Face JS packages — reference for Hub, inference, and JavaScript ecosystem patterns relevant to TypeScript surfaces       |
+| `.reference/diffusers`           | Hugging Face Diffusers — reference for diffusion pipeline structure, checkpoint conventions, and future Phase 10 work           |
+| `.reference/text-generation-inference` | Hugging Face TGI — serving/product reference for API shape, SSE behavior, metrics, and deployment ergonomics (maintenance mode) |
+| `.reference/rapid-mlx`           | Rapid-MLX — reference for inference speed (MTP, speculative decode, DeltaNet snapshots, prompt caching, tool parsing, jump-forward decoding) |
+| `.reference/vllm-mlx`            | vLLM-MLX — foundational reference for paged KV cache, continuous batching, and multimodal engine composition on MLX            |
+| `.reference/omlx`                | oMLX — reference for production serving (tiered SSD KV cache, multi-model memory management, oQ mixed-precision quantization)  |
 
 
 **These should be kept up to date.** When investigating a new model family, architecture pattern, or training technique, check `.reference/` first. Pull latest before starting research for a new phase.

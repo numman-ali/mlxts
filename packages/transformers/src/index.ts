@@ -20,6 +20,19 @@ export {
   type PromptCompilation,
 } from "./interaction-profile";
 export { loadCausalLM, loadPretrainedTokenizer, resolvePretrainedSource } from "./load";
+export {
+  type CausalLMAdapterFormat,
+  type LoadCausalLMAdaptersOptions,
+  loadCausalLMAdapters,
+  type SaveCausalLMAdaptersOptions,
+  saveCausalLMAdapters,
+} from "./lora-adapters";
+export {
+  type LoRATargetPreset,
+  type ResolvedLoRATargets,
+  type ResolveLoRATargetsOptions,
+  resolveLoRATargets,
+} from "./lora-targets";
 export type { QuantizedSnapshotResult, QuantizePretrainedSnapshotOptions } from "./quantize";
 export { quantizePretrainedSnapshot } from "./quantize";
 export { FAMILY_REGISTRY, resolveFamily } from "./registry";

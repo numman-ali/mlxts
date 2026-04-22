@@ -31,6 +31,7 @@
     "@huggingface/hub": "^2.11.0",
     "@huggingface/jinja": "^0.5.6",
     "@mlxts/core": "workspace:*",
+    "@mlxts/lora": "workspace:*",
     "@mlxts/nn": "workspace:*",
     "@mlxts/quantize": "workspace:*",
     "@mlxts/tokenizers": "workspace:*"

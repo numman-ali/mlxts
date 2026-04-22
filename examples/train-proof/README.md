@@ -16,6 +16,13 @@ The default dataset path is:
 
 The runner keeps deterministic front-slice subsets, filters out overlong examples against a configurable token cap, and reports held-out evaluation loss plus preference accuracy for DPO.
 
+LoRA target selection is now preset-driven rather than hardcoded. The proof uses:
+
+- `attention` for LoRA and DPO
+- `all-linear` for QLoRA
+
+That keeps the orchestration readable while letting the model-family layer own which exact projection names each family exposes.
+
 ## Run
 
 ```bash
@@ -36,10 +43,25 @@ For a fast local smoke, you can still force the tiny built-in corpus:
 bun run examples/train-proof/index.ts --dataset-source tiny --train-limit 8 --eval-limit 4 --steps 2
 ```
 
+For a broader local family sweep, run the matrix wrapper:
+
+```bash
+bun run proof:training:matrix --dataset-source tiny --train-limit 8 --eval-limit 4 --steps 2
+```
+
+The default matrix covers:
+
+- `meta-llama/Llama-3.2-1B-Instruct`
+- `google/gemma-3-1b-it`
+- `google/gemma-4-E2B-it`
+- `microsoft/Phi-4-mini-instruct`
+- `mistralai/Mistral-7B-Instruct-v0.3`
+
 The proof report records:
 
 - dataset source and filtering notes
 - held-out evaluation loss before and after each stage
+- resolved LoRA preset plus target counts for adapter-backed stages
 - QLoRA merge preservation of the quantized base path
 - DPO held-out preference accuracy before and after
 - a short sample after each stage

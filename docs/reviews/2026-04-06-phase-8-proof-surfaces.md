@@ -84,7 +84,7 @@ Cross-checked through focused unit coverage and live official-model proof runs:
 - `bun test packages/lora/src/apply-module.test.ts`
 - `bun test packages/transformers/scripts/benchmark-common.test.ts`
 - `bun test packages/transformers/scripts/benchmark-long-context.test.ts`
-- `bun test examples/train-proof/proof.test.ts`
+- `bun test examples/train-proof/helpers.test.ts`
 - `bun run proof:training`
 - `MLX_LM_BENCH_PYTHON=... bun run bench:generation:parity --model meta-llama/Llama-3.2-1B-Instruct ...`
 - `bun run bench:generation:context --model meta-llama/Llama-3.2-1B-Instruct --rungs 32768 ...`

@@ -1,7 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
 import {
-  createTrainingProofCorpus,
   DEFAULT_PROOF_BATCH_SIZE,
   DEFAULT_PROOF_DATASET_SOURCE,
   DEFAULT_PROOF_EVAL_LIMIT,
@@ -11,9 +10,12 @@ import {
   defaultQuantizedOutputDir,
   defaultReportPath,
   parseTrainingProofArgs,
+} from "./args";
+import {
+  createTrainingProofCorpus,
   parseUltrachatMessagesRow,
   parseUltrafeedbackPreferenceRow,
-} from "./proof";
+} from "./datasets";
 
 describe("training proof helpers", () => {
   test("derive stable default output paths", () => {

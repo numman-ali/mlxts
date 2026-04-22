@@ -29,8 +29,7 @@
   },
   "dependencies": {
     "@mlxts/core": "workspace:*",
-    "@mlxts/nn": "workspace:*",
-    "@mlxts/transformers": "workspace:*"
+    "@mlxts/nn": "workspace:*"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
