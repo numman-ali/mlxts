@@ -24,10 +24,13 @@ export {
   DEFAULT_MODEL_SERVER_MAX_GENERATED_TOKENS,
   DEFAULT_MODEL_SERVER_MAX_TOTAL_TOKENS,
   DEFAULT_MODEL_SERVER_PORT,
+  type LoadedModelServerEntry,
   type RunningModelServer,
   type ServeLoadedModelOptions,
+  type ServeLoadedModelsOptions,
   type ServeModelOptions,
   serveLoadedModel,
+  serveLoadedModels,
   serveModel,
 } from "./model-server";
 export {

@@ -47,6 +47,27 @@ export type ServeLoadedModelOptions = {
   onEvent?: (event: ServeEvent) => void;
 };
 
+export type LoadedModelServerEntry = {
+  model: CausalLM;
+  tokenizer: Tokenizer;
+  interactionProfile?: InteractionProfile;
+  modelId: string;
+};
+
+export type ServeLoadedModelsOptions = {
+  models: readonly LoadedModelServerEntry[];
+  hostname?: string;
+  port?: number;
+  maxGeneratedTokens?: number;
+  maxTotalTokens?: number;
+  maxBatchSize?: number;
+  batchWindowMs?: number;
+  maxConcurrentRequests?: number;
+  apiKey?: string;
+  disposeModelsOnStop?: boolean;
+  onEvent?: (event: ServeEvent) => void;
+};
+
 export type ServeModelOptions = {
   source: string;
   modelId?: string;
@@ -69,6 +90,7 @@ export type ServeModelOptions = {
 export type RunningModelServer = Disposable & {
   readonly endpoint: string;
   readonly modelId: string;
+  readonly modelIds: readonly string[];
   readonly server: ReturnType<typeof Bun.serve>;
   stop(closeActiveConnections?: boolean): void;
 };
@@ -95,6 +117,27 @@ type ResolvedLoadedModelOptions = {
   maxConcurrentRequests: number;
   apiKey?: string;
   disposeModelOnStop: boolean;
+  onEvent?: (event: ServeEvent) => void;
+};
+
+type ResolvedLoadedModelEntry = {
+  model: CausalLM;
+  tokenizer: Tokenizer;
+  interactionProfile?: InteractionProfile;
+  modelId: string;
+};
+
+type ResolvedLoadedModelsOptions = {
+  models: readonly ResolvedLoadedModelEntry[];
+  hostname: string;
+  port: number;
+  maxGeneratedTokens: number;
+  maxTotalTokens: number;
+  maxBatchSize: number;
+  batchWindowMs: number;
+  maxConcurrentRequests: number;
+  apiKey?: string;
+  disposeModelsOnStop: boolean;
   onEvent?: (event: ServeEvent) => void;
 };
 
@@ -174,6 +217,71 @@ function resolveLoadedOptions(options: ServeLoadedModelOptions): ResolvedLoadedM
   };
 }
 
+function resolveLoadedModelEntry(entry: LoadedModelServerEntry): ResolvedLoadedModelEntry {
+  return {
+    model: entry.model,
+    tokenizer: entry.tokenizer,
+    ...(entry.interactionProfile === undefined
+      ? {}
+      : { interactionProfile: entry.interactionProfile }),
+    modelId: requireNonEmpty("modelId", entry.modelId),
+  };
+}
+
+function requireDistinctModelIds(models: readonly ResolvedLoadedModelEntry[]): void {
+  const seen = new Set<string>();
+  for (const model of models) {
+    if (seen.has(model.modelId)) {
+      throw new Error(`modelId "${model.modelId}" is duplicated.`);
+    }
+    seen.add(model.modelId);
+  }
+}
+
+function requireLoadedModels(
+  models: readonly LoadedModelServerEntry[],
+): readonly ResolvedLoadedModelEntry[] {
+  if (models.length === 0) {
+    throw new Error("models must contain at least one loaded model.");
+  }
+  const resolved = models.map((model) => resolveLoadedModelEntry(model));
+  requireDistinctModelIds(resolved);
+  return resolved;
+}
+
+function resolveLoadedModelsOptions(
+  options: ServeLoadedModelsOptions,
+): ResolvedLoadedModelsOptions {
+  return {
+    models: requireLoadedModels(options.models),
+    hostname: options.hostname ?? DEFAULT_MODEL_SERVER_HOSTNAME,
+    port: requireNonNegativeInteger("port", options.port ?? DEFAULT_MODEL_SERVER_PORT),
+    maxGeneratedTokens: requirePositiveInteger(
+      "maxGeneratedTokens",
+      options.maxGeneratedTokens ?? DEFAULT_MODEL_SERVER_MAX_GENERATED_TOKENS,
+    ),
+    maxTotalTokens: requirePositiveInteger(
+      "maxTotalTokens",
+      options.maxTotalTokens ?? DEFAULT_MODEL_SERVER_MAX_TOTAL_TOKENS,
+    ),
+    maxBatchSize: requirePositiveInteger(
+      "maxBatchSize",
+      options.maxBatchSize ?? DEFAULT_MODEL_SERVER_MAX_BATCH_SIZE,
+    ),
+    batchWindowMs: requireNonNegativeInteger(
+      "batchWindowMs",
+      options.batchWindowMs ?? DEFAULT_MODEL_SERVER_BATCH_WINDOW_MS,
+    ),
+    maxConcurrentRequests: requirePositiveInteger(
+      "maxConcurrentRequests",
+      options.maxConcurrentRequests ?? DEFAULT_MODEL_SERVER_MAX_CONCURRENT_REQUESTS,
+    ),
+    ...(options.apiKey === undefined ? {} : { apiKey: options.apiKey }),
+    disposeModelsOnStop: options.disposeModelsOnStop ?? false,
+    ...(options.onEvent === undefined ? {} : { onEvent: options.onEvent }),
+  };
+}
+
 function resolveServeOptions(options: ServeModelOptions): ResolvedServeModelOptions {
   return {
     source: requireNonEmpty("source", options.source),
@@ -224,43 +332,51 @@ function endpointFor(server: ReturnType<typeof Bun.serve>): string {
   return `http://${server.hostname}:${server.port}`;
 }
 
-/** Serve an already-loaded model and tokenizer through the OpenAI-compatible API. */
-export function serveLoadedModel(options: ServeLoadedModelOptions): RunningModelServer {
-  const resolved = resolveLoadedOptions(options);
+function createLoadedModelEngine(
+  model: ResolvedLoadedModelEntry,
+  options: ResolvedLoadedModelsOptions,
+) {
   const modelEngine = createMicroBatchingGenerationEngine({
     engine: createConcurrencyLimitGenerationEngine({
       engine: createTransformersGenerationEngine({
-        model: resolved.model,
-        tokenizer: resolved.tokenizer,
-        maxTotalTokens: resolved.maxTotalTokens,
-        ...(resolved.interactionProfile === undefined
+        model: model.model,
+        tokenizer: model.tokenizer,
+        maxTotalTokens: options.maxTotalTokens,
+        ...(model.interactionProfile === undefined
           ? {}
-          : { interactionProfile: resolved.interactionProfile }),
-        ...(resolved.onEvent === undefined ? {} : { onEvent: resolved.onEvent }),
+          : { interactionProfile: model.interactionProfile }),
+        ...(options.onEvent === undefined ? {} : { onEvent: options.onEvent }),
       }),
-      maxConcurrentRequests: resolved.maxConcurrentRequests,
+      maxConcurrentRequests: options.maxConcurrentRequests,
     }),
-    maxBatchSize: resolved.maxBatchSize,
-    batchWindowMs: resolved.batchWindowMs,
+    maxBatchSize: options.maxBatchSize,
+    batchWindowMs: options.batchWindowMs,
   });
-  const limitedModelEngine = createRequestLimitGenerationEngine({
+  return createRequestLimitGenerationEngine({
     engine: modelEngine,
-    maxGeneratedTokens: resolved.maxGeneratedTokens,
+    maxGeneratedTokens: options.maxGeneratedTokens,
   });
-  const engine = createModelRouterGenerationEngine({
-    engines: {
-      [resolved.modelId]: limitedModelEngine,
-    },
-  });
-  const serverOptions = {
-    hostname: resolved.hostname,
-    port: resolved.port,
-    engine,
-    models: [{ id: resolved.modelId }],
-    ...(resolved.apiKey === undefined ? {} : { apiKey: resolved.apiKey }),
-    ...(resolved.onEvent === undefined ? {} : { onEvent: resolved.onEvent }),
-  };
-  const server = startServeServer(serverOptions);
+}
+
+function createLoadedModelEngines(
+  options: ResolvedLoadedModelsOptions,
+): Record<string, ReturnType<typeof createLoadedModelEngine>> {
+  const engines: Record<string, ReturnType<typeof createLoadedModelEngine>> = {};
+  for (const model of options.models) {
+    engines[model.modelId] = createLoadedModelEngine(model, options);
+  }
+  return engines;
+}
+
+function runningModelServer(
+  server: ReturnType<typeof Bun.serve>,
+  resolved: ResolvedLoadedModelsOptions,
+): RunningModelServer {
+  const modelIds = resolved.models.map((model) => model.modelId);
+  const primaryModelId = modelIds[0];
+  if (primaryModelId === undefined) {
+    throw new Error("models must contain at least one loaded model.");
+  }
 
   let stopped = false;
   function stop(closeActiveConnections = true): void {
@@ -269,20 +385,69 @@ export function serveLoadedModel(options: ServeLoadedModelOptions): RunningModel
     }
     stopped = true;
     server.stop(closeActiveConnections);
-    if (resolved.disposeModelOnStop) {
-      resolved.model[Symbol.dispose]();
+    if (resolved.disposeModelsOnStop) {
+      for (const model of resolved.models) {
+        model.model[Symbol.dispose]();
+      }
     }
   }
 
   return {
     endpoint: endpointFor(server),
-    modelId: resolved.modelId,
+    modelId: primaryModelId,
+    modelIds,
     server,
     stop,
     [Symbol.dispose]() {
       stop(true);
     },
   };
+}
+
+/** Serve multiple already-loaded models and tokenizers through one OpenAI-compatible API. */
+export function serveLoadedModels(options: ServeLoadedModelsOptions): RunningModelServer {
+  const resolved = resolveLoadedModelsOptions(options);
+  const engine = createModelRouterGenerationEngine({
+    engines: createLoadedModelEngines(resolved),
+  });
+  const serverOptions = {
+    hostname: resolved.hostname,
+    port: resolved.port,
+    engine,
+    models: resolved.models.map((model) => ({ id: model.modelId })),
+    ...(resolved.apiKey === undefined ? {} : { apiKey: resolved.apiKey }),
+    ...(resolved.onEvent === undefined ? {} : { onEvent: resolved.onEvent }),
+  };
+  const server = startServeServer(serverOptions);
+
+  return runningModelServer(server, resolved);
+}
+
+/** Serve an already-loaded model and tokenizer through the OpenAI-compatible API. */
+export function serveLoadedModel(options: ServeLoadedModelOptions): RunningModelServer {
+  const resolved = resolveLoadedOptions(options);
+  return serveLoadedModels({
+    models: [
+      {
+        model: resolved.model,
+        tokenizer: resolved.tokenizer,
+        ...(resolved.interactionProfile === undefined
+          ? {}
+          : { interactionProfile: resolved.interactionProfile }),
+        modelId: resolved.modelId,
+      },
+    ],
+    hostname: resolved.hostname,
+    port: resolved.port,
+    maxGeneratedTokens: resolved.maxGeneratedTokens,
+    maxTotalTokens: resolved.maxTotalTokens,
+    maxBatchSize: resolved.maxBatchSize,
+    batchWindowMs: resolved.batchWindowMs,
+    maxConcurrentRequests: resolved.maxConcurrentRequests,
+    ...(resolved.apiKey === undefined ? {} : { apiKey: resolved.apiKey }),
+    disposeModelsOnStop: resolved.disposeModelOnStop,
+    ...(resolved.onEvent === undefined ? {} : { onEvent: resolved.onEvent }),
+  });
 }
 
 /** Load and serve one local directory or Hugging Face model repository. */

@@ -381,6 +381,7 @@ function fakeRunningServer(): RunningModelServer & { stopped: boolean } {
   return {
     endpoint: "http://127.0.0.1:8000",
     modelId: "qwen-local",
+    modelIds: ["qwen-local"],
     server,
     stopped: false,
     stop() {

@@ -13,6 +13,7 @@ import { KVCache } from "@mlxts/transformers";
 import {
   type ServeModelRuntime,
   serveLoadedModel,
+  serveLoadedModels,
   serveModel,
   serveModelWithRuntime,
 } from "./model-server";
@@ -105,6 +106,7 @@ class FakeTokenizer implements Tokenizer {
 }
 
 class GeneratingModel extends FakeModel {
+  readonly #tokenId: number;
   override readonly config: BaseModelConfig = {
     family: "llama",
     modelType: "llama",
@@ -115,6 +117,11 @@ class GeneratingModel extends FakeModel {
   };
   override readonly layerCount: number = 1;
   readonly forwardBatchSizes: number[] = [];
+
+  constructor(tokenId = 2) {
+    super();
+    this.#tokenId = tokenId;
+  }
 
   get batchForwardCount(): number {
     return this.forwardBatchSizes.filter((batchSize) => batchSize > 1).length;
@@ -129,7 +136,11 @@ class GeneratingModel extends FakeModel {
     options?.cache?.advance(sequenceLength);
     return array(
       Array.from({ length: batchSize }, () =>
-        Array.from({ length: sequenceLength }, () => [0.1, 0.2, 0.9, 0.0]),
+        Array.from({ length: sequenceLength }, () =>
+          Array.from({ length: this.config.vocabSize }, (_, tokenId) =>
+            tokenId === this.#tokenId ? 1.0 : 0.0,
+          ),
+        ),
       ),
       "float32",
     );
@@ -166,6 +177,7 @@ describe("serveLoadedModel", () => {
         object: "list",
         data: [{ id: "tiny", object: "model" }],
       });
+      expect(running.modelIds).toEqual(["tiny"]);
     } finally {
       running.stop();
     }
@@ -243,10 +255,92 @@ describe("serveLoadedModel", () => {
     }
   });
 
+  test("serves multiple loaded models behind one endpoint", async () => {
+    const gemma = new GeneratingModel(1);
+    const qwen = new GeneratingModel(2);
+    const running = serveLoadedModels({
+      models: [
+        { model: gemma, tokenizer: new GeneratingTokenizer(), modelId: "gemma-local" },
+        { model: qwen, tokenizer: new GeneratingTokenizer(), modelId: "qwen-local" },
+      ],
+      port: 0,
+      disposeModelsOnStop: true,
+    });
+
+    try {
+      const modelsResponse = await fetch(`${running.endpoint}/v1/models`);
+      expect(modelsResponse.status).toBe(200);
+      expect(await modelsResponse.json()).toMatchObject({
+        object: "list",
+        data: [
+          { id: "gemma-local", object: "model" },
+          { id: "qwen-local", object: "model" },
+        ],
+      });
+      expect(running.modelId).toBe("gemma-local");
+      expect(running.modelIds).toEqual(["gemma-local", "qwen-local"]);
+
+      const gemmaResponse = await fetch(`${running.endpoint}/v1/completions`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          model: "gemma-local",
+          prompt: "hi",
+          max_tokens: 2,
+          temperature: 0,
+        }),
+      });
+      const qwenResponse = await fetch(`${running.endpoint}/v1/completions`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          model: "qwen-local",
+          prompt: "hi",
+          max_tokens: 2,
+          temperature: 0,
+        }),
+      });
+      const missingResponse = await fetch(`${running.endpoint}/v1/completions`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          model: "missing-local",
+          prompt: "hi",
+          max_tokens: 1,
+          temperature: 0,
+        }),
+      });
+
+      expect(gemmaResponse.status).toBe(200);
+      expect(qwenResponse.status).toBe(200);
+      expect(missingResponse.status).toBe(404);
+      expect(await gemmaResponse.json()).toMatchObject({ choices: [{ text: "bb" }] });
+      expect(await qwenResponse.json()).toMatchObject({ choices: [{ text: "cc" }] });
+    } finally {
+      running.stop();
+    }
+
+    expect(gemma.disposeCount).toBe(1);
+    expect(qwen.disposeCount).toBe(1);
+  });
+
   test("validates operator-facing server options before binding", () => {
     const model = new FakeModel();
     const tokenizer = new FakeTokenizer();
 
+    expect(() =>
+      serveLoadedModels({
+        models: [],
+      }),
+    ).toThrow("models must contain at least one loaded model.");
+    expect(() =>
+      serveLoadedModels({
+        models: [
+          { model, tokenizer, modelId: "duplicate" },
+          { model, tokenizer, modelId: "duplicate" },
+        ],
+      }),
+    ).toThrow('modelId "duplicate" is duplicated.');
     expect(() =>
       serveLoadedModel({
         model,
@@ -410,6 +504,7 @@ function fakeRunningServer(modelId: string) {
   return {
     endpoint: "http://127.0.0.1:8000",
     modelId,
+    modelIds: [modelId],
     server,
     stop() {
       server.stop(true);

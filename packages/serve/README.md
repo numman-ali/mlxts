@@ -95,6 +95,26 @@ const server = serveLoadedModel({
 });
 ```
 
+Use `serveLoadedModels()` when one local process should expose multiple already
+loaded models behind the same endpoint. Each model id gets its own
+transformer engine, request limits, concurrency gate, and micro-batch queue
+before the shared router dispatches by the OpenAI `model` field:
+
+```ts
+import { serveLoadedModels } from "@mlxts/serve";
+
+const server = serveLoadedModels({
+  models: [
+    { model: gemma, tokenizer: gemmaTokenizer, modelId: "gemma-local" },
+    { model: qwen, tokenizer: qwenTokenizer, modelId: "qwen-local" },
+  ],
+  port: 8000,
+  maxConcurrentRequests: 1,
+});
+
+console.log(server.modelIds);
+```
+
 Call `server.stop()` or dispose the returned server when the process should
 release the endpoint and model resources.
 
