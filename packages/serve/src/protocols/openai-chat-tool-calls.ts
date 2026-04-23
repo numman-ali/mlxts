@@ -117,6 +117,11 @@ function parseToolCallPayload(payload: string, index: number): ChatToolCall {
   return nativeCall ?? parseJsonToolCall(payload, index);
 }
 
+/** Parse one generated tool-call payload into the OpenAI-compatible message shape. */
+export function parseOpenAIChatToolCallPayload(payload: string, index: number): ChatToolCall {
+  return parseToolCallPayload(payload, index);
+}
+
 /** Extract conservative generated tool-call envelopes from assistant text. */
 export function extractOpenAIChatToolCalls(text: string): ExtractedOpenAIChatToolCalls | null {
   const calls: ChatToolCall[] = [];

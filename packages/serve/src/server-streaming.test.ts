@@ -142,4 +142,151 @@ describe("server streaming helpers", () => {
     expect(text).toContain("data: [DONE]");
     expect(text).not.toContain("done extra");
   });
+
+  test("chat SSE emits structured Qwen tool-call deltas without XML leakage", async () => {
+    const chat = normalizeOpenAIChatCompletionRequest(
+      {
+        model: "tiny",
+        messages: [{ role: "user", content: "List files" }],
+        tools: [{ type: "function", function: { name: "list_files" } }],
+        stream: true,
+      },
+      { id: "chat-tools" },
+    );
+
+    const { text } = await collectSse((controller) =>
+      writeChatStreamEvents(
+        controller,
+        streamEvents(
+          { type: "text", text: "<tool" },
+          {
+            type: "text",
+            text: "_call><function=list_files><parameter=path>.</parameter></function></tool_call>",
+          },
+          { type: "done", finishReason: "stop" },
+        ),
+        chat,
+        { id: "chat-tools", created: 123 },
+      ),
+    );
+    const payloads = parseSsePayloads(text) as Array<{
+      choices: Array<{
+        delta?: {
+          role?: string;
+          content?: string;
+          tool_calls?: Array<{
+            index: number;
+            id?: string;
+            type?: string;
+            function?: { name?: string; arguments?: string };
+          }>;
+        };
+        finish_reason?: string | null;
+      }>;
+    }>;
+    const deltas = payloads.flatMap((payload) => payload.choices).map((choice) => choice.delta);
+    const toolCalls = deltas.flatMap((delta) => delta?.tool_calls ?? []);
+
+    expect(deltas[0]?.role).toBe("assistant");
+    expect(toolCalls).toEqual([
+      {
+        index: 0,
+        id: "call_1",
+        type: "function",
+        function: { name: "list_files", arguments: '{"path":"."}' },
+      },
+    ]);
+    expect(payloads.at(-1)?.choices[0]?.finish_reason).toBe("tool_calls");
+    expect(text).not.toContain("<tool_call>");
+    expect(text).toContain("data: [DONE]");
+  });
+
+  test("chat SSE keeps malformed tool-call envelopes visible", async () => {
+    const chat = normalizeOpenAIChatCompletionRequest(
+      {
+        model: "tiny",
+        messages: [{ role: "user", content: "Read file" }],
+        tools: [{ type: "function", function: { name: "read_file" } }],
+        stream: true,
+      },
+      { id: "chat-bad-tool" },
+    );
+
+    const { text } = await collectSse((controller) =>
+      writeChatStreamEvents(
+        controller,
+        streamEvents(
+          { type: "text", text: "<tool_call>{bad" },
+          { type: "done", finishReason: "stop" },
+        ),
+        chat,
+        { id: "chat-bad-tool", created: 123 },
+      ),
+    );
+
+    expect(text).toContain("<tool_call>{bad");
+    expect(text).not.toContain("tool_calls");
+    expect(text).toContain('"finish_reason":"stop"');
+  });
+
+  test("chat SSE separates reasoning and multiple generated tool calls", async () => {
+    const chat = normalizeOpenAIChatCompletionRequest(
+      {
+        model: "tiny",
+        messages: [{ role: "user", content: "Read and list" }],
+        tools: [
+          { type: "function", function: { name: "read_file" } },
+          { type: "function", function: { name: "list_files" } },
+        ],
+        stream: true,
+      },
+      { id: "chat-many-tools" },
+    );
+
+    const { text } = await collectSse((controller) =>
+      writeChatStreamEvents(
+        controller,
+        streamEvents(
+          { type: "text", text: "<think>Need tools.</think>\n" },
+          {
+            type: "text",
+            text: '<tool_call>{"id":"call-read","name":"read_file","arguments":{"path":"README.md"}}</tool_call>',
+          },
+          {
+            type: "text",
+            text: '<tool_call>{"name":"list_files","arguments":{"path":"."}}</tool_call>',
+          },
+          { type: "done", finishReason: "eos" },
+        ),
+        chat,
+        { id: "chat-many-tools", created: 123 },
+      ),
+    );
+    const payloads = parseSsePayloads(text) as Array<{
+      choices: Array<{
+        delta?: {
+          reasoning_content?: string;
+          content?: string;
+          tool_calls?: Array<{ index: number; id?: string; function?: { name?: string } }>;
+        };
+        finish_reason?: string | null;
+      }>;
+    }>;
+    const reasoning = payloads
+      .flatMap((payload) => payload.choices)
+      .map((choice) => choice.delta?.reasoning_content)
+      .filter((value): value is string => value !== undefined)
+      .join("");
+    const toolCalls = payloads.flatMap((payload) =>
+      payload.choices.flatMap((choice) => choice.delta?.tool_calls ?? []),
+    );
+
+    expect(reasoning).toBe("Need tools.");
+    expect(toolCalls.map((call) => [call.index, call.id, call.function?.name])).toEqual([
+      [0, "call-read", "read_file"],
+      [1, "call_2", "list_files"],
+    ]);
+    expect(payloads.at(-1)?.choices[0]?.finish_reason).toBe("tool_calls");
+    expect(text).not.toContain("<tool_call>");
+  });
 });

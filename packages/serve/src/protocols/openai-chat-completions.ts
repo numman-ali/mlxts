@@ -22,6 +22,7 @@ export type {
   OpenAIChatCompletionChunk,
   OpenAIChatCompletionChunkChoice,
   OpenAIChatCompletionStreamDelta,
+  OpenAIChatCompletionStreamToolCall,
   OpenAIChatCompletionUsage,
 } from "./openai-chat-completion-streaming";
 export {
@@ -29,6 +30,7 @@ export {
   formatOpenAIChatCompletionStreamChunk,
   formatOpenAIChatCompletionUsageStreamChunk,
 } from "./openai-chat-completion-streaming";
+export { createOpenAIChatCompletionToolCallStream } from "./openai-chat-tool-call-stream";
 
 export type OpenAIChatCompletionMessage = {
   role: "assistant";

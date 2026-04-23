@@ -76,8 +76,9 @@ Qwen-style thinking templates can be controlled per request with
 `"chat_template_kwargs": { "enable_thinking": false }`; generated `<think>`
 content is returned as `message.reasoning_content`, not mixed into
 `message.content`. When tools are enabled, non-streaming chat completions format
-valid generated `<tool_call>` blocks as OpenAI `message.tool_calls`; streaming
-tool-call deltas are intentionally left for a buffered SSE follow-up.
+valid generated `<tool_call>` blocks as OpenAI `message.tool_calls`, while
+streaming chat completions buffer complete tool-call envelopes and emit
+OpenAI-compatible `delta.tool_calls` chunks with `finish_reason: "tool_calls"`.
 `/v1/completions` and `/v1/chat/completions` both support SSE streaming when the
 served engine supports it, and chat streaming keeps reasoning in
 `reasoning_content` deltas instead of leaking raw `<think>` tags.

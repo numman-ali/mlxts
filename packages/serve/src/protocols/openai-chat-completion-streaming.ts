@@ -6,6 +6,16 @@
 import { isRecord, ServeError } from "../errors";
 import type { GenerationUsage, NormalizedFinishReason } from "../types";
 
+export type OpenAIChatCompletionStreamToolCall = {
+  index: number;
+  id?: string;
+  type?: "function";
+  function?: {
+    name?: string;
+    arguments?: string;
+  };
+};
+
 export type OpenAIChatCompletionUsage = {
   prompt_tokens?: number;
   completion_tokens?: number;
@@ -18,6 +28,7 @@ export type OpenAIChatCompletionChunkChoice = {
     role?: "assistant";
     content?: string;
     reasoning_content?: string;
+    tool_calls?: OpenAIChatCompletionStreamToolCall[];
   };
   finish_reason: "stop" | "length" | "tool_calls" | "content_filter" | null;
 };
@@ -34,6 +45,7 @@ export type OpenAIChatCompletionChunk = {
 export type OpenAIChatCompletionStreamDelta = {
   content?: string;
   reasoningContent?: string;
+  toolCalls?: OpenAIChatCompletionStreamToolCall[];
 };
 
 const THINK_OPEN = "<think>";
@@ -151,8 +163,11 @@ function flushReasoningStream(state: ReasoningStreamState): OpenAIChatCompletion
 }
 
 function finishReason(
-  reason: NormalizedFinishReason,
+  reason: NormalizedFinishReason | "tool_calls",
 ): OpenAIChatCompletionChunkChoice["finish_reason"] {
+  if (reason === "tool_calls") {
+    return "tool_calls";
+  }
   if (reason === "length") {
     return "length";
   }
@@ -225,9 +240,10 @@ export function formatOpenAIChatCompletionStreamChunk(
     id: string;
     created: number;
     includeRole?: boolean;
-    finishReason?: NormalizedFinishReason | null;
+    finishReason?: NormalizedFinishReason | "tool_calls" | null;
   },
 ): OpenAIChatCompletionChunk {
+  const reason = options.finishReason;
   return {
     id: options.id,
     object: "chat.completion.chunk",
@@ -242,11 +258,9 @@ export function formatOpenAIChatCompletionStreamChunk(
           ...(delta.reasoningContent === undefined
             ? {}
             : { reasoning_content: delta.reasoningContent }),
+          ...(delta.toolCalls === undefined ? {} : { tool_calls: [...delta.toolCalls] }),
         },
-        finish_reason:
-          options.finishReason === undefined || options.finishReason === null
-            ? null
-            : finishReason(options.finishReason),
+        finish_reason: reason === undefined || reason === null ? null : finishReason(reason),
       },
     ],
   };

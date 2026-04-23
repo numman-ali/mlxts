@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 
 import {
   createOpenAIChatCompletionReasoningStream,
+  createOpenAIChatCompletionToolCallStream,
   formatOpenAIChatCompletionResponse,
   formatOpenAIChatCompletionStreamChunk,
   formatOpenAIChatCompletionUsageStreamChunk,
@@ -544,6 +545,44 @@ describe("OpenAI chat completions adapter", () => {
     expect(
       formatOpenAIChatCompletionStreamChunk(
         chat,
+        {
+          toolCalls: [
+            {
+              index: 0,
+              id: "call_1",
+              type: "function",
+              function: { name: "read_file", arguments: '{"path":"README.md"}' },
+            },
+          ],
+        },
+        { id: "chat-test", created: 123, finishReason: "tool_calls" },
+      ),
+    ).toEqual({
+      id: "chat-test",
+      object: "chat.completion.chunk",
+      created: 123,
+      model: "tiny",
+      choices: [
+        {
+          index: 0,
+          delta: {
+            tool_calls: [
+              {
+                index: 0,
+                id: "call_1",
+                type: "function",
+                function: { name: "read_file", arguments: '{"path":"README.md"}' },
+              },
+            ],
+          },
+          finish_reason: "tool_calls",
+        },
+      ],
+    });
+
+    expect(
+      formatOpenAIChatCompletionStreamChunk(
+        chat,
         {},
         { id: "chat-test", created: 123, finishReason: "error" },
       ).choices[0]?.finish_reason,
@@ -585,5 +624,27 @@ describe("OpenAI chat completions adapter", () => {
     expect(stream.push("greet.</think>\n\nHel")).toEqual([{ reasoningContent: "should greet." }]);
     expect(stream.push("lo")).toEqual([]);
     expect(stream.finish()).toEqual([{ content: "\n\nHello" }]);
+  });
+
+  test("buffers generated streaming tool-call envelopes", () => {
+    const stream = createOpenAIChatCompletionToolCallStream(true);
+
+    expect(stream.push("Before ")).toEqual([]);
+    expect(
+      stream.push('<tool_call>{"name":"read_file","arguments":{"path":"README.md"}}</tool_call>'),
+    ).toEqual([
+      { content: "Before " },
+      {
+        toolCalls: [
+          {
+            index: 0,
+            id: "call_1",
+            type: "function",
+            function: { name: "read_file", arguments: '{"path":"README.md"}' },
+          },
+        ],
+      },
+    ]);
+    expect(stream.finish()).toEqual([]);
   });
 });

@@ -5,6 +5,7 @@
 
 import {
   createOpenAIChatCompletionReasoningStream,
+  createOpenAIChatCompletionToolCallStream,
   formatOpenAIChatCompletionStreamChunk,
   formatOpenAIChatCompletionUsageStreamChunk,
   type normalizeOpenAIChatCompletionRequest,
@@ -14,6 +15,7 @@ import {
   formatOpenAICompletionUsageStreamChunk,
   type normalizeOpenAICompletionRequest,
 } from "./protocols/openai-completions";
+import { createStopSequenceFilter } from "./server-stop-filter";
 import type { GenerationStreamEvent, GenerationUsage, NormalizedFinishReason } from "./types";
 
 type StreamControlOptions = {
@@ -31,55 +33,6 @@ export function sseHeaders(): HeadersInit {
     "content-type": "text/event-stream; charset=utf-8",
     "cache-control": "no-cache",
     connection: "keep-alive",
-  };
-}
-
-function createStopSequenceFilter(stop: readonly string[] | undefined): {
-  push(text: string): { text: string; stopped: boolean };
-  finish(): string;
-} {
-  const sequences = (stop ?? []).filter((sequence) => sequence !== "");
-  if (sequences.length === 0) {
-    return {
-      push(text) {
-        return { text, stopped: false };
-      },
-      finish() {
-        return "";
-      },
-    };
-  }
-
-  const maxSequenceLength = Math.max(...sequences.map((sequence) => sequence.length));
-  let buffer = "";
-
-  return {
-    push(text) {
-      buffer += text;
-      const matchIndexes = sequences
-        .map((sequence) => buffer.indexOf(sequence))
-        .filter((index) => index >= 0)
-        .sort((left, right) => left - right);
-      const firstMatch = matchIndexes[0];
-      if (firstMatch !== undefined) {
-        const emitted = buffer.slice(0, firstMatch);
-        buffer = "";
-        return { text: emitted, stopped: true };
-      }
-
-      const safeLength = Math.max(0, buffer.length - (maxSequenceLength - 1));
-      if (safeLength === 0) {
-        return { text: "", stopped: false };
-      }
-      const emitted = buffer.slice(0, safeLength);
-      buffer = buffer.slice(safeLength);
-      return { text: emitted, stopped: false };
-    },
-    finish() {
-      const emitted = buffer;
-      buffer = "";
-      return emitted;
-    },
   };
 }
 
@@ -185,11 +138,13 @@ function emitCompletionTerminalChunk(
 
 type ChatStreamState = {
   reasoning: ReturnType<typeof createOpenAIChatCompletionReasoningStream>;
+  toolCalls: ReturnType<typeof createOpenAIChatCompletionToolCallStream>;
   stopFilter: ReturnType<typeof createStopSequenceFilter>;
   finalUsage: GenerationUsage | undefined;
   finalFinishReason: NormalizedFinishReason;
   sentTerminalChunk: boolean;
   stoppedByStopSequence: boolean;
+  emittedToolCall: boolean;
 };
 
 function emitChatStreamChunk(
@@ -209,6 +164,29 @@ function processChatDelta(
   delta: { content?: string; reasoningContent?: string },
 ): void {
   if (delta.reasoningContent !== undefined) {
+    emitChatStreamChunk(controller, chat, delta, options);
+    return;
+  }
+
+  for (const parsed of state.toolCalls.push(delta.content ?? "")) {
+    processParsedChatDelta(controller, state, chat, options, parsed);
+    if (state.stoppedByStopSequence) {
+      return;
+    }
+  }
+}
+
+function processParsedChatDelta(
+  controller: ReadableStreamDefaultController<Uint8Array>,
+  state: ChatStreamState,
+  chat: ReturnType<typeof normalizeOpenAIChatCompletionRequest>,
+  options: { id: string; created: number },
+  delta: Parameters<typeof formatOpenAIChatCompletionStreamChunk>[1],
+): void {
+  if (delta.reasoningContent !== undefined || delta.toolCalls !== undefined) {
+    if (delta.toolCalls !== undefined) {
+      state.emittedToolCall = true;
+    }
     emitChatStreamChunk(controller, chat, delta, options);
     return;
   }
@@ -249,7 +227,7 @@ function handleChatDoneStreamEvent(
   flushChatTail(controller, state, chat, options);
   state.finalUsage = event.usage;
   state.finalFinishReason = event.finishReason;
-  emitChatStreamChunk(controller, chat, {}, { ...options, finishReason: event.finishReason });
+  emitChatTerminalChunk(controller, state, chat, options);
   state.sentTerminalChunk = true;
 }
 
@@ -261,6 +239,13 @@ function flushChatTail(
 ): void {
   for (const delta of state.reasoning.finish()) {
     processChatDelta(controller, state, chat, options, delta);
+    if (state.stoppedByStopSequence) {
+      return;
+    }
+  }
+
+  for (const delta of state.toolCalls.finish()) {
+    processParsedChatDelta(controller, state, chat, options, delta);
     if (state.stoppedByStopSequence) {
       return;
     }
@@ -281,7 +266,23 @@ function emitChatTerminalChunk(
   if (state.sentTerminalChunk) {
     return;
   }
-  emitChatStreamChunk(controller, chat, {}, { ...options, finishReason: state.finalFinishReason });
+  emitChatStreamChunk(
+    controller,
+    chat,
+    {},
+    {
+      ...options,
+      finishReason: state.emittedToolCall ? "tool_calls" : state.finalFinishReason,
+    },
+  );
+}
+
+function hasStreamingToolOutput(chat: ReturnType<typeof normalizeOpenAIChatCompletionRequest>) {
+  return (
+    chat.request.input.kind === "messages" &&
+    chat.request.input.tools !== undefined &&
+    chat.request.input.tools.length > 0
+  );
 }
 
 function toAsyncIterator(
@@ -458,11 +459,13 @@ export async function writeChatStreamEvents(
 ): Promise<{ finishReason: NormalizedFinishReason; usage?: GenerationUsage }> {
   const state: ChatStreamState = {
     reasoning: createOpenAIChatCompletionReasoningStream(),
+    toolCalls: createOpenAIChatCompletionToolCallStream(hasStreamingToolOutput(chat)),
     stopFilter: createStopSequenceFilter(chat.request.sampling.stop),
     finalUsage: undefined,
     finalFinishReason: "stop",
     sentTerminalChunk: false,
     stoppedByStopSequence: false,
+    emittedToolCall: false,
   };
   emitChatStreamChunk(controller, chat, {}, { ...options, includeRole: true });
 
