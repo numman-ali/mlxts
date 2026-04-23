@@ -13,6 +13,7 @@ import {
   asType,
   broadcastTo,
   concatenate,
+  contiguous,
   conv1d,
   cos,
   cumsum,
@@ -572,6 +573,25 @@ describe("Shape ops", () => {
       [3, 4, 5],
     ]);
     a.free();
+    b.free();
+  });
+
+  test("contiguous preserves a sliced view's values and metadata", () => {
+    const a = array([
+      [1, 2, 3, 4],
+      [5, 6, 7, 8],
+    ]);
+    const view = slice(a, [0, 1], [2, 4]);
+    const b = contiguous(view);
+    expect(b.shape).toEqual([2, 3]);
+    expect(b.dtype).toBe(a.dtype);
+    b.eval();
+    expect(b.toList()).toEqual([
+      [2, 3, 4],
+      [6, 7, 8],
+    ]);
+    a.free();
+    view.free();
     b.free();
   });
 

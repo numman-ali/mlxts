@@ -57,6 +57,7 @@ export {
   asType,
   broadcastTo,
   concatenate,
+  contiguous,
   expandDims,
   flatten,
   maskedScatter,

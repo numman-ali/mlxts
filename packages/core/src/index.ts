@@ -93,6 +93,7 @@ export {
   asType,
   broadcastTo,
   concatenate,
+  contiguous,
   conv1d,
   cos,
   cumsum,

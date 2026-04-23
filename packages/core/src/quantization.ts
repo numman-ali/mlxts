@@ -54,8 +54,15 @@ export type QuantizeResult = {
 
 const textEncoder = new TextEncoder();
 
-function encodeMode(mode: QuantizationMode): Uint8Array {
-  return textEncoder.encode(`${mode}\0`);
+const ENCODED_MODES: Record<QuantizationMode, Uint8Array> = {
+  affine: textEncoder.encode("affine\0"),
+  mxfp4: textEncoder.encode("mxfp4\0"),
+  mxfp8: textEncoder.encode("mxfp8\0"),
+  nvfp4: textEncoder.encode("nvfp4\0"),
+};
+
+function encodedMode(mode: QuantizationMode): Uint8Array {
+  return ENCODED_MODES[mode];
 }
 
 function readQuantizeOutputs(vector: Pointer): QuantizeResult {
@@ -92,7 +99,7 @@ function readQuantizeOutputs(vector: Pointer): QuantizeResult {
 /** Quantize a weight tensor using MLX's native quantization kernels. */
 export function quantize(weight: MxArray, options: QuantizeOptions = {}): QuantizeResult {
   const mode = options.mode ?? "affine";
-  const encodedMode = encodeMode(mode);
+  const modeBytes = encodedMode(mode);
   const outputs = readResultPointer("quantize outputs", (out) => {
     checkStatus(
       ffi.mlx_quantize(
@@ -100,7 +107,7 @@ export function quantize(weight: MxArray, options: QuantizeOptions = {}): Quanti
         weight._ctx,
         optionalInt(options.groupSize),
         optionalInt(options.bits),
-        ptr(encodedMode),
+        ptr(modeBytes),
         options.globalScale?._ctx ?? null,
         s(options.stream),
       ),
@@ -118,7 +125,7 @@ export function dequantize(
   options: DequantizeOptions = {},
 ): MxArray {
   const mode = options.mode ?? "affine";
-  const encodedMode = encodeMode(mode);
+  const modeBytes = encodedMode(mode);
   return readResultArray("dequantize", (out) => {
     checkStatus(
       ffi.mlx_dequantize(
@@ -128,7 +135,7 @@ export function dequantize(
         options.biases?._ctx ?? null,
         optionalInt(options.groupSize),
         optionalInt(options.bits),
-        ptr(encodedMode),
+        ptr(modeBytes),
         options.globalScale?._ctx ?? null,
         optionalDType(options.dtype),
         s(options.stream),
@@ -146,7 +153,7 @@ export function quantizedMatmul(
   options: QuantizedMatmulOptions = {},
 ): MxArray {
   const mode = options.mode ?? "affine";
-  const encodedMode = encodeMode(mode);
+  const modeBytes = encodedMode(mode);
   return readResultArray("quantizedMatmul", (out) => {
     checkStatus(
       ffi.mlx_quantized_matmul(
@@ -158,7 +165,7 @@ export function quantizedMatmul(
         options.transpose ?? false,
         optionalInt(options.groupSize),
         optionalInt(options.bits),
-        ptr(encodedMode),
+        ptr(modeBytes),
         s(options.stream),
       ),
       "quantizedMatmul",

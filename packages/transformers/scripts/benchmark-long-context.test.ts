@@ -5,6 +5,7 @@ import {
   buildNeedlePromptTokenIds,
   defaultContextTargets,
   inferMaxContextTokens,
+  normalizeExactResponse,
 } from "./benchmark-long-context";
 
 function mockTokenizer(): Tokenizer {
@@ -46,6 +47,12 @@ describe("benchmark-long-context", () => {
   test("inferMaxContextTokens reads the common transformer config fields", () => {
     expect(inferMaxContextTokens({ max_position_embeddings: 131_072 })).toBe(131_072);
     expect(inferMaxContextTokens({ max_sequence_length: 65_536 })).toBe(65_536);
+    expect(
+      inferMaxContextTokens({
+        model_type: "qwen3_5",
+        text_config: { max_position_embeddings: 262_144 },
+      }),
+    ).toBe(262_144);
     expect(() => inferMaxContextTokens({})).toThrow("max context field");
   });
 
@@ -55,5 +62,9 @@ describe("benchmark-long-context", () => {
 
     expect(promptTokenIds).toHaveLength(256);
     expect(tokenizer.decode(promptTokenIds.slice(-80))).toContain("ALBATROSS");
+  });
+
+  test("normalizeExactResponse grades the first non-empty generated answer line", () => {
+    expect(normalizeExactResponse("\n`MKR-123`,\nassistant\nextra")).toBe("MKR-123");
   });
 });

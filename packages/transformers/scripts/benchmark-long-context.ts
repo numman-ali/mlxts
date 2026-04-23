@@ -107,6 +107,10 @@ export function inferMaxContextTokens(config: Record<string, unknown>): number {
       return value;
     }
   }
+  const textConfig = config.text_config;
+  if (typeof textConfig === "object" && textConfig !== null && !Array.isArray(textConfig)) {
+    return inferMaxContextTokens(textConfig as Record<string, unknown>);
+  }
   throw new Error(
     "benchmark-long-context: checkpoint config did not expose a known max context field.",
   );
@@ -228,6 +232,7 @@ function compilePrompt(
       ],
       {
         addGenerationPrompt: true,
+        enableThinking: false,
       },
     );
     return {
@@ -290,8 +295,12 @@ function decodeOutput(tokenizer: Tokenizer, generated: readonly number[]): strin
   return tokenizer.decode(generated, { skipSpecialTokens: true }).trim();
 }
 
-function normalizeExactResponse(text: string): string {
-  return text.trim().replace(/^[`"'“”]+|[`"'“”.,!?]+$/g, "");
+export function normalizeExactResponse(text: string): string {
+  const firstLine = text
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .find((line) => line !== "");
+  return (firstLine ?? text.trim()).replace(/^[`"'“”]+|[`"'“”.,!?]+$/g, "");
 }
 
 function runLongContextRung(

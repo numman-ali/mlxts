@@ -34,11 +34,26 @@ decode gap: `mlx-lm=29.024 tok/s`, `mlxts=24.898 tok/s`, a `-14.2%` decode
 deficit. That makes the next work a model/runtime hot-path investigation rather
 than a benchmark-accounting issue.
 
-The working implementation hypothesis is Qwen's linear-attention stage. Apple
-`mlx-lm` uses a fused Metal `gated_delta_update` kernel for Qwen 3.5 / 3.6-style
-linear layers, while `mlxts` currently expresses the recurrence as many ordinary
-MLX ops in TypeScript. Full-attention masking and KV growth are not the leading
-suspects after the Qwen memory work.
+The working implementation hypothesis was confirmed. Apple `mlx-lm` uses a
+fused Metal `gated_delta_update` kernel for Qwen 3.5 / 3.6-style linear layers,
+while the earlier `mlxts` path expressed the recurrence as many ordinary MLX ops
+in TypeScript. A narrow native helper, mixed-dtype inputs, contiguous conv-cache
+tails, Qwen full-attention causal mask parity, and fused quantized `b/a`
+projections close the practical gap on the staged rungs without weakening the
+semantic model surface.
+
+After the final keeper tranche, staged evidence is materially stronger than the
+original `128/128` smoke:
+
+- `1024/128` paired: `mlxts` slightly ahead on decode (`28.999` vs
+  `28.899 tok/s`) with near-identical prompt throughput.
+- `10000/128` paired: `mlxts=26.959`, `mlx-lm=27.154`, about `0.7%` under.
+- `1024/1024` paired: `mlxts=28.352`, `mlx-lm=28.448`, about `0.3%` under.
+- Local `128/10000` output stress completed without crash at `27.867 tok/s`
+  and `0.07 MB/token` active memory slope.
+- Local `32k` retrieval prefill completed at `25.995 GB` peak with zero decode
+  active-memory slope; the first generated line contained the benchmark marker,
+  and the readout now grades that fixed-length output shape correctly.
 
 ## Files Reviewed
 
@@ -46,13 +61,33 @@ suspects after the Qwen memory work.
 - `packages/transformers/scripts/benchmark-generation-parity.ts`
 - `packages/transformers/scripts/benchmark-mlx-lm.py`
 - `packages/transformers/scripts/benchmark-common.test.ts`
+- `packages/transformers/scripts/benchmark-long-context.ts`
+- `packages/transformers/scripts/benchmark-long-context.test.ts`
+- `packages/core/native/mlxts_core_ops.cpp`
+- `packages/core/src/fast.ts`
+- `packages/core/src/ffi/symbols.ts`
+- `packages/core/src/index.ts`
+- `packages/core/src/ops/index.ts`
+- `packages/core/src/ops/shape.ts`
+- `packages/core/src/quantization.ts`
+- `packages/nn/src/index.ts`
+- `packages/nn/src/quantized-linear.ts`
+- `packages/nn/src/quantized-linear.test.ts`
 - `packages/transformers/src/families/qwen3_5/gated-delta.ts`
+- `packages/transformers/src/families/qwen3_5/gated-delta-recurrence.ts`
 - `packages/transformers/src/families/qwen3_5/gated-delta.test.ts`
 - `packages/transformers/src/families/qwen3_5/attention.ts`
+- `packages/transformers/src/families/qwen3_5/model.ts`
 - `packages/transformers/src/infrastructure/masks.ts`
+- `packages/transformers/src/infrastructure/masks.test.ts`
 - `packages/transformers/src/infrastructure/cache/runtime.ts`
+- `packages/core/src/fast.test.ts`
+- `packages/core/src/ops/ops.test.ts`
+- `scripts/runtime-sensitive-ops.ts`
 - `.reference/mlx-lm/mlx_lm/models/qwen3_5.py`
 - `.reference/mlx-lm/mlx_lm/models/gated_delta.py`
+- `.reference/mlx-lm/mlx_lm/models/cache.py`
+- `.reference/mlx-lm/mlx_lm/models/base.py`
 - `.reference/mlx-lm/mlx_lm/generate.py`
 - `.reference/mlx-lm/mlx_lm/benchmark.py`
 
@@ -67,6 +102,30 @@ transform. The transform returns a fresh owned `MxArray` exactly where
 `decayFactors()` already returned one, and all local tensor-producing
 intermediates inside the transform remain visible with `using` declarations.
 The recurrent state ownership path in `gatedDeltaSequence()` is unchanged.
+
+Experiment 5 adds a narrow native Qwen gated-delta helper. The C++ helper returns
+owned MLX arrays through per-call output slots and the TypeScript wrapper
+immediately wraps both outputs into explicit `MxArray` handles. The fallback TS
+recurrence remains as the oracle path. The helper keeps recurrent state ownership
+unchanged: callers free returned `output` and `state` in the same `try/finally`
+block as before.
+
+Experiment 6 exposes `contiguous()` as a core tensor-producing op and uses it
+only for the Qwen conv-cache tail. The intermediate slice view and contiguous
+copy are both locally visible; the cache update retains ownership and the local
+copy is freed immediately after cache assignment.
+
+Experiment 7 hoists the Qwen full-attention mask to one model-forward-owned
+value. Full-attention layers retain the mask internally when it is an `MxArray`,
+and the model frees the hoisted owner once after the layer loop. Non-window
+cached prefill now uses the `"causal"` marker, so most hoisted masks are not
+arrays at all.
+
+Experiment 8 fuses compatible quantized `b/a` projections by concatenating
+packed quantized weight rows and auxiliary rows. The fused helper is private to
+the Qwen layer, source-handle keyed, eval-only, and disposed with the layer. If
+the source quantized modules change, the fused helper is rebuilt rather than
+silently reusing stale weights.
 
 ## Memory / Performance Evidence
 
@@ -94,28 +153,82 @@ The recurrent state ownership path in `gatedDeltaSequence()` is unchanged.
   `bun run bench:generation --model mlx-community/Qwen3.6-27B-4bit --prompt-tokens 128 --generation-tokens 128 --trials 3 --memory-sample-interval 16`
   - `mlxts`: `generation_tps=25.814`, `peak_memory=19.177 GB`
   - active memory stayed flat: `active_slope_mb_per_token=-0.00`
+- Native gated-delta local confirmation:
+  `bun run bench:generation:parity --model mlx-community/Qwen3.6-27B-4bit --prompt-tokens 128 --generation-tokens 128 --trials 3 --memory-sample-interval 16 --skip-mlx-lm-reference`
+  - `mlxts`: `generation_tps=28.641`, `peak_memory=18.515 GB`
+  - active memory stayed flat.
+- Native gated-delta paired confirmation:
+  `bun run bench:generation:parity --model mlx-community/Qwen3.6-27B-4bit --prompt-tokens 128 --generation-tokens 128 --trials 3 --memory-sample-interval 16 --mlx-lm-python .tmp/venvs/mlx-lm-bench/bin/python`
+  - `mlx-lm`: `generation_tps=29.266`
+  - `mlxts`: `generation_tps=28.192`
+- Mixed-dtype native path confirmation:
+  `bun run bench:generation:parity --model mlx-community/Qwen3.6-27B-4bit --prompt-tokens 5000 --generation-tokens 128 --trials 1 --memory-sample-interval 16 --mlx-lm-python .tmp/venvs/mlx-lm-bench/bin/python`
+  - `mlx-lm`: `generation_tps=27.129`
+  - `mlxts`: `generation_tps=25.502`
+  - improved over the float32-input native path on the same long-prompt rung.
+- Full-attention causal-mask and conv-cache-tail tranche:
+  `bun run bench:generation:parity --model mlx-community/Qwen3.6-27B-4bit --prompt-tokens 5000 --generation-tokens 128 --trials 1 --memory-sample-interval 16 --skip-mlx-lm-reference`
+  - `mlxts`: `generation_tps=27.700`, `peak_memory=21.284 GB`
+  - peak dropped from the earlier `21.604 GB` rung after avoiding explicit
+    cached-prefill boolean masks.
+- Quantized `b/a` projection fusion profile:
+  `MLXTS_RUNTIME_PROFILE=1 bun run bench:generation:parity --model mlx-community/Qwen3.6-27B-4bit --prompt-tokens 5000 --generation-tokens 32 --trials 1 --memory-sample-interval 8 --skip-mlx-lm-reference`
+  - `generation_tps=29.180`
+  - `quantizedMatmul` calls dropped from `14910.0/trial` to `13470.0/trial`
+  - `ffi_ms_per_token` dropped from about `1.2857-1.3740` to `1.2680`
+- Staged prompt ladder:
+  `bun run bench:generation:parity --model mlx-community/Qwen3.6-27B-4bit --prompt-tokens 1024 --generation-tokens 128 --trials 1 --memory-sample-interval 16 --mlx-lm-python .tmp/venvs/mlx-lm-bench/bin/python`
+  - `mlx-lm`: `prompt_tps=250.024`, `generation_tps=28.899`
+  - `mlxts`: `prompt_tps=249.030`, `generation_tps=28.999`
+  `bun run bench:generation:parity --model mlx-community/Qwen3.6-27B-4bit --prompt-tokens 10000 --generation-tokens 128 --trials 1 --memory-sample-interval 16 --mlx-lm-python .tmp/venvs/mlx-lm-bench/bin/python`
+  - `mlx-lm`: `prompt_tps=223.768`, `generation_tps=27.154`
+  - `mlxts`: `prompt_tps=215.891`, `generation_tps=26.959`
+- Staged output ladder:
+  `bun run bench:generation:parity --model mlx-community/Qwen3.6-27B-4bit --prompt-tokens 1024 --generation-tokens 512 --trials 1 --memory-sample-interval 32 --mlx-lm-python .tmp/venvs/mlx-lm-bench/bin/python`
+  - `mlx-lm`: `generation_tps=28.396`
+  - `mlxts`: `generation_tps=28.346`, `active_slope_mb_per_token=0.07`
+  `bun run bench:generation:parity --model mlx-community/Qwen3.6-27B-4bit --prompt-tokens 1024 --generation-tokens 1024 --trials 1 --memory-sample-interval 64 --mlx-lm-python .tmp/venvs/mlx-lm-bench/bin/python`
+  - `mlx-lm`: `generation_tps=28.448`
+  - `mlxts`: `generation_tps=28.352`, `active_slope_mb_per_token=0.07`
+- Long-output local stress:
+  `bun run bench:generation:parity --model mlx-community/Qwen3.6-27B-4bit --prompt-tokens 128 --generation-tokens 10000 --trials 1 --memory-sample-interval 512 --skip-mlx-lm-reference`
+  - `generation_tps=27.867`, `peak_memory=18.870 GB`
+  - `active_delta=0.655 GB`, `active_slope_mb_per_token=0.07`
+- Long-context retrieval:
+  `bun run bench:generation:context --model mlx-community/Qwen3.6-27B-4bit --rungs 32768 --generation-tokens 64 --prefill-step-size 2048`
+  - `prompt_tokens=32771`, `prefill_tps=214.231`, `peak_after_decode=25.995 GB`
+  - `active_decode_slope_mb_per_token=0.00`
+  - first generated answer line was the benchmark marker; exact-match
+    normalization was updated to grade this fixed-length decode pattern.
 
 ## Independent Review
 
-Three read-only sub-agents were used during this loop. Volta audited Qwen's
-model hot path against `.reference/mlx-lm` and ranked the fused gated-delta
-kernel gap as the highest-confidence cause. Newton audited benchmark fairness
-and found reference isolation, matching trial protocol, memory definitions,
-prefill-step forwarding, and ignored diagnostic flags as the issues to fix
-before optimizing model code. Lorentz audited native/Metal-kernel options and
+Six read-only sub-agents were used during this loop. Volta audited Qwen's model
+hot path against `.reference/mlx-lm` and ranked the fused gated-delta kernel gap
+as the highest-confidence cause. Newton audited benchmark fairness and found
+reference isolation, matching trial protocol, memory definitions, prefill-step
+forwarding, and ignored diagnostic flags as the issues to fix before optimizing
+model code. Lorentz and Goodall audited native/Metal-kernel options and
 recommended a narrow Qwen gated-delta helper before exposing a generic
-`metalKernel` surface.
+`metalKernel` surface. Confucius identified the mixed-dtype native helper gap
+and conv-cache-tail contiguity as the next candidates. Lovelace identified the
+cached-prefill causal-mask mismatch and per-layer mask rebuild versus `mlx-lm`.
+Meitner audited the benchmark matrix and recommended using the existing parity,
+synthetic, and long-context scripts rather than creating another harness.
 
 ## Remaining Risks / Follow-ups
 
-The leading risk is mistaking a fairer benchmark for a faster model. The first
-keeper should only make the comparison more defensible; it is not expected to
-close the Qwen speed gap by itself.
+The remaining gap is no longer a catastrophic correctness/performance class; it
+is mostly memory footprint versus `mlx-lm` and small paired-run throughput
+variance. `mlxts` still reports higher peak memory than `mlx-lm` on paired rungs
+because cache buffers and JS/FFI-owned wrapper state remain different. Further
+work should profile full-attention KV representation, cache-buffer accounting,
+and lower FFI wrapper overhead before chasing micro-ops.
 
-The likely performance path is now the deeper fused gated-delta seam. A generic
-custom Metal kernel binding would be strategically useful later, but the next
-measured tranche should be a narrow Qwen helper that keeps the current
-TypeScript recurrence as fallback/oracle.
+The 32k long-context run passed memory shape and marker retrieval, but 64k,
+128k, and 262k rungs remain to be staged when machine time permits. The
+benchmark script now reads nested `text_config.max_position_embeddings`, so it
+knows Qwen advertises `262144` context tokens.
 
 ## Experiment Log
 
@@ -236,3 +349,168 @@ TypeScript recurrence as fallback/oracle.
   path is not safe enough to keep. The experiment was removed immediately. The
   next deep seam should be a deliberate native/Metal kernel binding rather than
   forcing this through `compileMany()`.
+
+### Experiment 5: Add a narrow native Qwen gated-delta helper
+
+- Status: `kept`
+- Hypothesis:
+  The remaining Qwen gap is dominated by the recurrent gated-delta stage. A
+  narrow native helper can mirror `mlx-lm`'s Metal kernel shape while preserving
+  the TypeScript recurrence as fallback/oracle.
+- Success criteria:
+  - native helper tests match the TS recurrence for multi-token and continuation
+    cases
+  - steady decode remains one eval per token
+  - paired Qwen decode improves materially without introducing active-memory
+    slope
+- Rollback rule:
+  if correctness tests fail, Bun crashes, or paired decode does not improve,
+  remove the helper before trying broader native surfaces
+
+#### Outcome
+
+- Result:
+  kept
+- Measurement:
+  local `128/128` rose to `28.641 tok/s`; paired `128/128` rose to
+  `28.192 tok/s` versus `mlx-lm=29.266`.
+- Conclusion:
+  the narrow native helper is a real keeper. It closes most of the original
+  `24.245 -> 28.662 tok/s` gap without broadening the public core API.
+
+### Experiment 6: Match upstream mixed-dtype gated-delta inputs
+
+- Status: `kept`
+- Hypothesis:
+  Forcing q/k/v/g/beta to float32 before the native helper adds bandwidth and
+  graph nodes that `mlx-lm` avoids. The native helper should accumulate in float
+  internally while accepting model-native input dtypes and fp32 state.
+- Success criteria:
+  - Qwen gated-delta oracle tests pass
+  - paired short and long-prompt rungs improve or stay flat
+  - output/state dtype behavior remains compatible with upstream
+- Rollback rule:
+  if token parity changes or the long-prompt rung regresses, restore explicit
+  float32 inputs
+
+#### Outcome
+
+- Result:
+  kept
+- Measurement:
+  local `128/128` improved to `28.697 tok/s`; paired `128/128` improved to
+  `28.532 tok/s`; paired `5000/128` improved to `25.502 tok/s` from the
+  float32 native path.
+- Conclusion:
+  mixed dtype is the correct upstream-shaped path. Float32 remains only in the
+  fallback recurrence and recurrent state.
+
+### Experiment 7: Store the Qwen conv-cache tail contiguously
+
+- Status: `kept`
+- Hypothesis:
+  `mlx-lm` stores `mx.contiguous(conv_input[:, -n_keep:, :])` for the
+  linear-attention conv cache. Keeping a slice view in `mlxts` can make the next
+  token's concatenate/conv path less favorable.
+- Success criteria:
+  - expose a small core `contiguous()` op with coverage
+  - Qwen tests pass
+  - memory does not regress and local decode improves outside noise
+- Rollback rule:
+  remove the contiguous copy if long-prompt decode or peak memory regresses
+
+#### Outcome
+
+- Result:
+  kept
+- Measurement:
+  local `128/128` reached `29.074 tok/s`; the profiled `5000/32` rung remained
+  flat and stable. The later mask tranche dropped the 5k peak from `21.604 GB`
+  to `21.284 GB`.
+- Conclusion:
+  this is a small upstream-parity improvement and makes the cache state shape
+  more explicit.
+
+### Experiment 8: Use causal SDPA for cached full-attention prefill and hoist the mask
+
+- Status: `kept`
+- Hypothesis:
+  For non-window full attention, `mlx-lm` returns `"causal"` even when cached
+  prefill has a non-zero offset. `mlxts` was materializing boolean masks for
+  cached prefill chunks and rebuilding them per full-attention layer.
+- Success criteria:
+  - core SDPA test proves `"causal"` aligns shorter query blocks to the end of
+    cached keys
+  - Qwen full-attention layers share one model-forward mask owner
+  - 5k prompt peak memory improves without decode regression
+- Rollback rule:
+  restore explicit masks if logits/mask tests fail or long-prompt behavior
+  regresses
+
+#### Outcome
+
+- Result:
+  kept
+- Measurement:
+  local `5000/128` peak dropped from `21.604 GB` to `21.284 GB`; paired
+  `5000/128` reached `27.304 tok/s` against `mlx-lm=27.840` in one run, with
+  later local runs reaching `27.901 tok/s`.
+- Conclusion:
+  this matches upstream and removes unnecessary mask allocation pressure. It is
+  primarily a memory/prefill-quality keeper rather than a decode-only win.
+
+### Experiment 9: Fuse Qwen quantized `b/a` projections
+
+- Status: `kept`
+- Hypothesis:
+  Qwen linear-attention layers call two tiny quantized gate projections, `b` and
+  `a`, that share input shape and quantization parameters. Concatenating packed
+  quantized rows can remove one quantized-matmul FFI call per linear-attention
+  layer per decode token without changing math.
+- Success criteria:
+  - package-owned helper proves fused quantized linears equal separate outputs
+  - fused helper is private, eval-only, source-handle keyed, and disposable
+  - runtime profile shows fewer quantized matmul calls and decode improves
+- Rollback rule:
+  remove the fusion if it only moves work into slices without improving local
+  decode or if stale weight hazards cannot be contained
+
+#### Outcome
+
+- Result:
+  kept
+- Measurement:
+  profiled `5000/32` dropped `quantizedMatmul` calls from `14910.0/trial` to
+  `13470.0/trial`, and local decode reached `29.180 tok/s`. Local `5000/128`
+  reached `27.901 tok/s`.
+- Conclusion:
+  this is a targeted TypeScript-side win with tiny additional packed-weight
+  memory and no public model-surface change.
+
+### Experiment 10: Make long-context retrieval reporting Qwen-thinking aware
+
+- Status: `kept`
+- Hypothesis:
+  The long-context retrieval benchmark should measure marker retrieval, not the
+  model's default thinking preamble. Qwen chat prompts should disable thinking
+  for this benchmark, and fixed-length decode should grade the first generated
+  answer line while still printing the full response.
+- Success criteria:
+  - benchmark tests cover nested context config and first-line exact response
+    normalization
+  - 32k retrieval run completes without memory slope and finds the marker
+- Rollback rule:
+  if disabling thinking is not template-compatible or hides retrieval failures,
+  remove the default and require explicit benchmark flags instead
+
+#### Outcome
+
+- Result:
+  kept
+- Measurement:
+  `bench:generation:context --rungs 32768 --generation-tokens 64` completed
+  with `peak_after_decode=25.995 GB`, `active_decode_slope_mb_per_token=0.00`,
+  and the marker as the first generated line.
+- Conclusion:
+  the 32k rung is usable as a capability check. Higher rungs remain future
+  staged work, not a new harness requirement.

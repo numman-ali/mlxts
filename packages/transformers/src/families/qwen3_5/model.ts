@@ -36,16 +36,6 @@ function inputShape(inputIds: MxArray): { batchSize: number; sequenceLength: num
   return { batchSize, sequenceLength };
 }
 
-function layerAttentionMask(
-  layerType: Qwen3_5TextConfig["layerTypes"][number],
-  sequenceLength: number,
-  cacheOffset: number,
-): AttentionMask | undefined {
-  return layerType === "full_attention"
-    ? createStepAttentionMask(sequenceLength, cacheOffset)
-    : undefined;
-}
-
 function runDecoderLayer(
   layer: Qwen3_5TextDecoderLayer,
   hiddenStates: MxArray,
@@ -53,13 +43,7 @@ function runDecoderLayer(
   attentionMask: AttentionMask | undefined,
   positionIds?: MxArray,
 ): MxArray {
-  try {
-    return layer.run(hiddenStates, cache, attentionMask, positionIds);
-  } finally {
-    if (attentionMask instanceof MxArray) {
-      attentionMask.free();
-    }
-  }
+  return layer.run(hiddenStates, cache, attentionMask, positionIds);
 }
 
 /** Decoder backbone shared by Qwen 3.5 text checkpoints. */
@@ -118,6 +102,7 @@ export class Qwen3_5TextModel extends Module {
     sequenceLength: number,
   ): MxArray {
     let hiddenStates = initialHiddenStates;
+    const fullAttentionMask = createStepAttentionMask(sequenceLength, cache?.offset ?? 0);
     try {
       for (let layerIndex = 0; layerIndex < this.layers.length; layerIndex += 1) {
         const layer = this.layers[layerIndex];
@@ -128,11 +113,7 @@ export class Qwen3_5TextModel extends Module {
           layer,
           hiddenStates,
           cache,
-          layerAttentionMask(
-            this.#layerTypes[layerIndex] ?? "linear_attention",
-            sequenceLength,
-            cache?.offset ?? 0,
-          ),
+          this.#layerTypes[layerIndex] === "full_attention" ? fullAttentionMask : undefined,
           positionIds,
         );
         if (hiddenStates !== initialHiddenStates) {
@@ -146,6 +127,10 @@ export class Qwen3_5TextModel extends Module {
         hiddenStates.free();
       }
       throw error;
+    } finally {
+      if (fullAttentionMask instanceof MxArray) {
+        fullAttentionMask.free();
+      }
     }
   }
 }

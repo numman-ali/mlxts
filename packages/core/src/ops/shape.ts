@@ -86,6 +86,13 @@ export function asType(a: MxArray, dtype: DType, stream?: S): MxArray {
   });
 }
 
+/** Return a row-major contiguous copy of an array. */
+export function contiguous(a: MxArray, stream?: S): MxArray {
+  return readResultArrayWithMetadata("contiguous", { shape: a.shape, dtype: a.dtype }, (out) => {
+    checkStatus(ffi.mlx_contiguous(out, a._ctx, false, s(stream)), "contiguous");
+  });
+}
+
 /** Flatten dimensions of an array. */
 export function flatten(a: MxArray, startAxis = 0, endAxis = -1, stream?: S): MxArray {
   return readResultArray("flatten", (out) => {

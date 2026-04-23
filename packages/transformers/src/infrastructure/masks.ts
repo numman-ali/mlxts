@@ -154,7 +154,7 @@ export function createFastAttentionMask(
   if (queryLength === 1 && totalKeyLength === pastLength + 1) {
     return null;
   }
-  if (pastLength === 0 && (windowSize === undefined || queryLength <= windowSize)) {
+  if (windowSize === undefined || (pastLength === 0 && queryLength <= windowSize)) {
     return "causal";
   }
   return createBooleanCausalMask(queryLength, totalKeyLength, pastLength, windowSize);

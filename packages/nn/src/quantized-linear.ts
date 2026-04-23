@@ -6,6 +6,7 @@
 import type { QuantizationMode } from "@mlxts/core";
 import {
   add,
+  concatenate,
   dequantize,
   formatShape,
   type MxArray,
@@ -80,6 +81,18 @@ function quantizationGroupCount(inputDims: number, groupSize: number): number {
 
 function quantizationUsesBiases(mode: QuantizationMode): boolean {
   return mode === "affine";
+}
+
+function compatibleForFusion(left: QuantizedLinear, right: QuantizedLinear): boolean {
+  return (
+    left.inputDims === right.inputDims &&
+    left.groupSize === right.groupSize &&
+    left.bits === right.bits &&
+    left.mode === right.mode &&
+    left.bias === null &&
+    right.bias === null &&
+    (left.biases === null) === (right.biases === null)
+  );
 }
 
 /** Packed-weight linear layer with a separate output bias. */
@@ -205,5 +218,66 @@ export class QuantizedLinear extends Module {
     }
 
     return dense;
+  }
+}
+
+/** Create one packed projection whose output concatenates compatible quantized linears. */
+export function fuseQuantizedLinears(linears: readonly QuantizedLinear[]): QuantizedLinear | null {
+  const first = linears[0];
+  if (first === undefined || linears.length < 2) {
+    return null;
+  }
+  for (let index = 1; index < linears.length; index += 1) {
+    const linear = linears[index];
+    if (linear === undefined || !compatibleForFusion(first, linear)) {
+      return null;
+    }
+  }
+
+  let weight: MxArray | null = null;
+  let scales: MxArray | null = null;
+  let biases: MxArray | null = null;
+  try {
+    weight = concatenate(
+      linears.map((linear) => linear.weight),
+      0,
+    );
+    scales = concatenate(
+      linears.map((linear) => linear.scales),
+      0,
+    );
+    if (first.biases !== null) {
+      biases = concatenate(
+        linears.map((linear) => {
+          if (linear.biases === null) {
+            throw new Error("fuseQuantizedLinears: expected compatible quantization biases.");
+          }
+          return linear.biases;
+        }),
+        0,
+      );
+    }
+
+    const fused = new QuantizedLinear(
+      first.inputDims,
+      linears.reduce((sum, linear) => sum + linear.outputDims, 0),
+      {
+        bits: first.bits,
+        groupSize: first.groupSize,
+        mode: first.mode,
+        weight,
+        scales,
+        quantizationBiases: biases,
+        outputBias: null,
+      },
+    );
+    weight = null;
+    scales = null;
+    biases = null;
+    return fused;
+  } finally {
+    weight?.free();
+    scales?.free();
+    biases?.free();
   }
 }

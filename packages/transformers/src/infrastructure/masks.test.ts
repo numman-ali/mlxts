@@ -68,8 +68,11 @@ describe("causal masks", () => {
 
   test("createFastAttentionMask returns the fused fast-path markers when available", () => {
     expect(createFastAttentionMask(2, 2, 0)).toBe("causal");
+    expect(createFastAttentionMask(2, 4, 2)).toBe("causal");
+  });
 
-    const mask = createFastAttentionMask(2, 4, 2);
+  test("createFastAttentionMask keeps explicit masks for cached sliding-window prefill", () => {
+    const mask = createFastAttentionMask(2, 4, 2, 3);
     expect(mask).toBeInstanceOf(MxArray);
     if (!(mask instanceof MxArray)) {
       throw new Error("expected a tensor mask");
@@ -81,7 +84,7 @@ describe("causal masks", () => {
       [
         [
           [1, 1, 1, 0],
-          [1, 1, 1, 1],
+          [0, 1, 1, 1],
         ],
       ],
     ]);

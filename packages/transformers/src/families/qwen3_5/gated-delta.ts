@@ -8,6 +8,7 @@ import {
   asType,
   compile,
   concatenate,
+  contiguous,
   exp,
   fastRmsNorm,
   formatShape,
@@ -16,22 +17,21 @@ import {
   type MxArray,
   multiply,
   ones,
-  repeat,
   reshape,
   retainArray,
   sigmoid,
   slice,
-  stack,
-  subtract,
-  sum,
   where,
   zeros,
 } from "@mlxts/core";
-import { Conv1d, Linear, Module, silu } from "@mlxts/nn";
+import { Conv1d, fuseQuantizedLinears, Linear, Module, QuantizedLinear, silu } from "@mlxts/nn";
 
 import type { Qwen3_5TextCache } from "./cache";
+import { gatedDeltaSequenceFromKeyHeads } from "./gated-delta-recurrence";
 import { Qwen3_5RMSNormGated } from "./norm";
 import type { Qwen3_5TextConfig } from "./types";
+
+export { gatedDeltaSequence, gatedDeltaSequenceFromKeyHeads } from "./gated-delta-recurrence";
 
 function takeLastAxisRange(x: MxArray, start: number, end: number): MxArray {
   const rank = x.shape.length;
@@ -45,34 +45,6 @@ function takeLastAxisRange(x: MxArray, start: number, end: number): MxArray {
   startIndices[rank - 1] = start;
   stopIndices[rank - 1] = end;
   return slice(x, startIndices, stopIndices);
-}
-
-function sliceSequenceStep(x: MxArray, step: number): MxArray {
-  const [batchSize, sequenceLength] = x.shape;
-  if (
-    batchSize === undefined ||
-    sequenceLength === undefined ||
-    x.shape.length < 2 ||
-    step < 0 ||
-    step >= sequenceLength
-  ) {
-    throw new Error(
-      `Qwen3_5GatedDeltaNet: cannot take sequence step ${step} from shape ${formatShape(x.shape)}.`,
-    );
-  }
-
-  const rank = x.shape.length;
-  const startIndices = Array(rank).fill(0);
-  const stopIndices = [...x.shape];
-  startIndices[1] = step;
-  stopIndices[1] = step + 1;
-  using stepView = slice(x, startIndices, stopIndices);
-  const targetShape = [batchSize, ...x.shape.slice(2)];
-  return reshape(stepView, targetShape);
-}
-
-function repeatHeads(x: MxArray, repeatFactor: number): MxArray {
-  return repeatFactor === 1 ? x : repeat(x, repeatFactor, 2);
 }
 
 function stableSoftplus(x: MxArray): MxArray {
@@ -102,95 +74,22 @@ function decayFactors(a: MxArray, aLog: MxArray, dtBias: MxArray): MxArray {
   return decayFactorsTransform(a, aLog, dtBias);
 }
 
-function gatedDeltaStep(
-  q: MxArray,
-  k: MxArray,
-  v: MxArray,
-  g: MxArray,
-  beta: MxArray,
-  state: MxArray,
-): { output: MxArray; state: MxArray } {
-  const keyHeadDim = k.shape[2] ?? 0;
-  const queryHeadDim = q.shape[2] ?? 0;
-  using decay = reshape(g, [...g.shape, 1, 1]);
-  using decayedState = multiply(state, decay);
-  using keyView = reshape(k, [k.shape[0] ?? 0, k.shape[1] ?? 0, 1, keyHeadDim]);
-  using decayedStateTimesKey = multiply(decayedState, keyView);
-  using kvMemory = sum(decayedStateTimesKey, 3);
-  using deltaBase = subtract(v, kvMemory);
-  using betaView = reshape(beta, [...beta.shape, 1]);
-  using delta = multiply(deltaBase, betaView);
-  using updateKeyView = reshape(k, [k.shape[0] ?? 0, k.shape[1] ?? 0, 1, keyHeadDim]);
-  using deltaView = reshape(delta, [...delta.shape, 1]);
-  using update = multiply(updateKeyView, deltaView);
-  using nextState = add(decayedState, update);
-  using queryView = reshape(q, [q.shape[0] ?? 0, q.shape[1] ?? 0, 1, queryHeadDim]);
-  using nextStateTimesQuery = multiply(nextState, queryView);
-  const output = sum(nextStateTimesQuery, 3);
-  return {
-    output,
-    state: retainArray(nextState),
-  };
-}
-
-export function gatedDeltaSequence(
-  q: MxArray,
-  k: MxArray,
-  v: MxArray,
-  g: MxArray,
-  beta: MxArray,
-  initialState: MxArray,
-): { output: MxArray; state: MxArray } {
-  const sequenceLength = q.shape[1];
-  if (sequenceLength === undefined) {
-    throw new Error("Qwen3_5GatedDeltaNet: q is missing a sequence dimension.");
-  }
-
-  const outputs: MxArray[] = [];
-  let state: MxArray | null = retainArray(initialState);
-  try {
-    for (let step = 0; step < sequenceLength; step += 1) {
-      if (state === null) {
-        throw new Error("Qwen3_5GatedDeltaNet: recurrent state was unexpectedly released.");
-      }
-      using qStep = sliceSequenceStep(q, step);
-      using kStep = sliceSequenceStep(k, step);
-      using vStep = sliceSequenceStep(v, step);
-      using gStep = sliceSequenceStep(g, step);
-      using betaStep = sliceSequenceStep(beta, step);
-      const next = gatedDeltaStep(qStep, kStep, vStep, gStep, betaStep, state);
-      state.free();
-      state = next.state;
-      outputs.push(next.output);
-    }
-
-    const output = stack(outputs, 1);
-    if (state === null) {
-      throw new Error("Qwen3_5GatedDeltaNet: recurrent state was unexpectedly released.");
-    }
-    const finalState = retainArray(state);
-    state.free();
-    state = null;
-    return {
-      output,
-      state: finalState,
-    };
-  } catch (error) {
-    state?.free();
-    throw error;
-  } finally {
-    for (const output of outputs) {
-      output.free();
-    }
-  }
-}
+type FusedProjectionBAState = {
+  module: QuantizedLinear;
+  bWeight: MxArray;
+  bScales: MxArray;
+  bBiases: MxArray | null;
+  aWeight: MxArray;
+  aScales: MxArray;
+  aBiases: MxArray | null;
+};
 
 /** Linear-attention token mixer used by Qwen 3.5 text layers. */
 export class Qwen3_5GatedDeltaNet extends Module {
-  inProjectionQkv: Linear;
-  inProjectionZ: Linear;
-  inProjectionB: Linear;
-  inProjectionA: Linear;
+  inProjectionQkv: Linear | QuantizedLinear;
+  inProjectionZ: Linear | QuantizedLinear;
+  inProjectionB: Linear | QuantizedLinear;
+  inProjectionA: Linear | QuantizedLinear;
   conv1d: Conv1d;
   dtBias: MxArray;
   aLog: MxArray;
@@ -205,6 +104,7 @@ export class Qwen3_5GatedDeltaNet extends Module {
   #valueDim: number;
   #convKernelSize: number;
   #convDim: number;
+  #fusedProjectionBA: FusedProjectionBAState | null = null;
 
   constructor(config: Qwen3_5TextConfig) {
     super();
@@ -271,8 +171,7 @@ export class Qwen3_5GatedDeltaNet extends Module {
 
     using projectedQkv = this.inProjectionQkv.forward(x);
     using projectedZ = this.inProjectionZ.forward(x);
-    using projectedB = this.inProjectionB.forward(x);
-    using projectedA = this.inProjectionA.forward(x);
+    const projectedBA = this.projectBA(x);
     using z = reshape(projectedZ, [
       batchSize,
       sequenceLength,
@@ -321,18 +220,10 @@ export class Qwen3_5GatedDeltaNet extends Module {
       ]);
       using normalizedQueries = fastRmsNorm(queries, undefined, { eps: 1e-6 });
       using normalizedKeys = fastRmsNorm(keys, undefined, { eps: 1e-6 });
-      const repeatFactor = this.#numValueHeads / this.#numKeyHeads;
-      using repeatedQueries = repeatHeads(normalizedQueries, repeatFactor);
-      using repeatedKeys = repeatHeads(normalizedKeys, repeatFactor);
-      using scaledQueries = multiply(repeatedQueries, this.#keyHeadDim ** -1);
-      using scaledKeys = multiply(repeatedKeys, this.#keyHeadDim ** -0.5);
-      using floatQueries = asType(scaledQueries, "float32");
-      using floatKeys = asType(scaledKeys, "float32");
-      using floatValues = asType(values, "float32");
-      using beta = sigmoid(projectedB);
-      using g = decayFactors(projectedA, this.aLog, this.dtBias);
-      using floatBeta = asType(beta, "float32");
-      using floatG = asType(g, "float32");
+      using scaledQueries = multiply(normalizedQueries, this.#keyHeadDim ** -1);
+      using scaledKeys = multiply(normalizedKeys, this.#keyHeadDim ** -0.5);
+      using beta = sigmoid(projectedBA.b);
+      using g = decayFactors(projectedBA.a, this.aLog, this.dtBias);
 
       let createdRecurrentState: MxArray | null = null;
       const initialState =
@@ -346,12 +237,12 @@ export class Qwen3_5GatedDeltaNet extends Module {
         })();
 
       try {
-        const next = gatedDeltaSequence(
-          floatQueries,
-          floatKeys,
-          floatValues,
-          floatG,
-          floatBeta,
+        const next = gatedDeltaSequenceFromKeyHeads(
+          scaledQueries,
+          scaledKeys,
+          values,
+          g,
+          beta,
           initialState,
         );
         try {
@@ -361,11 +252,12 @@ export class Qwen3_5GatedDeltaNet extends Module {
           if (cache !== undefined) {
             let nextConvState: MxArray | null = null;
             if (convStateLength > 0) {
-              nextConvState = slice(
+              using nextConvStateView = slice(
                 convInput,
                 [0, sequenceLength, 0],
                 [batchSize, sequenceLength + convStateLength, this.#convDim],
               );
+              nextConvState = contiguous(nextConvStateView);
             }
             cache.updateLinearState(layerIndex, nextConvState, next.state);
             nextConvState?.free();
@@ -379,7 +271,77 @@ export class Qwen3_5GatedDeltaNet extends Module {
         createdRecurrentState?.free();
       }
     } finally {
+      projectedBA.b.free();
+      projectedBA.a.free();
       createdConvState?.free();
     }
+  }
+
+  private fusedProjectionBA(): QuantizedLinear | null {
+    if (this.isTraining) {
+      return null;
+    }
+    if (
+      !(this.inProjectionB instanceof QuantizedLinear) ||
+      !(this.inProjectionA instanceof QuantizedLinear)
+    ) {
+      this.disposeFusedProjectionBA();
+      return null;
+    }
+
+    const cached = this.#fusedProjectionBA;
+    if (
+      cached !== null &&
+      cached.bWeight === this.inProjectionB.weight &&
+      cached.bScales === this.inProjectionB.scales &&
+      cached.bBiases === this.inProjectionB.biases &&
+      cached.aWeight === this.inProjectionA.weight &&
+      cached.aScales === this.inProjectionA.scales &&
+      cached.aBiases === this.inProjectionA.biases
+    ) {
+      return cached.module;
+    }
+
+    this.disposeFusedProjectionBA();
+    const fused = fuseQuantizedLinears([this.inProjectionB, this.inProjectionA]);
+    if (fused === null) {
+      return null;
+    }
+    this.#fusedProjectionBA = {
+      module: fused,
+      bWeight: this.inProjectionB.weight,
+      bScales: this.inProjectionB.scales,
+      bBiases: this.inProjectionB.biases,
+      aWeight: this.inProjectionA.weight,
+      aScales: this.inProjectionA.scales,
+      aBiases: this.inProjectionA.biases,
+    };
+    return fused;
+  }
+
+  private projectBA(x: MxArray): { b: MxArray; a: MxArray } {
+    const fused = this.fusedProjectionBA();
+    if (fused === null) {
+      return {
+        b: this.inProjectionB.forward(x),
+        a: this.inProjectionA.forward(x),
+      };
+    }
+
+    using projectedBA = fused.forward(x);
+    return {
+      b: takeLastAxisRange(projectedBA, 0, this.#numValueHeads),
+      a: takeLastAxisRange(projectedBA, this.#numValueHeads, this.#numValueHeads * 2),
+    };
+  }
+
+  private disposeFusedProjectionBA(): void {
+    this.#fusedProjectionBA?.module[Symbol.dispose]();
+    this.#fusedProjectionBA = null;
+  }
+
+  override [Symbol.dispose](): void {
+    this.disposeFusedProjectionBA();
+    super[Symbol.dispose]();
   }
 }

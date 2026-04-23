@@ -9,10 +9,10 @@
  */
 
 import type { Pointer } from "bun:ffi";
-import { type MxArray, readResultArray, readResultArrayWithMetadata } from "./array";
+import { MxArray, readResultArray, readResultArrayWithMetadata } from "./array";
 import { defaultStream } from "./device";
 import { checkStatus } from "./error";
-import { optionalFloat, ptr } from "./ffi";
+import { OutSlot, optionalFloat, ptr } from "./ffi";
 import { ffi } from "./ffi/lib";
 
 type S = Pointer | undefined;
@@ -45,6 +45,13 @@ export type FastRoPEOptions = {
   offset?: number | MxArray;
   freqs?: MxArray;
   stream?: S;
+};
+
+export type QwenGatedDeltaUpdateResult = {
+  /** Recurrent outputs with shape `[batch, sequence, valueHeads, valueHeadDim]`. */
+  output: MxArray;
+  /** Updated recurrent state with shape `[batch, valueHeads, valueHeadDim, keyHeadDim]`. */
+  state: MxArray;
 };
 
 const textEncoder = new TextEncoder();
@@ -102,6 +109,29 @@ function validateRoPEInput(x: MxArray, dims: number): void {
   if (featureDimension === undefined || dims > featureDimension) {
     throw new Error(
       `fast.rope: dims ${dims} must be <= the last dimension ${featureDimension ?? "undefined"}.`,
+    );
+  }
+}
+
+function expectRank(name: string, value: MxArray, rank: number): void {
+  if (value.shape.length !== rank) {
+    throw new Error(
+      `fast.qwenGatedDeltaUpdate: expected ${name} rank ${rank}, got ${value.shape.length}.`,
+    );
+  }
+}
+
+function expectDimension(
+  name: string,
+  value: MxArray,
+  axis: number,
+  expected: number,
+  label: string,
+): void {
+  const actual = value.shape[axis];
+  if (actual !== expected) {
+    throw new Error(
+      `fast.qwenGatedDeltaUpdate: expected ${name} ${label} to be ${expected}, got ${actual ?? "undefined"}.`,
     );
   }
 }
@@ -257,4 +287,104 @@ export function rope(x: MxArray, dims: number, options: FastRoPEOptions = {}): M
       );
     },
   );
+}
+
+/**
+ * Fused Qwen gated-delta recurrent update.
+ *
+ * Mirrors the MLX-LM Qwen 3.5/3.6 Metal kernel for scalar gating. The key and
+ * query tensors stay in `[batch, sequence, keyHeads, keyHeadDim]` layout; value
+ * heads are mapped to key heads inside the kernel.
+ */
+export function qwenGatedDeltaUpdate(
+  q: MxArray,
+  k: MxArray,
+  v: MxArray,
+  g: MxArray,
+  beta: MxArray,
+  state: MxArray,
+  stream?: S,
+): QwenGatedDeltaUpdateResult {
+  expectRank("q", q, 4);
+  expectRank("k", k, 4);
+  expectRank("v", v, 4);
+  expectRank("g", g, 3);
+  expectRank("beta", beta, 3);
+  expectRank("state", state, 4);
+
+  const [batchSize, sequenceLength, keyHeads, keyHeadDim] = q.shape;
+  const valueHeads = v.shape[2];
+  const valueHeadDim = v.shape[3];
+  if (
+    batchSize === undefined ||
+    sequenceLength === undefined ||
+    keyHeads === undefined ||
+    keyHeadDim === undefined ||
+    valueHeads === undefined ||
+    valueHeadDim === undefined
+  ) {
+    throw new Error("fast.qwenGatedDeltaUpdate: q and v must have fully known shapes.");
+  }
+  if (keyHeads <= 0 || valueHeads <= 0 || valueHeads % keyHeads !== 0) {
+    throw new Error(
+      `fast.qwenGatedDeltaUpdate: valueHeads ${valueHeads} must be divisible by keyHeads ${keyHeads}.`,
+    );
+  }
+  if (keyHeadDim <= 0 || keyHeadDim % 32 !== 0) {
+    throw new Error(
+      `fast.qwenGatedDeltaUpdate: keyHeadDim ${keyHeadDim} must be a positive multiple of 32.`,
+    );
+  }
+  expectDimension("k", k, 0, batchSize, "batch");
+  expectDimension("k", k, 1, sequenceLength, "sequence");
+  expectDimension("k", k, 2, keyHeads, "keyHeads");
+  expectDimension("k", k, 3, keyHeadDim, "keyHeadDim");
+  expectDimension("v", v, 0, batchSize, "batch");
+  expectDimension("v", v, 1, sequenceLength, "sequence");
+  expectDimension("g", g, 0, batchSize, "batch");
+  expectDimension("g", g, 1, sequenceLength, "sequence");
+  expectDimension("g", g, 2, valueHeads, "valueHeads");
+  expectDimension("beta", beta, 0, batchSize, "batch");
+  expectDimension("beta", beta, 1, sequenceLength, "sequence");
+  expectDimension("beta", beta, 2, valueHeads, "valueHeads");
+  expectDimension("state", state, 0, batchSize, "batch");
+  expectDimension("state", state, 1, valueHeads, "valueHeads");
+  expectDimension("state", state, 2, valueHeadDim, "valueHeadDim");
+  expectDimension("state", state, 3, keyHeadDim, "keyHeadDim");
+
+  const outputSlot = new OutSlot();
+  const stateSlot = new OutSlot();
+  checkStatus(
+    ffi.mlxts_qwen_gated_delta_update(
+      outputSlot.prepare(),
+      stateSlot.prepare(),
+      q._ctx,
+      k._ctx,
+      v._ctx,
+      g._ctx,
+      beta._ctx,
+      state._ctx,
+      s(stream),
+    ),
+    "mlxts_qwen_gated_delta_update",
+  );
+
+  const output = MxArray._fromCtx(outputSlot.read("qwen gated delta output"), {
+    shape: [batchSize, sequenceLength, valueHeads, valueHeadDim],
+    dtype: q.dtype,
+    ndim: 4,
+    size: batchSize * sequenceLength * valueHeads * valueHeadDim,
+  });
+  try {
+    const nextState = MxArray._fromCtx(stateSlot.read("qwen gated delta state"), {
+      shape: state.shape,
+      dtype: state.dtype,
+      ndim: state.ndim,
+      size: state.size,
+    });
+    return { output, state: nextState };
+  } catch (error) {
+    output.free();
+    throw error;
+  }
 }

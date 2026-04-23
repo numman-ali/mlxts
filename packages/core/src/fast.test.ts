@@ -1,7 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import type { MxArray } from "./array";
-import { array, ones } from "./array";
-import { scaledDotProductAttention } from "./fast";
+import { array, ones, zeros } from "./array";
+import { qwenGatedDeltaUpdate, scaledDotProductAttention } from "./fast";
+import { isMetalAvailable } from "./metal";
 import { multiply } from "./ops/arithmetic";
 import { where } from "./ops/comparison";
 import { matmul } from "./ops/linalg";
@@ -179,6 +180,67 @@ describe("fast.scaledDotProductAttention", () => {
     expectNestedClose(fused.toList(), manual.toList());
   });
 
+  test("causal mode aligns shorter query blocks to the end of cached keys", () => {
+    const scale = Math.sqrt(1 / 2);
+    using queries = array(
+      [
+        [
+          [
+            [1, 1],
+            [2, 1],
+          ],
+        ],
+      ],
+      "float32",
+    );
+    using keys = array(
+      [
+        [
+          [
+            [1, 0],
+            [0, 1],
+            [1, 1],
+            [2, 1],
+          ],
+        ],
+      ],
+      "float32",
+    );
+    using values = array(
+      [
+        [
+          [
+            [1, 2],
+            [3, 4],
+            [5, 6],
+            [7, 8],
+          ],
+        ],
+      ],
+      "float32",
+    );
+    using mask = array(
+      [
+        [
+          [
+            [1, 1, 1, 0],
+            [1, 1, 1, 1],
+          ],
+        ],
+      ],
+      "bool",
+    );
+
+    using fused = scaledDotProductAttention(queries, keys, values, {
+      scale,
+      maskMode: "causal",
+    });
+    using manual = manualMaskedAttention(queries, keys, values, scale, mask);
+
+    mxEval(fused, manual);
+    expectNestedClose(fused.toList(), manual.toList());
+  });
+
   test("array mask mode matches the explicit masked implementation", () => {
     const scale = Math.sqrt(1 / 2);
     using queries = array(
@@ -320,5 +382,70 @@ describe("fast.scaledDotProductAttention", () => {
         maskArray: mask,
       }),
     ).toThrow("maskArray cannot be provided");
+  });
+});
+
+describe("fast.qwenGatedDeltaUpdate", () => {
+  test("computes one scalar-gated recurrent update", () => {
+    if (!isMetalAvailable()) {
+      return;
+    }
+
+    using q = ones([1, 1, 1, 32], "float32");
+    using k = ones([1, 1, 1, 32], "float32");
+    using v = array([[[[2, 3]]]], "float32");
+    using g = ones([1, 1, 1], "float32");
+    using beta = ones([1, 1, 1], "float32");
+    using state = zeros([1, 1, 2, 32], "float32");
+
+    const result = qwenGatedDeltaUpdate(q, k, v, g, beta, state);
+    try {
+      result.output.eval();
+      result.state.eval();
+      expect(result.output.shape).toEqual([1, 1, 1, 2]);
+      expect(result.state.shape).toEqual([1, 1, 2, 32]);
+      expect(result.output.toList()).toEqual([[[[64, 96]]]]);
+    } finally {
+      result.output.free();
+      result.state.free();
+    }
+  });
+
+  test("validates Qwen gated-delta input ranks and shapes", () => {
+    using q = ones([1, 1, 1, 32], "float32");
+    using k = ones([1, 1, 1, 32], "float32");
+    using v = ones([1, 1, 1, 2], "float32");
+    using g = ones([1, 1, 1], "float32");
+    using beta = ones([1, 1, 1], "float32");
+    using state = zeros([1, 1, 2, 32], "float32");
+    using rank3Q = ones([1, 1, 32], "float32");
+    using narrowQ = ones([1, 1, 1, 16], "float32");
+    using narrowK = ones([1, 1, 1, 16], "float32");
+    using narrowState = zeros([1, 1, 2, 16], "float32");
+    using twoKeyHeadQ = ones([1, 1, 2, 32], "float32");
+    using twoKeyHeadK = ones([1, 1, 2, 32], "float32");
+    using moreValueHeads = ones([1, 1, 3, 2], "float32");
+    using moreValueG = ones([1, 1, 3], "float32");
+    using moreValueBeta = ones([1, 1, 3], "float32");
+    using moreValueState = zeros([1, 3, 2, 32], "float32");
+    using longerK = ones([1, 2, 1, 32], "float32");
+
+    expect(() => qwenGatedDeltaUpdate(rank3Q, k, v, g, beta, state)).toThrow("expected q rank 4");
+    expect(() => qwenGatedDeltaUpdate(narrowQ, narrowK, v, g, beta, narrowState)).toThrow(
+      "positive multiple of 32",
+    );
+    expect(() =>
+      qwenGatedDeltaUpdate(
+        twoKeyHeadQ,
+        twoKeyHeadK,
+        moreValueHeads,
+        moreValueG,
+        moreValueBeta,
+        moreValueState,
+      ),
+    ).toThrow("must be divisible");
+    expect(() => qwenGatedDeltaUpdate(q, longerK, v, g, beta, state)).toThrow(
+      "expected k sequence",
+    );
   });
 });
