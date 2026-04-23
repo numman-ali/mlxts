@@ -106,6 +106,33 @@ describe("OpenAI chat completions adapter", () => {
     });
   });
 
+  test("accepts developer messages and text content parts", () => {
+    const normalized = normalizeOpenAIChatCompletionRequest(
+      {
+        model: "qwen-local",
+        messages: [
+          { role: "developer", content: [{ type: "text", text: "Use concise answers." }] },
+          {
+            role: "user",
+            content: [
+              { type: "text", text: "Hello " },
+              { type: "text", text: "from parts." },
+            ],
+          },
+        ],
+      },
+      { id: "chat-test" },
+    );
+
+    expect(normalized.request.input).toEqual({
+      kind: "messages",
+      messages: [
+        { role: "system", content: "Use concise answers." },
+        { role: "user", content: "Hello from parts." },
+      ],
+    });
+  });
+
   test("rejects unsupported chat shapes explicitly", () => {
     expect(() =>
       normalizeOpenAIChatCompletionRequest(
@@ -149,6 +176,24 @@ describe("OpenAI chat completions adapter", () => {
         { id: "chat-test" },
       ),
     ).toThrow("content");
+    expect(() =>
+      normalizeOpenAIChatCompletionRequest(
+        {
+          model: "tiny",
+          messages: [{ role: "user", content: [{ type: "image_url", image_url: "file://x" }] }],
+        },
+        { id: "chat-test" },
+      ),
+    ).toThrow("image content parts");
+    expect(() =>
+      normalizeOpenAIChatCompletionRequest(
+        {
+          model: "tiny",
+          messages: [{ role: "user", content: [{ type: "text", text: 1 }] }],
+        },
+        { id: "chat-test" },
+      ),
+    ).toThrow('string "text"');
     expect(() =>
       normalizeOpenAIChatCompletionRequest(
         { model: "tiny", messages: [{ role: "assistant", tool_calls: {} }] },
@@ -518,7 +563,12 @@ describe("OpenAI chat completions adapter", () => {
 
   test("formats chat completion stream chunks and usage chunks", () => {
     const chat = normalizeOpenAIChatCompletionRequest(
-      { model: "tiny", messages: [{ role: "user", content: "hi" }], stream: true },
+      {
+        model: "tiny",
+        messages: [{ role: "user", content: "hi" }],
+        stream: true,
+        stream_options: { include_usage: true },
+      },
       { id: "chat-test" },
     );
 
@@ -540,6 +590,7 @@ describe("OpenAI chat completions adapter", () => {
           finish_reason: null,
         },
       ],
+      usage: null,
     });
 
     expect(
@@ -578,6 +629,7 @@ describe("OpenAI chat completions adapter", () => {
           finish_reason: "tool_calls",
         },
       ],
+      usage: null,
     });
 
     expect(

@@ -137,6 +137,11 @@ describe("server streaming helpers", () => {
     expect(payloads[0]?.choices[0]?.delta?.role).toBe("assistant");
     expect(visibleContent).toBe("Hello ");
     expect(reasoning).toBe("plan more");
+    expect(
+      payloads
+        .filter((payload) => payload.choices.length > 0)
+        .every((payload) => payload.usage === null),
+    ).toBe(true);
     expect(payloads.at(-1)).toMatchObject({ choices: [], usage: null });
     expect(payloads.at(-2)?.choices[0]?.finish_reason).toBe("stop");
     expect(text).toContain("data: [DONE]");

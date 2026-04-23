@@ -234,16 +234,18 @@ export function createOpenAIChatCompletionReasoningStream(): {
 }
 
 export function formatOpenAIChatCompletionStreamChunk(
-  chat: { model: string },
+  chat: { model: string; streamOptions?: { includeUsage: boolean } },
   delta: OpenAIChatCompletionStreamDelta,
   options: {
     id: string;
     created: number;
     includeRole?: boolean;
+    includeUsage?: boolean;
     finishReason?: NormalizedFinishReason | "tool_calls" | null;
   },
 ): OpenAIChatCompletionChunk {
   const reason = options.finishReason;
+  const includeUsage = options.includeUsage ?? chat.streamOptions?.includeUsage ?? false;
   return {
     id: options.id,
     object: "chat.completion.chunk",
@@ -263,6 +265,7 @@ export function formatOpenAIChatCompletionStreamChunk(
         finish_reason: reason === undefined || reason === null ? null : finishReason(reason),
       },
     ],
+    ...(includeUsage ? { usage: null } : {}),
   };
 }
 

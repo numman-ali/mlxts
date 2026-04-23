@@ -120,17 +120,58 @@ function optionalInteger(
   );
 }
 
-function optionalStringContent(record: Record<string, unknown>, key: string): string {
+function textContentPart(value: unknown): string {
+  if (!isRecord(value)) {
+    throw new ServeError(
+      'OpenAI chat completions: "content" array entries must be content part objects.',
+      { param: "messages" },
+    );
+  }
+  if (value.type === "text") {
+    if (typeof value.text !== "string") {
+      throw new ServeError(
+        'OpenAI chat completions: text content parts require a string "text" field.',
+        { param: "messages" },
+      );
+    }
+    return value.text;
+  }
+  if (value.type === "image_url") {
+    throw new ServeError(
+      "OpenAI chat completions: image content parts are not supported by this endpoint yet.",
+      { param: "messages" },
+    );
+  }
+  throw new ServeError(
+    'OpenAI chat completions: only text content parts are supported in "messages" today.',
+    { param: "messages" },
+  );
+}
+
+function optionalMessageContent(record: Record<string, unknown>, key: string): string {
   const value = record[key];
   if (value === undefined || value === null) {
     return "";
   }
   if (typeof value !== "string") {
-    throw new ServeError(`OpenAI chat completions: "${key}" must be a string or null.`, {
-      param: key,
-    });
+    if (Array.isArray(value)) {
+      return value.map(textContentPart).join("");
+    }
+    throw new ServeError(
+      `OpenAI chat completions: "${key}" must be a string, null, or an array of text parts.`,
+      {
+        param: key,
+      },
+    );
   }
   return value;
+}
+
+function roleContent(value: Record<string, unknown>, role: "system" | "user"): ChatMessage {
+  return {
+    role,
+    content: optionalMessageContent(value, "content"),
+  };
 }
 
 function toolCall(value: unknown): ChatToolCall {
@@ -171,7 +212,7 @@ function assistantMessage(value: Record<string, unknown>): ChatMessage {
   }
   return {
     role: "assistant",
-    content: optionalStringContent(value, "content"),
+    content: optionalMessageContent(value, "content"),
     ...(typeof value.reasoning_content === "string"
       ? { reasoning_content: value.reasoning_content }
       : {}),
@@ -182,7 +223,7 @@ function assistantMessage(value: Record<string, unknown>): ChatMessage {
 function toolMessage(value: Record<string, unknown>): ChatMessage {
   return {
     role: "tool",
-    content: optionalStringContent(value, "content"),
+    content: optionalMessageContent(value, "content"),
     ...(typeof value.name === "string" ? { name: value.name } : {}),
     ...(typeof value.tool_call_id === "string" ? { tool_call_id: value.tool_call_id } : {}),
   };
@@ -198,14 +239,16 @@ function chatMessage(value: unknown): ChatMessage {
   switch (value.role) {
     case "system":
     case "user":
-      return { role: value.role, content: optionalStringContent(value, "content") };
+      return roleContent(value, value.role);
+    case "developer":
+      return roleContent(value, "system");
     case "assistant":
       return assistantMessage(value);
     case "tool":
       return toolMessage(value);
     default:
       throw new ServeError(
-        'OpenAI chat completions: message role must be "system", "user", "assistant", or "tool".',
+        'OpenAI chat completions: message role must be "system", "developer", "user", "assistant", or "tool".',
         { param: "messages" },
       );
   }
