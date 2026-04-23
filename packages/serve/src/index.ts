@@ -74,6 +74,17 @@ export {
   type ServedModelInfo,
 } from "./protocols/openai-models";
 export {
+  formatOpenAIResponse,
+  type NormalizedOpenAIResponse,
+  normalizeOpenAIResponseRequest,
+  type OpenAIResponseMessageItem,
+  type OpenAIResponseObject,
+  type OpenAIResponseOutputItem,
+  type OpenAIResponseOutputText,
+  type OpenAIResponseReasoningItem,
+  type OpenAIResponseUsage,
+} from "./protocols/openai-responses";
+export {
   createRequestLimitGenerationEngine,
   type RequestLimitGenerationEngineOptions,
 } from "./request-limits";

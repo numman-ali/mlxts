@@ -241,6 +241,78 @@ describe("serve fetch handler", () => {
     expect(body.usage).toEqual({ prompt_tokens: 4, completion_tokens: 2, total_tokens: 6 });
   });
 
+  test("routes OpenAI responses through message input", async () => {
+    const events: ServeEvent[] = [];
+    const seen: NormalizedGenerationRequest[] = [];
+    const engine: GenerationEngine = {
+      generate(normalized) {
+        seen.push(normalized);
+        return {
+          text: `response:${normalized.input.kind}`,
+          reasoningContent: "Reason briefly.",
+          finishReason: "stop",
+          usage: { promptTokens: 5, completionTokens: 3, totalTokens: 8 },
+        };
+      },
+    };
+    const fetch = createFetchHandler({
+      engine,
+      idGenerator: () => "resp-test",
+      now: () => new Date(123_000),
+      onEvent: (event) => events.push(event),
+    });
+
+    const response = await fetch(
+      request("/v1/responses", {
+        model: "tiny",
+        instructions: "Be concise.",
+        input: "Hello",
+        max_output_tokens: 4,
+        temperature: 0,
+      }),
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(seen[0]).toMatchObject({
+      id: "resp-test",
+      model: "tiny",
+      input: {
+        kind: "messages",
+        messages: [
+          { role: "system", content: "Be concise." },
+          { role: "user", content: "Hello" },
+        ],
+      },
+      sampling: { maxTokens: 4, temperature: 0 },
+      protocol: "openai.responses",
+    });
+    expect(body.object).toBe("response");
+    expect(body.output_text).toBe("response:messages");
+    expect(body.output[0]).toMatchObject({
+      type: "reasoning",
+      content: [{ type: "reasoning_text", text: "Reason briefly." }],
+    });
+    expect(body.output[1]).toMatchObject({
+      type: "message",
+      role: "assistant",
+      content: [{ type: "output_text", text: "response:messages", annotations: [] }],
+    });
+    expect(body.usage).toMatchObject({
+      input_tokens: 5,
+      output_tokens: 3,
+      total_tokens: 8,
+    });
+    expect(
+      events.filter((event) => event.type.startsWith("generation_")).map((event) => event.type),
+    ).toEqual(["generation_start", "generation_complete"]);
+    expect(events.find((event) => event.type === "generation_start")).toMatchObject({
+      model: "tiny",
+      protocol: "openai.responses",
+      maxTokens: 4,
+    });
+  });
+
   test("streams OpenAI chat completions as SSE chunks with reasoning separation", async () => {
     const engine: GenerationEngine = {
       generate() {
@@ -313,6 +385,17 @@ describe("serve fetch handler", () => {
 
     expect(chatResponse.status).toBe(400);
     expect(chatBody.error.param).toBe("n");
+
+    const responseResponse = await fetch(
+      request("/v1/responses", {
+        model: "tiny",
+        input: [{ role: "user", content: "Hello" }],
+      }),
+    );
+    const responseBody = await responseResponse.json();
+
+    expect(responseResponse.status).toBe(400);
+    expect(responseBody.error.param).toBe("input");
   });
 
   test("emits generation errors with normalized request context", async () => {
@@ -569,6 +652,13 @@ describe("serve fetch handler", () => {
         stream: true,
       }),
     );
+    const responseStream = await fetch(
+      request("/v1/responses", {
+        model: "tiny",
+        input: "Hello",
+        stream: true,
+      }),
+    );
     const notFound = await fetch(new Request("http://localhost/v1/chat/completions"));
 
     expect(missingStream.status).toBe(400);
@@ -577,6 +667,8 @@ describe("serve fetch handler", () => {
     expect((await multiPrompt.json()).error.param).toBe("prompt");
     expect(missingChatStream.status).toBe(400);
     expect((await missingChatStream.json()).error.code).toBe("stream_not_supported");
+    expect(responseStream.status).toBe(400);
+    expect((await responseStream.json()).error.param).toBe("stream");
     expect(notFound.status).toBe(404);
   });
 

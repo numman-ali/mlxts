@@ -27,6 +27,7 @@ import {
   emitServeEvent,
   serveErrorDetails,
 } from "./server-events";
+import { openAIResponseResponse } from "./server-responses";
 import {
   closeStreamEvents,
   sseHeaders,
@@ -62,6 +63,10 @@ type CompletionRequests = ReturnType<typeof normalizeOpenAICompletionRequest>["r
 
 function defaultId(): string {
   return `cmpl-${crypto.randomUUID()}`;
+}
+
+function defaultResponseId(): string {
+  return `resp-${crypto.randomUUID()}`;
 }
 
 function unixSeconds(date: Date): number {
@@ -384,6 +389,23 @@ async function chatCompletionResponse(
   }
 }
 
+function modelResponse(pathname: string, options: ServeAppOptions): Response | null {
+  if (pathname === "/v1/models") {
+    const created = unixSeconds(options.now?.() ?? new Date());
+    return jsonResponse(formatOpenAIModelsResponse(options.models ?? [], { created }));
+  }
+
+  if (pathname.startsWith("/v1/models/")) {
+    const modelId = parseOpenAIModelIdPath(pathname);
+    const created = unixSeconds(options.now?.() ?? new Date());
+    return jsonResponse(
+      formatOpenAIModelResponse(servedModelById(options.models ?? [], modelId), { created }),
+    );
+  }
+
+  return null;
+}
+
 async function openAIRouteResponse(
   request: Request,
   options: ServeAppOptions,
@@ -391,17 +413,11 @@ async function openAIRouteResponse(
 ): Promise<Response | null> {
   authorize(request, options.apiKey);
 
-  if (request.method === "GET" && pathname === "/v1/models") {
-    const created = unixSeconds(options.now?.() ?? new Date());
-    return jsonResponse(formatOpenAIModelsResponse(options.models ?? [], { created }));
-  }
-
-  if (request.method === "GET" && pathname.startsWith("/v1/models/")) {
-    const modelId = parseOpenAIModelIdPath(pathname);
-    const created = unixSeconds(options.now?.() ?? new Date());
-    return jsonResponse(
-      formatOpenAIModelResponse(servedModelById(options.models ?? [], modelId), { created }),
-    );
+  if (request.method === "GET") {
+    const response = modelResponse(pathname, options);
+    if (response !== null) {
+      return response;
+    }
   }
 
   if (request.method === "POST" && pathname === "/v1/completions") {
@@ -410,6 +426,12 @@ async function openAIRouteResponse(
 
   if (request.method === "POST" && pathname === "/v1/chat/completions") {
     return await chatCompletionResponse(request, options);
+  }
+
+  if (request.method === "POST" && pathname === "/v1/responses") {
+    const id = options.idGenerator?.() ?? defaultResponseId();
+    const created = unixSeconds(options.now?.() ?? new Date());
+    return await openAIResponseResponse(await readJson(request), options, { id, created });
   }
 
   return null;

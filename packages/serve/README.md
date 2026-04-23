@@ -30,8 +30,8 @@ mlxts-serve \
   --local-files-only
 ```
 
-The server exposes `/health`, `/v1/models`, `/v1/completions`, and
-`/v1/chat/completions`:
+The server exposes `/health`, `/v1/models`, `/v1/completions`,
+`/v1/chat/completions`, and `/v1/responses`:
 
 ```bash
 curl -s http://127.0.0.1:8000/v1/completions \
@@ -82,6 +82,15 @@ OpenAI-compatible `delta.tool_calls` chunks with `finish_reason: "tool_calls"`.
 `/v1/completions` and `/v1/chat/completions` both support SSE streaming when the
 served engine supports it, and chat streaming keeps reasoning in
 `reasoning_content` deltas instead of leaking raw `<think>` tags.
+
+`/v1/responses` starts with a deliberately narrow text-only subset of OpenAI's
+Responses API. It accepts string `input`, optional `instructions`,
+`max_output_tokens`, model-native sampling fields, `seed`, `metadata`, and
+non-persistent `store: false`; it returns a `response` object with `output`,
+`output_text`, usage, and reasoning items when the model result includes
+reasoning content. Stateful continuation, background jobs, tools, files/images,
+streaming, prompt templates, truncation, and non-text output formats are rejected
+explicitly until those semantics are implemented for real.
 
 ## Programmatic Serving
 
@@ -158,11 +167,11 @@ release the endpoint and model resources.
 
 ## Engine Primitives
 
-The package starts with the OpenAI completions and chat completions APIs, but the internal shape is
-protocol-neutral: wire requests normalize into one `NormalizedGenerationRequest`
-before they reach a generation engine. Anthropic Messages and OpenAI Responses
-should be added as protocol adapters over the same core path, not as copied
-serving stacks.
+The package starts with the OpenAI completions, chat completions, and narrow
+Responses APIs, but the internal shape is protocol-neutral: wire requests
+normalize into one `NormalizedGenerationRequest` before they reach a generation
+engine. Anthropic Messages and broader OpenAI Responses capabilities should be
+added as protocol adapters over the same core path, not as copied serving stacks.
 
 ```ts
 import {
