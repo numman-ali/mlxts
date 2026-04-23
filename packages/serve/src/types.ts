@@ -143,6 +143,15 @@ export type ServeEvent =
       totalTokens?: number;
       durationMs: number;
       memory?: GenerationMemoryUsage;
+    }
+  | {
+      type: "generation_error";
+      id: string;
+      protocol: GenerationProtocol;
+      model: string;
+      code: string;
+      message: string;
+      durationMs: number;
     };
 
 export type GenerationEngine = {

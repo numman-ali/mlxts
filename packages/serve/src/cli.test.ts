@@ -325,6 +325,19 @@ describe("serve CLI args", () => {
       }),
     ).toBe("[generation] cmpl-test eos prompt_tokens=12 tokens=47 total_tokens=59 in 1.2s");
     expect(
+      formatServeEvent({
+        type: "generation_error",
+        id: "cmpl-test",
+        protocol: "openai.chat_completions",
+        model: "qwen-local",
+        code: "model_not_found",
+        message: 'Model "missing" is not served by this endpoint.',
+        durationMs: 321,
+      }),
+    ).toBe(
+      '[generation:error] cmpl-test openai.chat_completions model=qwen-local model_not_found: Model "missing" is not served by this endpoint. in 321.0ms',
+    );
+    expect(
       shouldLogServeEvent(
         { type: "request_start", method: "POST", path: "/v1/chat/completions" },
         false,
@@ -340,6 +353,20 @@ describe("serve CLI args", () => {
           batchSize: 2,
           maxTokens: 64,
           maxTokensByRequest: [64, 64],
+        },
+        false,
+      ),
+    ).toBe(true);
+    expect(
+      shouldLogServeEvent(
+        {
+          type: "generation_error",
+          id: "cmpl-test",
+          protocol: "openai.chat_completions",
+          model: "qwen-local",
+          code: "internal_error",
+          message: "boom",
+          durationMs: 1,
         },
         false,
       ),

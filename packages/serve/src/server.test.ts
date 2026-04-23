@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
+import { ServeError } from "./errors";
 import { createFetchHandler, startServeServer } from "./server";
 import type { GenerationEngine, NormalizedGenerationRequest, ServeEvent } from "./types";
 
@@ -295,7 +296,55 @@ describe("serve fetch handler", () => {
     expect(chatBody.error.param).toBe("n");
   });
 
+  test("emits generation errors with normalized request context", async () => {
+    const events: ServeEvent[] = [];
+    const fetch = createFetchHandler({
+      engine: {
+        generate(normalized) {
+          throw new ServeError(`Model "${normalized.model}" is not served by this endpoint.`, {
+            code: "model_not_found",
+            param: "model",
+            status: 404,
+          });
+        },
+      },
+      idGenerator: () => "chat-error",
+      onEvent: (event) => events.push(event),
+    });
+
+    const response = await fetch(
+      request("/v1/chat/completions", {
+        model: "missing-local",
+        messages: [{ role: "user", content: "Hello" }],
+      }),
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(404);
+    expect(body.error.code).toBe("model_not_found");
+    expect(events.filter((event) => event.type.startsWith("generation_"))).toMatchObject([
+      {
+        type: "generation_start",
+        id: "chat-error",
+        model: "missing-local",
+        protocol: "openai.chat_completions",
+      },
+      {
+        type: "generation_error",
+        id: "chat-error",
+        model: "missing-local",
+        protocol: "openai.chat_completions",
+        code: "model_not_found",
+      },
+    ]);
+    expect(events.find((event) => event.type === "request_error")).toMatchObject({
+      code: "model_not_found",
+      status: 404,
+    });
+  });
+
   test("returns OpenAI-shaped server errors for malformed batch engine results", async () => {
+    const events: ServeEvent[] = [];
     const fetch = createFetchHandler({
       engine: {
         generate() {
@@ -305,6 +354,8 @@ describe("serve fetch handler", () => {
           return [];
         },
       },
+      idGenerator: () => "cmpl-batch",
+      onEvent: (event) => events.push(event),
     });
 
     const response = await fetch(
@@ -317,6 +368,9 @@ describe("serve fetch handler", () => {
 
     expect(response.status).toBe(500);
     expect(body.error.code).toBe("invalid_engine_result");
+    expect(
+      events.filter((event) => event.type === "generation_error").map((event) => event.id),
+    ).toEqual(["cmpl-batch-0", "cmpl-batch-1"]);
   });
 
   test("streams OpenAI completions as SSE chunks", async () => {

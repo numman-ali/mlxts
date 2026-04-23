@@ -4,7 +4,6 @@
  */
 
 import { jsonResponse, openAIErrorResponse, ServeError } from "./errors";
-import { readGenerationMemoryUsage } from "./memory-telemetry";
 import {
   formatOpenAIChatCompletionResponse,
   normalizeOpenAIChatCompletionRequest,
@@ -19,6 +18,15 @@ import {
   type ServedModelInfo,
 } from "./protocols/openai-models";
 import {
+  emitGenerationComplete,
+  emitGenerationError,
+  emitGenerationStart,
+  emitRequestComplete,
+  emitRequestError,
+  emitServeEvent,
+  serveErrorDetails,
+} from "./server-events";
+import {
   closeStreamEvents,
   sseHeaders,
   writeChatStreamEvents,
@@ -26,7 +34,7 @@ import {
 } from "./server-streaming";
 import type {
   GenerationEngine,
-  NormalizedGenerationRequest,
+  GenerationStreamEvent,
   NormalizedGenerationResult,
   ServeEvent,
 } from "./types";
@@ -49,96 +57,14 @@ type ServerRequestControls = {
   timeout(request: Request, seconds: number): void;
 };
 
+type CompletionRequests = ReturnType<typeof normalizeOpenAICompletionRequest>["requests"];
+
 function defaultId(): string {
   return `cmpl-${crypto.randomUUID()}`;
 }
 
 function unixSeconds(date: Date): number {
   return Math.floor(date.getTime() / 1000);
-}
-
-function emit(options: ServeAppOptions, event: ServeEvent): void {
-  options.onEvent?.(event);
-}
-
-function emitRequestComplete(
-  options: ServeAppOptions,
-  request: Request,
-  status: number,
-  startedAt: number,
-): void {
-  const url = new URL(request.url);
-  emit(options, {
-    type: "request_complete",
-    method: request.method,
-    path: url.pathname,
-    status,
-    durationMs: performance.now() - startedAt,
-  });
-}
-
-function emitRequestError(
-  options: ServeAppOptions,
-  request: Request,
-  details: { message: string; code: string; status: number },
-  startedAt: number,
-): void {
-  const url = new URL(request.url);
-  emit(options, {
-    type: "request_error",
-    method: request.method,
-    path: url.pathname,
-    message: details.message,
-    code: details.code,
-    status: details.status,
-    durationMs: performance.now() - startedAt,
-  });
-}
-
-function serveErrorDetails(error: unknown): { message: string; code: string; status: number } {
-  if (error instanceof ServeError) {
-    return { message: error.message, code: error.code, status: error.status };
-  }
-  return {
-    message: error instanceof Error ? error.message : String(error),
-    code: "internal_error",
-    status: 500,
-  };
-}
-
-function emitGenerationStart(options: ServeAppOptions, request: NormalizedGenerationRequest): void {
-  emit(options, {
-    type: "generation_start",
-    id: request.id,
-    protocol: request.protocol,
-    model: request.model,
-    inputKind: request.input.kind,
-    maxTokens: request.sampling.maxTokens,
-  });
-}
-
-function emitGenerationComplete(
-  options: ServeAppOptions,
-  request: NormalizedGenerationRequest,
-  result: NormalizedGenerationResult,
-  durationMs: number,
-): void {
-  const completionTokens = result.usage?.completionTokens ?? result.tokenIds?.length;
-  const memory = readGenerationMemoryUsage();
-  emit(options, {
-    type: "generation_complete",
-    id: request.id,
-    protocol: request.protocol,
-    model: request.model,
-    finishReason: result.finishReason,
-    ...(result.usage?.promptTokens === undefined
-      ? {}
-      : { promptTokens: result.usage.promptTokens }),
-    ...(completionTokens === undefined ? {} : { completionTokens }),
-    ...(result.usage?.totalTokens === undefined ? {} : { totalTokens: result.usage.totalTokens }),
-    durationMs,
-    ...(memory === undefined ? {} : { memory }),
-  });
 }
 
 function isStreamingResponse(response: Response): boolean {
@@ -181,42 +107,97 @@ function servedModelById(models: readonly ServedModelInfo[], id: string): Served
   return model;
 }
 
-async function generateBatch(
+function assertBatchResultCount(
+  results: readonly NormalizedGenerationResult[],
+  requests: CompletionRequests,
+): void {
+  if (results.length !== requests.length) {
+    throw new ServeError("Generation engine returned the wrong number of batch results.", {
+      code: "invalid_engine_result",
+      status: 500,
+    });
+  }
+}
+
+function emitBatchGenerationErrors(
   options: ServeAppOptions,
-  requests: ReturnType<typeof normalizeOpenAICompletionRequest>["requests"],
+  requests: CompletionRequests,
+  error: unknown,
+  startedAt: number,
+): void {
+  const durationMs = performance.now() - startedAt;
+  for (const normalized of requests) {
+    emitGenerationError(options, normalized, error, durationMs);
+  }
+}
+
+function emitBatchGenerationComplete(
+  options: ServeAppOptions,
+  requests: CompletionRequests,
+  results: readonly NormalizedGenerationResult[],
+  durationMs: number,
+): void {
+  for (let index = 0; index < requests.length; index += 1) {
+    const normalized = requests[index];
+    const result = results[index];
+    if (normalized !== undefined && result !== undefined) {
+      emitGenerationComplete(options, normalized, result, durationMs);
+    }
+  }
+}
+
+async function generateWithBatchEngine(
+  options: ServeAppOptions,
+  requests: CompletionRequests,
 ): Promise<NormalizedGenerationResult[]> {
-  if (requests.length > 1 && options.engine.generateBatch !== undefined) {
-    const startedAt = performance.now();
-    for (const normalized of requests) {
-      emitGenerationStart(options, normalized);
-    }
-    const results = await options.engine.generateBatch(requests);
-    if (results.length !== requests.length) {
-      throw new ServeError("Generation engine returned the wrong number of batch results.", {
-        code: "invalid_engine_result",
-        status: 500,
-      });
-    }
-    const durationMs = performance.now() - startedAt;
-    for (let index = 0; index < requests.length; index += 1) {
-      const normalized = requests[index];
-      const result = results[index];
-      if (normalized !== undefined && result !== undefined) {
-        emitGenerationComplete(options, normalized, result, durationMs);
-      }
-    }
-    return [...results];
+  const generateBatch = options.engine.generateBatch;
+  if (generateBatch === undefined) {
+    throw new Error("generateWithBatchEngine requires an engine batch function.");
   }
 
+  const startedAt = performance.now();
+  for (const normalized of requests) {
+    emitGenerationStart(options, normalized);
+  }
+  try {
+    const results = await generateBatch(requests);
+    assertBatchResultCount(results, requests);
+    emitBatchGenerationComplete(options, requests, results, performance.now() - startedAt);
+    return [...results];
+  } catch (error) {
+    emitBatchGenerationErrors(options, requests, error, startedAt);
+    throw error;
+  }
+}
+
+async function generateSequentially(
+  options: ServeAppOptions,
+  requests: CompletionRequests,
+): Promise<NormalizedGenerationResult[]> {
   const results: NormalizedGenerationResult[] = [];
   for (const normalized of requests) {
     const startedAt = performance.now();
     emitGenerationStart(options, normalized);
-    const result = await options.engine.generate(normalized);
-    emitGenerationComplete(options, normalized, result, performance.now() - startedAt);
-    results.push(result);
+    try {
+      const result = await options.engine.generate(normalized);
+      emitGenerationComplete(options, normalized, result, performance.now() - startedAt);
+      results.push(result);
+    } catch (error) {
+      emitGenerationError(options, normalized, error, performance.now() - startedAt);
+      throw error;
+    }
   }
   return results;
+}
+
+async function generateBatch(
+  options: ServeAppOptions,
+  requests: CompletionRequests,
+): Promise<NormalizedGenerationResult[]> {
+  if (requests.length > 1 && options.engine.generateBatch !== undefined) {
+    return await generateWithBatchEngine(options, requests);
+  }
+  return await generateSequentially(options, requests);
 }
 
 async function completionResponse(request: Request, options: ServeAppOptions): Promise<Response> {
@@ -245,7 +226,13 @@ async function completionResponse(request: Request, options: ServeAppOptions): P
     }
     const startedAt = performance.now();
     emitGenerationStart(options, normalized);
-    const stream = await options.engine.stream(normalized);
+    let stream: AsyncIterable<GenerationStreamEvent>;
+    try {
+      stream = await options.engine.stream(normalized);
+    } catch (error) {
+      emitGenerationError(options, normalized, error, performance.now() - startedAt);
+      throw error;
+    }
     const streamAbort = new AbortController();
     const iterator = stream[Symbol.asyncIterator]();
     let cancelled = false;
@@ -283,6 +270,7 @@ async function completionResponse(request: Request, options: ServeAppOptions): P
               }
             },
             (error: unknown) => {
+              emitGenerationError(options, normalized, error, performance.now() - startedAt);
               emitRequestError(options, request, serveErrorDetails(error), startedAt);
               if (!cancelled) {
                 controller.error(error);
@@ -321,7 +309,13 @@ async function chatCompletionResponse(
 
     const startedAt = performance.now();
     emitGenerationStart(options, chat.request);
-    const stream = await options.engine.stream(chat.request);
+    let stream: AsyncIterable<GenerationStreamEvent>;
+    try {
+      stream = await options.engine.stream(chat.request);
+    } catch (error) {
+      emitGenerationError(options, chat.request, error, performance.now() - startedAt);
+      throw error;
+    }
     const streamAbort = new AbortController();
     const iterator = stream[Symbol.asyncIterator]();
     let cancelled = false;
@@ -359,6 +353,7 @@ async function chatCompletionResponse(
               }
             },
             (error: unknown) => {
+              emitGenerationError(options, chat.request, error, performance.now() - startedAt);
               emitRequestError(options, request, serveErrorDetails(error), startedAt);
               if (!cancelled) {
                 controller.error(error);
@@ -378,9 +373,14 @@ async function chatCompletionResponse(
 
   const startedAt = performance.now();
   emitGenerationStart(options, chat.request);
-  const result = await options.engine.generate(chat.request);
-  emitGenerationComplete(options, chat.request, result, performance.now() - startedAt);
-  return jsonResponse(formatOpenAIChatCompletionResponse(chat, result, { id, created }));
+  try {
+    const result = await options.engine.generate(chat.request);
+    emitGenerationComplete(options, chat.request, result, performance.now() - startedAt);
+    return jsonResponse(formatOpenAIChatCompletionResponse(chat, result, { id, created }));
+  } catch (error) {
+    emitGenerationError(options, chat.request, error, performance.now() - startedAt);
+    throw error;
+  }
 }
 
 async function openAIRouteResponse(
@@ -421,7 +421,7 @@ export function createFetchHandler(
   return async (request, server) => {
     const url = new URL(request.url);
     const startedAt = performance.now();
-    emit(options, { type: "request_start", method: request.method, path: url.pathname });
+    emitServeEvent(options, { type: "request_start", method: request.method, path: url.pathname });
     if (request.method === "GET" && url.pathname === "/health") {
       const response = jsonResponse({ status: "ok" });
       emitRequestComplete(options, request, response.status, startedAt);

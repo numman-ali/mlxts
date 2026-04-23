@@ -136,6 +136,8 @@ export function formatServeEvent(event: ServeEvent): string {
       return `[batch] ${event.mode} model=${event.model} size=${event.batchSize} max_tokens=${event.maxTokens} per_request=${event.maxTokensByRequest.join(",")} ids=${event.ids.join(",")} started`;
     case "generation_complete":
       return `[generation] ${event.id} ${event.finishReason}${event.promptTokens === undefined ? "" : ` prompt_tokens=${event.promptTokens}`} tokens=${event.completionTokens ?? "?"}${event.totalTokens === undefined ? "" : ` total_tokens=${event.totalTokens}`} in ${formatDuration(event.durationMs)}${formatMemoryUsage(event.memory)}`;
+    case "generation_error":
+      return `[generation:error] ${event.id} ${event.protocol} model=${event.model} ${event.code}: ${event.message} in ${formatDuration(event.durationMs)}`;
   }
 }
 
@@ -145,6 +147,7 @@ export function shouldLogServeEvent(event: ServeEvent, verbose: boolean): boolea
     case "generation_progress":
     case "generation_batch_start":
     case "generation_complete":
+    case "generation_error":
     case "request_error":
       return true;
     case "request_start":
