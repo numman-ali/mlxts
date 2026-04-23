@@ -31,13 +31,21 @@ curl -s http://127.0.0.1:8000/v1/completions \
   }'
 ```
 
-Use `--api-key <key>` when binding outside localhost, and
-`--max-generated-tokens <n>` to reject unsafe generation lengths before they
-reach the model.
+Use `--api-key <key>` when binding outside localhost, `--max-generated-tokens <n>`
+to reject unsafe generation lengths before they reach the model, and
+`--max-batch-size <n>` plus `--batch-window-ms <n>` to control the built-in
+admission micro-batching queue for concurrent requests against one model
+instance.
 
 Generation start, completion, and errors are logged by default so native
 generation failures leave a useful last known stage in the terminal. Use
 `--verbose` while debugging to add request start/completion logs.
+
+The first-class model server wraps one loaded model in a small single-flight
+admission queue. Nearby non-streaming requests can coalesce into one
+micro-batch; engines without native `generateBatch()` support still benefit from
+serialized request admission instead of overlapping local generations on the
+same model instance.
 
 When `temperature`, `top_p`, or `top_k` are omitted, serving leaves them unset so
 `@mlxts/transformers` can apply the checkpoint's `generation_config.json`.
@@ -56,6 +64,8 @@ const server = await serveModel({
   modelId: "qwen-local",
   port: 8000,
   maxGeneratedTokens: 2048,
+  maxBatchSize: 16,
+  batchWindowMs: 2,
 });
 
 console.log(server.endpoint);

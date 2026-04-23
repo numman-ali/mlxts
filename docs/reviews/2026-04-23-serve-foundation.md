@@ -23,6 +23,10 @@ execution stays out of the serving protocol layer.
 Micro-batching coalesces nearby non-streaming requests into `generateBatch()`
 calls when the underlying engine supports them. It is not continuous token-level
 batching.
+The model-server surface now wraps single-model serving in that same admission
+queue by default and exposes `maxBatchSize` / `batchWindowMs` through both the
+package API and CLI. The queue is single-flight, so concurrent requests do not
+launch overlapping inner generations against one loaded model instance.
 
 The operator-facing CLIs now show useful state by default: serving logs
 generation start/completion/error events without `--verbose`, and the agent CLI
@@ -75,6 +79,8 @@ pattern and the package adds no new native lifetime boundary.
 `packages/serve/src/model-server.ts` owns model lifetime only for models loaded
 through `serveModel()`. `serveLoadedModel()` treats caller-provided models as
 borrowed unless `disposeModelOnStop` is set, and server shutdown is idempotent.
+The admission queue stages request objects and promises only; it does not own
+model tensors or cache tensors itself.
 
 `packages/agent/src/*` is host-side chat-loop orchestration, OpenAI chat request
 formatting, read-only local file tools, and tool-call parsing. It does not own
@@ -90,6 +96,7 @@ temporary native key resources.
 Validated with:
 
 - `bun test packages/serve/src`
+- `bun test packages/serve/src/batching-engine.test.ts packages/serve/src/model-server.test.ts packages/serve/src/cli.test.ts`
 - `bun test packages/agent/src`
 - `bun test packages/transformers/src/chat-template.test.ts packages/transformers/src/interaction-profile.test.ts`
 - `bun test packages/serve/src/cli.test.ts packages/agent/src/cli.test.ts packages/agent/src/loop.test.ts packages/agent/src/chat-model.test.ts packages/serve/src/protocols/openai-chat-completions.test.ts packages/serve/src/protocols/openai-completions.test.ts packages/serve/src/transformers-engine.test.ts packages/transformers/src/interaction-profile.test.ts packages/transformers/src/infrastructure/sampling/index.test.ts`
@@ -135,6 +142,9 @@ streaming as an async event interface even though the first transformers engine
 adapter still wraps the current synchronous generation helper. The four-agent
 example verified that concurrent requests can route through one endpoint and
 coalesce by model behind the micro-batching wrapper.
+The follow-up batching hardening also verifies the single-flight guarantee for
+fallback sequential engines by forcing `maxBatchSize=1` and confirming queued
+requests never run more than one inner generation at a time.
 
 The package-owned model server verifies the load-and-serve operator path without
 running a heavy model during validation: it exercises argument parsing, help
@@ -199,6 +209,9 @@ protocol-neutral.
 - Admission micro-batching is not continuous batching. A production engine still
   needs a decode scheduler, cache-aware request admission, cancellation, and
   per-token batching under the same `GenerationEngine` contract.
+- The first-class server now exposes admission batching controls, but real
+  multi-sequence MLX decode batching still belongs in a deeper batch-aware
+  generation engine rather than in the lightweight queue wrapper.
 - The request-limit wrapper currently caps generated tokens only. Full context
   window validation should add prompt-token and total-token limits once the
   serving layer has a clean model-context source of truth.

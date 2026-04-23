@@ -78,17 +78,9 @@ export function createMicroBatchingGenerationEngine(
   const batchWindowMs = nonNegativeInteger(options.batchWindowMs ?? 1, "batchWindowMs");
   const pending: PendingGeneration[] = [];
   let flushScheduled = false;
+  let flushInFlight = false;
 
-  async function flush(): Promise<void> {
-    flushScheduled = false;
-    const batch = pending.splice(0, maxBatchSize);
-    if (pending.length > 0) {
-      scheduleFlush();
-    }
-    if (batch.length === 0) {
-      return;
-    }
-
+  async function settleBatch(batch: readonly PendingGeneration[]): Promise<void> {
     try {
       const results = await runBatch(
         options.engine,
@@ -114,30 +106,56 @@ export function createMicroBatchingGenerationEngine(
     }
   }
 
+  async function flushLoop(): Promise<void> {
+    if (flushInFlight) {
+      return;
+    }
+    flushInFlight = true;
+    flushScheduled = false;
+    try {
+      while (pending.length > 0) {
+        const batch = pending.splice(0, maxBatchSize);
+        if (batch.length === 0) {
+          return;
+        }
+        await settleBatch(batch);
+      }
+    } finally {
+      flushInFlight = false;
+      if (pending.length > 0) {
+        scheduleFlush();
+      }
+    }
+  }
+
+  function startFlush(): void {
+    flushScheduled = false;
+    if (flushInFlight) {
+      return;
+    }
+    void flushLoop();
+  }
+
   function scheduleFlush(): void {
-    if (flushScheduled) {
+    if (flushScheduled || flushInFlight || pending.length === 0) {
       return;
     }
     flushScheduled = true;
     if (batchWindowMs === 0) {
-      queueMicrotask(() => {
-        void flush();
-      });
+      queueMicrotask(startFlush);
       return;
     }
-    setTimeout(() => {
-      void flush();
-    }, batchWindowMs);
+    setTimeout(startFlush, batchWindowMs);
   }
 
   function enqueue(request: NormalizedGenerationRequest): Promise<NormalizedGenerationResult> {
     return new Promise((resolve, reject) => {
       pending.push({ request, resolve, reject });
-      if (pending.length >= maxBatchSize) {
-        void flush();
-      } else {
-        scheduleFlush();
+      if (pending.length >= maxBatchSize && !flushInFlight) {
+        startFlush();
+        return;
       }
+      scheduleFlush();
     });
   }
 

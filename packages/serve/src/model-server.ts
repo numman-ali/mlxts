@@ -14,6 +14,7 @@ import {
   type PretrainedLoadProgressEvent,
   resolvePretrainedSource,
 } from "@mlxts/transformers";
+import { createMicroBatchingGenerationEngine } from "./batching-engine";
 import { createModelRouterGenerationEngine } from "./model-router";
 import { createRequestLimitGenerationEngine } from "./request-limits";
 import { startServeServer } from "./server";
@@ -24,6 +25,8 @@ export const DEFAULT_MODEL_SERVER_HOSTNAME = "127.0.0.1";
 export const DEFAULT_MODEL_SERVER_PORT = 8000;
 export const DEFAULT_MODEL_SERVER_MAX_GENERATED_TOKENS = 2048;
 export const DEFAULT_MODEL_SERVER_MAX_TOTAL_TOKENS = 4096;
+export const DEFAULT_MODEL_SERVER_MAX_BATCH_SIZE = 32;
+export const DEFAULT_MODEL_SERVER_BATCH_WINDOW_MS = 1;
 
 export type ServeLoadedModelOptions = {
   model: CausalLM;
@@ -34,6 +37,8 @@ export type ServeLoadedModelOptions = {
   port?: number;
   maxGeneratedTokens?: number;
   maxTotalTokens?: number;
+  maxBatchSize?: number;
+  batchWindowMs?: number;
   apiKey?: string;
   disposeModelOnStop?: boolean;
   onEvent?: (event: ServeEvent) => void;
@@ -46,6 +51,8 @@ export type ServeModelOptions = {
   port?: number;
   maxGeneratedTokens?: number;
   maxTotalTokens?: number;
+  maxBatchSize?: number;
+  batchWindowMs?: number;
   revision?: string;
   accessToken?: string;
   cacheDir?: string;
@@ -79,6 +86,8 @@ type ResolvedLoadedModelOptions = {
   port: number;
   maxGeneratedTokens: number;
   maxTotalTokens: number;
+  maxBatchSize: number;
+  batchWindowMs: number;
   apiKey?: string;
   disposeModelOnStop: boolean;
   onEvent?: (event: ServeEvent) => void;
@@ -91,6 +100,8 @@ type ResolvedServeModelOptions = {
   port: number;
   maxGeneratedTokens: number;
   maxTotalTokens: number;
+  maxBatchSize: number;
+  batchWindowMs: number;
   revision?: string;
   accessToken?: string;
   cacheDir?: string;
@@ -139,6 +150,14 @@ function resolveLoadedOptions(options: ServeLoadedModelOptions): ResolvedLoadedM
       "maxTotalTokens",
       options.maxTotalTokens ?? DEFAULT_MODEL_SERVER_MAX_TOTAL_TOKENS,
     ),
+    maxBatchSize: requirePositiveInteger(
+      "maxBatchSize",
+      options.maxBatchSize ?? DEFAULT_MODEL_SERVER_MAX_BATCH_SIZE,
+    ),
+    batchWindowMs: requireNonNegativeInteger(
+      "batchWindowMs",
+      options.batchWindowMs ?? DEFAULT_MODEL_SERVER_BATCH_WINDOW_MS,
+    ),
     ...(options.apiKey === undefined ? {} : { apiKey: options.apiKey }),
     disposeModelOnStop: options.disposeModelOnStop ?? false,
     ...(options.onEvent === undefined ? {} : { onEvent: options.onEvent }),
@@ -158,6 +177,14 @@ function resolveServeOptions(options: ServeModelOptions): ResolvedServeModelOpti
     maxTotalTokens: requirePositiveInteger(
       "maxTotalTokens",
       options.maxTotalTokens ?? DEFAULT_MODEL_SERVER_MAX_TOTAL_TOKENS,
+    ),
+    maxBatchSize: requirePositiveInteger(
+      "maxBatchSize",
+      options.maxBatchSize ?? DEFAULT_MODEL_SERVER_MAX_BATCH_SIZE,
+    ),
+    batchWindowMs: requireNonNegativeInteger(
+      "batchWindowMs",
+      options.batchWindowMs ?? DEFAULT_MODEL_SERVER_BATCH_WINDOW_MS,
     ),
     ...(options.revision === undefined ? {} : { revision: options.revision }),
     ...(options.accessToken === undefined ? {} : { accessToken: options.accessToken }),
@@ -186,7 +213,7 @@ function endpointFor(server: ReturnType<typeof Bun.serve>): string {
 /** Serve an already-loaded model and tokenizer through the OpenAI-compatible API. */
 export function serveLoadedModel(options: ServeLoadedModelOptions): RunningModelServer {
   const resolved = resolveLoadedOptions(options);
-  const modelEngine = createRequestLimitGenerationEngine({
+  const modelEngine = createMicroBatchingGenerationEngine({
     engine: createTransformersGenerationEngine({
       model: resolved.model,
       tokenizer: resolved.tokenizer,
@@ -196,11 +223,16 @@ export function serveLoadedModel(options: ServeLoadedModelOptions): RunningModel
         : { interactionProfile: resolved.interactionProfile }),
       ...(resolved.onEvent === undefined ? {} : { onEvent: resolved.onEvent }),
     }),
+    maxBatchSize: resolved.maxBatchSize,
+    batchWindowMs: resolved.batchWindowMs,
+  });
+  const limitedModelEngine = createRequestLimitGenerationEngine({
+    engine: modelEngine,
     maxGeneratedTokens: resolved.maxGeneratedTokens,
   });
   const engine = createModelRouterGenerationEngine({
     engines: {
-      [resolved.modelId]: modelEngine,
+      [resolved.modelId]: limitedModelEngine,
     },
   });
   const serverOptions = {
@@ -267,6 +299,8 @@ export async function serveModelWithRuntime(
       port: resolved.port,
       maxGeneratedTokens: resolved.maxGeneratedTokens,
       maxTotalTokens: resolved.maxTotalTokens,
+      maxBatchSize: resolved.maxBatchSize,
+      batchWindowMs: resolved.batchWindowMs,
       ...(resolved.apiKey === undefined ? {} : { apiKey: resolved.apiKey }),
       ...(resolved.onEvent === undefined ? {} : { onEvent: resolved.onEvent }),
       disposeModelOnStop: true,

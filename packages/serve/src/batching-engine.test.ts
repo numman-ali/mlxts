@@ -156,6 +156,38 @@ describe("micro-batching generation engine", () => {
     expect(results?.map((result) => result.text)).toEqual(["a", "b"]);
   });
 
+  test("keeps fallback sequential generation single-flight across queued batches", async () => {
+    let inFlight = 0;
+    let maxInFlight = 0;
+    const seen: string[] = [];
+    const inner: GenerationEngine = {
+      async generate(request) {
+        inFlight += 1;
+        maxInFlight = Math.max(maxInFlight, inFlight);
+        seen.push(`start:${request.id}`);
+        await Bun.sleep(5);
+        seen.push(`end:${request.id}`);
+        inFlight -= 1;
+        return { text: request.id, finishReason: "stop" };
+      },
+    };
+    const engine = createMicroBatchingGenerationEngine({
+      engine: inner,
+      batchWindowMs: 0,
+      maxBatchSize: 1,
+    });
+
+    const results = await Promise.all([
+      engine.generate(textRequest("a")),
+      engine.generate(textRequest("b")),
+      engine.generate(textRequest("c")),
+    ]);
+
+    expect(maxInFlight).toBe(1);
+    expect(seen).toEqual(["start:a", "end:a", "start:b", "end:b", "start:c", "end:c"]);
+    expect(results.map((result) => result.text)).toEqual(["a", "b", "c"]);
+  });
+
   test("rejects queued requests when the inner batch call fails or returns the wrong size", async () => {
     const failing = createMicroBatchingGenerationEngine({
       engine: {

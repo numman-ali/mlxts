@@ -2,7 +2,9 @@
 
 import type { PretrainedLoadProgressEvent } from "@mlxts/transformers";
 import {
+  DEFAULT_MODEL_SERVER_BATCH_WINDOW_MS,
   DEFAULT_MODEL_SERVER_HOSTNAME,
+  DEFAULT_MODEL_SERVER_MAX_BATCH_SIZE,
   DEFAULT_MODEL_SERVER_MAX_GENERATED_TOKENS,
   DEFAULT_MODEL_SERVER_MAX_TOTAL_TOKENS,
   DEFAULT_MODEL_SERVER_PORT,
@@ -19,6 +21,8 @@ export type ServeCliOptions = {
   port: number;
   maxGeneratedTokens: number;
   maxTotalTokens: number;
+  maxBatchSize: number;
+  batchWindowMs: number;
   revision?: string;
   accessToken?: string;
   cacheDir?: string;
@@ -53,6 +57,8 @@ type ParseState = {
   port: number;
   maxGeneratedTokens: number;
   maxTotalTokens: number;
+  maxBatchSize: number;
+  batchWindowMs: number;
   revision?: string;
   accessToken?: string;
   cacheDir?: string;
@@ -101,6 +107,8 @@ function createParseState(): ParseState {
     port: DEFAULT_MODEL_SERVER_PORT,
     maxGeneratedTokens: DEFAULT_MODEL_SERVER_MAX_GENERATED_TOKENS,
     maxTotalTokens: DEFAULT_MODEL_SERVER_MAX_TOTAL_TOKENS,
+    maxBatchSize: DEFAULT_MODEL_SERVER_MAX_BATCH_SIZE,
+    batchWindowMs: DEFAULT_MODEL_SERVER_BATCH_WINDOW_MS,
     localFilesOnly: false,
     verbose: false,
   };
@@ -145,6 +153,22 @@ function applyFlag(state: ParseState, argv: readonly string[], index: number): n
         argv[index + 1],
         (value) => value > 0,
         "a positive integer",
+      );
+      return index + 1;
+    case "--max-batch-size":
+      state.maxBatchSize = readIntegerFlag(
+        arg,
+        argv[index + 1],
+        (value) => value > 0,
+        "a positive integer",
+      );
+      return index + 1;
+    case "--batch-window-ms":
+      state.batchWindowMs = readIntegerFlag(
+        arg,
+        argv[index + 1],
+        (value) => value >= 0,
+        "a non-negative integer",
       );
       return index + 1;
     case "--revision":
@@ -208,6 +232,8 @@ function stateToOptions(state: ParseState): ServeCliParseResult {
       port: state.port,
       maxGeneratedTokens: state.maxGeneratedTokens,
       maxTotalTokens: state.maxTotalTokens,
+      maxBatchSize: state.maxBatchSize,
+      batchWindowMs: state.batchWindowMs,
       ...(state.revision === undefined ? {} : { revision: state.revision }),
       ...(state.accessToken === undefined ? {} : { accessToken: state.accessToken }),
       ...(state.cacheDir === undefined ? {} : { cacheDir: state.cacheDir }),
@@ -233,6 +259,8 @@ export function formatServeUsage(): string {
     `  --port <port>                Port to bind (default: ${DEFAULT_MODEL_SERVER_PORT})`,
     `  --max-generated-tokens <n>   Reject requests above this max_tokens cap (default: ${DEFAULT_MODEL_SERVER_MAX_GENERATED_TOKENS})`,
     `  --max-total-tokens <n>       Reject prompt_tokens + max_tokens above this cap (default: ${DEFAULT_MODEL_SERVER_MAX_TOTAL_TOKENS})`,
+    `  --max-batch-size <n>         Admission micro-batch size for one model instance (default: ${DEFAULT_MODEL_SERVER_MAX_BATCH_SIZE})`,
+    `  --batch-window-ms <n>        Wait window before flushing a micro-batch (default: ${DEFAULT_MODEL_SERVER_BATCH_WINDOW_MS})`,
     "  --revision <ref>             Hugging Face revision when source is a repo id",
     "  --access-token <token>       Hugging Face access token for private or gated repos",
     "  --cache-dir <path>           Hugging Face cache directory",
@@ -289,6 +317,7 @@ export function formatServeReady(endpoint: string, options: ServeCliOptions): st
     `Serving ${options.modelId} at ${endpoint}`,
     `Generated-token limit: ${options.maxGeneratedTokens}`,
     `Total-token limit: ${options.maxTotalTokens}`,
+    `Micro-batching: max_batch=${options.maxBatchSize} window_ms=${options.batchWindowMs}`,
     "",
     "Try:",
     [
@@ -381,6 +410,8 @@ function toServeModelOptions(options: ServeCliOptions): ServeModelOptions {
     port: options.port,
     maxGeneratedTokens: options.maxGeneratedTokens,
     maxTotalTokens: options.maxTotalTokens,
+    maxBatchSize: options.maxBatchSize,
+    batchWindowMs: options.batchWindowMs,
     ...(options.revision === undefined ? {} : { revision: options.revision }),
     ...(options.accessToken === undefined ? {} : { accessToken: options.accessToken }),
     ...(options.cacheDir === undefined ? {} : { cacheDir: options.cacheDir }),
