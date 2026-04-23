@@ -39,7 +39,8 @@ export type GenerationOptions = SamplerOptions & {
   prefillStepSize?: number;
 };
 
-export type BatchGenerationOptions = GenerationOptions & {
+export type BatchGenerationOptions = Omit<GenerationOptions, "maxTokens"> & {
+  maxTokens: number | readonly number[];
   padTokenId?: number;
 };
 
@@ -61,6 +62,20 @@ export type TokenGenerationEvent =
     }
   | {
       type: "done";
+      tokenIds: readonly number[];
+      finishReason: GenerationResult["finishReason"];
+    };
+
+export type BatchTokenGenerationEvent =
+  | {
+      type: "token";
+      batchIndex: number;
+      tokenId: number;
+      completionTokens: number;
+    }
+  | {
+      type: "done";
+      batchIndex: number;
       tokenIds: readonly number[];
       finishReason: GenerationResult["finishReason"];
     };

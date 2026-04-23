@@ -255,6 +255,42 @@ describe("serveLoadedModel", () => {
     }
   });
 
+  test("coalesces concurrent completions with mixed max_tokens", async () => {
+    const model = new GeneratingModel();
+    const running = serveLoadedModel({
+      model,
+      tokenizer: new GeneratingTokenizer(),
+      modelId: "tiny",
+      port: 0,
+      maxBatchSize: 2,
+      batchWindowMs: 5,
+      maxConcurrentRequests: 1,
+    });
+
+    try {
+      const request = (maxTokens: number) =>
+        fetch(`${running.endpoint}/v1/completions`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            model: "tiny",
+            prompt: "hi",
+            max_tokens: maxTokens,
+            temperature: 0,
+          }),
+        });
+      const [short, long] = await Promise.all([request(1), request(2)]);
+
+      expect(short.status).toBe(200);
+      expect(long.status).toBe(200);
+      expect(await short.json()).toMatchObject({ choices: [{ text: "c" }] });
+      expect(await long.json()).toMatchObject({ choices: [{ text: "cc" }] });
+      expect(model.batchForwardCount).toBeGreaterThan(0);
+    } finally {
+      running.stop();
+    }
+  });
+
   test("serves multiple loaded models behind one endpoint", async () => {
     const gemma = new GeneratingModel(1);
     const qwen = new GeneratingModel(2);

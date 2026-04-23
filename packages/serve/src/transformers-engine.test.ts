@@ -318,6 +318,7 @@ describe("transformers generation engine", () => {
       ids: ["one", "two"],
       batchSize: 2,
       maxTokens: 2,
+      maxTokensByRequest: [2, 2],
     });
     expect(model.batchForwardCount).toBeGreaterThan(0);
   });
@@ -343,7 +344,7 @@ describe("transformers generation engine", () => {
     expect(model.batchForwardCount).toBeGreaterThan(0);
   });
 
-  test("falls back when static batch requests have different generation lengths", async () => {
+  test("uses static batch generation for mixed generation lengths", async () => {
     using model = batchEligibleModel();
     const tokenizer = new TinyTokenizer();
     const engine = createTransformersGenerationEngine({ model, tokenizer });
@@ -358,7 +359,7 @@ describe("transformers generation engine", () => {
     ]);
 
     expect(results.map((result) => result.text)).toEqual(["c", "cc"]);
-    expect(model.batchForwardCount).toBe(0);
+    expect(model.batchForwardCount).toBeGreaterThan(0);
   });
 
   test("falls back for explicit or model-default sampled requests", async () => {

@@ -3,6 +3,7 @@ import { describe, expect, test } from "bun:test";
 import { array, type MxArray, type ParameterTree } from "@mlxts/core";
 import type { Tokenizer } from "@mlxts/tokenizers";
 import {
+  generateBatchTokens,
   generatePreparedTokenEvents,
   generateStep,
   generateTextStream,
@@ -13,6 +14,7 @@ import {
 import { KVCache } from "./infrastructure/cache";
 import type {
   BaseModelConfig,
+  BatchTokenGenerationEvent,
   CausalLM,
   DecoderCache,
   ForwardOptions,
@@ -34,11 +36,23 @@ class DeterministicGenerationModel implements CausalLM {
   lastForwardCache: DecoderCache | undefined;
   lastInputEmbeddings: MxArray | undefined;
   cacheCreates = 0;
+  readonly forwardBatchSizes: number[] = [];
 
-  forward(_inputIds: MxArray, options?: ForwardOptions): MxArray {
+  forward(inputIds: MxArray, options?: ForwardOptions): MxArray {
     this.lastForwardCache = options?.cache;
     this.lastInputEmbeddings = options?.inputEmbeddings;
-    return array([[[0.1, 0.2, 0.9]]], "float32");
+    const [batchSize, sequenceLength] = inputIds.shape;
+    if (batchSize === undefined || sequenceLength === undefined) {
+      throw new Error("DeterministicGenerationModel.forward expected rank-2 token ids.");
+    }
+    this.forwardBatchSizes.push(batchSize);
+    options?.cache?.advance(sequenceLength);
+    return array(
+      Array.from({ length: batchSize }, () =>
+        Array.from({ length: sequenceLength }, () => [0.1, 0.2, 0.9]),
+      ),
+      "float32",
+    );
   }
 
   createCache(): TransformerCache {
@@ -175,6 +189,59 @@ describe("generation", () => {
 
     expect(result.tokenIds).toHaveLength(3);
     expect(counts).toEqual([1, 2, 3]);
+  });
+
+  test("generateBatchTokens supports per-row lengths and token events", () => {
+    using model = new DeterministicGenerationModel();
+    const events: BatchTokenGenerationEvent[] = [];
+
+    const results = generateBatchTokens(
+      model,
+      [[0], [1], [2]],
+      {
+        maxTokens: [1, 3, 0],
+        temperature: 0,
+        eosTokenIds: [],
+      },
+      (event) => {
+        events.push(event);
+      },
+    );
+
+    expect(results).toEqual([
+      { tokenIds: [2], finishReason: "length" },
+      { tokenIds: [2, 2, 2], finishReason: "length" },
+      { tokenIds: [], finishReason: "length" },
+    ]);
+    expect(model.forwardBatchSizes[0]).toBe(2);
+    expect(events).toEqual([
+      { type: "done", batchIndex: 2, tokenIds: [], finishReason: "length" },
+      { type: "token", batchIndex: 0, tokenId: 2, completionTokens: 1 },
+      { type: "done", batchIndex: 0, tokenIds: [2], finishReason: "length" },
+      { type: "token", batchIndex: 1, tokenId: 2, completionTokens: 1 },
+      { type: "token", batchIndex: 1, tokenId: 2, completionTokens: 2 },
+      { type: "token", batchIndex: 1, tokenId: 2, completionTokens: 3 },
+      { type: "done", batchIndex: 1, tokenIds: [2, 2, 2], finishReason: "length" },
+    ]);
+  });
+
+  test("generateBatchTokens validates per-row length options", () => {
+    using model = new DeterministicGenerationModel();
+
+    expect(() =>
+      generateBatchTokens(model, [[0], [1]], {
+        maxTokens: [1],
+        temperature: 0,
+        eosTokenIds: [],
+      }),
+    ).toThrow("maxTokens length 1 must match batch size 2");
+    expect(() =>
+      generateBatchTokens(model, [[0]], {
+        maxTokens: [-1],
+        temperature: 0,
+        eosTokenIds: [],
+      }),
+    ).toThrow("maxTokens values must be non-negative integers");
   });
 
   test("generateTokenEvents streams token progress and a final summary", async () => {

@@ -242,8 +242,11 @@ describe("serve CLI args", () => {
         ids: ["cmpl-a", "cmpl-b"],
         batchSize: 2,
         maxTokens: 64,
+        maxTokensByRequest: [32, 64],
       }),
-    ).toBe("[batch] static model=qwen-local size=2 max_tokens=64 ids=cmpl-a,cmpl-b started");
+    ).toBe(
+      "[batch] static model=qwen-local size=2 max_tokens=64 per_request=32,64 ids=cmpl-a,cmpl-b started",
+    );
     expect(
       formatServeEvent({
         type: "generation_complete",
@@ -272,6 +275,7 @@ describe("serve CLI args", () => {
           ids: ["cmpl-a", "cmpl-b"],
           batchSize: 2,
           maxTokens: 64,
+          maxTokensByRequest: [64, 64],
         },
         false,
       ),

@@ -130,6 +130,7 @@ export type ServeEvent =
       ids: readonly string[];
       batchSize: number;
       maxTokens: number;
+      maxTokensByRequest: readonly number[];
     }
   | {
       type: "generation_complete";

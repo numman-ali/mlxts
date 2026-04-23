@@ -19,6 +19,7 @@ import {
 import { SamplerState } from "./infrastructure/sampling";
 import type {
   BatchGenerationOptions,
+  BatchTokenGenerationEvent,
   CausalLM,
   GenerationOptions,
   GenerationResult,
@@ -107,8 +108,9 @@ export function generateBatchTokens(
   model: CausalLM,
   promptTokenIdsBatch: readonly (readonly number[])[],
   options: BatchGenerationOptions,
+  onEvent?: (event: BatchTokenGenerationEvent) => void,
 ): GenerationResult[] {
-  return generateBatchTokensInternal(model, promptTokenIdsBatch, options);
+  return generateBatchTokensInternal(model, promptTokenIdsBatch, options, onEvent);
 }
 
 /** Stream generated token IDs from a prompt as an async iterable. */

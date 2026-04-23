@@ -383,7 +383,7 @@ export function formatServeEvent(event: ServeEvent): string {
     case "generation_progress":
       return `[generation] ${event.id} progress prompt_tokens=${event.promptTokens} completion_tokens=${event.completionTokens}/${event.maxTokens}${formatMemoryUsage(event.memory)}`;
     case "generation_batch_start":
-      return `[batch] ${event.mode} model=${event.model} size=${event.batchSize} max_tokens=${event.maxTokens} ids=${event.ids.join(",")} started`;
+      return `[batch] ${event.mode} model=${event.model} size=${event.batchSize} max_tokens=${event.maxTokens} per_request=${event.maxTokensByRequest.join(",")} ids=${event.ids.join(",")} started`;
     case "generation_complete":
       return `[generation] ${event.id} ${event.finishReason}${event.promptTokens === undefined ? "" : ` prompt_tokens=${event.promptTokens}`} tokens=${event.completionTokens ?? "?"}${event.totalTokens === undefined ? "" : ` total_tokens=${event.totalTokens}`} in ${formatDuration(event.durationMs)}${formatMemoryUsage(event.memory)}`;
   }

@@ -5,7 +5,12 @@
 
 import { argmax, array, type MxArray, mxEval, reshape, slice } from "@mlxts/core";
 
-import type { BatchGenerationOptions, CausalLM, GenerationResult } from "../../types";
+import type {
+  BatchGenerationOptions,
+  BatchTokenGenerationEvent,
+  CausalLM,
+  GenerationResult,
+} from "../../types";
 import { BatchKVCache } from "../cache";
 import { resolveGenerationOptions } from "./defaults";
 import { takeLastLogits } from "./helpers";
@@ -23,10 +28,36 @@ function validateBatchPrompts(promptTokenIdsBatch: readonly (readonly number[])[
   }
 }
 
-function validateBatchOptions(options: BatchGenerationOptions): void {
-  if (options.maxTokens < 0) {
-    throw new Error(`generateBatchTokens: maxTokens must be >= 0, got ${options.maxTokens}.`);
+function normalizeBatchMaxTokens(
+  value: BatchGenerationOptions["maxTokens"],
+  batchSize: number,
+): number[] {
+  if (typeof value === "number") {
+    if (!Number.isInteger(value) || value < 0) {
+      throw new Error(
+        `generateBatchTokens: maxTokens must be a non-negative integer, got ${value}.`,
+      );
+    }
+    return Array.from({ length: batchSize }, () => value);
   }
+
+  if (value.length !== batchSize) {
+    throw new Error(
+      `generateBatchTokens: maxTokens length ${value.length} must match batch size ${batchSize}.`,
+    );
+  }
+  for (const maxTokens of value) {
+    if (!Number.isInteger(maxTokens) || maxTokens < 0) {
+      throw new Error(
+        `generateBatchTokens: maxTokens values must be non-negative integers, got ${maxTokens}.`,
+      );
+    }
+  }
+
+  return [...value];
+}
+
+function validateBatchOptions(options: BatchGenerationOptions): void {
   if (options.cache !== undefined) {
     throw new Error(
       "generateBatchTokens: external caches are not supported for batched generation.",
@@ -111,6 +142,62 @@ function createInitialResults(batchSize: number): GenerationResult[] {
   }));
 }
 
+function activePromptIndices(maxTokens: readonly number[]): number[] {
+  const activeIndices: number[] = [];
+  for (let index = 0; index < maxTokens.length; index += 1) {
+    if ((maxTokens[index] ?? 0) > 0) {
+      activeIndices.push(index);
+    }
+  }
+  return activeIndices;
+}
+
+function activePrompts(
+  prompts: readonly (readonly number[])[],
+  activeIndices: readonly number[],
+): readonly (readonly number[])[] {
+  return activeIndices.map((index) => prompts[index] ?? []);
+}
+
+function maxTokensForPrompt(maxTokens: readonly number[], originalIndex: number): number {
+  const value = maxTokens[originalIndex];
+  if (value === undefined) {
+    throw new Error(`generateBatchTokens: missing max token limit for prompt ${originalIndex}.`);
+  }
+  return value;
+}
+
+function emitBatchDone(
+  onEvent: ((event: BatchTokenGenerationEvent) => void) | undefined,
+  batchIndex: number,
+  result: GenerationResult,
+): void {
+  onEvent?.({
+    type: "done",
+    batchIndex,
+    tokenIds: [...result.tokenIds],
+    finishReason: result.finishReason,
+  });
+}
+
+function emitZeroTokenDoneEvents(
+  results: readonly GenerationResult[],
+  maxTokens: readonly number[],
+  onEvent: ((event: BatchTokenGenerationEvent) => void) | undefined,
+): void {
+  if (onEvent === undefined) {
+    return;
+  }
+  for (let index = 0; index < maxTokens.length; index += 1) {
+    if ((maxTokens[index] ?? 0) === 0) {
+      const result = results[index];
+      if (result !== undefined) {
+        emitBatchDone(onEvent, index, result);
+      }
+    }
+  }
+}
+
 type BatchStepResult = {
   keepPositions: number[];
   nextActiveOriginalIndices: number[];
@@ -120,7 +207,9 @@ function recordGeneratedBatchTokens(
   activeOriginalIndices: readonly number[],
   tokenIds: readonly number[],
   eosTokenIds: ReadonlySet<number>,
+  maxTokens: readonly number[],
   results: GenerationResult[],
+  onEvent: ((event: BatchTokenGenerationEvent) => void) | undefined,
 ): BatchStepResult {
   const keepPositions: number[] = [];
   const nextActiveOriginalIndices: number[] = [];
@@ -137,10 +226,22 @@ function recordGeneratedBatchTokens(
       continue;
     }
     result.tokenIds.push(tokenId);
+    onEvent?.({
+      type: "token",
+      batchIndex: originalIndex,
+      tokenId,
+      completionTokens: result.tokenIds.length,
+    });
 
     const eosFinishReason = finishIfEos(eosTokenIds, tokenId);
     if (eosFinishReason !== null) {
       result.finishReason = eosFinishReason;
+      emitBatchDone(onEvent, originalIndex, result);
+      continue;
+    }
+
+    if (result.tokenIds.length >= maxTokensForPrompt(maxTokens, originalIndex)) {
+      emitBatchDone(onEvent, originalIndex, result);
       continue;
     }
 
@@ -156,27 +257,31 @@ function runGreedyBatchDecode(
   cache: BatchKVCache,
   initialToken: MxArray,
   initialActiveOriginalIndices: readonly number[],
-  maxTokens: number,
+  maxTokens: readonly number[],
   eosTokenIds: ReadonlySet<number>,
   results: GenerationResult[],
+  onEvent: ((event: BatchTokenGenerationEvent) => void) | undefined,
 ): void {
   let activeOriginalIndices = [...initialActiveOriginalIndices];
   let currentToken: MxArray | null = initialToken;
+  const maxDecodeSteps = Math.max(...maxTokens);
 
   try {
-    for (let step = 0; step < maxTokens; step += 1) {
+    for (let step = 0; step < maxDecodeSteps; step += 1) {
       const tokenIds = tokenTensorToIds(currentToken);
       const { keepPositions, nextActiveOriginalIndices } = recordGeneratedBatchTokens(
         activeOriginalIndices,
         tokenIds,
         eosTokenIds,
+        maxTokens,
         results,
+        onEvent,
       );
 
       currentToken.free();
       currentToken = null;
 
-      if (step + 1 >= maxTokens || keepPositions.length === 0) {
+      if (step + 1 >= maxDecodeSteps || keepPositions.length === 0) {
         break;
       }
 
@@ -198,33 +303,48 @@ export function generateBatchTokensInternal(
   model: CausalLM,
   promptTokenIdsBatch: readonly (readonly number[])[],
   options: BatchGenerationOptions,
+  onEvent?: (event: BatchTokenGenerationEvent) => void,
 ): GenerationResult[] {
   validateBatchPrompts(promptTokenIdsBatch);
+  const maxTokens = normalizeBatchMaxTokens(options.maxTokens, promptTokenIdsBatch.length);
   const padTokenId = options.padTokenId ?? 0;
-  const resolvedOptions = resolveGenerationOptions(model, undefined, options);
+  const resolvedBaseOptions = resolveGenerationOptions(model, undefined, {
+    ...options,
+    maxTokens: Math.max(...maxTokens),
+  });
+  const resolvedOptions: BatchGenerationOptions = {
+    ...resolvedBaseOptions,
+    maxTokens,
+    ...(options.padTokenId === undefined ? {} : { padTokenId: options.padTokenId }),
+  };
   validateBatchOptions(resolvedOptions);
 
   const results = createInitialResults(promptTokenIdsBatch.length);
-  if (resolvedOptions.maxTokens === 0) {
+  emitZeroTokenDoneEvents(results, maxTokens, onEvent);
+  const initialActiveOriginalIndices = activePromptIndices(maxTokens);
+  if (initialActiveOriginalIndices.length === 0) {
     return results;
   }
 
   const eosTokenIds = new Set(resolvedOptions.eosTokenIds ?? []);
-  const { padded, leftPadding } = leftPadPrompts(promptTokenIdsBatch, padTokenId);
+  const { padded, leftPadding } = leftPadPrompts(
+    activePrompts(promptTokenIdsBatch, initialActiveOriginalIndices),
+    padTokenId,
+  );
 
   return runGenerationScope(() => {
     using cache = new BatchKVCache(model.layerCount, leftPadding);
     using promptInput = array(padded, "int32");
     const initialToken = sampleNextBatchToken(model, promptInput, cache);
-    const activeOriginalIndices = padded.map((_, index) => index);
     runGreedyBatchDecode(
       model,
       cache,
       initialToken,
-      activeOriginalIndices,
-      resolvedOptions.maxTokens,
+      initialActiveOriginalIndices,
+      maxTokens,
       eosTokenIds,
       results,
+      onEvent,
     );
     return results;
   });

@@ -77,4 +77,25 @@ describe("LlamaLikeCausalLM batch cache", () => {
 
     expect(batched).toEqual(separate);
   });
+
+  test("static greedy batch generation supports per-prompt lengths", () => {
+    using model = new LlamaLikeCausalLM(testConfig());
+    const prompts = [[1, 2], [3], [4, 5]];
+    const maxTokensPerPrompt = [1, 3, 0];
+
+    const separate = prompts.map((prompt, index) =>
+      generateTokens(model, prompt, {
+        maxTokens: maxTokensPerPrompt[index] ?? 0,
+        temperature: 0,
+        eosTokenIds: [],
+      }),
+    );
+    const batched = generateBatchTokens(model, prompts, {
+      maxTokens: maxTokensPerPrompt,
+      temperature: 0,
+      eosTokenIds: [],
+    });
+
+    expect(batched).toEqual(separate);
+  });
 });

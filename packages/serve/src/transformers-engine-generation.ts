@@ -93,7 +93,6 @@ function batchGenerationOptions(
 
 function batchOptionsKey(options: BatchGenerationOptions): string {
   return JSON.stringify({
-    maxTokens: options.maxTokens,
     temperature: options.temperature,
     topP: options.topP,
     topK: options.topK,
@@ -236,19 +235,39 @@ function batchGroupPrompts(
   return group.map((index) => preparedAt(preparedRequests, index).tokenIds);
 }
 
+function batchGroupMaxTokens(
+  preparedRequests: readonly PreparedGenerationRequest[],
+  group: readonly number[],
+): readonly number[] {
+  return group.map((index) => preparedAt(preparedRequests, index).request.sampling.maxTokens);
+}
+
+function batchGroupOptions(
+  preparedRequests: readonly PreparedGenerationRequest[],
+  group: readonly number[],
+): BatchGenerationOptions {
+  const first = preparedAt(preparedRequests, firstGroupIndex(group));
+  return {
+    ...first.batchOptions,
+    maxTokens: batchGroupMaxTokens(preparedRequests, group),
+  };
+}
+
 function emitBatchStart(
   preparedRequests: readonly PreparedGenerationRequest[],
   group: readonly number[],
   options: TransformersGenerationEngineOptions,
 ): void {
   const first = preparedAt(preparedRequests, firstGroupIndex(group));
+  const maxTokensByRequest = batchGroupMaxTokens(preparedRequests, group);
   options.onEvent?.({
     type: "generation_batch_start",
     mode: "static",
     model: first.request.model,
     ids: group.map((index) => preparedAt(preparedRequests, index).request.id),
     batchSize: group.length,
-    maxTokens: first.request.sampling.maxTokens,
+    maxTokens: Math.max(...maxTokensByRequest),
+    maxTokensByRequest,
   });
   for (const index of group) {
     const prepared = preparedAt(preparedRequests, index);
@@ -295,7 +314,6 @@ function runBatchGroup(
   options: TransformersGenerationEngineOptions,
   results: (NormalizedGenerationResult | undefined)[],
 ): void {
-  const first = preparedAt(preparedRequests, firstGroupIndex(group));
   emitBatchStart(preparedRequests, group, options);
   assignBatchResults(
     preparedRequests,
@@ -303,7 +321,7 @@ function runBatchGroup(
     generateBatchTokens(
       options.model,
       batchGroupPrompts(preparedRequests, group),
-      first.batchOptions,
+      batchGroupOptions(preparedRequests, group),
     ),
     options,
     results,

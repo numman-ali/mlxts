@@ -47,13 +47,14 @@ The first-class model server wraps one loaded model in a small single-flight
 admission queue. Nearby non-streaming requests can coalesce into one
 micro-batch; the transformer-backed engine now turns eligible greedy full-cache
 LLaMA-like groups into real static `generateBatch()` calls. Qwen hybrid caches,
-Gemma 3/4 layer-pattern caches, sampled/model-native-default requests, mixed
-`max_tokens`, and streaming still fall back to the single-request path until a
-deeper scheduler owns those decode patterns. Engines without native
-`generateBatch()` support still benefit from serialized request admission instead
-of overlapping local generations on the same model instance. Streaming requests
-pass through the same concurrency gate, so one model-backed engine does not
-accept overlapping decode loops just because the HTTP surface is async.
+Gemma 3/4 layer-pattern caches, sampled/model-native-default requests, and
+streaming still fall back to the single-request path until a deeper scheduler
+owns those decode patterns. Mixed `max_tokens` are supported inside that static
+greedy batch path. Engines without native `generateBatch()` support still
+benefit from serialized request admission instead of overlapping local
+generations on the same model instance. Streaming requests pass through the same
+concurrency gate, so one model-backed engine does not accept overlapping decode
+loops just because the HTTP surface is async.
 
 When `temperature`, `top_p`, or `top_k` are omitted, serving leaves them unset so
 `@mlxts/transformers` can apply the checkpoint's `generation_config.json`.
@@ -201,9 +202,10 @@ the same contract.
 
 `createTransformersGenerationEngine()` supports a narrow native static batch
 path today: non-streaming greedy requests against full-cache LLaMA-like models
-with compatible generation options. Other model families or sampled/default
-sampled requests remain correct by falling back to single generation instead of
-pretending the serving layer can batch cache shapes it does not own yet.
+with compatible sampling options, including per-request `max_tokens`. Other
+model families or sampled/default sampled requests remain correct by falling
+back to single generation instead of pretending the serving layer can batch cache
+shapes it does not own yet.
 
 `createConcurrencyLimitGenerationEngine()` is the companion admission guard for
 single-model serving. It bounds the number of active model jobs across

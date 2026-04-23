@@ -67,6 +67,7 @@ export { FAMILY_REGISTRY, resolveFamily } from "./registry";
 export type {
   BaseModelConfig,
   BatchGenerationOptions,
+  BatchTokenGenerationEvent,
   CausalLM,
   DecoderCache,
   FamilyRegistration,
