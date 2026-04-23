@@ -185,6 +185,13 @@ export function log(a: MxArray, stream?: S): MxArray {
   });
 }
 
+/** Element-wise cosine. */
+export function cos(a: MxArray, stream?: S): MxArray {
+  return readResultArray("cos", (out) => {
+    checkStatus(ffi.mlx_cos(out, a._ctx, s(stream)), "cos");
+  });
+}
+
 /** Element-wise sigmoid. */
 export function sigmoid(a: MxArray, stream?: S): MxArray {
   return readResultArray("sigmoid", (out) => {
@@ -210,6 +217,13 @@ export function reciprocal(a: MxArray, stream?: S): MxArray {
 export function tanh(a: MxArray, stream?: S): MxArray {
   return readResultArray("tanh", (out) => {
     checkStatus(ffi.mlx_tanh(out, a._ctx, s(stream)), "tanh");
+  });
+}
+
+/** Element-wise sine. */
+export function sin(a: MxArray, stream?: S): MxArray {
+  return readResultArray("sin", (out) => {
+    checkStatus(ffi.mlx_sin(out, a._ctx, s(stream)), "sin");
   });
 }
 

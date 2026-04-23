@@ -89,6 +89,11 @@ describe("inspectSnapshot", () => {
     writeFileSync(join(directory, "config.json"), JSON.stringify({ model_type: "llama" }));
     writeFileSync(join(directory, "generation_config.json"), JSON.stringify({ temperature: 0.7 }));
     writeFileSync(join(directory, "processor_config.json"), JSON.stringify({ chat_template: "x" }));
+    writeFileSync(join(directory, "preprocessor_config.json"), JSON.stringify({ patch_size: 16 }));
+    writeFileSync(
+      join(directory, "video_preprocessor_config.json"),
+      JSON.stringify({ temporal_patch_size: 2 }),
+    );
     writeFileSync(join(directory, "tokenizer.json"), JSON.stringify({ version: "1.0" }));
     writeFileSync(join(directory, "tokenizer_config.json"), JSON.stringify({ bos_token: "<s>" }));
     writeFileSync(
@@ -107,12 +112,20 @@ describe("inspectSnapshot", () => {
     expect(inspection.model.configPath).toBe(join(directory, "config.json"));
     expect(inspection.model.generationConfigPath).toBe(join(directory, "generation_config.json"));
     expect(inspection.model.processorConfigPath).toBe(join(directory, "processor_config.json"));
+    expect(inspection.model.preprocessorConfigPath).toBe(
+      join(directory, "preprocessor_config.json"),
+    );
+    expect(inspection.model.videoPreprocessorConfigPath).toBe(
+      join(directory, "video_preprocessor_config.json"),
+    );
     expect(inspection.model.chatTemplatePath).toBe(join(directory, "chat_template.jinja"));
     expect(inspection.tokenizer.tokenizerJsonPath).toBe(join(directory, "tokenizer.json"));
     expect(inspection.tokenizer.tokenizerConfigPath).toBe(join(directory, "tokenizer_config.json"));
     expect(inspection.config.model_type).toBe("llama");
     expect(inspection.generationConfig.temperature).toBe(0.7);
     expect(inspection.processorConfig.chat_template).toBe("x");
+    expect(inspection.preprocessorConfig.patch_size).toBe(16);
+    expect(inspection.videoPreprocessorConfig.temporal_patch_size).toBe(2);
     expect(inspection.tokenizerConfig.bos_token).toBe("<s>");
     expect(inspection.specialTokensMap.eos_token).toEqual({ content: "</s>" });
   });

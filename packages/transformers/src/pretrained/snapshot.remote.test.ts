@@ -121,7 +121,15 @@ describe("resolvePretrainedSnapshot remote resolution", () => {
     const resolvedRevision = "fedcba0987654321fedcba0987654321fedcba09";
     const filePayloads = new Map<string, string | Uint8Array>([
       ["config.json", JSON.stringify({ model_type: "gemma4" })],
+      [
+        "preprocessor_config.json",
+        JSON.stringify({ size: { shortest_edge: 56, longest_edge: 112 } }),
+      ],
       ["tokenizer_config.json", JSON.stringify({ chat_template: "{{ messages[0]['content'] }}" })],
+      [
+        "video_preprocessor_config.json",
+        JSON.stringify({ video_processor_type: "ExampleVideoProcessor" }),
+      ],
       ["model.safetensors", new Uint8Array([1, 2, 3, 4])],
       ["original/consolidated.00.pth", new Uint8Array([9, 9, 9, 9])],
     ]);
@@ -144,7 +152,9 @@ describe("resolvePretrainedSnapshot remote resolution", () => {
       },
       listFiles: async function* () {
         yield { type: "file", path: "config.json", size: 24 };
+        yield { type: "file", path: "preprocessor_config.json", size: 56 };
         yield { type: "file", path: "tokenizer_config.json", size: 56 };
+        yield { type: "file", path: "video_preprocessor_config.json", size: 40 };
         yield { type: "file", path: "model.safetensors", size: 4 };
         yield { type: "file", path: "original/consolidated.00.pth", size: 4 };
       },
@@ -181,8 +191,15 @@ describe("resolvePretrainedSnapshot remote resolution", () => {
       join(homeDir, "custom-hf-cache", repoFolderName(repoId), "snapshots", resolvedRevision),
     );
     expect(existsSync(join(snapshot.directory, "tokenizer_config.json"))).toBe(true);
-    expect(inspectSnapshot(snapshot).tokenizer.tokenizerConfigPath).toBe(
+    const inspection = inspectSnapshot(snapshot);
+    expect(inspection.tokenizer.tokenizerConfigPath).toBe(
       join(snapshot.directory, "tokenizer_config.json"),
+    );
+    expect(inspection.model.preprocessorConfigPath).toBe(
+      join(snapshot.directory, "preprocessor_config.json"),
+    );
+    expect(inspection.model.videoPreprocessorConfigPath).toBe(
+      join(snapshot.directory, "video_preprocessor_config.json"),
     );
 
     const downloadStatuses = events
@@ -196,8 +213,12 @@ describe("resolvePretrainedSnapshot remote resolution", () => {
       "config.json:complete",
       "model.safetensors:start",
       "model.safetensors:complete",
+      "preprocessor_config.json:start",
+      "preprocessor_config.json:complete",
       "tokenizer_config.json:start",
       "tokenizer_config.json:complete",
+      "video_preprocessor_config.json:start",
+      "video_preprocessor_config.json:complete",
     ]);
     expect(existsSync(join(snapshot.directory, "original", "consolidated.00.pth"))).toBe(false);
 

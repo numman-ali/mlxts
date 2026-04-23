@@ -1,0 +1,37 @@
+name: Training Proof
+
+on:
+  workflow_dispatch:
+
+jobs:
+  training-proof:
+    runs-on:
+      - self-hosted
+      - macOS
+      - ARM64
+    env:
+      HF_TOKEN: ${{ secrets.HF_TOKEN }}
+      HUGGINGFACE_HUB_TOKEN: ${{ secrets.HUGGINGFACE_HUB_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Build native MLX runtime
+        run: bun run build:native
+
+      - name: Canonical training proof
+        run: bun run proof:training
+
+      - name: Upload training proof report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: training-proof-report
+          path: .tmp/training-proof/*-report.json
+          if-no-files-found: warn

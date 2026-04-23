@@ -1,4 +1,4 @@
-import { buildChatSupervisionExample } from "@mlxts/align";
+import { prepareChatSupervisionExamples } from "@mlxts/align";
 import {
   type ChatMessage,
   loadHuggingFaceRowsDataset,
@@ -91,24 +91,8 @@ export function prepareSupervisionExamples(
   maxSequenceLength: number,
 ): TokenSupervisionExample[] {
   const template = requireChatTemplate(profile);
-  const prepared: TokenSupervisionExample[] = [];
-
-  for (const messages of rawMessages) {
-    const example = buildChatSupervisionExample(tokenizer, template, messages);
-    if (example.inputIds.length > maxSequenceLength) {
-      continue;
-    }
-    prepared.push(example);
-    if (prepared.length === limit) {
-      break;
-    }
-  }
-
-  if (prepared.length < limit) {
-    throw new Error(
-      `lora-finetune: collected only ${prepared.length} supervision example(s); expected ${limit}.`,
-    );
-  }
-
-  return prepared;
+  return prepareChatSupervisionExamples(tokenizer, template, rawMessages, {
+    limit,
+    maxSequenceLength,
+  }).examples;
 }

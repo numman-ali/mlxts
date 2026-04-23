@@ -12,9 +12,14 @@ The repo is package-first now. The canonical product surface is the extracted
 - `@mlxts/train`
 - `@mlxts/data`
 - `@mlxts/tokenizers`
+- `@mlxts/transformers`
+- `@mlxts/lora`
+- `@mlxts/align`
+- `@mlxts/quantize`
 
-`packages/nanogpt` is still here, but only as a private GPT validation fixture
-used to prove the package stack works end to end while the ecosystem settles.
+`examples/nanogpt` is the committed in-repo nanoGPT example and regression
+surface. It proves the package stack works end to end, but it is an example,
+not a publishable package.
 
 ## Why this repo exists
 
@@ -39,7 +44,9 @@ packages/
   train/        Schedules, gradient utilities, checkpoints, loop helpers
   data/         Text loading and batching
   tokenizers/   Tokenizer implementations
-  nanogpt/      Private GPT validation fixture
+examples/
+  nanogpt/      Committed nanoGPT example and regression surface
+  qwen3_5-image/ Dedicated Qwen 3.5 / Qwen 3.6 multimodal image example
 docs/           Architecture, setup, standards, roadmap
 scripts/        Validation, packaging, and repo tooling
 ```
@@ -64,11 +71,21 @@ bun run validate
 The native build step only applies to `@mlxts/core`; the other packages build
 on top of that runtime surface.
 
-If you want to sanity-check the operator fixture after validation:
+If you want to sanity-check the nanoGPT example after validation:
 
 ```bash
-bun run run:nanogpt --help
-bun run acceptance:gpt-tiny
+cd examples/nanogpt && bun run manager --help
+cd examples/nanogpt && bun run acceptance:gpt-tiny
+```
+
+If you want to sanity-check the multimodal Qwen path on Apple Silicon, start
+with the dedicated image example and an MLX-converted checkpoint:
+
+```bash
+bun run examples/qwen3_5-image/index.ts mlx-community/Qwen3.6-27B-4bit \
+  --image ./.reference/transformers/tests/fixtures/tests_samples/COCO/000000039769.png \
+  --prompt "Describe this image." \
+  --greedy
 ```
 
 ## Package examples
@@ -107,10 +124,10 @@ packing checks for the public packages before any real release happens.
 
 ## What is intentionally deferred
 
-- moving nanoGPT into an in-repo `examples/` folder
-- a separate dedicated examples repo
+- a broader dedicated examples repo beyond the committed in-repo examples
 - real npm publishing
 - hosted API docs
-- Hugging Face Hub / transformer model loading
+- serving and deployment ergonomics beyond the current local/runtime surfaces
+- diffusion and broader generative-media families beyond the first multimodal transformer tranche
 
-Those come later in the roadmap once the core package ergonomics are finished.
+Those come later in the roadmap once the current package ergonomics are fully settled.

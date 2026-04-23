@@ -1,10 +1,12 @@
 import { describe, expect, test } from "bun:test";
 
 import {
+  DEFAULT_DPO_PROFILE,
   DEFAULT_PROOF_BATCH_SIZE,
   DEFAULT_PROOF_DATASET_SOURCE,
   DEFAULT_PROOF_EVAL_LIMIT,
   DEFAULT_PROOF_MODEL,
+  DEFAULT_PROOF_STAGES,
   DEFAULT_PROOF_STEPS,
   DEFAULT_PROOF_TRAIN_LIMIT,
   defaultQuantizedOutputDir,
@@ -40,6 +42,10 @@ describe("training proof helpers", () => {
       "2",
       "--steps",
       "3",
+      "--stages",
+      "dpo,sft",
+      "--dpo-profile",
+      "handbook",
       "--quantized-output",
       "/tmp/proof-4bit",
       "--report",
@@ -52,6 +58,8 @@ describe("training proof helpers", () => {
     expect(parsed.evalLimit).toBe(4);
     expect(parsed.batchSize).toBe(2);
     expect(parsed.steps).toBe(3);
+    expect(parsed.stages).toEqual(["dpo", "sft"]);
+    expect(parsed.dpoProfile).toBe("handbook");
     expect(parsed.quantizedOutputDir).toBe("/tmp/proof-4bit");
     expect(parsed.reportPath).toBe("/tmp/proof.json");
   });
@@ -64,6 +72,8 @@ describe("training proof helpers", () => {
     expect(parsed.evalLimit).toBe(DEFAULT_PROOF_EVAL_LIMIT);
     expect(parsed.batchSize).toBe(DEFAULT_PROOF_BATCH_SIZE);
     expect(parsed.steps).toBe(DEFAULT_PROOF_STEPS);
+    expect(parsed.stages).toEqual(DEFAULT_PROOF_STAGES);
+    expect(parsed.dpoProfile).toBe(DEFAULT_DPO_PROFILE);
   });
 
   test("builds a canonical small proof corpus", () => {

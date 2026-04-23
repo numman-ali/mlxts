@@ -98,33 +98,34 @@ That verifies the repo's local release-prep surface: `dist/` builds, TypeDoc gen
 Longer acceptance runs are separate on purpose:
 
 ```bash
-bun run acceptance:gpt-tiny
-bun run acceptance:gpt-small
+cd examples/nanogpt && bun run acceptance:gpt-tiny
+cd examples/nanogpt && bun run acceptance:gpt-small
 ```
 
 Before an overnight run, use the shorter runtime checks:
 
 ```bash
-bun run bench:memory
-bun run soak:gpt-tiny
-bun run soak:gpt-small
+cd examples/nanogpt && bun run bench:memory
+cd examples/nanogpt && bun run soak:gpt-tiny
+cd examples/nanogpt && bun run soak:gpt-small
 ```
 
 For overnight or laptop-safe long runs, use the detached supervisor:
 
 ```bash
-bun run run:nanogpt start --preset gpt-small --max-steps 5000
-bun run run:nanogpt status --name <run-id>
-bun run run:nanogpt watch --name <run-id> --interval 600
-bun run run:nanogpt stop --name <run-id>
-bun run run:nanogpt resume --from <run-id> --max-steps 10000
+cd examples/nanogpt && bun run manager start --preset gpt-small --max-steps 5000
+cd examples/nanogpt && bun run manager status --name <run-id>
+cd examples/nanogpt && bun run manager watch --name <run-id> --interval 600
+cd examples/nanogpt && bun run manager stop --name <run-id>
+cd examples/nanogpt && bun run manager resume --from <run-id> --max-steps 10000
 ```
 
 This supervised path is the canonical long-run surface. It writes a run-local directory under `.nanogpt-runs/` with structured events, status snapshots, stderr logs, and checkpoint directories.
 
-For now that operator surface still lives in `packages/nanogpt` because the
-current app is a temporary private validation fixture. The package location is
-transitional even though the operator behavior is still canonical.
+For now that operator surface lives in `examples/nanogpt` because the current
+app is the committed in-repo example and regression surface. The location is
+intentional even though the long-term reusable contracts still belong in
+`@mlxts/*`.
 
 Checkpoint kinds are explicit:
 

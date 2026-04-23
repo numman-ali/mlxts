@@ -1,5 +1,6 @@
 import {
   createStream,
+  getActiveMemoryBytes,
   getRecommendedWorkingSetBytes,
   setWiredLimitBytes,
   startMetalCapture,
@@ -14,6 +15,7 @@ const TRACE_DIR = "benchmarks/traces";
 const MLX_LM_DECODE_TOLERANCE_RATIO = 0.98;
 
 export type BenchmarkMode = "synthetic" | "parity";
+export type BenchmarkDecodeSchedule = "async" | "sync";
 
 export type BenchmarkTarget = {
   name: string;
@@ -50,6 +52,9 @@ export type BenchmarkOptions = {
   trials: number;
   prefillStepSize: number;
   metalTrace: boolean;
+  memorySampleInterval: number;
+  decodeSchedule: BenchmarkDecodeSchedule;
+  materializeCacheEachToken: boolean;
 };
 
 export type ParsedBenchmarkArgs = {
@@ -68,8 +73,27 @@ export type TrialMetrics = {
   promptTps: number;
   generationTps: number;
   peakMemoryGb: number;
+  activeMemoryStartGb: number;
+  activeMemoryEndGb: number;
+  activeMemoryDeltaGb: number;
+  activeMemoryMaxGb: number;
+  activeMemorySlopeMbPerToken: number;
   explicitEvalCountPerToken: number;
   totalTimeSeconds: number;
+};
+
+export type DecodeMemoryMetrics = Pick<
+  TrialMetrics,
+  | "activeMemoryStartGb"
+  | "activeMemoryEndGb"
+  | "activeMemoryDeltaGb"
+  | "activeMemoryMaxGb"
+  | "activeMemorySlopeMbPerToken"
+>;
+
+export type DecodeMemoryTracker = {
+  sample: () => void;
+  finish: (generationTokens: number) => DecodeMemoryMetrics;
 };
 
 type MutableBenchmarkOptions = {
@@ -79,6 +103,9 @@ type MutableBenchmarkOptions = {
   trials: number;
   prefillStepSize: number;
   metalTrace: boolean;
+  memorySampleInterval: number;
+  decodeSchedule: BenchmarkDecodeSchedule;
+  materializeCacheEachToken: boolean;
   captureMlxLmReference: boolean;
   enforceMlxLmDecodeBar: boolean;
   mlxLmPython?: string;
@@ -92,6 +119,9 @@ function defaultOptions(): MutableBenchmarkOptions {
     trials: 3,
     prefillStepSize: 2048,
     metalTrace: false,
+    memorySampleInterval: 64,
+    decodeSchedule: "async",
+    materializeCacheEachToken: false,
     captureMlxLmReference: true,
     enforceMlxLmDecodeBar: false,
     mlxLmPython: undefined,
@@ -125,6 +155,9 @@ function validateOptions(options: BenchmarkOptions): void {
   }
   if (!Number.isInteger(options.prefillStepSize) || options.prefillStepSize <= 0) {
     throw new Error("benchmark-generation: prefillStepSize must be a positive integer.");
+  }
+  if (!Number.isInteger(options.memorySampleInterval) || options.memorySampleInterval <= 0) {
+    throw new Error("benchmark-generation: memorySampleInterval must be a positive integer.");
   }
 }
 
@@ -217,6 +250,9 @@ function applyIntegerFlag(
     case "--prefill-step-size":
       mutable.prefillStepSize = parsed;
       return true;
+    case "--memory-sample-interval":
+      mutable.memorySampleInterval = parsed;
+      return true;
     default:
       return false;
   }
@@ -226,6 +262,12 @@ function applyBooleanFlag(mutable: MutableBenchmarkOptions, flag: string): boole
   switch (flag) {
     case "--metal-trace":
       mutable.metalTrace = true;
+      return true;
+    case "--sync-decode":
+      mutable.decodeSchedule = "sync";
+      return true;
+    case "--materialize-cache-each-token":
+      mutable.materializeCacheEachToken = true;
       return true;
     case "--capture-mlx-lm-reference":
       mutable.captureMlxLmReference = true;
@@ -300,6 +342,9 @@ export function parseBenchmarkArgs(argv: readonly string[]): ParsedBenchmarkArgs
     trials: mutable.trials,
     prefillStepSize: mutable.prefillStepSize,
     metalTrace: mutable.metalTrace,
+    memorySampleInterval: mutable.memorySampleInterval,
+    decodeSchedule: mutable.decodeSchedule,
+    materializeCacheEachToken: mutable.materializeCacheEachToken,
   };
   validateOptions(options);
   return {
@@ -437,8 +482,32 @@ export function mean(values: readonly number[]): number {
 
 export function printTrial(prefix: string, metrics: TrialMetrics): void {
   console.log(
-    `${prefix}prompt_tps=${metrics.promptTps.toFixed(3)}, generation_tps=${metrics.generationTps.toFixed(3)}, peak_memory=${metrics.peakMemoryGb.toFixed(3)}, evals_per_token=${metrics.explicitEvalCountPerToken.toFixed(2)}, total_time=${metrics.totalTimeSeconds.toFixed(3)}`,
+    `${prefix}prompt_tps=${metrics.promptTps.toFixed(3)}, generation_tps=${metrics.generationTps.toFixed(3)}, peak_memory=${metrics.peakMemoryGb.toFixed(3)}, active_start=${metrics.activeMemoryStartGb.toFixed(3)}, active_end=${metrics.activeMemoryEndGb.toFixed(3)}, active_delta=${metrics.activeMemoryDeltaGb.toFixed(3)}, active_max=${metrics.activeMemoryMaxGb.toFixed(3)}, active_slope_mb_per_token=${metrics.activeMemorySlopeMbPerToken.toFixed(2)}, evals_per_token=${metrics.explicitEvalCountPerToken.toFixed(2)}, total_time=${metrics.totalTimeSeconds.toFixed(3)}`,
   );
+}
+
+/** Track live allocator growth during steady-state decode without adding a new harness. */
+export function createDecodeMemoryTracker(): DecodeMemoryTracker {
+  const startBytes = getActiveMemoryBytes();
+  let maxBytes = startBytes;
+
+  return {
+    sample() {
+      maxBytes = Math.max(maxBytes, getActiveMemoryBytes());
+    },
+    finish(generationTokens: number) {
+      const endBytes = getActiveMemoryBytes();
+      maxBytes = Math.max(maxBytes, endBytes);
+      const deltaBytes = endBytes - startBytes;
+      return {
+        activeMemoryStartGb: startBytes / 1e9,
+        activeMemoryEndGb: endBytes / 1e9,
+        activeMemoryDeltaGb: deltaBytes / 1e9,
+        activeMemoryMaxGb: maxBytes / 1e9,
+        activeMemorySlopeMbPerToken: deltaBytes / 1e6 / Math.max(generationTokens, 1),
+      };
+    },
+  };
 }
 
 export function safeDecodedTokenLength(tokenizer: Tokenizer, tokenId: number): number {

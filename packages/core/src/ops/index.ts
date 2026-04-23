@@ -7,6 +7,7 @@ export type { Operand } from "./arithmetic";
 export {
   abs,
   add,
+  cos,
   divide,
   erf,
   exp,
@@ -19,6 +20,7 @@ export {
   power,
   reciprocal,
   sigmoid,
+  sin,
   sqrt,
   square,
   subtract,
@@ -33,7 +35,7 @@ export {
   notEqual,
   where,
 } from "./comparison";
-export { matmul } from "./linalg";
+export { conv1d, matmul } from "./linalg";
 export type { SoftmaxOptions } from "./reduction";
 export {
   argmax,
@@ -57,6 +59,7 @@ export {
   concatenate,
   expandDims,
   flatten,
+  maskedScatter,
   putAlongAxis,
   repeat,
   reshape,

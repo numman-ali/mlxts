@@ -22,7 +22,7 @@ export function prefillBenchmarkCache(
   cache: TransformerCache,
   prefillStepSize: number,
 ): number[] {
-  return prefillPromptCache(model, promptTokenIds, cache, prefillStepSize);
+  return prefillPromptCache(model, promptTokenIds, cache, prefillStepSize).tokenIds;
 }
 
 /** Greedy next-token prediction for the synthetic throughput benchmark. */

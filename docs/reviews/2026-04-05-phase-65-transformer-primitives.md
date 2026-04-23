@@ -55,7 +55,7 @@ Current evidence:
   safetensors coverage.
 - `cd packages/nn && bun test` passes with new RMSNorm, RoPE, GQA, SwiGLU, and
   llama-style integration coverage.
-- `cd packages/nanogpt && bun test` passes after the primitive-surface changes,
+- `cd examples/nanogpt && bun test` passes after the primitive-surface changes,
   including the operator and acceptance-mode regression tests.
 - `bun run validate` passes on the final Phase 6.5 tree.
 

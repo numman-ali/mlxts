@@ -172,6 +172,16 @@ export function putAlongAxis(
   });
 }
 
+/** Replace values where a boolean mask is true using a flat source array. */
+export function maskedScatter(a: MxArray, mask: MxArray, src: MxArray, stream?: S): MxArray {
+  return readResultArray("masked_scatter", (out) => {
+    checkStatus(
+      ffi.mlx_masked_scatter(out, a._ctx, mask._ctx, src._ctx, s(stream)),
+      "masked_scatter",
+    );
+  });
+}
+
 /** Select elements from an array along a specific axis. */
 export function takeAxis(a: MxArray, indices: MxArray, axis: number, stream?: S): MxArray {
   return readResultArray("take_axis", (out) => {

@@ -1,0 +1,372 @@
+import { describe, expect, test } from "bun:test";
+
+import { createFetchHandler, startServeServer } from "./server";
+import type { GenerationEngine, NormalizedGenerationRequest, ServeEvent } from "./types";
+
+function request(path: string, body: unknown): Request {
+  return new Request(`http://localhost${path}`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+  });
+}
+
+describe("serve fetch handler", () => {
+  test("responds to health checks", async () => {
+    const fetch = createFetchHandler({
+      engine: {
+        generate() {
+          return { text: "", finishReason: "stop" };
+        },
+      },
+    });
+
+    const response = await fetch(new Request("http://localhost/health"));
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ status: "ok" });
+  });
+
+  test("lists served models with OpenAI-compatible shape", async () => {
+    const fetch = createFetchHandler({
+      engine: {
+        generate() {
+          return { text: "", finishReason: "stop" };
+        },
+      },
+      models: [{ id: "tiny", ownedBy: "test-suite", created: 42 }],
+      now: () => new Date(123_000),
+    });
+
+    const response = await fetch(new Request("http://localhost/v1/models"));
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body).toEqual({
+      object: "list",
+      data: [{ id: "tiny", object: "model", created: 42, owned_by: "test-suite" }],
+    });
+  });
+
+  test("enforces optional bearer auth on OpenAI-compatible routes", async () => {
+    const fetch = createFetchHandler({
+      apiKey: "secret",
+      engine: {
+        generate() {
+          return { text: "ok", finishReason: "stop" };
+        },
+      },
+    });
+
+    const missing = await fetch(new Request("http://localhost/v1/models"));
+    const authorized = await fetch(
+      new Request("http://localhost/v1/models", {
+        headers: { authorization: "Bearer secret" },
+      }),
+    );
+    const health = await fetch(new Request("http://localhost/health"));
+
+    expect(missing.status).toBe(401);
+    expect((await missing.json()).error.code).toBe("invalid_api_key");
+    expect(authorized.status).toBe(200);
+    expect(health.status).toBe(200);
+  });
+
+  test("routes OpenAI completions through the normalized generation engine", async () => {
+    const events: ServeEvent[] = [];
+    const seen: NormalizedGenerationRequest[] = [];
+    const engine: GenerationEngine = {
+      generate(normalized) {
+        seen.push(normalized);
+        return {
+          text: `echo:${normalized.input.kind === "text" ? normalized.input.text : ""}`,
+          finishReason: "stop",
+          usage: { promptTokens: 1, completionTokens: 1, totalTokens: 2 },
+        };
+      },
+    };
+    const fetch = createFetchHandler({
+      engine,
+      idGenerator: () => "cmpl-test",
+      now: () => new Date(123_000),
+      onEvent: (event) => events.push(event),
+    });
+
+    const response = await fetch(
+      request("/v1/completions", {
+        model: "tiny",
+        prompt: "Hello",
+        max_tokens: 4,
+        temperature: 0,
+      }),
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(seen).toHaveLength(1);
+    expect(seen[0]).toMatchObject({
+      id: "cmpl-test",
+      model: "tiny",
+      input: { kind: "text", text: "Hello" },
+      sampling: { maxTokens: 4, temperature: 0 },
+      protocol: "openai.completions",
+    });
+    expect(body.choices[0].text).toBe("echo:Hello");
+    expect(body.usage).toEqual({ prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 });
+    expect(
+      events.filter((event) => event.type.startsWith("generation_")).map((event) => event.type),
+    ).toEqual(["generation_start", "generation_complete"]);
+    expect(events.find((event) => event.type === "generation_start")).toMatchObject({
+      model: "tiny",
+      protocol: "openai.completions",
+      maxTokens: 4,
+    });
+  });
+
+  test("uses batch generation for multi-prompt completion requests", async () => {
+    const events: ServeEvent[] = [];
+    const batchSizes: number[] = [];
+    const engine: GenerationEngine = {
+      generate() {
+        throw new Error("generate should not be used for multi-prompt requests");
+      },
+      generateBatch(requests) {
+        batchSizes.push(requests.length);
+        return requests.map((normalized) => ({
+          text: `batch:${normalized.input.kind === "text" ? normalized.input.text : ""}`,
+          finishReason: "stop",
+        }));
+      },
+    };
+    const fetch = createFetchHandler({
+      engine,
+      idGenerator: () => "cmpl-batch",
+      now: () => new Date(123_000),
+      onEvent: (event) => events.push(event),
+    });
+
+    const response = await fetch(
+      request("/v1/completions", {
+        model: "tiny",
+        prompt: ["A", "B"],
+        max_tokens: 1,
+      }),
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(batchSizes).toEqual([2]);
+    expect(body.choices.map((choice: { text: string }) => choice.text)).toEqual([
+      "batch:A",
+      "batch:B",
+    ]);
+    expect(
+      events.filter((event) => event.type === "generation_start").map((event) => event.id),
+    ).toEqual(["cmpl-batch-0", "cmpl-batch-1"]);
+    expect(
+      events.filter((event) => event.type === "generation_complete").map((event) => event.id),
+    ).toEqual(["cmpl-batch-0", "cmpl-batch-1"]);
+  });
+
+  test("routes OpenAI chat completions through message input", async () => {
+    const seen: NormalizedGenerationRequest[] = [];
+    const engine: GenerationEngine = {
+      generate(normalized) {
+        seen.push(normalized);
+        return {
+          text: `chat:${normalized.input.kind}`,
+          finishReason: "stop",
+          usage: { promptTokens: 4, completionTokens: 2, totalTokens: 6 },
+        };
+      },
+    };
+    const fetch = createFetchHandler({
+      engine,
+      idGenerator: () => "chat-test",
+      now: () => new Date(123_000),
+    });
+
+    const response = await fetch(
+      request("/v1/chat/completions", {
+        model: "tiny",
+        messages: [{ role: "user", content: "Hello" }],
+        max_tokens: 4,
+        temperature: 0,
+      }),
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(seen[0]).toMatchObject({
+      id: "chat-test",
+      model: "tiny",
+      input: { kind: "messages", messages: [{ role: "user", content: "Hello" }] },
+      sampling: { maxTokens: 4, temperature: 0 },
+      protocol: "openai.chat_completions",
+    });
+    expect(body.choices[0].message.content).toBe("chat:messages");
+    expect(body.usage).toEqual({ prompt_tokens: 4, completion_tokens: 2, total_tokens: 6 });
+  });
+
+  test("returns OpenAI-shaped errors for invalid completion requests", async () => {
+    const fetch = createFetchHandler({
+      engine: {
+        generate() {
+          return { text: "", finishReason: "stop" };
+        },
+      },
+    });
+
+    const response = await fetch(
+      request("/v1/completions", {
+        model: "tiny",
+        prompt: "Hello",
+        n: 2,
+      }),
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(400);
+    expect(body.error.param).toBe("n");
+  });
+
+  test("returns OpenAI-shaped server errors for malformed batch engine results", async () => {
+    const fetch = createFetchHandler({
+      engine: {
+        generate() {
+          throw new Error("generate should not be called");
+        },
+        generateBatch() {
+          return [];
+        },
+      },
+    });
+
+    const response = await fetch(
+      request("/v1/completions", {
+        model: "tiny",
+        prompt: ["A", "B"],
+      }),
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(500);
+    expect(body.error.code).toBe("invalid_engine_result");
+  });
+
+  test("streams OpenAI completions as SSE chunks", async () => {
+    const events: ServeEvent[] = [];
+    const engine: GenerationEngine = {
+      generate() {
+        return { text: "", finishReason: "stop" };
+      },
+      async *stream() {
+        yield { type: "text", text: "Hel" };
+        yield { type: "text", text: "lo" };
+        yield {
+          type: "done",
+          finishReason: "stop",
+          usage: { promptTokens: 1, completionTokens: 2, totalTokens: 3 },
+        };
+      },
+    };
+    const fetch = createFetchHandler({
+      engine,
+      idGenerator: () => "cmpl-stream",
+      now: () => new Date(123_000),
+      onEvent: (event) => events.push(event),
+    });
+
+    const response = await fetch(
+      request("/v1/completions", {
+        model: "tiny",
+        prompt: "Hello",
+        stream: true,
+        stream_options: { include_usage: true },
+      }),
+    );
+    const text = await response.text();
+
+    expect(response.headers.get("content-type")).toContain("text/event-stream");
+    expect(text).toContain('"text":"Hel"');
+    expect(text).toContain('"text":"lo"');
+    expect(text).toContain('"choices":[]');
+    expect(text).toContain('"prompt_tokens":1');
+    expect(text).toContain("data: [DONE]");
+    expect(
+      events.filter((event) => event.type.startsWith("generation_")).map((event) => event.type),
+    ).toEqual(["generation_start", "generation_complete"]);
+  });
+
+  test("rejects unsupported streaming shapes and unknown routes", async () => {
+    const fetch = createFetchHandler({
+      engine: {
+        generate() {
+          return { text: "", finishReason: "stop" };
+        },
+      },
+    });
+
+    const missingStream = await fetch(
+      request("/v1/completions", {
+        model: "tiny",
+        prompt: "Hello",
+        stream: true,
+      }),
+    );
+    const multiPrompt = await fetch(
+      request("/v1/completions", {
+        model: "tiny",
+        prompt: ["a", "b"],
+        stream: true,
+      }),
+    );
+    const notFound = await fetch(new Request("http://localhost/v1/chat/completions"));
+
+    expect(missingStream.status).toBe(400);
+    expect((await missingStream.json()).error.code).toBe("stream_not_supported");
+    expect(multiPrompt.status).toBe(400);
+    expect((await multiPrompt.json()).error.param).toBe("prompt");
+    expect(notFound.status).toBe(404);
+  });
+
+  test("rejects malformed JSON before it reaches the engine", async () => {
+    const fetch = createFetchHandler({
+      engine: {
+        generate() {
+          throw new Error("should not be called");
+        },
+      },
+    });
+
+    const response = await fetch(
+      new Request("http://localhost/v1/completions", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: "{",
+      }),
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(400);
+    expect(body.error.code).toBe("invalid_json");
+  });
+
+  test("starts a Bun server with the shared fetch handler", () => {
+    const server = startServeServer({
+      hostname: "127.0.0.1",
+      port: 0,
+      engine: {
+        generate() {
+          return { text: "", finishReason: "stop" };
+        },
+      },
+    });
+
+    try {
+      expect(server.port).toBeGreaterThan(0);
+    } finally {
+      server.stop(true);
+    }
+  });
+});

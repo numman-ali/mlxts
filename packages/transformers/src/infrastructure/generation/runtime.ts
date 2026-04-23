@@ -15,11 +15,14 @@ import {
 } from "@mlxts/core";
 import type {
   CausalLM,
+  ForwardOptions,
   GenerationOptions,
   GenerationResult,
+  PreparedPrompt,
   SamplerOptions,
   TransformerCache,
 } from "../../types";
+import { retainPromptInputEmbeddings, retainPromptPositionIds } from "../input-embeddings";
 import { SamplerState } from "../sampling";
 import { resolveGenerationOptions } from "./defaults";
 import {
@@ -31,18 +34,43 @@ import {
 
 const PERIODIC_CACHE_CLEAR_INTERVAL = 256;
 
+function createForwardOptions(
+  cache: TransformerCache | undefined,
+  inputEmbeddings: MxArray | undefined,
+  positionIds: MxArray | undefined,
+): ForwardOptions | undefined {
+  if (cache === undefined && inputEmbeddings === undefined && positionIds === undefined) {
+    return undefined;
+  }
+
+  const options: ForwardOptions = {};
+  if (cache !== undefined) {
+    options.cache = cache;
+  }
+  if (inputEmbeddings !== undefined) {
+    options.inputEmbeddings = inputEmbeddings;
+  }
+  if (positionIds !== undefined) {
+    options.positionIds = positionIds;
+  }
+  return options;
+}
+
 export function predictNextTokenWithState(
   model: CausalLM,
   tokenIds: readonly number[] | MxArray,
   cache: TransformerCache | undefined,
   samplerState: SamplerState,
   options: SamplerOptions,
+  inputEmbeddings?: MxArray,
+  positionIds?: MxArray,
 ): MxArray {
   const ids = inputTensor(tokenIds);
   const ownsInput = !(tokenIds instanceof MxArray);
+  const forwardOptions = createForwardOptions(cache, inputEmbeddings, positionIds);
 
   try {
-    using logits = model.forward(ids, cache === undefined ? undefined : { cache });
+    using logits = model.forward(ids, forwardOptions);
     using lastLogits = takeLastLogits(logits, "generateStep");
     return samplerState.sampleTokenTensor(lastLogits, options);
   } finally {
@@ -60,6 +88,7 @@ export function runGenerationScope<T>(fn: () => T): T {
     return withDefaultStream(generationStream, fn);
   } finally {
     synchronize(generationStream);
+    clearMemoryCache();
     setWiredLimitBytes(previousWiredLimit);
   }
 }
@@ -90,6 +119,13 @@ function scheduleAsyncCachedToken(
   return nextToken;
 }
 
+function takeCurrentToken(currentToken: MxArray | null): MxArray {
+  if (currentToken === null) {
+    throw new Error("generateTokens: current token was not initialized.");
+  }
+  return currentToken;
+}
+
 function takeScheduledAsyncToken(nextToken: MxArray | null): MxArray {
   if (nextToken === null) {
     throw new Error("generateTokens: async decode did not schedule the next token.");
@@ -100,6 +136,8 @@ function takeScheduledAsyncToken(nextToken: MxArray | null): MxArray {
 export function generateWithCache(
   model: CausalLM,
   promptTokenIds: readonly number[],
+  promptInputEmbeddings: MxArray | undefined,
+  promptPositionIds: MxArray | undefined,
   options: GenerationOptions,
   eosTokenIds: ReadonlySet<number>,
   prefillStepSize: number,
@@ -110,21 +148,46 @@ export function generateWithCache(
   using samplerState = new SamplerState(promptTokenIds, options);
   const initialPrompt =
     promptTokenIds.length > 1
-      ? prefillPromptCache(model, promptTokenIds, cache, prefillStepSize)
-      : [...promptTokenIds];
+      ? prefillPromptCache(
+          model,
+          promptTokenIds,
+          cache,
+          prefillStepSize,
+          promptInputEmbeddings,
+          promptPositionIds,
+        )
+      : {
+          tokenIds: [...promptTokenIds],
+          inputEmbeddings: retainPromptInputEmbeddings(
+            promptTokenIds,
+            promptInputEmbeddings,
+            "generateTokens",
+          ),
+          positionIds: retainPromptPositionIds(promptTokenIds, promptPositionIds, "generateTokens"),
+        };
   let finishReason: GenerationResult["finishReason"] = "length";
-  let currentToken = predictNextTokenWithState(model, initialPrompt, cache, samplerState, options);
+  let currentToken: MxArray | null = null;
   let nextToken: MxArray | null = null;
 
   try {
+    currentToken = predictNextTokenWithState(
+      model,
+      initialPrompt.tokenIds,
+      cache,
+      samplerState,
+      options,
+      initialPrompt.inputEmbeddings ?? undefined,
+      initialPrompt.positionIds ?? undefined,
+    );
     mxAsyncEval(currentToken);
 
     for (let index = 0; index < options.maxTokens; index += 1) {
+      const activeToken = takeCurrentToken(currentToken);
       if (index + 1 < options.maxTokens) {
-        nextToken = scheduleAsyncCachedToken(model, currentToken, cache, samplerState, options);
+        nextToken = scheduleAsyncCachedToken(model, activeToken, cache, samplerState, options);
       }
 
-      const tokenId = currentToken.item();
+      const tokenId = activeToken.item();
       generated.push(tokenId);
       onToken?.(tokenId, generated);
 
@@ -132,6 +195,7 @@ export function generateWithCache(
       if (eosFinishReason !== null) {
         finishReason = eosFinishReason;
         nextToken?.free();
+        nextToken = null;
         break;
       }
 
@@ -140,13 +204,15 @@ export function generateWithCache(
         break;
       }
 
-      currentToken.free();
+      activeToken.free();
       const scheduledToken = takeScheduledAsyncToken(nextToken);
       nextToken = null;
       currentToken = scheduledToken;
     }
   } finally {
-    currentToken.free();
+    initialPrompt.inputEmbeddings?.free();
+    initialPrompt.positionIds?.free();
+    currentToken?.free();
     nextToken?.free();
   }
 
@@ -156,6 +222,8 @@ export function generateWithCache(
 export function generateWithoutCache(
   model: CausalLM,
   promptTokenIds: readonly number[],
+  promptInputEmbeddings: MxArray | undefined,
+  promptPositionIds: MxArray | undefined,
   options: GenerationOptions,
   eosTokenIds: ReadonlySet<number>,
   generated: number[],
@@ -163,18 +231,32 @@ export function generateWithoutCache(
 ): GenerationResult {
   using samplerState = new SamplerState(promptTokenIds, options);
   const runningPrompt = [...promptTokenIds];
-  let finishReason: GenerationResult["finishReason"] = "length";
-  let currentToken = predictNextTokenWithState(
-    model,
-    runningPrompt,
-    undefined,
-    samplerState,
-    options,
+  const initialInputEmbeddings = retainPromptInputEmbeddings(
+    promptTokenIds,
+    promptInputEmbeddings,
+    "generateTokens",
   );
+  const initialPositionIds = retainPromptPositionIds(
+    promptTokenIds,
+    promptPositionIds,
+    "generateTokens",
+  );
+  let finishReason: GenerationResult["finishReason"] = "length";
+  let currentToken: MxArray | null = null;
 
   try {
+    currentToken = predictNextTokenWithState(
+      model,
+      runningPrompt,
+      undefined,
+      samplerState,
+      options,
+      initialInputEmbeddings ?? undefined,
+      initialPositionIds ?? undefined,
+    );
     for (let index = 0; index < options.maxTokens; index += 1) {
-      const tokenId = currentToken.item();
+      const activeToken = takeCurrentToken(currentToken);
+      const tokenId = activeToken.item();
       generated.push(tokenId);
       onToken?.(tokenId, generated);
       runningPrompt.push(tokenId);
@@ -190,7 +272,7 @@ export function generateWithoutCache(
         break;
       }
 
-      samplerState.appendToken(currentToken);
+      samplerState.appendToken(activeToken);
       const nextToken = predictNextTokenWithState(
         model,
         runningPrompt,
@@ -198,11 +280,13 @@ export function generateWithoutCache(
         samplerState,
         options,
       );
-      currentToken.free();
+      activeToken.free();
       currentToken = nextToken;
     }
   } finally {
-    currentToken.free();
+    initialInputEmbeddings?.free();
+    initialPositionIds?.free();
+    currentToken?.free();
   }
 
   return { tokenIds: generated, finishReason };
@@ -220,6 +304,8 @@ export function generateTokensInternal(
   options: GenerationOptions,
   makePromptCache: (model: CausalLM) => TransformerCache,
   onToken?: (tokenId: number, generatedTokenIds: readonly number[]) => void,
+  promptInputEmbeddings?: MxArray,
+  promptPositionIds?: MxArray,
 ): GenerationResult {
   validateCacheOptions(options);
 
@@ -246,6 +332,8 @@ export function generateTokensInternal(
       return generateWithoutCache(
         model,
         promptTokenIds,
+        promptInputEmbeddings,
+        promptPositionIds,
         resolvedOptions,
         eosTokenIds,
         generated,
@@ -258,6 +346,8 @@ export function generateTokensInternal(
       return generateWithCache(
         model,
         promptTokenIds,
+        promptInputEmbeddings,
+        promptPositionIds,
         resolvedOptions,
         eosTokenIds,
         prefillStepSize,
@@ -271,6 +361,8 @@ export function generateTokensInternal(
     return generateWithCache(
       model,
       promptTokenIds,
+      promptInputEmbeddings,
+      promptPositionIds,
       resolvedOptions,
       eosTokenIds,
       prefillStepSize,
@@ -279,4 +371,22 @@ export function generateTokensInternal(
       onToken,
     );
   });
+}
+
+export function generatePreparedTokensInternal(
+  model: CausalLM,
+  prompt: PreparedPrompt,
+  options: GenerationOptions,
+  makePromptCache: (model: CausalLM) => TransformerCache,
+  onToken?: (tokenId: number, generatedTokenIds: readonly number[]) => void,
+): GenerationResult {
+  return generateTokensInternal(
+    model,
+    prompt.tokenIds,
+    options,
+    makePromptCache,
+    onToken,
+    prompt.inputEmbeddings,
+    prompt.positionIds,
+  );
 }

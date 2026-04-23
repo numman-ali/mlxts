@@ -98,5 +98,5 @@ Cross-checked through focused unit coverage and live official-model proof runs:
   “it retrieves reliably”; the long-context ladder is now instrumented enough to
   make that visible, but the prompt/eval methodology may still need refinement
   as we scale up.
-- `packages/nanogpt/` remains in the repo as a temporary validation fixture and
+- `examples/nanogpt/` remains in the repo as a temporary validation example and
   is not part of this cleanup pass.

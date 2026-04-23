@@ -38,6 +38,10 @@ abstract class CacheBase implements TransformerCache {
     return this.offset === 0;
   }
 
+  isTrimmable(): boolean {
+    return true;
+  }
+
   advance(sequenceLength: number): void {
     if (!Number.isInteger(sequenceLength) || sequenceLength < 0) {
       throw new Error(

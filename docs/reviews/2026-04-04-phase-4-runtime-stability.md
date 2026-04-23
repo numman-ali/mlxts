@@ -16,16 +16,16 @@ The current follow-up also covers auto-training behavior for longer quality runs
 
 ## Files Reviewed
 
-- `packages/nanogpt/src/model/causal-self-attention.ts`
-- `packages/nanogpt/src/model/transformer-block.ts`
-- `packages/nanogpt/src/train.ts`
-- `packages/nanogpt/src/checkpoint.ts`
-- `packages/nanogpt/src/bench/memory.ts`
-- `packages/nanogpt/src/run/acceptance.ts`
-- `packages/nanogpt/src/run/manager.ts`
-- `packages/nanogpt/src/run/soak.ts`
-- `packages/nanogpt/src/run/supervisor.ts`
-- `packages/nanogpt/src/run/files.ts`
+- `examples/nanogpt/src/model/causal-self-attention.ts`
+- `examples/nanogpt/src/model/transformer-block.ts`
+- `examples/nanogpt/src/train.ts`
+- `examples/nanogpt/src/checkpoint.ts`
+- `examples/nanogpt/src/bench/memory.ts`
+- `examples/nanogpt/src/run/acceptance.ts`
+- `examples/nanogpt/src/run/manager.ts`
+- `examples/nanogpt/src/run/soak.ts`
+- `examples/nanogpt/src/run/supervisor.ts`
+- `examples/nanogpt/src/run/files.ts`
 - `packages/mlx-ts/src/core/array.ts`
 - `packages/mlx-ts/src/core/device.ts`
 - `packages/mlx-ts/src/core/fast.ts`
@@ -59,18 +59,18 @@ The current follow-up also covers auto-training behavior for longer quality runs
 - `packages/mlx-ts/src/optimizers/index.ts`
 - `packages/mlx-ts/src/optimizers/optimizer.ts`
 - `packages/mlx-ts/src/optimizers/sgd.ts`
-- `packages/nanogpt/src/cli.ts`
-- `packages/nanogpt/src/config.ts`
-- `packages/nanogpt/src/data.ts`
-- `packages/nanogpt/src/generate.ts`
-- `packages/nanogpt/src/index.ts`
-- `packages/nanogpt/src/model/gpt.ts`
-- `packages/nanogpt/src/model/init.ts`
-- `packages/nanogpt/src/model/mlp.ts`
-- `packages/nanogpt/src/optimizer-defaults.ts`
-- `packages/nanogpt/src/safetensors.ts`
-- `packages/nanogpt/src/run/acceptance.ts`
-- `packages/nanogpt/src/tokenizer.ts`
+- `examples/nanogpt/src/cli.ts`
+- `examples/nanogpt/src/config.ts`
+- `examples/nanogpt/src/data.ts`
+- `examples/nanogpt/src/generate.ts`
+- `examples/nanogpt/src/index.ts`
+- `examples/nanogpt/src/model/gpt.ts`
+- `examples/nanogpt/src/model/init.ts`
+- `examples/nanogpt/src/model/mlp.ts`
+- `examples/nanogpt/src/optimizer-defaults.ts`
+- `examples/nanogpt/src/safetensors.ts`
+- `examples/nanogpt/src/run/acceptance.ts`
+- `examples/nanogpt/src/tokenizer.ts`
 
 ## Tensor Lifetime Audit
 
@@ -97,9 +97,9 @@ The underlying incident showed a reproducible `gpt-small` degradation pattern: t
 
 The concrete follow-up evidence for this pass is:
 
-- a fresh-process memory benchmark surface (`bun run bench:memory`)
+- a fresh-process memory benchmark surface (`cd examples/nanogpt && bun run bench:memory`)
 - direct tests for fused fast attention and checkpoint transforms
-- a supervised soak surface (`bun run soak:gpt-tiny`, `bun run soak:gpt-small`)
+- a supervised soak surface (`cd examples/nanogpt && bun run soak:gpt-tiny`, `cd examples/nanogpt && bun run soak:gpt-small`)
 - a static validation gate for suspicious anonymous tensor intermediates
 - direct round-trip coverage for safetensors weight export/import
 - targeted review of the fast fused layer-norm path and comparison-scalar coercion semantics

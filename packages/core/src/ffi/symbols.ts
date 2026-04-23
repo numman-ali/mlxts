@@ -288,6 +288,7 @@ export const SHAPE_SYMBOLS = {
 
 export const LINALG_SYMBOLS = {
   mlx_matmul: { args: [P, P, P, P], returns: I32 },
+  mlx_conv1d: { args: [P, P, P, I32, I32, I32, I32, P], returns: I32 },
 } as const;
 
 // ---------------------------------------------------------------------------
@@ -316,6 +317,7 @@ export const CREATION_SYMBOLS = {
   mlx_arange: { args: [P, F64, F64, F64, I32, P], returns: I32 },
   mlx_softmax_axis: { args: [P, P, I32, BOOL, P], returns: I32 },
   mlx_softmax: { args: [P, P, BOOL, P], returns: I32 },
+  mlx_masked_scatter: { args: [P, P, P, P, P], returns: I32 },
   mlx_take_along_axis: { args: [P, P, P, I32, P], returns: I32 },
   mlx_put_along_axis: { args: [P, P, P, P, I32, P], returns: I32 },
 } as const;

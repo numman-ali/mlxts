@@ -1,8 +1,8 @@
 # Contributing
 
 mlxts is package-first. The public `@mlxts/*` workspaces are the canonical
-product surface, and `packages/nanogpt` is a private validation fixture rather
-than the long-term app surface.
+product surface, and `examples/nanogpt` is a committed example/regression
+surface rather than a publishable package.
 
 ## Local workflow
 
@@ -25,7 +25,7 @@ bun run pack:dry-run
 - keep production files at or under 500 physical lines
 - keep runtime-sensitive tensor lifetimes readable by eye
 - update runtime review artifacts when hot-path production files change
-- prefer improving `@mlxts/*` packages over deepening temporary fixture code
+- prefer improving `@mlxts/*` packages over deepening example-only code
 - delete stale surfaces rather than preserving compatibility layers we no longer want
 
 ## Native runtime note
@@ -43,3 +43,9 @@ The Apple Silicon validation workflow expects self-hosted runner labels:
 - `ARM64`
 
 Fast repo checks run separately and do not replace native validation.
+
+The heavier Phase 8 training proof is intentionally separate for now. Use the
+manual `Training Proof` GitHub workflow on a self-hosted Apple Silicon runner,
+or run `bun run examples/train-proof/index.ts` locally when you want the
+canonical LoRA / QLoRA / SFT / DPO proof without making every push pay that
+cost.

@@ -275,4 +275,34 @@ describe("BPETokenizer", () => {
     const ids = tokenizer.encode("Hi<|endoftext|>Hi", { addSpecialTokens: false });
     expect(ids).toEqual([0, 1, 6, 0, 1]);
   });
+
+  test("decodes added tokens whose ids extend beyond the base vocab range", () => {
+    const tokenizer = loadBPEFromTokenizerJson({
+      model: {
+        type: "BPE",
+        vocab: {
+          a: 0,
+          b: 1,
+        },
+        merges: [],
+        byte_fallback: false,
+      },
+      added_tokens: [
+        { id: 10, content: "<think>", special: false },
+        { id: 11, content: "</think>", special: false },
+      ],
+      pre_tokenizer: {
+        type: "ByteLevel",
+        add_prefix_space: false,
+        trim_offsets: true,
+        use_regex: true,
+      },
+      decoder: {
+        type: "ByteLevel",
+      },
+    });
+
+    expect(tokenizer.vocabSize).toBe(12);
+    expect(tokenizer.decode([10, 0, 11], { skipSpecialTokens: false })).toBe("<think>a</think>");
+  });
 });

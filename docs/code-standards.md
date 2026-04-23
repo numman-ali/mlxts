@@ -108,7 +108,7 @@ src/
 - Canonical production source files must stay at or under 500 physical lines
 - Tests are excluded from that cap
 - If a file grows past the cap, split it by responsibility rather than adding another scroll-length blob
-- The hard gate now applies to active production source across both the canonical `@mlxts/*` packages and the temporary `packages/nanogpt` validation fixture
+- The hard gate now applies to active production source across both the canonical `@mlxts/*` packages and the committed `examples/nanogpt` example surface
 
 ### Semantic surface versus runtime helpers
 
@@ -311,16 +311,16 @@ export class CausalSelfAttention extends Module {
 ### Coverage is part of the contract
 
 - The canonical `@mlxts/*` package stack must stay at or above `95%` line coverage and `90%` function coverage
-- `packages/nanogpt` remains a heavily tested temporary validation fixture, but it is no longer part of the default hard coverage gate while that operator surface moves toward examples
+- `examples/nanogpt` remains a heavily tested committed example surface, but it is not part of the default hard package coverage gate
 - Enforced by: `bun run check:coverage` for package coverage, plus `bun run check:runtime-review` for runtime-sensitive diffs. If coverage reports branch counters, the gate also enforces branch coverage instead of inventing one.
 - `bun run validate` includes both gates and is the standard pre-commit/review-ready path
 - Prefer tests that exercise real behavior, edge cases, and failure paths over tests written only to bump percentages
 - Dynamic paths count: default-device switching, autograd error propagation, shape/axis variants, and cleanup paths all need explicit coverage
 - Long-running acceptance scripts are separate from `validate`, but the repo should still provide canonical scripted paths for them
 - Long-running training control should be checkpoint-first: graceful stop + resume beats hidden in-memory pause state
-- The supervised run-manager flow under `packages/nanogpt/src/run/` is production code, not glue. Test it, review it, and keep it under the same quality gates as the model code.
+- The supervised run-manager flow under `examples/nanogpt/src/run/` is production code, not glue. Test it, review it, and keep it under the same quality gates as the model code.
 - Snapshot checkpoints are for frequent model saves; resume checkpoints are for exact continuation with optimizer state. Do not blur those meanings in code or docs.
-- Use `bun run bench:memory` and the `bun run soak:gpt-*` ladder before trusting a new hot-path optimization or an overnight run.
+- Use `cd examples/nanogpt && bun run bench:memory` and the example-local `bun run soak:gpt-*` ladder before trusting a new hot-path optimization or an overnight run.
 - Runtime-sensitive diffs must add or update a review artifact under `docs/reviews/`. The review record is part of the deliverable, not optional process overhead, and its `Files Reviewed` section must name the exact changed runtime-sensitive files.
 
 ### Test naming

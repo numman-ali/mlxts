@@ -2,11 +2,12 @@ import { afterEach, describe, expect, test } from "bun:test";
 import {
   array,
   inspectSafetensors,
-  type MxArray,
+  MxArray,
   mxEval,
   quantize,
   retainArray,
   saveSafetensors,
+  transpose,
 } from "@mlxts/core";
 import { Linear, QuantizedLinear } from "@mlxts/nn";
 import { mkdtempSync, rmSync } from "fs";
@@ -19,6 +20,8 @@ import { Gemma4TextMLP } from "./families/gemma4/mlp";
 import { Gemma4TextCausalLM } from "./families/gemma4/model";
 import { LlamaLikeMLP } from "./families/llama-like/mlp";
 import { LlamaLikeCausalLM } from "./families/llama-like/model";
+import { Qwen3_5TextCache } from "./families/qwen3_5/cache";
+import { Qwen3_5TextCausalLM } from "./families/qwen3_5/model";
 import { generateText, generateTextStream, generateTokens } from "./generation";
 import { KVCache, LayerPatternKVCache, SlidingWindowKVCache } from "./infrastructure/cache";
 import { loadCausalLM, loadPretrainedTokenizer } from "./load";
@@ -392,6 +395,38 @@ function rawConfigForGemma4Wrapper(): Record<string, unknown> {
     },
     audio_config: {
       model_type: "gemma4_audio",
+    },
+  };
+}
+
+function rawConfigForQwen3_5Text(): Record<string, unknown> {
+  return {
+    model_type: "qwen3_5_text",
+    vocab_size: 5,
+    hidden_size: 8,
+    intermediate_size: 16,
+    num_hidden_layers: 2,
+    num_attention_heads: 2,
+    num_key_value_heads: 1,
+    head_dim: 4,
+    hidden_act: "silu",
+    max_position_embeddings: 64,
+    rms_norm_eps: 1e-6,
+    attention_bias: false,
+    tie_word_embeddings: false,
+    full_attention_interval: 2,
+    layer_types: ["linear_attention", "full_attention"],
+    linear_num_value_heads: 2,
+    linear_num_key_heads: 1,
+    linear_key_head_dim: 4,
+    linear_value_head_dim: 4,
+    linear_conv_kernel_dim: 2,
+    rope_parameters: {
+      rope_type: "default",
+      rope_theta: 10000,
+      partial_rotary_factor: 1,
+      mrope_section: [1, 1, 0],
+      mrope_interleaved: true,
     },
   };
 }
@@ -780,6 +815,154 @@ async function createTinyGemma4Snapshot(): Promise<{
   return { directory, model };
 }
 
+function checkpointTensorsForQwen3_5Text(model: Qwen3_5TextCausalLM): Record<string, MxArray> {
+  const tensors: Record<string, MxArray> = {
+    "model.embed_tokens.weight": retainArray(model.model.embedTokens.weight),
+    "model.norm.weight": retainArray(model.model.norm.weight),
+  };
+  if (model.lmHead !== null) {
+    tensors["lm_head.weight"] = retainArray(model.lmHead.weight);
+  }
+
+  for (let layerIndex = 0; layerIndex < model.model.layers.length; layerIndex += 1) {
+    const layer = model.model.layers[layerIndex];
+    if (layer === undefined) {
+      throw new Error(`Expected Qwen 3.5 layer ${layerIndex} to exist.`);
+    }
+    const prefix = `model.layers.${layerIndex}`;
+    tensors[`${prefix}.input_layernorm.weight`] = retainArray(layer.inputLayerNorm.weight);
+    tensors[`${prefix}.post_attention_layernorm.weight`] = retainArray(
+      layer.postAttentionLayerNorm.weight,
+    );
+    tensors[`${prefix}.mlp.gate_proj.weight`] = retainArray(layer.mlp.gateProjection.weight);
+    tensors[`${prefix}.mlp.up_proj.weight`] = retainArray(layer.mlp.upProjection.weight);
+    tensors[`${prefix}.mlp.down_proj.weight`] = retainArray(layer.mlp.downProjection.weight);
+
+    if (layer.linearAttention !== null) {
+      tensors[`${prefix}.linear_attn.in_proj_qkv.weight`] = retainArray(
+        layer.linearAttention.inProjectionQkv.weight,
+      );
+      tensors[`${prefix}.linear_attn.in_proj_z.weight`] = retainArray(
+        layer.linearAttention.inProjectionZ.weight,
+      );
+      tensors[`${prefix}.linear_attn.in_proj_b.weight`] = retainArray(
+        layer.linearAttention.inProjectionB.weight,
+      );
+      tensors[`${prefix}.linear_attn.in_proj_a.weight`] = retainArray(
+        layer.linearAttention.inProjectionA.weight,
+      );
+      tensors[`${prefix}.linear_attn.conv1d.weight`] = retainArray(
+        layer.linearAttention.conv1d.weight,
+      );
+      tensors[`${prefix}.linear_attn.dt_bias`] = retainArray(layer.linearAttention.dtBias);
+      tensors[`${prefix}.linear_attn.A_log`] = retainArray(layer.linearAttention.aLog);
+      tensors[`${prefix}.linear_attn.norm.weight`] = retainArray(layer.linearAttention.norm.weight);
+      tensors[`${prefix}.linear_attn.out_proj.weight`] = retainArray(
+        layer.linearAttention.outProjection.weight,
+      );
+    }
+
+    if (layer.selfAttention !== null) {
+      tensors[`${prefix}.self_attn.q_proj.weight`] = retainArray(
+        layer.selfAttention.qProjection.weight,
+      );
+      tensors[`${prefix}.self_attn.k_proj.weight`] = retainArray(
+        layer.selfAttention.kProjection.weight,
+      );
+      tensors[`${prefix}.self_attn.v_proj.weight`] = retainArray(
+        layer.selfAttention.vProjection.weight,
+      );
+      tensors[`${prefix}.self_attn.o_proj.weight`] = retainArray(
+        layer.selfAttention.outputProjection.weight,
+      );
+      tensors[`${prefix}.self_attn.q_norm.weight`] = retainArray(layer.selfAttention.qNorm.weight);
+      tensors[`${prefix}.self_attn.k_norm.weight`] = retainArray(layer.selfAttention.kNorm.weight);
+    }
+  }
+
+  return tensors;
+}
+
+function rawQwen3_5TextTensors(tensors: Record<string, MxArray>): Record<string, MxArray> {
+  const raw: Record<string, MxArray> = {};
+
+  for (const [name, tensor] of Object.entries(tensors)) {
+    if (name.endsWith(".linear_attn.conv1d.weight")) {
+      raw[name] = transpose(tensor, [0, 2, 1]);
+      continue;
+    }
+    if (
+      name === "model.norm.weight" ||
+      name.endsWith(".input_layernorm.weight") ||
+      name.endsWith(".post_attention_layernorm.weight") ||
+      name.endsWith(".self_attn.q_norm.weight") ||
+      name.endsWith(".self_attn.k_norm.weight")
+    ) {
+      raw[name] = MxArray.fromData(
+        flattenNumbers(tensor.toList()).map((value) => value - 1),
+        [...tensor.shape],
+        tensor.dtype,
+      );
+      continue;
+    }
+    raw[name] = retainArray(tensor);
+  }
+
+  return raw;
+}
+
+function convertedQwen3_5TextTensors(tensors: Record<string, MxArray>): Record<string, MxArray> {
+  const converted: Record<string, MxArray> = {};
+
+  for (const [name, tensor] of Object.entries(tensors)) {
+    converted[name] = retainArray(tensor);
+  }
+
+  return converted;
+}
+
+async function createTinyQwen3_5TextSnapshot(style: "raw" | "mlx-converted"): Promise<{
+  directory: string;
+  model: Qwen3_5TextCausalLM;
+}> {
+  const directory = createTempDir(`mlxts-transformers-qwen3_5-${style}-`);
+  const rawConfig = rawConfigForQwen3_5Text();
+  const registration = resolveFamily("qwen3_5_text");
+  const model = registration.createModel(registration.parseConfig(rawConfig));
+  if (!(model instanceof Qwen3_5TextCausalLM)) {
+    throw new Error("Expected a Qwen3_5TextCausalLM for the supported Qwen 3.5 text snapshot.");
+  }
+
+  const baseTensors = checkpointTensorsForQwen3_5Text(model);
+  const tensors =
+    style === "raw" ? rawQwen3_5TextTensors(baseTensors) : convertedQwen3_5TextTensors(baseTensors);
+  const tokenizer = tokenizerFixture();
+
+  try {
+    await Bun.write(join(directory, "config.json"), `${JSON.stringify(rawConfig, null, 2)}\n`);
+    await Bun.write(
+      join(directory, "tokenizer.json"),
+      `${JSON.stringify(tokenizer.tokenizerJson, null, 2)}\n`,
+    );
+    await Bun.write(
+      join(directory, "tokenizer_config.json"),
+      `${JSON.stringify(tokenizer.tokenizerConfig, null, 2)}\n`,
+    );
+    await Bun.write(
+      join(directory, "special_tokens_map.json"),
+      `${JSON.stringify(tokenizer.specialTokensMap, null, 2)}\n`,
+    );
+    await saveSafetensors(tensors, join(directory, "model.safetensors"));
+  } finally {
+    const uniqueTensors = new Set([...Object.values(baseTensors), ...Object.values(tensors)]);
+    for (const tensor of uniqueTensors) {
+      tensor.free();
+    }
+  }
+
+  return { directory, model };
+}
+
 async function rewriteCheckpoint(
   directory: string,
   model: LlamaLikeCausalLM,
@@ -899,6 +1082,28 @@ describe("pretrained loading", () => {
 
     using cache = loadedModel.createCache();
     expect(cache).toBeInstanceOf(LayerPatternKVCache);
+
+    originalModel[Symbol.dispose]();
+  });
+
+  test.each([
+    "raw",
+    "mlx-converted",
+  ] as const)("loadCausalLM round-trips a tiny qwen3_5_text %s snapshot", async (style) => {
+    const { directory, model: originalModel } = await createTinyQwen3_5TextSnapshot(style);
+    using loadedModel = await loadCausalLM(directory);
+    using inputIds = array([[0, 1, 2]], "int32");
+    using expectedLogits = originalModel.forward(inputIds);
+    using actualLogits = loadedModel.forward(inputIds);
+
+    mxEval(expectedLogits, actualLogits);
+
+    expect(loadedModel.family).toBe("qwen");
+    expect(loadedModel.layerCount).toBe(originalModel.layerCount);
+    expectCloseLists(actualLogits.toList(), expectedLogits.toList());
+
+    using cache = loadedModel.createCache();
+    expect(cache).toBeInstanceOf(Qwen3_5TextCache);
 
     originalModel[Symbol.dispose]();
   });
@@ -1031,6 +1236,7 @@ describe("pretrained loading", () => {
 
     const baseTensors = checkpointTensors(model);
     const quantizedTensors = quantizeCheckpointTensors(baseTensors, [
+      "model.embed_tokens",
       "model.layers.0.self_attn.q_proj",
       "model.layers.1.self_attn.q_proj",
     ]);
@@ -1075,6 +1281,11 @@ describe("pretrained loading", () => {
     expect(secondLayer.selfAttention.qProjection).toBeInstanceOf(QuantizedLinear);
     expect(firstLayer.selfAttention.kProjection).toBeInstanceOf(Linear);
     expect(secondLayer.selfAttention.kProjection).toBeInstanceOf(Linear);
+    expect(loadedModel.model.embedTokens.weight.dtype).not.toBe("uint32");
+
+    using inputIds = array([[0, 1, 2]], "int32");
+    using logits = loadedModel.forward(inputIds);
+    expect(logits.shape).toEqual([1, 3, rawConfig.vocab_size as number]);
   });
 
   test("quantizePretrainedSnapshot rewrites a dense snapshot into a loadable quantized snapshot", async () => {

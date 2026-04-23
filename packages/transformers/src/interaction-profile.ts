@@ -5,7 +5,12 @@
 
 import type { Tokenizer } from "@mlxts/tokenizers";
 
-import { type ChatMessage, type ChatTemplate, loadChatTemplate } from "./chat-template";
+import {
+  type ChatMessage,
+  type ChatTemplate,
+  type ChatTool,
+  loadChatTemplate,
+} from "./chat-template";
 import type { LoadSourceOptions } from "./types";
 
 /** A compiled prompt string plus the exact token IDs that will be fed to generation. */
@@ -22,6 +27,9 @@ export type CompileTextPromptOptions = {
 /** Options for compiling chat messages through a checkpoint chat template. */
 export type CompileChatPromptOptions = CompileTextPromptOptions & {
   addGenerationPrompt?: boolean;
+  tools?: readonly ChatTool[];
+  enableThinking?: boolean;
+  preserveThinking?: boolean;
 };
 
 /** Shared prompt-compilation profile for completion and chat-capable checkpoints. */
@@ -66,12 +74,16 @@ export function createInteractionProfile(chatTemplate: ChatTemplate | null): Int
         );
       }
 
-      const text = chatTemplate.format(
-        messages,
-        options.addGenerationPrompt === undefined
+      const text = chatTemplate.format(messages, {
+        ...(options.addGenerationPrompt === undefined
           ? {}
-          : { addGenerationPrompt: options.addGenerationPrompt },
-      );
+          : { addGenerationPrompt: options.addGenerationPrompt }),
+        ...(options.tools === undefined ? {} : { tools: options.tools }),
+        ...(options.enableThinking === undefined ? {} : { enableThinking: options.enableThinking }),
+        ...(options.preserveThinking === undefined
+          ? {}
+          : { preserveThinking: options.preserveThinking }),
+      });
       return encodePrompt(tokenizer, text, options.addSpecialTokens ?? true);
     },
   };

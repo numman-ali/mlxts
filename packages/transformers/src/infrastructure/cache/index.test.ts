@@ -108,6 +108,7 @@ describe("Transformer caches", () => {
 
     expect(cache.layerCount).toBe(2);
     expect(cache.isEmpty()).toBe(true);
+    expect(cache.isTrimmable()).toBe(true);
     expect(cache.arrays()).toEqual([]);
     expect(cacheStateArrays(cache)).toEqual([]);
 

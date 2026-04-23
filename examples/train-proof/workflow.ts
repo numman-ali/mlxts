@@ -6,7 +6,7 @@ import { parseTrainingProofArgs, type TrainingProofArgs } from "./args";
 import { prepareTrainingProofData } from "./prepare";
 import { loadAssets } from "./runtime";
 import { printStage, runDPOStage, runLoRAStage, runQLoRAStage, runSFTStage } from "./stages";
-import type { TrainingProofReport } from "./types";
+import type { StageReport, TrainingProofReport } from "./types";
 
 export async function runTrainingProof(argv: readonly string[]): Promise<void> {
   const parsed: TrainingProofArgs = parseTrainingProofArgs(argv);
@@ -19,6 +19,8 @@ export async function runTrainingProof(argv: readonly string[]): Promise<void> {
   console.log(`Batch size: ${parsed.batchSize}`);
   console.log(`Steps per stage: ${parsed.steps}`);
   console.log(`Max sequence length: ${parsed.maxSequenceLength}`);
+  console.log(`Stages: ${parsed.stages.join(",")}`);
+  console.log(`DPO profile: ${parsed.dpoProfile}`);
   console.log(`Quantized snapshot output: ${parsed.quantizedOutputDir}`);
   console.log(`Report path: ${parsed.reportPath}`);
 
@@ -32,42 +34,52 @@ export async function runTrainingProof(argv: readonly string[]): Promise<void> {
     console.log(`  data: ${note}`);
   }
 
-  const loraStage = await runLoRAStage(
-    parsed.source,
-    denseAssets.tokenizer,
-    denseAssets.profile,
-    preparedData,
-    parsed,
-  );
-  printStage(loraStage);
-
-  const qloraStage = await runQLoRAStage(
-    parsed.source,
-    parsed.quantizedOutputDir,
-    denseAssets.tokenizer,
-    denseAssets.profile,
-    preparedData,
-    parsed,
-  );
-  printStage(qloraStage);
-
-  const sftStage = await runSFTStage(
-    parsed.source,
-    denseAssets.tokenizer,
-    denseAssets.profile,
-    preparedData,
-    parsed,
-  );
-  printStage(sftStage);
-
-  const dpoStage = await runDPOStage(
-    parsed.source,
-    denseAssets.tokenizer,
-    denseAssets.profile,
-    preparedData,
-    parsed,
-  );
-  printStage(dpoStage);
+  const stages: StageReport[] = [];
+  if (parsed.stages.includes("lora")) {
+    const loraStage = await runLoRAStage(
+      parsed.source,
+      denseAssets.tokenizer,
+      denseAssets.profile,
+      preparedData,
+      parsed,
+    );
+    printStage(loraStage);
+    stages.push(loraStage);
+  }
+  if (parsed.stages.includes("qlora")) {
+    const qloraStage = await runQLoRAStage(
+      parsed.source,
+      parsed.quantizedOutputDir,
+      denseAssets.tokenizer,
+      denseAssets.profile,
+      preparedData,
+      parsed,
+    );
+    printStage(qloraStage);
+    stages.push(qloraStage);
+  }
+  if (parsed.stages.includes("sft")) {
+    const sftStage = await runSFTStage(
+      parsed.source,
+      denseAssets.tokenizer,
+      denseAssets.profile,
+      preparedData,
+      parsed,
+    );
+    printStage(sftStage);
+    stages.push(sftStage);
+  }
+  if (parsed.stages.includes("dpo")) {
+    const dpoStage = await runDPOStage(
+      parsed.source,
+      denseAssets.tokenizer,
+      denseAssets.profile,
+      preparedData,
+      parsed,
+    );
+    printStage(dpoStage);
+    stages.push(dpoStage);
+  }
 
   const report: TrainingProofReport = {
     source: parsed.source,
@@ -80,7 +92,7 @@ export async function runTrainingProof(argv: readonly string[]): Promise<void> {
     maxSequenceLength: parsed.maxSequenceLength,
     seed: parsed.seed,
     dataNotes: preparedData.notes,
-    stages: [loraStage, qloraStage, sftStage, dpoStage],
+    stages,
   };
 
   mkdirSync(dirname(parsed.reportPath), { recursive: true });

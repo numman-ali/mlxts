@@ -16,7 +16,7 @@
 1. **One scope, many packages.** Every package is `@mlxts/<name>`. Users install only what they need.
 2. **Layers, not monoliths.** Each package has a single concern. Dependencies flow downward.
 3. **MLX-native throughout.** All packages use MxArray directly. No abstraction layers between your code and Metal.
-4. **Examples are separate products.** Rich end-to-end examples should live in a dedicated examples repo once the package ecosystem is stable. This monorepo keeps only the minimum fixtures needed to validate the package surfaces.
+4. **Examples are separate surfaces.** Committed end-to-end examples live under `examples/` in this monorepo today. Keep them thin, package-powered, and non-publishable; split them into a dedicated examples repo only if the portfolio grows enough to justify it.
 5. **Extensible via FFI.** Custom Metal kernels, C/Rust extensions, and new ops can be added and composed with existing infrastructure.
 
 ## Current Implementation State
@@ -26,9 +26,9 @@ The package-first Phase 5 extraction is already underway in the repo today.
 - `@mlxts/core`, `@mlxts/nn`, `@mlxts/optimizers`, `@mlxts/train`,
   `@mlxts/data`, and `@mlxts/tokenizers` all exist as workspace packages
 - `packages/core` owns the native MLX build and the canonical FFI/runtime layer
-- `packages/nanogpt` now consumes the extracted packages directly and remains a
-  temporary GPT-specific validation fixture until a later dedicated examples
-  repo and rewritten examples surface exist
+- `examples/nanogpt` now consumes the extracted packages directly and serves as
+  the committed in-repo GPT example and regression surface while the reusable
+  package ecosystem settles
 
 ---
 
@@ -83,8 +83,8 @@ Neural network layers, Module system, activations, losses.
 **Dependencies:** `@mlxts/core` — nn modules import MxArray and ops directly.
 
 **Source origin:** Extracted from the former monolithic nn layer. GPT-specific
-causal attention remains in the temporary `packages/nanogpt` fixture, while the
-reusable transformer primitives now live here.
+causal attention remains in `examples/nanogpt` for now, while the reusable
+transformer primitives now live here.
 
 #### `@mlxts/optimizers`
 
@@ -119,7 +119,7 @@ Model-agnostic training loop, checkpointing, gradient utilities.
 
 **Dependencies:** `@mlxts/core`, `@mlxts/nn`, `@mlxts/optimizers`
 
-**Source origin:** Extracted from the model-agnostic parts of the former `packages/nanogpt/src/train.ts` and `packages/nanogpt/src/checkpoint.ts`. The package now also owns the canonical metadata-driven checkpoint format and reusable step-orchestration helpers used by the temporary GPT fixture.
+**Source origin:** Extracted from the model-agnostic parts of the former `examples/nanogpt/src/train.ts` and `examples/nanogpt/src/checkpoint.ts`. The package now also owns the canonical metadata-driven checkpoint format and reusable step-orchestration helpers used by the committed nanoGPT example.
 
 `@mlxts/train` is intentionally not a black-box pipeline framework. Recipe-level
 orchestration lives above it, in `@mlxts/align`, examples, and later CLI/app
@@ -140,7 +140,7 @@ Dataset loading, batching, and preprocessing.
 
 **Dependencies:** `@mlxts/core`
 
-**Source origin:** Extracted from the former `packages/nanogpt/src/data.ts` and now lives in `packages/data/src/text.ts`. `packages/nanogpt` imports these helpers directly rather than carrying a second copy.
+**Source origin:** Extracted from the former `examples/nanogpt/src/data.ts` and now lives in `packages/data/src/text.ts`. `examples/nanogpt` imports these helpers directly rather than carrying a second copy.
 
 ---
 
@@ -160,7 +160,7 @@ Fast tokenization with support for HuggingFace tokenizer formats.
 
 **Dependencies:** `@mlxts/core` (minimal — mostly standalone)
 
-**Source origin:** Extracted from the former `packages/nanogpt/src/tokenizer.ts`. The package now owns the char tokenizer plus pretrained `tokenizer.json`, SentencePiece, and Tekken loading for the Phase 7 decoder families.
+**Source origin:** Extracted from the former `examples/nanogpt/src/tokenizer.ts`. The package now owns the char tokenizer plus pretrained `tokenizer.json`, SentencePiece, and Tekken loading for the Phase 7 decoder families.
 
 #### External: `@huggingface/hub` and `@huggingface/jinja`
 
@@ -187,7 +187,7 @@ All transformer-based model architectures — the mlxts equivalent of HuggingFac
 | Text decoder families | LLaMA, Mistral, Mistral 3, Gemma, Gemma 3, Gemma 4 text, Phi 3/4-mini |
 | MoE families (Phase 7f) | Mixtral, DeepSeek — block-level MoE swap, same CausalLM contract |
 | Vision encoder families (Phase 10) | CLIP, SigLIP, ViT — for VLM composition and diffusion conditioning |
-| VLM wrapper families (Phase 10) | LLaVA, PaliGemma, Gemma 3/4 — compose vision encoder + text decoder |
+| VLM wrapper families (Phase 10) | Initial Qwen 3.5 / Qwen 3.6 multimodal wrapper plus future LLaVA, PaliGemma, Gemma 3/4 — compose vision encoder + text decoder |
 | Encoder-decoder families (Phase 10) | Whisper (speech → text), T5, BART |
 | Auto dispatch | `AutoModel.fromPretrained(modelId)` — config-driven architecture selection |
 | Generation | `generateText()` / `generateTokens()` / `generateStep()` with KV cache and sampling |
@@ -251,15 +251,16 @@ Alignment and RLHF.
 | SFT | Supervised fine-tuning trainer |
 | DPO | Direct Preference Optimization |
 | Reward modeling | Reward model training |
-| Data | Preference pair formatting, chat template support |
+| Data | Preference pair formatting, chat template support, raw-chat normalization, dataset-level SFT/DPO evaluation helpers |
+| Recipe loops | Small fixed-step SFT/DPO runners that keep examples and future CLIs thin without hiding control flow |
 | Proof surface | Canonical real-data proof via `examples/train-proof/` on pinned dataset subsets |
 
 **Dependencies:** `@mlxts/core`, `@mlxts/data`, `@mlxts/lora`, `@mlxts/nn`, `@mlxts/tokenizers`, `@mlxts/train`, `@mlxts/transformers`
 
-The short real-data training proof is the regression path for this layer. Once
-Phase 8 is active, architecture or quantization changes that break LoRA, QLoRA,
-SFT, or DPO on the canonical proof should fail CI rather than relying on manual
-spot checks.
+The short real-data training proof is the regression path for this layer. Today
+it is a canonical runnable surface; long term, architecture or quantization
+changes that break LoRA, QLoRA, SFT, or DPO on the canonical proof should fail
+CI rather than relying on manual spot checks.
 
 ---
 
@@ -337,21 +338,26 @@ Command-line tools for the mlxts ecosystem.
 
 ## Examples Strategy
 
-Rich end-to-end examples are intentionally deferred to a dedicated examples repo
-once the core package ecosystem is broader and more stable.
-
-For now the monorepo keeps only one transitional consumer:
+`examples/nanogpt` is intentionally committed in-repo as the canonical GPT
+example and operator surface while the package ecosystem continues to harden.
+`examples/qwen3_5-image` is the first dedicated multimodal example and stays
+thin by pushing model, prompt, and patchification logic down into
+`@mlxts/transformers`.
+Additional examples can live under `examples/` too; a separate examples repo is
+only worth it if the portfolio becomes large enough to need one.
 
 ```
-packages/
-  nanogpt/                    # Temporary private validation fixture, not a publish target
+examples/
+  nanogpt/                    # Committed in-repo example and regression surface
     src/
       run/                    # Supervised run manager, soak, and acceptance infra
       bench/                  # Memory and throughput checks
+  qwen3_5-image/              # Qwen 3.5 / Qwen 3.6 image-conditioned example
 ```
 
-That fixture is still useful for validation, but it is not the long-term
-canonical example strategy.
+These examples are intentionally thin: they validate the reusable packages,
+host operator or smoke workflows, and avoid becoming second package-owned
+product surfaces.
 
 ---
 
@@ -448,7 +454,8 @@ mlxts/                                # Monorepo root
         text.ts                       # Text data loading/batching
         # Dataset abstractions can arrive later if a second consumer needs them
 
-    nanogpt/                          # Temporary validation fixture
+  examples/
+    nanogpt/                          # Committed in-repo example and regression surface
       package.json
       src/
         run/
@@ -529,17 +536,17 @@ work is deferred unless a row says otherwise.
 | Legacy nn layer | `packages/nn/src/` | `@mlxts/nn` |
 | Legacy module checkpoint helper | `packages/nn/src/checkpoint.ts` | `@mlxts/nn` |
 | Legacy optimizer layer | `packages/optimizers/src/` | `@mlxts/optimizers` |
-| `packages/nanogpt/src/train.ts` | `packages/train/src/loop.ts` + `packages/train/src/schedule.ts` + `packages/train/src/gradients.ts` + `packages/train/src/step.ts` | `@mlxts/train` |
-| `packages/nanogpt/src/checkpoint.ts` | `packages/train/src/checkpoint.ts` + `packages/train/src/checkpoint-*.ts` | `@mlxts/train` |
-| `packages/nanogpt/src/safetensors.ts` | `packages/transformers/src/pretrained/weights.ts` + `@mlxts/core` safetensor readers | `@mlxts/transformers` |
-| Former `packages/nanogpt/src/data.ts` | `packages/data/src/text.ts` | `@mlxts/data` |
-| Former `packages/nanogpt/src/tokenizer.ts` | `packages/tokenizers/src/char.ts` | `@mlxts/tokenizers` |
-| `packages/nanogpt/src/model/` | `packages/nanogpt/src/model/` for now; later dedicated examples repo | Temporary validation fixture |
-| `packages/nanogpt/src/config.ts` | `packages/nanogpt/src/config.ts` for now; later dedicated examples repo | Temporary validation fixture |
-| `packages/nanogpt/src/cli.ts` | `packages/nanogpt/src/cli.ts` for now; later dedicated examples repo | Temporary validation fixture |
-| `packages/nanogpt/src/generate.ts` | `packages/nanogpt/src/generate.ts` for now; later dedicated examples repo | Temporary validation fixture |
-| `packages/nanogpt/src/run/` | `packages/nanogpt/src/run/` for now; later dedicated examples repo | Temporary validation fixture |
-| `packages/nanogpt/src/bench/` | `packages/nanogpt/src/bench/` for now; later dedicated examples repo | Temporary validation fixture |
+| `examples/nanogpt/src/train.ts` | `packages/train/src/loop.ts` + `packages/train/src/schedule.ts` + `packages/train/src/gradients.ts` + `packages/train/src/step.ts` | `@mlxts/train` |
+| `examples/nanogpt/src/checkpoint.ts` | `packages/train/src/checkpoint.ts` + `packages/train/src/checkpoint-*.ts` | `@mlxts/train` |
+| `examples/nanogpt/src/safetensors.ts` | `packages/transformers/src/pretrained/weights.ts` + `@mlxts/core` safetensor readers | `@mlxts/transformers` |
+| Former `examples/nanogpt/src/data.ts` | `packages/data/src/text.ts` | `@mlxts/data` |
+| Former `examples/nanogpt/src/tokenizer.ts` | `packages/tokenizers/src/char.ts` | `@mlxts/tokenizers` |
+| `examples/nanogpt/src/model/` | `examples/nanogpt/src/model/` for now; later dedicated examples repo | Committed in-repo example |
+| `examples/nanogpt/src/config.ts` | `examples/nanogpt/src/config.ts` for now; later dedicated examples repo | Committed in-repo example |
+| `examples/nanogpt/src/cli.ts` | `examples/nanogpt/src/cli.ts` for now; later dedicated examples repo | Committed in-repo example |
+| `examples/nanogpt/src/generate.ts` | `examples/nanogpt/src/generate.ts` for now; later dedicated examples repo | Committed in-repo example |
+| `examples/nanogpt/src/run/` | `examples/nanogpt/src/run/` for now; later dedicated examples repo | Committed in-repo example |
+| `examples/nanogpt/src/bench/` | `examples/nanogpt/src/bench/` for now; later dedicated examples repo | Committed in-repo example |
 | All `*.test.ts` files | Move with their source file | (same as source) |
 
 ---
@@ -548,7 +555,7 @@ work is deferred unless a row says otherwise.
 
 - **If it has no consumer yet, don't create it.** Packages are extracted when a second consumer needs them, not when we can imagine one.
 - **`@mlxts/core` contains everything MLX-related:** FFI, array, ops, transforms, device, memory, random, I/O, fast fused ops. This is one package because MLX is one coherent system — splitting it would create artificial boundaries.
-- **Phase 5 creates:** `core`, `nn`, `optimizers`, `train`, `data`, `tokenizers`. These are already extracted, with the temporary nanoGPT fixture still acting as the validation harness while the package surfaces settle.
+- **Phase 5 creates:** `core`, `nn`, `optimizers`, `train`, `data`, `tokenizers`. These are already extracted, with `examples/nanogpt` acting as the committed example and regression harness while the package surfaces settle.
 - **Phase 7 creates:** `transformers`. Pretrained loading uses official Hugging Face JS packages plus repo-owned helpers under `packages/transformers/src/pretrained/`.
 - **Phase 8 surfaces now exist:** `lora`, `align`, and their proof/example surfaces are in-repo while the real-world evidence and CI gates continue to harden.
 - **Phase 9 surfaces now exist:** `quantize` is in-repo; `serve` remains the next major serving surface to complete.

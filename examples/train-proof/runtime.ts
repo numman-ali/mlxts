@@ -1,13 +1,12 @@
-import { dpoLoss, dpoTrain, preferenceLogProbSums, sftLoss, sftTrain } from "@mlxts/align";
-import { mxEval } from "@mlxts/core";
 import {
-  type ChatMessage,
-  collatePreferenceBatch,
-  collateTokenSupervisionBatch,
-  createRandomSource,
-  type PreferenceExample,
-  type TokenSupervisionExample,
-} from "@mlxts/data";
+  evaluatePreferenceDatasetLoss as alignEvaluatePreferenceDatasetLoss,
+  evaluatePreferenceMetrics as alignEvaluatePreferenceMetrics,
+  evaluateSupervisionDatasetLoss as alignEvaluateSupervisionDatasetLoss,
+  runPreferenceTrainingSteps as alignRunPreferenceTrainingSteps,
+  runSupervisionTrainingSteps as alignRunSupervisionTrainingSteps,
+  type PreferenceEvalMetrics,
+} from "@mlxts/align";
+import type { ChatMessage, PreferenceExample, TokenSupervisionExample } from "@mlxts/data";
 import { Module } from "@mlxts/nn";
 import { Adam } from "@mlxts/optimizers";
 import {
@@ -23,6 +22,8 @@ import {
 import { existsSync, readdirSync, rmSync } from "fs";
 
 import type { LoadedAssets, MetricPair } from "./types";
+
+export const DEFAULT_DPO_BETA = 0.1;
 
 function requireChatTemplate(
   profile: InteractionProfile,
@@ -45,94 +46,11 @@ function createGenerationOptions(): GenerationOptions {
   };
 }
 
-function evaluateLoss(loss: ReturnType<typeof sftLoss> | ReturnType<typeof dpoLoss>): number {
-  mxEval(loss);
-  const value = loss.item();
-  loss.free();
-  return value;
-}
-
-function freeTokenBatch(batch: ReturnType<typeof collateTokenSupervisionBatch>): void {
-  batch.inputIds.free();
-  batch.targetIds.free();
-  batch.lossMask.free();
-}
-
-function freePreferenceBatch(batch: ReturnType<typeof collatePreferenceBatch>): void {
-  freeTokenBatch(batch.chosen);
-  freeTokenBatch(batch.rejected);
-}
-
-function evaluateSftBatchLoss(
-  model: CausalLM,
-  batch: ReturnType<typeof collateTokenSupervisionBatch>,
-): number {
-  try {
-    return evaluateLoss(sftLoss(model, batch));
-  } finally {
-    freeTokenBatch(batch);
-  }
-}
-
-function evaluateDpoBatchLoss(
-  policyModel: CausalLM,
-  referenceModel: CausalLM,
-  batch: ReturnType<typeof collatePreferenceBatch>,
-): number {
-  try {
-    return evaluateLoss(dpoLoss(policyModel, referenceModel, batch));
-  } finally {
-    freePreferenceBatch(batch);
-  }
-}
-
-function chunkExamples<T>(examples: readonly T[], batchSize: number): T[][] {
-  const chunks: T[][] = [];
-  for (let index = 0; index < examples.length; index += batchSize) {
-    chunks.push(examples.slice(index, index + batchSize));
-  }
-  return chunks;
-}
-
 export function summarizeMetric(before: number, after: number): MetricPair {
   return {
     before,
     after,
     delta: after - before,
-  };
-}
-
-function createShuffledOrder(length: number, seed: number): number[] {
-  const nextRandom = createRandomSource(seed);
-  const order = Array.from({ length }, (_, index) => index);
-  for (let index = order.length - 1; index > 0; index -= 1) {
-    const swapIndex = Math.floor(nextRandom() * (index + 1));
-    const current = order[index];
-    order[index] = order[swapIndex] ?? current;
-    order[swapIndex] = current;
-  }
-  return order;
-}
-
-function createBatchPicker<T>(
-  examples: readonly T[],
-  batchSize: number,
-  seed: number,
-): () => readonly T[] {
-  const order = createShuffledOrder(examples.length, seed);
-  let cursor = 0;
-  return () => {
-    const batch: T[] = [];
-    for (let index = 0; index < batchSize; index += 1) {
-      const exampleIndex = order[cursor % order.length];
-      const example = examples[exampleIndex];
-      if (example === undefined) {
-        throw new Error("training proof: selected an undefined batch example.");
-      }
-      batch.push(example);
-      cursor += 1;
-    }
-    return batch;
   };
 }
 
@@ -208,13 +126,11 @@ export function evaluateSupervisionDatasetLoss(
   padTokenId: number,
   batchSize: number,
 ): number {
-  let totalLoss = 0;
-  let batches = 0;
-  for (const chunk of chunkExamples(examples, batchSize)) {
-    totalLoss += evaluateSftBatchLoss(model, collateTokenSupervisionBatch(chunk, padTokenId));
-    batches += 1;
-  }
-  return totalLoss / batches;
+  return alignEvaluateSupervisionDatasetLoss(model, {
+    examples,
+    padTokenId,
+    batchSize,
+  });
 }
 
 export function evaluatePreferenceDatasetLoss(
@@ -224,54 +140,29 @@ export function evaluatePreferenceDatasetLoss(
   padTokenId: number,
   batchSize: number,
 ): number {
-  let totalLoss = 0;
-  let batches = 0;
-  for (const chunk of chunkExamples(examples, batchSize)) {
-    totalLoss += evaluateDpoBatchLoss(
-      policyModel,
-      referenceModel,
-      collatePreferenceBatch(chunk, padTokenId),
-    );
-    batches += 1;
-  }
-  return totalLoss / batches;
+  return alignEvaluatePreferenceDatasetLoss(policyModel, {
+    referenceModel,
+    examples,
+    padTokenId,
+    batchSize,
+  });
 }
 
-export function evaluatePreferenceAccuracy(
+export function evaluatePreferenceMetrics(
   policyModel: CausalLM,
+  referenceModel: CausalLM,
   examples: readonly PreferenceExample[],
   padTokenId: number,
   batchSize: number,
-): number {
-  let wins = 0;
-  let total = 0;
-  for (const chunk of chunkExamples(examples, batchSize)) {
-    const batch = collatePreferenceBatch(chunk, padTokenId);
-    try {
-      const logProbs = preferenceLogProbSums(policyModel, batch);
-      try {
-        mxEval(logProbs.chosen, logProbs.rejected);
-        const chosenValues = logProbs.chosen.toList() as number[];
-        const rejectedValues = logProbs.rejected.toList() as number[];
-        for (let index = 0; index < chosenValues.length; index += 1) {
-          const chosen = chosenValues[index];
-          const rejected = rejectedValues[index];
-          if (chosen !== undefined && rejected !== undefined) {
-            if (chosen > rejected) {
-              wins += 1;
-            }
-            total += 1;
-          }
-        }
-      } finally {
-        logProbs.chosen.free();
-        logProbs.rejected.free();
-      }
-    } finally {
-      freePreferenceBatch(batch);
-    }
-  }
-  return total === 0 ? 0 : wins / total;
+  beta = DEFAULT_DPO_BETA,
+): PreferenceEvalMetrics {
+  return alignEvaluatePreferenceMetrics(policyModel, {
+    referenceModel,
+    examples,
+    padTokenId,
+    batchSize,
+    beta,
+  });
 }
 
 export function runSupervisionTrainingSteps(
@@ -284,17 +175,15 @@ export function runSupervisionTrainingSteps(
   learningRate: number,
 ): number {
   const optimizer = new Adam({ learningRate });
-  const nextBatch = createBatchPicker(examples, batchSize, seed);
-  let totalTrainingLoss = 0;
-  for (let step = 0; step < steps; step += 1) {
-    const result = sftTrain(model, {
-      optimizer,
-      batches: [collateTokenSupervisionBatch(nextBatch(), padTokenId)],
-      learningRate,
-    });
-    totalTrainingLoss += result.averageLoss;
-  }
-  return totalTrainingLoss / steps;
+  return alignRunSupervisionTrainingSteps(model, {
+    optimizer,
+    examples,
+    padTokenId,
+    batchSize,
+    steps,
+    seed,
+    learningRate,
+  }).averageLoss;
 }
 
 export function runPreferenceTrainingSteps(
@@ -306,19 +195,18 @@ export function runPreferenceTrainingSteps(
   steps: number,
   seed: number,
   learningRate: number,
+  beta = DEFAULT_DPO_BETA,
 ): number {
   const optimizer = new Adam({ learningRate });
-  const nextBatch = createBatchPicker(examples, batchSize, seed);
-  let totalTrainingLoss = 0;
-  for (let step = 0; step < steps; step += 1) {
-    const result = dpoTrain(policyModel, {
-      referenceModel,
-      optimizer,
-      batches: [collatePreferenceBatch(nextBatch(), padTokenId)],
-      beta: 0.1,
-      learningRate,
-    });
-    totalTrainingLoss += result.averageLoss;
-  }
-  return totalTrainingLoss / steps;
+  return alignRunPreferenceTrainingSteps(policyModel, {
+    referenceModel,
+    optimizer,
+    examples,
+    padTokenId,
+    batchSize,
+    steps,
+    seed,
+    beta,
+    learningRate,
+  }).averageLoss;
 }

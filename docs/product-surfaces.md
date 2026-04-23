@@ -18,7 +18,7 @@ This document defines the standards for each surface. All agents must consider t
 │        train, generate, inspect, benchmark           │
 ├─────────────────────────────────────────────────────┤
 │                     API (Phase 1-3)                  │
-│  @mlxts/core, @mlxts/nn, @mlxts/optimizers, fixture  │
+│  @mlxts/core, @mlxts/nn, @mlxts/optimizers, examples │
 └─────────────────────────────────────────────────────┘
 ```
 
@@ -108,7 +108,7 @@ nanogpt train --preset gpt-small --data ./data/shakespeare.txt --lr 3e-4 --batch
 - Errors go to stderr, results go to stdout
 - Long-running training commands emit enough structured telemetry to diagnose throughput drift, memory pressure, checkpoint health, and stop/resume state
 - Long-running training and acceptance flows should expose occasional generated samples so semantic progress is visible alongside scalar metrics
-- Overnight or resumable training should go through the canonical `bun run run:nanogpt ...` manager flow, not loose root scripts or one-off shell wrappers
+- Overnight or resumable training should go through the canonical `cd examples/nanogpt && bun run manager ...` manager flow, not loose root scripts or one-off shell wrappers
 
 ### Example of what good looks like
 
@@ -135,10 +135,10 @@ The slings and arrows of outrageous fortune...
 ### Overnight operator flow
 
 ```bash
-$ bun run run:nanogpt start --preset gpt-small --max-steps 5000
+$ cd examples/nanogpt && bun run manager start --preset gpt-small --max-steps 5000
 Started run 2026-04-04T01-14-53-gpt-small
 
-$ bun run run:nanogpt status --name 2026-04-04T01-14-53-gpt-small
+$ cd examples/nanogpt && bun run manager status --name 2026-04-04T01-14-53-gpt-small
 Run 2026-04-04T01-14-53-gpt-small
   state: running
   step: 750 / 5000
@@ -148,10 +148,10 @@ Run 2026-04-04T01-14-53-gpt-small
   cache memory: 3,072 MB
   latest checkpoint: .nanogpt-runs/.../checkpoints/gpt-small-snapshot-step-750
 
-$ bun run run:nanogpt stop --name 2026-04-04T01-14-53-gpt-small
+$ cd examples/nanogpt && bun run manager stop --name 2026-04-04T01-14-53-gpt-small
 Requested stop for run 2026-04-04T01-14-53-gpt-small
 
-$ bun run run:nanogpt resume --from 2026-04-04T01-14-53-gpt-small --max-steps 10000
+$ cd examples/nanogpt && bun run manager resume --from 2026-04-04T01-14-53-gpt-small --max-steps 10000
 Started run 2026-04-04T04-00-00-gpt-small
 ```
 
@@ -159,9 +159,9 @@ The key design point is that stop/resume is checkpoint-driven, not process-magic
 
 The engineering implication is just as important as the operator experience: this surface is production code. Changes to it need the same runtime review, tests, and evidence as tensor or optimizer code.
 
-For now this operator flow still lives in `packages/nanogpt` as a temporary
-validation fixture. The behavior is canonical even though the package location
-is not the long-term end state.
+This operator flow lives in `examples/nanogpt` because nanoGPT is now an
+intentional example surface rather than a publishable package. The behavior is
+canonical; the reusable abstractions should still live in `@mlxts/*`.
 
 ---
 

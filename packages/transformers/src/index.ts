@@ -4,8 +4,28 @@
  */
 
 export { AutoModel, AutoTokenizer } from "./auto";
-export { type ChatMessage, type ChatTemplate, loadChatTemplate } from "./chat-template";
 export {
+  type ChatMessage,
+  type ChatTemplate,
+  type ChatTool,
+  type ChatToolCall,
+  loadChatTemplate,
+} from "./chat-template";
+export {
+  expandQwen3_5ImageTokens,
+  prepareQwen3_5ImagePrompt,
+} from "./families/qwen3_5/conditional";
+export {
+  type DecodedQwen3_5Image,
+  loadQwen3_5VisionPreprocessor,
+  type PreparedQwen3_5ImageBatch,
+  parseQwen3_5VisionPreprocessorConfig,
+  prepareQwen3_5ImageBatch,
+  type Qwen3_5VisionPreprocessorConfig,
+  smartResizeQwen3_5Image,
+} from "./families/qwen3_5/preprocessing";
+export {
+  generatePreparedTokens,
   generateStep,
   generateText,
   generateTextStream,

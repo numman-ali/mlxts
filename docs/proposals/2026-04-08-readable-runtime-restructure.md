@@ -133,7 +133,7 @@ Training already shows more of the right shape through:
 
 - `packages/train/src/loop.ts`
 - `packages/train/src/step.ts`
-- `packages/nanogpt/src/train.ts`
+- `examples/nanogpt/src/train.ts`
 
 This direction should be strengthened, not replaced. Training should continue
 to read as explicit staged flow rather than a hidden trainer framework.

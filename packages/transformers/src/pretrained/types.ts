@@ -73,6 +73,8 @@ export type ModelArtifacts = {
   configPath?: string;
   generationConfigPath?: string;
   processorConfigPath?: string;
+  preprocessorConfigPath?: string;
+  videoPreprocessorConfigPath?: string;
   chatTemplatePath?: string;
   safetensorsIndexPath?: string;
   safetensorPaths: string[];
@@ -95,6 +97,8 @@ export type SnapshotInspection = {
   config: Record<string, unknown>;
   generationConfig: Record<string, unknown>;
   processorConfig: Record<string, unknown>;
+  preprocessorConfig: Record<string, unknown>;
+  videoPreprocessorConfig: Record<string, unknown>;
   tokenizerConfig: Record<string, unknown>;
   specialTokensMap: Record<string, unknown>;
   safetensorsIndex: Record<string, unknown>;

@@ -15,7 +15,7 @@ The goal is not to replicate Python's entire ML ecosystem line-for-line. It is t
 - One canonical way to do each thing
 - Every package is a product, not a prototype
 
-**Current state**: The repo is in a package-first Phase 5 posture. `@mlxts/core`, `@mlxts/nn`, `@mlxts/optimizers`, `@mlxts/train`, `@mlxts/data`, and `@mlxts/tokenizers` all exist as extracted workspace packages and now back the temporary GPT validation fixture directly. `packages/nanogpt` remains a thin validation fixture while the reusable package surfaces settle and a later dedicated examples repo is designed.
+**Current state**: The repo is in a package-first Phase 5 posture. `@mlxts/core`, `@mlxts/nn`, `@mlxts/optimizers`, `@mlxts/train`, `@mlxts/data`, and `@mlxts/tokenizers` all exist as extracted workspace packages and now back the committed in-repo nanoGPT example directly. `examples/nanogpt` stays intentionally thin while the reusable package surfaces settle, and the repo can still split broader examples out later if that becomes useful.
 
 **Prior art**: @frost-beta/mlx provides Node.js MLX bindings with a camelCase API. Transformers.js v4 (Feb 2026) provides inference at ~60 tok/s on M4 via WebGPU. mlxts differentiates on training capability, native MLX performance, and a complete ecosystem -- not just inference.
 

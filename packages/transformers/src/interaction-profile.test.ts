@@ -243,6 +243,29 @@ describe("interaction profiles", () => {
     expect(compiled.tokenIds).toEqual([2, 105, 2364, 107, 9259, 993, 106, 107, 105, 4368, 107]);
   });
 
+  test("passes thinking controls through Qwen-style chat templates", async () => {
+    const directory = createTempDir("mlxts-interaction-qwen-thinking-");
+    writeSnapshot(directory, "qwen3_5_text", phiTokenizerJson(), {
+      add_bos_token: false,
+      add_eos_token: false,
+      chat_template:
+        "{% for message in messages %}{{ message['role'] + ':' + message['content'] + '\\n' }}{% endfor %}{% if add_generation_prompt %}assistant:\n{% if enable_thinking is defined and enable_thinking is false %}<think>\n\n</think>\n\n{% else %}<think>\n{% endif %}{% endif %}",
+    });
+
+    const tokenizer = await loadPretrainedTokenizer(directory);
+    const profile = await loadInteractionProfile(directory);
+    const thinking = profile.compileMessages(tokenizer, [{ role: "user", content: "Hello" }], {
+      addGenerationPrompt: true,
+    });
+    const noThinking = profile.compileMessages(tokenizer, [{ role: "user", content: "Hello" }], {
+      addGenerationPrompt: true,
+      enableThinking: false,
+    });
+
+    expect(thinking.text).toContain("assistant:\n<think>\n");
+    expect(noThinking.text).toContain("assistant:\n<think>\n\n</think>\n\n");
+  });
+
   test("reject direct message compilation when no chat template exists", async () => {
     const directory = createTempDir("mlxts-interaction-completion-");
     writeSnapshot(

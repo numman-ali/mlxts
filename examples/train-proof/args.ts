@@ -25,6 +25,11 @@ export const DEFAULT_PROOF_MAX_SEQUENCE_LENGTH = 1024;
 export const DEFAULT_PROOF_SEED = 7;
 
 export type TrainingProofDatasetSource = "tiny" | "huggingface";
+export type TrainingProofStageName = "lora" | "qlora" | "sft" | "dpo";
+export type DPOProofProfile = "canonical" | "handbook";
+
+export const DEFAULT_PROOF_STAGES: TrainingProofStageName[] = ["lora", "qlora", "sft", "dpo"];
+export const DEFAULT_DPO_PROFILE: DPOProofProfile = "canonical";
 
 /** CLI options for the training proof runner. */
 export type TrainingProofArgs = {
@@ -38,6 +43,8 @@ export type TrainingProofArgs = {
   steps: number;
   maxSequenceLength: number;
   seed: number;
+  stages: TrainingProofStageName[];
+  dpoProfile: DPOProofProfile;
 };
 
 /** Default local directory for the repo-generated 4-bit snapshot. */
@@ -74,6 +81,33 @@ function readDatasetSource(value: string): TrainingProofDatasetSource {
   throw new Error(`Unknown dataset source: ${value}`);
 }
 
+function readStages(value: string): TrainingProofStageName[] {
+  const parsed = value
+    .split(",")
+    .map((entry) => entry.trim())
+    .filter((entry) => entry !== "");
+  if (parsed.length === 0) {
+    throw new Error("--stages expects a comma-separated list of proof stages.");
+  }
+  const unique: TrainingProofStageName[] = [];
+  for (const stage of parsed) {
+    if (stage !== "lora" && stage !== "qlora" && stage !== "sft" && stage !== "dpo") {
+      throw new Error(`Unknown proof stage: ${stage}`);
+    }
+    if (!unique.includes(stage)) {
+      unique.push(stage);
+    }
+  }
+  return unique;
+}
+
+function readDPOProfile(value: string): DPOProofProfile {
+  if (value === "canonical" || value === "handbook") {
+    return value;
+  }
+  throw new Error(`Unknown DPO proof profile: ${value}`);
+}
+
 /** Parse the training proof CLI arguments. */
 export function parseTrainingProofArgs(argv: readonly string[]): TrainingProofArgs {
   let source = DEFAULT_PROOF_MODEL;
@@ -86,6 +120,8 @@ export function parseTrainingProofArgs(argv: readonly string[]): TrainingProofAr
   let steps = DEFAULT_PROOF_STEPS;
   let maxSequenceLength = DEFAULT_PROOF_MAX_SEQUENCE_LENGTH;
   let seed = DEFAULT_PROOF_SEED;
+  let stages = [...DEFAULT_PROOF_STAGES];
+  let dpoProfile: DPOProofProfile = DEFAULT_DPO_PROFILE;
 
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
@@ -136,6 +172,14 @@ export function parseTrainingProofArgs(argv: readonly string[]): TrainingProofAr
         seed = readPositiveInteger(arg, argv[index + 1]);
         index += 1;
         break;
+      case "--stages":
+        stages = readStages(readValue(arg, argv[index + 1]));
+        index += 1;
+        break;
+      case "--dpo-profile":
+        dpoProfile = readDPOProfile(readValue(arg, argv[index + 1]));
+        index += 1;
+        break;
       default:
         throw new Error(`Unknown argument: ${arg}`);
     }
@@ -152,5 +196,7 @@ export function parseTrainingProofArgs(argv: readonly string[]): TrainingProofAr
     steps,
     maxSequenceLength,
     seed,
+    stages,
+    dpoProfile,
   };
 }

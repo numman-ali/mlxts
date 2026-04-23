@@ -43,6 +43,10 @@ type LongContextResult = {
   cacheMemoryAfterPrefillGb: number;
   activeMemoryAfterFirstTokenGb: number;
   cacheMemoryAfterFirstTokenGb: number;
+  activeMemoryAfterDecodeGb: number;
+  cacheMemoryAfterDecodeGb: number;
+  activeMemoryDecodeDeltaGb: number;
+  activeMemoryDecodeSlopeMbPerToken: number;
   peakMemoryAfterDecodeGb: number;
   exactMatch: boolean;
   containsSecret: boolean;
@@ -339,6 +343,7 @@ function runLongContextRung(
         }
         const decodeSeconds = Math.max((performance.now() - decodeStarted) / 1000, 1e-9);
         const afterDecode = getMemoryStats();
+        const activeDecodeDeltaBytes = afterDecode.activeBytes - afterFirstToken.activeBytes;
         const responseText = decodeOutput(tokenizer, generated);
         const normalized = normalizeExactResponse(responseText);
 
@@ -355,6 +360,11 @@ function runLongContextRung(
           cacheMemoryAfterPrefillGb: afterPrefill.cacheBytes / 1e9,
           activeMemoryAfterFirstTokenGb: afterFirstToken.activeBytes / 1e9,
           cacheMemoryAfterFirstTokenGb: afterFirstToken.cacheBytes / 1e9,
+          activeMemoryAfterDecodeGb: afterDecode.activeBytes / 1e9,
+          cacheMemoryAfterDecodeGb: afterDecode.cacheBytes / 1e9,
+          activeMemoryDecodeDeltaGb: activeDecodeDeltaBytes / 1e9,
+          activeMemoryDecodeSlopeMbPerToken:
+            activeDecodeDeltaBytes / 1e6 / Math.max(options.generationTokens, 1),
           peakMemoryAfterDecodeGb: afterDecode.peakBytes / 1e9,
           exactMatch: normalized === secret,
           containsSecret: responseText.includes(secret),
@@ -382,6 +392,10 @@ function printResult(result: LongContextResult): void {
       `cache_after_prefill=${result.cacheMemoryAfterPrefillGb.toFixed(3)}`,
       `active_after_first_token=${result.activeMemoryAfterFirstTokenGb.toFixed(3)}`,
       `cache_after_first_token=${result.cacheMemoryAfterFirstTokenGb.toFixed(3)}`,
+      `active_after_decode=${result.activeMemoryAfterDecodeGb.toFixed(3)}`,
+      `cache_after_decode=${result.cacheMemoryAfterDecodeGb.toFixed(3)}`,
+      `active_decode_delta=${result.activeMemoryDecodeDeltaGb.toFixed(3)}`,
+      `active_decode_slope_mb_per_token=${result.activeMemoryDecodeSlopeMbPerToken.toFixed(2)}`,
       `peak_after_decode=${result.peakMemoryAfterDecodeGb.toFixed(3)}`,
       `exact_match=${result.exactMatch}`,
       `contains_secret=${result.containsSecret}`,

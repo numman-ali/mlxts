@@ -348,22 +348,22 @@ Token Embedding + Position Embedding
 
 **Deliverables**:
 
-- `packages/nanogpt/` — complete GPT implementation
+- `examples/nanogpt/` — complete GPT example implementation
 - Trains on Shakespeare, generates coherent text
 - Canonical CLI with `train` / `generate`
 - Memory benchmark and supervised soak surfaces before loss-targeted acceptance
-- Acceptance scripts: `bun run acceptance:gpt-tiny` and `bun run acceptance:gpt-small`
+- Acceptance scripts: `cd examples/nanogpt && bun run acceptance:gpt-tiny` and `cd examples/nanogpt && bun run acceptance:gpt-small`
 
 **Exit criteria**:
 - `bun run validate` passes
 - `gpt-tiny` trains to <1.8 validation loss on Shakespeare in an explicit acceptance run
 - `gpt-small` also has an explicit loss-targeted acceptance run
-- Long unattended runs use the supervised `bun run run:nanogpt ...` surface rather than one-off scripts
+- Long unattended runs use the supervised `cd examples/nanogpt && bun run manager ...` surface rather than one-off scripts
 - Long-run acceptance follows a soak ladder (`50 → 250 → 1000 → 5000`) rather than jumping straight to overnight runs
 - Runtime-sensitive diffs leave a review artifact under `docs/reviews/` and pass `bun run check:runtime-review`
 - Generated text is recognizably English and vaguely Shakespearean
 
-**Post-Phase-4 posture**: Phase 4 completion triggers the ecosystem restructure. The proven code from `mlx-ts` and `nanogpt` becomes the foundation for the `@mlxts/*` package family. nanoGPT remains a temporary in-repo validation fixture during extraction; richer examples move to a dedicated examples repo later.
+**Post-Phase-4 posture**: Phase 4 completion triggers the ecosystem restructure. The proven code from `mlx-ts` and `nanogpt` becomes the foundation for the `@mlxts/*` package family. nanoGPT now lives conceptually as `examples/nanogpt/`: a committed in-repo example and regression surface rather than a package.
 
 ---
 
@@ -371,7 +371,7 @@ Token Embedding + Position Embedding
 
 **Status**: Complete.
 
-**Goal**: Adopt the `mlxts` package identity inside the monorepo, extract the canonical `@mlxts/*` packages, and make the repo truthful about the package-first transition. Full example rewrites are intentionally deferred until the ecosystem is more complete.
+**Goal**: Adopt the `mlxts` package identity inside the monorepo, extract the canonical `@mlxts/*` packages, and make the repo truthful about the package-first transition. `examples/nanogpt/` is part of that truthful contract: a committed example surface, not a package deliverable.
 
 See [docs/ecosystem-structure.md](./docs/ecosystem-structure.md) for the complete package map and migration table.
 
@@ -392,21 +392,21 @@ Extract these packages from the existing codebase (see migration table in ecosys
 | `@mlxts/core` | Legacy MLX monolith | MxArray, FFI, ops, transforms, fast fused ops, device, memory, random, I/O, dtype, tree utils, shape utils, error types |
 | `@mlxts/nn` | Legacy nn layer | Module, Linear, Embedding, LayerNorm, Dropout, activations, losses |
 | `@mlxts/optimizers` | Legacy optimizer layer | Adam, AdamW, SGD, optimizer base, LR schedules |
-| `@mlxts/train` | Former generic pieces of `nanogpt/src/train.ts` and `checkpoint.ts` | Training loop, checkpoint, gradient utilities, typed checkpoint metadata, reusable step orchestration |
-| `@mlxts/data` | Former `nanogpt/src/data.ts` | Text data loading, batching |
-| `@mlxts/tokenizers` | Former `nanogpt/src/tokenizer.ts` | Character tokenizer (BPE comes in Phase 7) |
+| `@mlxts/train` | Former generic pieces of `examples/nanogpt/src/train.ts` and `checkpoint.ts` | Training loop, checkpoint, gradient utilities, typed checkpoint metadata, reusable step orchestration |
+| `@mlxts/data` | Former `examples/nanogpt/src/data.ts` | Text data loading, batching |
+| `@mlxts/tokenizers` | Former `examples/nanogpt/src/tokenizer.ts` | Character tokenizer (BPE comes in Phase 7) |
 
 This extraction is now real, not hypothetical:
 
 - `@mlxts/core`, `@mlxts/nn`, `@mlxts/optimizers`, `@mlxts/train`, `@mlxts/data`, and `@mlxts/tokenizers` exist as workspace packages
 - `packages/core` owns the native MLX build and the canonical FFI/runtime surface
-- `packages/nanogpt` now consumes the extracted packages directly and is being reduced to a thin GPT-specific validation fixture
+- `examples/nanogpt` now consumes the extracted packages directly and is the thin GPT-specific example/regression surface
 
 ### 5c. Package-first validation posture
 
-- `packages/nanogpt` remains a temporary private validation fixture while the reusable packages stabilize
-- `@mlxts/train`, `@mlxts/data`, and `@mlxts/tokenizers` are the sole implementations of generic training/data/tokenizer behavior; `packages/nanogpt` only wraps them for GPT-specific flows
-- `bun run check:file-lines` enforces the 500-line cap for active production source, including the temporary fixture
+- `examples/nanogpt` is a committed in-repo example, not a publish target
+- `@mlxts/train`, `@mlxts/data`, and `@mlxts/tokenizers` are the sole implementations of generic training/data/tokenizer behavior; `examples/nanogpt` only wraps them for GPT-specific flows
+- `bun run check:file-lines` enforces the 500-line cap for active production source, including the committed example surface
 - Coverage, runtime-review, type-assertion, and tensor-lifetime gates recognize the extracted package layout
 - `docs/reviews/phase-5-restructure.md` records the runtime-sensitive package extraction work
 - Phase 5 success is defined by clean package surfaces and truthful repo docs, not by forcing a premature in-repo example rewrite
@@ -417,20 +417,20 @@ This extraction is now real, not hypothetical:
 - Each extracted package typechecks and tests independently
 - `bun run check:file-lines` passes
 - Runtime review stays in place for the extracted package surfaces
-- The temporary shim and fixture are explicitly documented as transitional surfaces
+- Transitional shims are explicitly documented, while `examples/nanogpt` is documented as an intentional example surface
 
 ### 5e. What comes next
 
-- Keep hardening the extracted packages and their docs until the temporary shim and fixture can be deleted cleanly
-- Continue using `packages/nanogpt` as a validation harness in the meantime
-- Design the dedicated examples repo later, including a ground-up nanoGPT rewrite once the ecosystem surface is broader and more stable
+- Keep hardening the extracted packages and their docs while preserving a thin, teachable `examples/nanogpt` surface
+- Keep the nanoGPT example useful as a regression path without letting it accrete package-owned abstractions
+- Consider a broader dedicated examples repo later if the example portfolio outgrows the monorepo, but `examples/nanogpt` is now an intentional in-repo surface
 
 **Exit criteria**:
 - See [gates-and-milestones.md](./docs/gates-and-milestones.md#phase-5-ecosystem-restructure)
 - Canonical `@mlxts/*` packages exist and pass their package-local tests
 - `bun run validate` and `bun run check:file-lines` pass
 - Runtime review artifacts and top-level docs accurately describe the package-first state
-- `packages/mlx-ts` and `packages/nanogpt` are clearly marked as temporary transitional surfaces rather than long-term end states
+- `packages/mlx-ts` is clearly marked as transitional, while `examples/nanogpt` is clearly documented as an example surface rather than a package
 
 ---
 
@@ -599,7 +599,7 @@ correct.
 ### 7e. Examples
 
 - `examples/chat/` — interactive chat with a local supported decoder model
-- The later dedicated examples repo can adopt `@mlxts/transformers` where it improves the rewritten examples
+- Broader future example surfaces can adopt `@mlxts/transformers` where it improves their design, but `examples/nanogpt` remains an in-repo example rather than a package concern
 
 **Exit criteria**: See [gates-and-milestones.md](./docs/gates-and-milestones.md#phase-7-model-architectures).
 
@@ -694,6 +694,8 @@ and minimal serving are in place.
 - DPO trainer (Direct Preference Optimization — simpler than PPO, better results)
 - Preference pair data formatting
 - Chat template support for instruction tuning
+- Raw-chat preparation helpers that normalize, length-cap, and account for
+  skipped supervision/preference rows before recipe loops run
 
 ### 8c. Data expansion (`@mlxts/data`)
 
@@ -711,6 +713,10 @@ and minimal serving are in place.
   should add small package-owned primitives such as train hooks, checkpoint
   policies, evaluation policies, artifact sinks, and `AsyncIterable`-style
   train events.
+- As a first ergonomics step, move reusable dataset-level SFT/DPO evaluation
+  and fixed-step recipe helpers into `@mlxts/align` so examples stay thin and
+  package-owned, without turning `@mlxts/train` into a black-box trainer
+  framework.
 - Do **not** turn `@mlxts/train` into a black-box pipeline framework and do not
   add reactive framework dependencies such as RxJS or Effect to the core
   training layer.
@@ -721,9 +727,12 @@ and minimal serving are in place.
   - `meta-llama/Llama-3.2-1B-Instruct` as the training anchor
   - `HuggingFaceH4/ultrachat_200k` subsets for LoRA / QLoRA / SFT
   - `HuggingFaceH4/ultrafeedback_binarized` subsets for DPO
-- This proof path must become a CI-gated regression. If a model-architecture,
-  quantization, tokenizer, or trainer change breaks LoRA / QLoRA / SFT / DPO on
-  the canonical proof, the build should fail.
+- This proof path should eventually become a CI-gated regression. Until then,
+  keep `bun run examples/train-proof/index.ts` as the canonical Apple Silicon
+  proof surface.
+  If a model-architecture, quantization, tokenizer, or trainer change breaks
+  LoRA / QLoRA / SFT / DPO on the canonical proof, the build should fail once
+  we promote the gate.
 
 **Exit criteria**: See [gates-and-milestones.md](./docs/gates-and-milestones.md#phase-8-fine-tuning).
 
@@ -736,6 +745,8 @@ and minimal serving are in place.
 **Research basis**: Deep analysis of three MLX inference servers — Rapid-MLX (speed-focused), vLLM-MLX (foundational batching/paging), oMLX (production serving/memory management). These share lineage (vLLM-MLX → forks) but diverged into complementary specializations. Key findings are documented in [docs/inference-optimizations.md](./docs/inference-optimizations.md). Reference repos at `.reference/rapid-mlx`, `.reference/vllm-mlx`, `.reference/omlx`.
 
 **Design principle — strategy-agnostic boundaries**: These reference projects study research papers and implement them as needed — MTP from one paper, speculative decoding from another, sparse prefill from a third. Our architecture must be flexible enough to swap strategies at each boundary: different cache backends, different decoding strategies, different scheduling algorithms. The interfaces must be stable even as the implementations behind them evolve. No technique should be hardwired in a way that prevents replacing it with a better one.
+
+**Cross-phase runtime audit**: now that `.reference/mlx` and `.reference/mlx-c` are part of the local reference set, run a systematic capability audit against `packages/core/src/ffi/symbols.ts`, the runtime optimization matrix, and current native helper seams. The goal is to identify (a) MLX/MLX-C primitives we should bind directly, (b) places where compile should be retried before native work, and (c) the narrower cases that genuinely justify custom C or custom Metal helpers.
 
 **What this phase covers**:
 
@@ -842,11 +853,11 @@ reference work from Hugging Face Diffusers. Clone that reference into
 Vision encoders, audio encoders, and VLM wrappers are transformer architectures. They extend `@mlxts/transformers`, not a separate package.
 
 - Vision encoder families: CLIP, SigLIP, ViT
-- VLM wrapper families: LLaVA, PaliGemma, Gemma 3/4, newer Mistral conditional-generation models
+- VLM wrapper families: initial Qwen 3.5 / Qwen 3.6 multimodal wrapper, then LLaVA, PaliGemma, Gemma 3/4, newer Mistral conditional-generation models
 - Encoder-decoder families: Whisper (speech → text), T5, BART
 - Audio preprocessing utilities co-located with Whisper family
-- `ForwardOptions` gains optional `inputEmbeddings` field (additive, not breaking)
-- `generateStep()` gains optional `inputEmbeddings` parameter for VLM generation
+- `ForwardOptions` gains optional `inputEmbeddings` and `positionIds` fields (landed for the first multimodal tranche)
+- Explicit prepared-prompt generation (`generatePreparedTokens()`) and Qwen image-preparation helpers land before the broader family rollout
 
 The `CausalLM` contract does not change. VLMs compose a vision encoder with a text decoder — the vision encoder preprocesses images into the text model's embedding space, then the text decoder generates autoregressively as normal.
 
@@ -866,7 +877,8 @@ All diffusion and flow-based generation across modalities: image, video, and aud
 
 - `examples/whisper/` — transcribe audio on device
 - `examples/text-to-image/` — generate images from text prompts
-- `examples/vlm-chat/` — chat with images using a vision-language model
+- `examples/qwen3_5-image/` — first dedicated Qwen image-conditioned generation example
+- `examples/vlm-chat/` — broader chat-with-images surface after the initial wrapper tranche
 
 **Exit criteria**: See [gates-and-milestones.md](./docs/gates-and-milestones.md#phase-10-diffusion-and-multi-modal).
 

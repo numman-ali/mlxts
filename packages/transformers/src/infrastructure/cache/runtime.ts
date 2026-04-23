@@ -3,7 +3,7 @@
  * @module
  */
 
-import { concatenate, type MxArray, retainArray, slice, sliceViewInPlace } from "@mlxts/core";
+import { concatenate, type MxArray, retainArray, slice } from "@mlxts/core";
 import { recordTransformerRuntimeCounter } from "../runtime-profile";
 import {
   cacheTailView,
@@ -22,8 +22,6 @@ import {
 export type LayerState = {
   keys: MxArray | null;
   values: MxArray | null;
-  visibleKeys: MxArray | null;
-  visibleValues: MxArray | null;
   length: number;
   cursor: number;
 };
@@ -38,8 +36,6 @@ export function createEmptyLayerState(): LayerState {
   return {
     keys: null,
     values: null,
-    visibleKeys: null,
-    visibleValues: null,
     length: 0,
     cursor: 0,
   };
@@ -61,24 +57,12 @@ function currentBufferPair(state: LayerState, context: string): { keys: MxArray;
   return { keys, values };
 }
 
-function updateVisibleStateHandles(
-  state: LayerState,
-  length: number,
-  context: string,
-): { keys: MxArray; values: MxArray } {
+function visibleState(state: LayerState, length: number, context: string): CacheAppendResult {
   const { keys, values } = currentBufferPair(state, context);
   const capacity = sequenceAxisLength(keys, context);
   if (length === capacity) {
     recordTransformerRuntimeCounter("cache.return_full_buffer", 2);
-    if (state.visibleKeys !== null) {
-      state.visibleKeys.free();
-      state.visibleKeys = null;
-    }
-    if (state.visibleValues !== null) {
-      state.visibleValues.free();
-      state.visibleValues = null;
-    }
-    return { keys, values };
+    return createBorrowedAppendResult(keys, values);
   }
 
   recordTransformerRuntimeCounter("cache.return_prefix_view", 2);
@@ -87,23 +71,11 @@ function updateVisibleStateHandles(
   const width = keys.shape[3] ?? 0;
   const start = [0, 0, 0, 0];
   const stop = [batch, heads, length, width];
-  if (state.visibleKeys === null || state.visibleValues === null) {
-    state.visibleKeys = slice(keys, start, stop);
-    state.visibleValues = slice(values, start, stop);
-  } else {
-    sliceViewInPlace(state.visibleKeys, keys, start, stop);
-    sliceViewInPlace(state.visibleValues, values, start, stop);
-  }
-  return { keys: state.visibleKeys, values: state.visibleValues };
+  return createOwnedAppendResult(slice(keys, start, stop), slice(values, start, stop));
 }
 
-function borrowedVisibleState(
-  state: LayerState,
-  length: number,
-  context: string,
-): CacheAppendResult {
-  const visible = updateVisibleStateHandles(state, length, context);
-  return createBorrowedAppendResult(visible.keys, visible.values);
+function visibleAppendState(state: LayerState, length: number, context: string): CacheAppendResult {
+  return visibleState(state, length, context);
 }
 
 export function materializeOwnedAppendResult(result: CacheAppendResult): {
@@ -133,17 +105,14 @@ export function retainedLayerStateArrays(state: LayerState): MxArray[] {
     return [];
   }
 
-  const visible = updateVisibleStateHandles(state, state.length, "retainedLayerStateArrays");
-  return [retainArray(visible.keys), retainArray(visible.values)];
+  const visible = visibleState(state, state.length, "retainedLayerStateArrays");
+  const owned = materializeOwnedAppendResult(visible);
+  return [owned.keys, owned.values];
 }
 
 export function disposeLayerState(state: LayerState): void {
-  state.visibleKeys?.free();
-  state.visibleValues?.free();
   state.keys?.free();
   state.values?.free();
-  state.visibleKeys = null;
-  state.visibleValues = null;
   state.keys = null;
   state.values = null;
   state.length = 0;
@@ -187,7 +156,7 @@ export function appendFullCacheState(
   writeCacheRangeInPlace(state.values, values, state.length);
   state.length = requiredLength;
 
-  return borrowedVisibleState(state, requiredLength, "appendFullCacheState");
+  return visibleAppendState(state, requiredLength, "appendFullCacheState");
 }
 
 function appendSlidingSingleTokenAtCursor(
@@ -209,7 +178,7 @@ function appendSlidingSingleTokenAtCursor(
   writeCacheRangeInPlace(state.keys, keys, state.cursor);
   writeCacheRangeInPlace(state.values, values, state.cursor);
   state.cursor = (state.cursor + 1) % windowSize;
-  return borrowedVisibleState(state, windowSize, "appendSlidingSingleTokenAtCursor");
+  return visibleAppendState(state, windowSize, "appendSlidingSingleTokenAtCursor");
 }
 
 function appendSlidingIntoExistingCapacity(
@@ -240,7 +209,7 @@ function appendSlidingIntoExistingCapacity(
   writeCacheRangeInPlace(existingValues, values, state.length);
   state.length = Math.min(windowSize, state.length + updateLength);
   state.cursor = state.length === windowSize ? 0 : state.cursor;
-  return borrowedVisibleState(state, state.length, "appendSlidingIntoExistingCapacity");
+  return visibleAppendState(state, state.length, "appendSlidingIntoExistingCapacity");
 }
 
 function appendSlidingWithBufferGrowth(
@@ -267,7 +236,7 @@ function appendSlidingWithBufferGrowth(
   recordTransformerRuntimeCounter("cache.buffer_replaced", 2);
   state.length += updateLength;
   state.cursor = state.length === windowSize ? 0 : state.cursor;
-  return borrowedVisibleState(
+  return visibleAppendState(
     state,
     Math.min(state.length, windowSize),
     "appendSlidingWithBufferGrowth",
@@ -346,6 +315,5 @@ export function appendSlidingCacheState(
   state.values = retainArray(retainedValues);
   state.length = retainedLength;
   state.cursor = 0;
-  updateVisibleStateHandles(state, retainedLength, "appendSlidingCacheState");
   return createOwnedAppendResult(retainArray(returnedKeys), retainArray(returnedValues));
 }

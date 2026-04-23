@@ -36,8 +36,9 @@
               └────────────────────────────┘
 ```
 
-`packages/nanogpt` survives as a temporary validation fixture. The extracted
-`@mlxts/*` packages are the canonical architecture target.
+`examples/nanogpt` is the committed in-repo nanoGPT example and regression
+surface. The extracted `@mlxts/*` packages are the canonical architecture
+target.
 
 ### Why mlx-c instead of a custom C wrapper?
 
@@ -166,12 +167,13 @@ These packages are now the canonical reusable layer above `@mlxts/core`,
 
 ### Transitional Surfaces
 
-- `packages/nanogpt` is a temporary validation fixture that still carries the
+- `examples/nanogpt` is the committed example surface that carries the
   supervised run manager and acceptance harness
 
-The operator semantics in `packages/nanogpt/src/run/` are still important, but
-the package location is transitional. Rich examples and a ground-up nanoGPT
-rewrite are deferred to a later dedicated examples effort.
+The operator semantics in `examples/nanogpt/src/run/` are still important, but
+they belong to an example surface rather than a package product. Reusable
+behavior should continue moving into `@mlxts/*` packages instead of turning the
+example into a second framework layer.
 
 ## Execution Strategy Composition
 
@@ -406,7 +408,7 @@ The repo treats tensor hot paths, optimizer updates, checkpoint flows, and long-
 - sync/eval points must be explicit and justified
 - the diff must leave a review artifact under `docs/reviews/`
 - incident fixes must add a preventive rule, test, benchmark, or validation gate
-- the repo enforces this with `bun run check:tensor-lifetimes`, `bun run check:runtime-review`, `bun run bench:memory`, and the supervised soak ladder
+- the repo enforces this with `bun run check:tensor-lifetimes`, `bun run check:runtime-review`, `cd examples/nanogpt && bun run bench:memory`, and the supervised soak ladder
 
 This is part of the architecture, not just process. The stack only stays teachable if the runtime behavior is also reviewable.
 
@@ -416,7 +418,7 @@ The extracted `@mlxts/*` stack is the reusable foundation: arrays, ops,
 autograd, runtime controls, nn primitives, optimizers, training helpers, data,
 and tokenizers.
 
-`nanogpt` remains the temporary GPT validation and operator surface: model
+`nanogpt` remains the committed GPT example and operator surface: model
 wiring, tokenizer, training loop, generation, checkpoints, soak, and acceptance
 flows.
 

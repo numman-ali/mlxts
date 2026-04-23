@@ -191,8 +191,8 @@ compiled logit-softcap closure when the checkpoint actually enables softcapping.
 ## Memory / Performance Evidence
 
 - Repo-level quality gates now enforce `95%` lines / `90%` functions coverage
-  across the canonical package stack and the temporary `packages/nanogpt/`
-  validation fixture via `bun run check:coverage`.
+  across the canonical package stack and the temporary `examples/nanogpt/`
+  validation example via `bun run check:coverage`.
 - `@mlxts/transformers` has explicit cache-correctness coverage:
   cached and uncached continuation logits match for the same prefix, and cached
   vs uncached token generation produces the same deterministic output for the
@@ -284,6 +284,6 @@ Both findings are now fixed in the reviewed tree.
   behavior change in the tokenizer expansion that deserves a quick human sanity
   check against any downstream assumptions that previously relied on code-unit
   indexing.
-- `packages/nanogpt/` now satisfies the same coverage gate as the extracted
-  packages, but it remains a temporary validation fixture rather than a
+- `examples/nanogpt/` now satisfies the same coverage gate as the extracted
+  packages, but it remains a temporary validation example rather than a
   long-term product surface.

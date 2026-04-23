@@ -249,5 +249,8 @@ export function sampleCategoricalToken(
     rngKey === null
       ? random.categorical(scaledLogprobs, -1)
       : random.categorical(scaledLogprobs, -1, rngKey);
-  return reshape(sampled, [1, 1]);
+  const token = reshape(sampled, [1, 1]);
+  // The categorical graph closes over RNG state; materialize before local key handles are freed.
+  token.eval();
+  return token;
 }

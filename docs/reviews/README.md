@@ -10,6 +10,7 @@ Use `docs/reviews/_template.md` when a diff touches production code in:
 - `packages/train/src/`
 - `packages/data/src/`
 - `packages/tokenizers/src/`
-- `packages/nanogpt/src/` (temporary validation fixture)
+- `packages/transformers/src/`
+- `examples/nanogpt/src/` (temporary validation example)
 
 The artifact is part of the deliverable. `bun run check:runtime-review` expects at least one changed review file with the required sections whenever those runtime-sensitive files change.

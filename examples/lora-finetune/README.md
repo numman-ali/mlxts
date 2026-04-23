@@ -20,19 +20,19 @@ It is intentionally example-first rather than framework-heavy. The reusable prim
 Dense LoRA against a real Hugging Face chat dataset:
 
 ```bash
-bun run example:lora-finetune --source meta-llama/Llama-3.2-1B-Instruct --mode lora --dataset-source huggingface
+bun run examples/lora-finetune/index.ts --source meta-llama/Llama-3.2-1B-Instruct --mode lora --dataset-source huggingface
 ```
 
 QLoRA against the same dataset:
 
 ```bash
-bun run example:lora-finetune --source meta-llama/Llama-3.2-1B-Instruct --mode qlora
+bun run examples/lora-finetune/index.ts --source meta-llama/Llama-3.2-1B-Instruct --mode qlora
 ```
 
 Fast local smoke with the built-in tiny corpus:
 
 ```bash
-bun run example:lora-finetune --source google/gemma-3-1b-it --dataset-source tiny --train-limit 8 --eval-limit 4 --batch-size 2 --steps 2
+bun run examples/lora-finetune/index.ts --source google/gemma-3-1b-it --dataset-source tiny --train-limit 8 --eval-limit 4 --batch-size 2 --steps 2
 ```
 
 ## Important options

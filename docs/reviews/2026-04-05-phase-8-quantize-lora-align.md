@@ -145,7 +145,7 @@ of being duplicated in the example layer.
 - `bun run typecheck` passes across the full workspace after the Phase 8/9
   additions.
 - `bun run check:coverage` passes across the canonical package stack and the
-  temporary `packages/nanogpt/` fixture. The new packages cleared the gate with
+  temporary `examples/nanogpt/` fixture. The new packages cleared the gate with
   `@mlxts/quantize` at `99.01%` lines, `@mlxts/lora` at `95.38%`, and
   `@mlxts/align` at `97.27%`.
 - Focused runtime validation for this continuation also passes:

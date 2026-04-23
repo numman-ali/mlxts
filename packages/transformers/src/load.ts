@@ -3,16 +3,18 @@
  * @module
  */
 
-import { mxEval, treeFlatten } from "@mlxts/core";
+import { type MxArray, mxEval, treeFlatten } from "@mlxts/core";
 import { Module } from "@mlxts/nn";
-import {
-  resolveCheckpointQuantizationPlan,
-  setupQuantizedModule,
-  translateCheckpointQuantizationPlanPaths,
-} from "@mlxts/quantize";
 import { loadTokenizer, type Tokenizer, type TokenizerFileSet } from "@mlxts/tokenizers";
 import { parseGenerationDefaults } from "./infrastructure/generation/defaults";
 import { assignWeightPath, listParameterPaths } from "./infrastructure/weight-assignment";
+import {
+  assignStagedDenseQuantizedLeaves,
+  prepareQuantizedCheckpointModel,
+  type StagedDenseQuantizedLeaf,
+  stageDenseQuantizedLeaf,
+  stagedDenseQuantizedWeightPath,
+} from "./load-quantized";
 import {
   inspectSnapshot,
   resolvePretrainedSnapshot,
@@ -23,6 +25,7 @@ import { resolveFamily } from "./registry";
 import {
   type BaseModelConfig,
   type CausalLM,
+  type CheckpointTensorTransform,
   ConfigParseError,
   type FamilyRegistration,
   type LoadCausalLMOptions,
@@ -142,42 +145,28 @@ function prepareModel(configRecord: Record<string, unknown>): PreparedModel {
   return { registration, config, model };
 }
 
-function prepareQuantizedCheckpointModel(
-  model: Module,
-  configRecord: Record<string, unknown>,
-  registration: FamilyRegistration,
-  config: BaseModelConfig,
-): void {
-  const checkpointQuantizationPlan = resolveCheckpointQuantizationPlan(configRecord);
-  if (checkpointQuantizationPlan === null) {
-    return;
-  }
-
-  const translatedPlan = translateCheckpointQuantizationPlanPaths(
-    checkpointQuantizationPlan,
-    (path) => translateQuantizedRulePath(registration.sanitizeWeight, config, path),
-  );
-  setupQuantizedModule(model, translatedPlan);
-}
-
 type WeightLoadState = {
   assignedPaths: Set<string>;
   unexpectedWeights: string[];
 };
 
-async function assignCheckpointWeights(
-  snapshot: Awaited<ReturnType<typeof resolvePretrainedSnapshot>>,
+type CheckpointWeightPlan = {
+  sanitizedPaths: Map<string, string>;
+  unexpectedWeights: string[];
+  include(name: string): boolean;
+};
+
+function createCheckpointWeightPlan(
   registration: FamilyRegistration,
   config: BaseModelConfig,
-  model: CausalLM,
-): Promise<WeightLoadState> {
-  const assignedPaths = new Set<string>();
-  const unexpectedWeights: string[] = [];
+  exceptionalWeights: ReadonlySet<string>,
+): CheckpointWeightPlan {
   const sanitizedPaths = new Map<string, string>();
-  const exceptionalWeights = new Set(registration.exceptionalWeightNames?.(config) ?? []);
-
-  for await (const { name, tensor } of iterateSafetensorWeights(snapshot, {
-    include: (name) => {
+  const unexpectedWeights: string[] = [];
+  return {
+    sanitizedPaths,
+    unexpectedWeights,
+    include(name) {
       if (exceptionalWeights.has(name)) {
         return false;
       }
@@ -193,18 +182,84 @@ async function assignCheckpointWeights(
       sanitizedPaths.set(name, path);
       return true;
     },
+  };
+}
+
+function transformCheckpointTensor(
+  checkpointTensorTransform: CheckpointTensorTransform | undefined,
+  checkpointName: string,
+  weightPath: string,
+  tensor: MxArray,
+): MxArray {
+  if (checkpointTensorTransform === undefined) {
+    return tensor;
+  }
+
+  const transformedTensor = checkpointTensorTransform(checkpointName, weightPath, tensor);
+  if (transformedTensor !== tensor) {
+    tensor.free();
+  }
+  return transformedTensor;
+}
+
+function assignPreparedCheckpointTensor(
+  model: CausalLM,
+  path: string,
+  tensor: MxArray,
+  expectedPaths: ReadonlySet<string>,
+  assignedPaths: Set<string>,
+  stagedDenseQuantizedLeaves: Map<string, StagedDenseQuantizedLeaf>,
+): void {
+  const stagedWeightPath = stagedDenseQuantizedWeightPath(path, tensor, expectedPaths);
+  if (stagedWeightPath !== null) {
+    stageDenseQuantizedLeaf(stagedDenseQuantizedLeaves, stagedWeightPath, path, tensor);
+    return;
+  }
+
+  assignWeightPath(model, path, tensor);
+  assignedPaths.add(path);
+}
+
+async function assignCheckpointWeights(
+  snapshot: Awaited<ReturnType<typeof resolvePretrainedSnapshot>>,
+  registration: FamilyRegistration,
+  config: BaseModelConfig,
+  model: CausalLM,
+  expectedPaths: ReadonlySet<string>,
+  checkpointTensorTransform?: CheckpointTensorTransform,
+): Promise<WeightLoadState> {
+  const assignedPaths = new Set<string>();
+  const exceptionalWeights = new Set(registration.exceptionalWeightNames?.(config) ?? []);
+  const weightPlan = createCheckpointWeightPlan(registration, config, exceptionalWeights);
+  const stagedDenseQuantizedLeaves = new Map<string, StagedDenseQuantizedLeaf>();
+
+  for await (const { name, tensor } of iterateSafetensorWeights(snapshot, {
+    include: weightPlan.include,
   })) {
-    const path = sanitizedPaths.get(name);
+    const path = weightPlan.sanitizedPaths.get(name);
     if (path === undefined) {
       tensor.free();
       throw new Error(`loadCausalLM: missing sanitized path for checkpoint tensor "${name}".`);
     }
 
+    let assignedTensor = tensor;
     try {
-      assignWeightPath(model, path, tensor);
-      assignedPaths.add(path);
+      assignedTensor = transformCheckpointTensor(
+        checkpointTensorTransform,
+        name,
+        path,
+        assignedTensor,
+      );
+      assignPreparedCheckpointTensor(
+        model,
+        path,
+        assignedTensor,
+        expectedPaths,
+        assignedPaths,
+        stagedDenseQuantizedLeaves,
+      );
     } catch (error) {
-      tensor.free();
+      assignedTensor.free();
       throw error;
     }
   }
@@ -232,9 +287,11 @@ async function assignCheckpointWeights(
     });
   }
 
+  assignStagedDenseQuantizedLeaves(model, config, stagedDenseQuantizedLeaves, assignedPaths);
+
   return {
     assignedPaths,
-    unexpectedWeights,
+    unexpectedWeights: weightPlan.unexpectedWeights,
   };
 }
 
@@ -285,7 +342,19 @@ export async function loadCausalLM(
   if (generationDefaults !== undefined) {
     config.generationDefaults = generationDefaults;
   }
-  prepareQuantizedCheckpointModel(model, inspection.config, registration, config);
+  await prepareQuantizedCheckpointModel({
+    snapshot,
+    inspection,
+    model,
+    configRecord: inspection.config,
+    translateCheckpointPath: (path) =>
+      translateQuantizedRulePath(registration.sanitizeWeight, config, path),
+  });
+  const checkpointTensorTransform = await registration.createCheckpointTensorTransform?.({
+    snapshot,
+    inspection,
+    config,
+  });
   const expectedPaths = new Set(listParameterPaths(model.parameters()));
   const shardCount = listSafetensorShardPaths(snapshot).length;
   options.onProgress?.({
@@ -300,6 +369,8 @@ export async function loadCausalLM(
       registration,
       config,
       model,
+      expectedPaths,
+      checkpointTensorTransform,
     );
     return finalizeLoadedModel(
       model,

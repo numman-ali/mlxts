@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import type { ParameterTree } from "@mlxts/core";
 import { array, type MxArray, retainArray, zeros } from "@mlxts/core";
-import type { CausalLM, TransformerCache } from "../../types";
+import type { CausalLM, ForwardOptions, TransformerCache } from "../../types";
 import {
   inputTensor,
   prefillPromptCache,
@@ -29,6 +29,10 @@ class FakeCache implements TransformerCache {
     return this.#stateArrays.length === 0;
   }
 
+  isTrimmable(): boolean {
+    return true;
+  }
+
   arrays(): MxArray[] {
     return this.#stateArrays.map((stateArray) => retainArray(stateArray));
   }
@@ -54,14 +58,22 @@ class FakeModel implements CausalLM {
   } as const;
 
   forwardCallCount = 0;
+  forwardedInputEmbeddings: MxArray[] = [];
+  forwardedPositionIds: MxArray[] = [];
   #logitsFactory: () => MxArray;
 
   constructor(logitsFactory: () => MxArray) {
     this.#logitsFactory = logitsFactory;
   }
 
-  forward(): MxArray {
+  forward(_inputIds?: MxArray, options?: ForwardOptions): MxArray {
     this.forwardCallCount += 1;
+    if (options?.inputEmbeddings !== undefined) {
+      this.forwardedInputEmbeddings.push(retainArray(options.inputEmbeddings));
+    }
+    if (options?.positionIds !== undefined) {
+      this.forwardedPositionIds.push(retainArray(options.positionIds));
+    }
     return this.#logitsFactory();
   }
 
@@ -95,7 +107,16 @@ class FakeModel implements CausalLM {
     return this;
   }
 
-  [Symbol.dispose](): void {}
+  [Symbol.dispose](): void {
+    for (const inputEmbeddings of this.forwardedInputEmbeddings) {
+      inputEmbeddings.free();
+    }
+    this.forwardedInputEmbeddings = [];
+    for (const positionIds of this.forwardedPositionIds) {
+      positionIds.free();
+    }
+    this.forwardedPositionIds = [];
+  }
 }
 
 describe("generation helpers", () => {
@@ -139,7 +160,7 @@ describe("generation helpers", () => {
 
   test("prefillPromptCache evaluates logits directly when the cache has no state arrays", () => {
     using cache = new FakeCache([]);
-    const model = new FakeModel(() =>
+    using model = new FakeModel(() =>
       array(
         [
           [
@@ -154,13 +175,14 @@ describe("generation helpers", () => {
     const tail = prefillPromptCache(model, [1, 2, 3], cache, 2);
 
     expect(model.forwardCallCount).toBe(1);
-    expect(tail).toEqual([3]);
+    expect(tail.tokenIds).toEqual([3]);
+    expect(tail.inputEmbeddings).toBeNull();
   });
 
   test("prefillPromptCache materializes cache state arrays for multi-chunk prompts", () => {
     using cacheState = zeros([1], "float32");
     using cache = new FakeCache([cacheState]);
-    const model = new FakeModel(() =>
+    using model = new FakeModel(() =>
       array(
         [
           [
@@ -175,6 +197,79 @@ describe("generation helpers", () => {
     const tail = prefillPromptCache(model, [1, 2, 3, 4, 5], cache, 2);
 
     expect(model.forwardCallCount).toBe(2);
-    expect(tail).toEqual([5]);
+    expect(tail.tokenIds).toEqual([5]);
+    expect(tail.inputEmbeddings).toBeNull();
+  });
+
+  test("prefillPromptCache slices prompt-aligned embeddings across chunks", () => {
+    using cache = new FakeCache([]);
+    using model = new FakeModel(() =>
+      array(
+        [
+          [
+            [1, 2],
+            [3, 4],
+          ],
+        ],
+        "float32",
+      ),
+    );
+    using promptEmbeddings = array(
+      [
+        [
+          [10, 11],
+          [20, 21],
+          [30, 31],
+          [40, 41],
+        ],
+      ],
+      "float32",
+    );
+    using promptPositionIds = array([[[0, 1, 2, 3]], [[0, 1, 2, 3]], [[0, 1, 2, 3]]], "int32");
+
+    const tail = prefillPromptCache(
+      model,
+      [1, 2, 3, 4],
+      cache,
+      2,
+      promptEmbeddings,
+      promptPositionIds,
+    );
+
+    expect(model.forwardCallCount).toBe(2);
+    expect(model.forwardedInputEmbeddings.map((value) => value.toList())).toEqual([
+      [
+        [
+          [10, 11],
+          [20, 21],
+        ],
+      ],
+      [[[30, 31]]],
+    ]);
+    expect(model.forwardedPositionIds.map((value) => value.toList())).toEqual([
+      [[[0, 1]], [[0, 1]], [[0, 1]]],
+      [[[2]], [[2]], [[2]]],
+    ]);
+    expect(tail.tokenIds).toEqual([4]);
+    if (tail.inputEmbeddings === null) {
+      throw new Error("expected prompt tail embeddings");
+    }
+    using tailInputEmbeddings = tail.inputEmbeddings;
+    expect(tailInputEmbeddings.toList()).toEqual([[[40, 41]]]);
+    if (tail.positionIds === null) {
+      throw new Error("expected prompt tail position ids");
+    }
+    using tailPositionIds = tail.positionIds;
+    expect(tailPositionIds.toList()).toEqual([[[3]], [[3]], [[3]]]);
+  });
+
+  test("prefillPromptCache rejects malformed prompt embeddings", () => {
+    using cache = new FakeCache([]);
+    using model = new FakeModel(() => array([[[1, 2]]], "float32"));
+    using badPromptEmbeddings = array([[[1, 2]]], "float32");
+
+    expect(() => prefillPromptCache(model, [1, 2], cache, 1, badPromptEmbeddings)).toThrow(
+      "sequence length 1 must match prompt length 2",
+    );
   });
 });

@@ -7,6 +7,7 @@ import { formatShape, MxArray, multiply } from "@mlxts/core";
 import { Embedding, Linear, Module } from "@mlxts/nn";
 
 import { KVCache, SlidingWindowKVCache } from "../../infrastructure/cache";
+import { retainInputEmbeddings } from "../../infrastructure/input-embeddings";
 import { createStepAttentionMask } from "../../infrastructure/masks";
 import type { CausalLM, ForwardOptions, TransformerCache } from "../../types";
 import { LlamaLikeDecoderBlock } from "./block";
@@ -19,10 +20,12 @@ export class LlamaLikeModel extends Module {
   layers: LlamaLikeDecoderBlock[];
   norm: LlamaLikeNorm;
   #embeddingScale: number;
+  #hiddenSize: number;
 
   constructor(config: LlamaLikeConfig) {
     super();
     this.#embeddingScale = config.embeddingScale ?? 1.0;
+    this.#hiddenSize = config.hiddenSize;
     this.embedTokens = new Embedding(config.vocabSize, config.hiddenSize);
     this.layers = Array.from(
       { length: config.numHiddenLayers },
@@ -35,7 +38,7 @@ export class LlamaLikeModel extends Module {
     return this.run(inputIds);
   }
 
-  run(inputIds: MxArray, cache?: TransformerCache): MxArray {
+  run(inputIds: MxArray, cache?: TransformerCache, inputEmbeddings?: MxArray): MxArray {
     const [batch, sequenceLength] = inputIds.shape;
     if (batch === undefined || sequenceLength === undefined || inputIds.shape.length !== 2) {
       throw new Error(
@@ -43,7 +46,13 @@ export class LlamaLikeModel extends Module {
       );
     }
 
-    using embedded = this.embedTokens.forward(inputIds);
+    using embedded =
+      retainInputEmbeddings(
+        inputIds,
+        inputEmbeddings,
+        this.#hiddenSize,
+        "LlamaLikeModel.forward",
+      ) ?? this.embedTokens.forward(inputIds);
     let hidden = this.#embeddingScale === 1.0 ? embedded : multiply(embedded, this.#embeddingScale);
     const attentionMask = createStepAttentionMask(sequenceLength, cache?.offset ?? 0, undefined);
 
@@ -118,7 +127,7 @@ export class LlamaLikeCausalLM extends Module implements CausalLM {
         ? optionsOrTensor
         : undefined;
 
-    using hidden = this.model.run(inputIds, options?.cache);
+    using hidden = this.model.run(inputIds, options?.cache, options?.inputEmbeddings);
     const logits =
       this.lmHead === null ? this.model.embedTokens.asLinear(hidden) : this.lmHead.forward(hidden);
     options?.cache?.advance(sequenceLength);

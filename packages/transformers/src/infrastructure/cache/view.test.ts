@@ -46,6 +46,22 @@ function runGrowthStabilityScenario(cache: TransformerCache): void {
 }
 
 describe("TransformerCacheView", () => {
+  test("borrowed prefix views stay stable across later cache mutations", () => {
+    using cache = new KVCache(1);
+    using firstKeys = array([[[[1], [2]]]], "float32");
+    using firstValues = array([[[[10], [20]]]], "float32");
+    using secondKeys = array([[[[3]]]], "float32");
+    using secondValues = array([[[[30]]]], "float32");
+
+    using firstView = updateAndFetchTransformerCacheView(cache, 0, firstKeys, firstValues);
+    using secondView = updateAndFetchTransformerCacheView(cache, 0, secondKeys, secondValues);
+
+    mxEval(firstView.keys, secondView.keys);
+
+    expect(firstView.keys.toList()).toEqual([[[[1], [2]]]]);
+    expect(secondView.keys.toList()).toEqual([[[[1], [2], [3]]]]);
+  });
+
   test("managed cache views stay stable across later cache mutations", () => {
     using cache = new SlidingWindowKVCache(1, 2);
     runStableMutationScenario(cache);

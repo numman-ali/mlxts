@@ -4,8 +4,14 @@
  */
 
 import { array, clearMemoryCache, MxArray, mxEval, slice, squeeze } from "@mlxts/core";
-import type { CausalLM, TransformerCache } from "../../types";
+import type { CausalLM, ForwardOptions, TransformerCache } from "../../types";
 import { cacheStateArrays } from "../cache";
+import {
+  slicePromptInputEmbeddings,
+  slicePromptPositionIds,
+  validatePromptInputEmbeddings,
+  validatePromptPositionIds,
+} from "../input-embeddings";
 
 /** Convert prompt tokens into the `[batch, sequence]` input tensor shape. */
 export function inputTensor(tokenIds: readonly number[] | MxArray): MxArray {
@@ -39,13 +45,59 @@ export function validatePrefillStepSize(prefillStepSize: number, context: string
   }
 }
 
+export type PrefilledPrompt = {
+  tokenIds: number[];
+  inputEmbeddings: MxArray | null;
+  positionIds: MxArray | null;
+};
+
+function chunkForwardOptions(
+  cache: TransformerCache,
+  inputEmbeddings: MxArray | null,
+  positionIds: MxArray | null,
+): ForwardOptions {
+  const options: ForwardOptions = { cache };
+  if (inputEmbeddings !== null) {
+    options.inputEmbeddings = inputEmbeddings;
+  }
+  if (positionIds !== null) {
+    options.positionIds = positionIds;
+  }
+  return options;
+}
+
+/** Materialize retained cache state arrays so recurrent cache graphs do not grow across tokens. */
+export function materializeCacheState(cache: TransformerCache): boolean {
+  const stateArrays = cacheStateArrays(cache);
+  try {
+    if (stateArrays.length === 0) {
+      return false;
+    }
+    mxEval(...stateArrays);
+    return true;
+  } finally {
+    for (const stateArray of stateArrays) {
+      stateArray.free();
+    }
+  }
+}
+
 /** Chunk long prompts so cache state is materialized without giant intermediate graphs. */
 export function prefillPromptCache(
   model: CausalLM,
   promptTokenIds: readonly number[],
   cache: TransformerCache,
   prefillStepSize: number,
-): number[] {
+  inputEmbeddings?: MxArray,
+  positionIds?: MxArray,
+): PrefilledPrompt {
+  if (inputEmbeddings !== undefined) {
+    validatePromptInputEmbeddings(promptTokenIds, inputEmbeddings, "prefillPromptCache");
+  }
+  if (positionIds !== undefined) {
+    validatePromptPositionIds(promptTokenIds, positionIds, "prefillPromptCache");
+  }
+
   let cursor = 0;
 
   while (promptTokenIds.length - cursor > 1) {
@@ -54,23 +106,50 @@ export function prefillPromptCache(
     const chunk = promptTokenIds.slice(cursor, cursor + chunkSize);
 
     using chunkIds = array([chunk], "int32");
-    using chunkLogits = model.forward(chunkIds, { cache });
-    const stateArrays = cacheStateArrays(cache);
+    const chunkInputEmbeddings =
+      inputEmbeddings === undefined
+        ? null
+        : slicePromptInputEmbeddings(inputEmbeddings, cursor, chunkSize, "prefillPromptCache");
+    const chunkPositionIds =
+      positionIds === undefined
+        ? null
+        : slicePromptPositionIds(positionIds, cursor, chunkSize, "prefillPromptCache");
     try {
-      if (stateArrays.length > 0) {
-        mxEval(...stateArrays);
-      } else {
+      using chunkLogits = model.forward(
+        chunkIds,
+        chunkForwardOptions(cache, chunkInputEmbeddings, chunkPositionIds),
+      );
+      if (!materializeCacheState(cache)) {
         chunkLogits.eval();
       }
     } finally {
-      for (const stateArray of stateArrays) {
-        stateArray.free();
-      }
+      chunkInputEmbeddings?.free();
+      chunkPositionIds?.free();
     }
 
     cursor += chunkSize;
     clearMemoryCache();
   }
 
-  return promptTokenIds.slice(cursor);
+  return {
+    tokenIds: promptTokenIds.slice(cursor),
+    inputEmbeddings:
+      inputEmbeddings === undefined
+        ? null
+        : slicePromptInputEmbeddings(
+            inputEmbeddings,
+            cursor,
+            promptTokenIds.length - cursor,
+            "prefillPromptCache",
+          ),
+    positionIds:
+      positionIds === undefined
+        ? null
+        : slicePromptPositionIds(
+            positionIds,
+            cursor,
+            promptTokenIds.length - cursor,
+            "prefillPromptCache",
+          ),
+  };
 }

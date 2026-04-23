@@ -75,6 +75,47 @@ export function preferenceLogProbSums(
   };
 }
 
+/** Reference-relative DPO reward components for one preference batch. */
+export function preferenceRewardSums(
+  policyModel: CausalLM,
+  referenceModel: CausalLM,
+  batch: PreferenceBatch,
+  beta: number,
+): {
+  chosenLogProbs: MxArray;
+  rejectedLogProbs: MxArray;
+  chosenRewards: MxArray;
+  rejectedRewards: MxArray;
+  rewardMargins: MxArray;
+} {
+  const policy = preferenceLogProbSums(policyModel, batch);
+  const reference = preferenceLogProbSums(referenceModel, batch);
+  try {
+    using chosenReference = stopGradient(reference.chosen);
+    using rejectedReference = stopGradient(reference.rejected);
+    using chosenDelta = subtract(policy.chosen, chosenReference);
+    using rejectedDelta = subtract(policy.rejected, rejectedReference);
+    const chosenRewards = multiply(chosenDelta, beta);
+    const rejectedRewards = multiply(rejectedDelta, beta);
+    const rewardMargins = subtract(chosenRewards, rejectedRewards);
+    reference.chosen.free();
+    reference.rejected.free();
+    return {
+      chosenLogProbs: policy.chosen,
+      rejectedLogProbs: policy.rejected,
+      chosenRewards,
+      rejectedRewards,
+      rewardMargins,
+    };
+  } catch (error) {
+    policy.chosen.free();
+    policy.rejected.free();
+    reference.chosen.free();
+    reference.rejected.free();
+    throw error;
+  }
+}
+
 /** DPO loss over a preference batch. */
 export function directPreferenceLoss(
   policyModel: CausalLM,
@@ -82,24 +123,17 @@ export function directPreferenceLoss(
   batch: PreferenceBatch,
   beta: number,
 ): MxArray {
-  const policy = preferenceLogProbSums(policyModel, batch);
-  const reference = preferenceLogProbSums(referenceModel, batch);
+  const rewards = preferenceRewardSums(policyModel, referenceModel, batch, beta);
   try {
-    using policyMargin = subtract(policy.chosen, policy.rejected);
-    using referenceMargin = subtract(
-      stopGradient(reference.chosen),
-      stopGradient(reference.rejected),
-    );
-    using margin = subtract(policyMargin, referenceMargin);
-    using scaledMargin = multiply(margin, beta);
-    using probabilities = sigmoid(scaledMargin);
+    using probabilities = sigmoid(rewards.rewardMargins);
     using logProbabilities = log(probabilities);
     using negative = multiply(logProbabilities, -1);
     return mean(negative);
   } finally {
-    policy.chosen.free();
-    policy.rejected.free();
-    reference.chosen.free();
-    reference.rejected.free();
+    rewards.chosenLogProbs.free();
+    rewards.rejectedLogProbs.free();
+    rewards.chosenRewards.free();
+    rewards.rejectedRewards.free();
+    rewards.rewardMargins.free();
   }
 }

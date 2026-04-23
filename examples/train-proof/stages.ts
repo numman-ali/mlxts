@@ -7,11 +7,12 @@ import {
   resolveLoRATargets,
 } from "@mlxts/transformers";
 
-import type { TrainingProofArgs } from "./args";
+import type { DPOProofProfile, TrainingProofArgs } from "./args";
 import {
+  DEFAULT_DPO_BETA,
   ensureQuantizedSnapshot,
-  evaluatePreferenceAccuracy,
   evaluatePreferenceDatasetLoss,
+  evaluatePreferenceMetrics,
   evaluateSupervisionDatasetLoss,
   expectTrainableModule,
   readPadTokenId,
@@ -22,6 +23,7 @@ import {
 } from "./runtime";
 import type {
   AppliedLoRA,
+  DPOProofConfig,
   LoadedAssets,
   LoRAStageMode,
   PreparedTrainingProofData,
@@ -42,6 +44,50 @@ function applyTrainingLoRA(model: CausalLM, mode: LoRAStageMode): AppliedLoRA {
   });
   return {
     preset,
+    targets: resolved.paths,
+  };
+}
+
+function resolveDPOProofConfig(profile: DPOProofProfile): DPOProofConfig {
+  if (profile === "handbook") {
+    return {
+      profile,
+      preset: "attention+mlp",
+      lastLayers: null,
+      rank: 32,
+      alpha: 16,
+      dropout: 0.05,
+      learningRate: 1e-5,
+      beta: 0.01,
+    };
+  }
+
+  return {
+    profile,
+    preset: "attention",
+    lastLayers: 2,
+    rank: 8,
+    alpha: 16,
+    dropout: 0,
+    learningRate: 5e-5,
+    beta: DEFAULT_DPO_BETA,
+  };
+}
+
+function applyDPOTrainingLoRA(model: CausalLM, profile: DPOProofProfile): AppliedLoRA {
+  const config = resolveDPOProofConfig(profile);
+  const resolved = resolveLoRATargets(model, {
+    preset: config.preset,
+    lastLayers: config.lastLayers ?? undefined,
+  });
+  applyLoRAToModule(expectTrainableModule(model), {
+    paths: resolved.paths,
+    rank: config.rank,
+    alpha: config.alpha,
+    dropout: config.dropout,
+  });
+  return {
+    preset: config.preset,
     targets: resolved.paths,
   };
 }
@@ -226,6 +272,7 @@ export async function runDPOStage(
 ): Promise<StageReport> {
   using policyModel = await loadCausalLM(source);
   using referenceModel = await loadCausalLM(source);
+  const dpoConfig = resolveDPOProofConfig(args.dpoProfile);
   const padTokenId = readPadTokenId(tokenizer);
   const beforeLoss = evaluatePreferenceDatasetLoss(
     policyModel,
@@ -234,13 +281,15 @@ export async function runDPOStage(
     padTokenId,
     args.batchSize,
   );
-  const beforeAccuracy = evaluatePreferenceAccuracy(
+  const beforeMetrics = evaluatePreferenceMetrics(
     policyModel,
+    referenceModel,
     data.preferenceEval,
     padTokenId,
     args.batchSize,
+    dpoConfig.beta,
   );
-  const appliedLoRA = applyTrainingLoRA(policyModel, "dpo");
+  const appliedLoRA = applyDPOTrainingLoRA(policyModel, args.dpoProfile);
   const averageTrainingLoss = runPreferenceTrainingSteps(
     policyModel,
     referenceModel,
@@ -249,7 +298,8 @@ export async function runDPOStage(
     args.batchSize,
     args.steps,
     args.seed + 3,
-    5e-5,
+    dpoConfig.learningRate,
+    dpoConfig.beta,
   );
   const merged = mergeLoRAInModule(expectTrainableModule(policyModel));
   const afterLoss = evaluatePreferenceDatasetLoss(
@@ -258,9 +308,11 @@ export async function runDPOStage(
     data.preferenceEval,
     padTokenId,
     args.batchSize,
+    dpoConfig.beta,
   );
-  const afterAccuracy = evaluatePreferenceAccuracy(
+  const afterMetrics = evaluatePreferenceMetrics(
     policyModel,
+    referenceModel,
     data.preferenceEval,
     padTokenId,
     args.batchSize,
@@ -269,14 +321,30 @@ export async function runDPOStage(
   return {
     stage: "dpo",
     evalLoss: summarizeMetric(beforeLoss, afterLoss),
-    preferenceAccuracy: summarizeMetric(beforeAccuracy, afterAccuracy),
+    rewardAccuracy: summarizeMetric(beforeMetrics.rewardAccuracy, afterMetrics.rewardAccuracy),
+    rewardMargin: summarizeMetric(beforeMetrics.rewardMargin, afterMetrics.rewardMargin),
+    chosenReward: summarizeMetric(beforeMetrics.chosenReward, afterMetrics.chosenReward),
+    rejectedReward: summarizeMetric(beforeMetrics.rejectedReward, afterMetrics.rejectedReward),
+    chosenLogProb: summarizeMetric(beforeMetrics.chosenLogProb, afterMetrics.chosenLogProb),
+    rejectedLogProb: summarizeMetric(beforeMetrics.rejectedLogProb, afterMetrics.rejectedLogProb),
+    rawPreferenceAccuracy: summarizeMetric(
+      beforeMetrics.rawPreferenceAccuracy,
+      afterMetrics.rawPreferenceAccuracy,
+    ),
     averageTrainingLoss,
     sampleText: sampleText(policyModel, tokenizer, profile, data.samplePromptMessages),
     notes: [
       "reference_model=frozen_copy",
+      `dpo_profile=${dpoConfig.profile}`,
       `preset=${appliedLoRA.preset}`,
       `target_count=${appliedLoRA.targets.length}`,
       `merged_targets=${merged.targets.length}`,
+      `rank=${dpoConfig.rank}`,
+      `alpha=${dpoConfig.alpha}`,
+      `dropout=${dpoConfig.dropout}`,
+      `learning_rate=${dpoConfig.learningRate}`,
+      `beta=${dpoConfig.beta}`,
+      dpoConfig.lastLayers === null ? "last_layers=all" : `last_layers=${dpoConfig.lastLayers}`,
       `train_examples=${data.preferenceTrain.length}`,
       `eval_examples=${data.preferenceEval.length}`,
     ],
@@ -288,15 +356,41 @@ export function printStage(report: StageReport): void {
     report.evalLoss === undefined
       ? ""
       : ` eval_loss_before=${report.evalLoss.before.toFixed(4)} eval_loss_after=${report.evalLoss.after.toFixed(4)} delta=${report.evalLoss.delta.toFixed(4)}`;
-  const preferenceAccuracy =
-    report.preferenceAccuracy === undefined
+  const rewardAccuracy =
+    report.rewardAccuracy === undefined
       ? ""
-      : ` pref_acc_before=${report.preferenceAccuracy.before.toFixed(4)} pref_acc_after=${report.preferenceAccuracy.after.toFixed(4)} delta=${report.preferenceAccuracy.delta.toFixed(4)}`;
+      : ` reward_acc_before=${report.rewardAccuracy.before.toFixed(4)} reward_acc_after=${report.rewardAccuracy.after.toFixed(4)} delta=${report.rewardAccuracy.delta.toFixed(4)}`;
+  const rewardMargin =
+    report.rewardMargin === undefined
+      ? ""
+      : ` reward_margin_before=${report.rewardMargin.before.toFixed(4)} reward_margin_after=${report.rewardMargin.after.toFixed(4)} delta=${report.rewardMargin.delta.toFixed(4)}`;
+  const rawPreferenceAccuracy =
+    report.rawPreferenceAccuracy === undefined
+      ? ""
+      : ` raw_pref_acc_before=${report.rawPreferenceAccuracy.before.toFixed(4)} raw_pref_acc_after=${report.rawPreferenceAccuracy.after.toFixed(4)} delta=${report.rawPreferenceAccuracy.delta.toFixed(4)}`;
   const trainingLoss =
     report.averageTrainingLoss === undefined
       ? ""
       : ` train_loss=${report.averageTrainingLoss.toFixed(4)}`;
-  console.log(`[${report.stage}]${evalLoss}${preferenceAccuracy}${trainingLoss}`);
+  console.log(
+    `[${report.stage}]${evalLoss}${rewardAccuracy}${rewardMargin}${rawPreferenceAccuracy}${trainingLoss}`,
+  );
+  if (report.chosenReward !== undefined && report.rejectedReward !== undefined) {
+    console.log(
+      `  - chosen_reward_before=${report.chosenReward.before.toFixed(4)} chosen_reward_after=${report.chosenReward.after.toFixed(4)} delta=${report.chosenReward.delta.toFixed(4)}`,
+    );
+    console.log(
+      `  - rejected_reward_before=${report.rejectedReward.before.toFixed(4)} rejected_reward_after=${report.rejectedReward.after.toFixed(4)} delta=${report.rejectedReward.delta.toFixed(4)}`,
+    );
+  }
+  if (report.chosenLogProb !== undefined && report.rejectedLogProb !== undefined) {
+    console.log(
+      `  - chosen_logp_before=${report.chosenLogProb.before.toFixed(4)} chosen_logp_after=${report.chosenLogProb.after.toFixed(4)} delta=${report.chosenLogProb.delta.toFixed(4)}`,
+    );
+    console.log(
+      `  - rejected_logp_before=${report.rejectedLogProb.before.toFixed(4)} rejected_logp_after=${report.rejectedLogProb.after.toFixed(4)} delta=${report.rejectedLogProb.delta.toFixed(4)}`,
+    );
+  }
   for (const note of report.notes) {
     console.log(`  - ${note}`);
   }

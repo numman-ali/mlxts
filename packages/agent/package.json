@@ -1,0 +1,43 @@
+{
+  "name": "@mlxts/agent",
+  "version": "0.0.1",
+  "type": "module",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    },
+    "./cli": {
+      "types": "./dist/cli.d.ts",
+      "import": "./dist/cli.js",
+      "default": "./dist/cli.js"
+    }
+  },
+  "bin": {
+    "mlxts-agent": "./dist/cli.js"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "license": "MIT",
+  "keywords": [
+    "mlxts",
+    "agent",
+    "tools",
+    "llm"
+  ],
+  "engines": {
+    "bun": ">=1.3.4"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "bun test",
+    "test:coverage": "bun test --coverage",
+    "build": "bun run ../../scripts/build-package.ts --entry src/index.ts --entry src/cli.ts"
+  }
+}

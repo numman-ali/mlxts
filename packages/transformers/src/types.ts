@@ -6,12 +6,19 @@
 import type { MxArray, ParameterTree } from "@mlxts/core";
 import type { TokenizerFormat } from "@mlxts/tokenizers";
 
-import type { LoadSourceOptions, PretrainedLoadProgressEvent } from "./pretrained/types";
+import type {
+  LoadSourceOptions,
+  PretrainedLoadProgressEvent,
+  ResolvedSnapshot,
+  SnapshotInspection,
+} from "./pretrained/types";
 
-export type SupportedModelFamily = "llama" | "mistral" | "gemma" | "phi";
+export type SupportedModelFamily = "llama" | "mistral" | "gemma" | "phi" | "qwen";
 
 export type ForwardOptions = {
   cache?: TransformerCache;
+  inputEmbeddings?: MxArray;
+  positionIds?: MxArray;
 };
 
 export type SamplerOptions = {
@@ -46,6 +53,12 @@ export type TextGenerationResult = GenerationResult & {
   text: string;
 };
 
+export type PreparedPrompt = {
+  tokenIds: readonly number[];
+  inputEmbeddings?: MxArray;
+  positionIds?: MxArray;
+};
+
 export type LoadCausalLMOptions = LoadSourceOptions & {
   strictUnexpectedWeights?: boolean;
 };
@@ -77,6 +90,7 @@ export interface TransformerCache extends Disposable {
   ): { keys: MxArray; values: MxArray };
   advance(sequenceLength: number): void;
   isEmpty(): boolean;
+  isTrimmable(): boolean;
   /** Return retained cache-state arrays for explicit eval. The caller owns the returned views. */
   arrays(): MxArray[];
 }
@@ -99,10 +113,22 @@ export interface CausalLM extends Disposable {
 }
 
 export type ExceptionalWeightLoaderContext<Config extends BaseModelConfig = BaseModelConfig> = {
-  snapshot: import("./pretrained/types").ResolvedSnapshot;
+  snapshot: ResolvedSnapshot;
   config: Config;
   model: CausalLM;
   assignWeight(path: string, tensor: MxArray): void;
+};
+
+export type CheckpointTensorTransform<_Config extends BaseModelConfig = BaseModelConfig> = (
+  checkpointName: string,
+  weightPath: string,
+  tensor: MxArray,
+) => MxArray;
+
+export type CheckpointTensorTransformContext<Config extends BaseModelConfig = BaseModelConfig> = {
+  snapshot: ResolvedSnapshot;
+  inspection: SnapshotInspection;
+  config: Config;
 };
 
 export type FamilyRegistration<Config extends BaseModelConfig = BaseModelConfig> = {
@@ -113,6 +139,12 @@ export type FamilyRegistration<Config extends BaseModelConfig = BaseModelConfig>
   createModel(config: Config): CausalLM;
   sanitizeWeight(config: Config, checkpointName: string): string | null;
   isIgnoredWeight?(config: Config, checkpointName: string): boolean;
+  createCheckpointTensorTransform?(
+    context: CheckpointTensorTransformContext<Config>,
+  ):
+    | Promise<CheckpointTensorTransform<Config> | undefined>
+    | CheckpointTensorTransform<Config>
+    | undefined;
   exceptionalWeightNames?(config: Config): readonly string[];
   loadExceptionalWeights?(context: ExceptionalWeightLoaderContext<Config>): Promise<void>;
 };

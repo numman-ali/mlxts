@@ -28,14 +28,14 @@ These gates are non-negotiable at every phase boundary. Code does not advance un
 | Error quality | Manual review | Every user-facing error includes: context, expected vs actual, and an actionable hint |
 | JSDoc coverage | Manual review | Every public API has at least a one-line JSDoc |
 | No dead code | Manual review | No stale compatibility layers, unused exports, or commented-out code |
-| Runnable reference surfaces | `bun run` each committed example or validation fixture | Every committed end-to-end reference surface executes successfully |
+| Runnable reference surfaces | `bun run` each committed example surface | Every committed end-to-end reference surface executes successfully |
 
 ### Operational Gates (for phases with training/inference)
 
 | Gate | Command | What it checks |
 |------|---------|---------------|
-| Memory stability | `bun run bench:memory` | No unbounded memory growth over repeated operations |
-| Soak test | `bun run soak:<preset>` | Throughput stable, memory stable over sustained runs |
+| Memory stability | `cd examples/nanogpt && bun run bench:memory` | No unbounded memory growth over repeated operations |
+| Soak test | `cd examples/nanogpt && bun run soak:<preset>` | Throughput stable, memory stable over sustained runs |
 | Acceptance | `bun run acceptance:<preset>` | Loss reaches target, generation produces coherent output |
 
 ---
@@ -49,10 +49,10 @@ These gates are non-negotiable at every phase boundary. Code does not advance un
 | Criterion | How to verify |
 |-----------|--------------|
 | `bun run validate` passes | Run it |
-| gpt-tiny trains to <1.8 val loss | `bun run acceptance:gpt-tiny` |
-| gpt-small has a loss-targeted acceptance run | `bun run acceptance:gpt-small` |
+| gpt-tiny trains to <1.8 val loss | `cd examples/nanogpt && bun run acceptance:gpt-tiny` |
+| gpt-small has a loss-targeted acceptance run | `cd examples/nanogpt && bun run acceptance:gpt-small` |
 | Generated text is recognizably English and vaguely Shakespearean | Manual inspection of sample output |
-| Supervised long runs use `bun run run:nanogpt ...` | Verify soak ladder: 50 → 250 → 1000 → 5000 steps |
+| Supervised long runs use `cd examples/nanogpt && bun run manager ...` | Verify soak ladder: 50 → 250 → 1000 → 5000 steps |
 | Runtime review artifact exists for hot-path changes | `bun run check:runtime-review` |
 | Checkpoint save is atomic | Code review: write-to-temp, rename |
 | NaN loss detection stops training | Test coverage |
@@ -61,7 +61,7 @@ These gates are non-negotiable at every phase boundary. Code does not advance un
 
 ## Phase 5: Ecosystem Restructure
 
-**Goal:** Extract the canonical `@mlxts/*` packages, stabilize the package-first repo contract, and keep the temporary legacy surfaces clearly labeled until they can be replaced or deleted.
+**Goal:** Extract the canonical `@mlxts/*` packages, stabilize the package-first repo contract, and clearly separate publishable packages from committed example surfaces such as `examples/nanogpt`.
 
 ### Milestone: "Canonical packages extracted, validated, and documented"
 
@@ -78,12 +78,12 @@ These gates are non-negotiable at every phase boundary. Code does not advance un
 | Each package's tests pass independently, not just monorepo-level | `cd packages/<pkg> && bun test` for each |
 | Active production source honors the 500-line cap | `bun run check:file-lines` |
 | Coverage thresholds match the current package-first gate | `bun run check:coverage` |
-| `packages/nanogpt` is documented as a temporary private validation fixture | Manual review |
+| `examples/nanogpt` is documented as a committed in-repo example surface rather than a package publish target | Manual review |
 | Runtime-sensitive extraction work has a review artifact | `bun run check:runtime-review` |
 | All top-level docs describe the package-first state consistently | Manual review |
 
 ### What "done" looks like
-A developer runs `bun install`, opens `packages/core/src/index.ts` and `packages/train/src/index.ts`, sees the canonical `@mlxts/*` package surfaces, and `bun run validate` passes. `packages/nanogpt` is still present only as a clearly documented temporary private validation fixture.
+A developer runs `bun install`, opens `packages/core/src/index.ts` and `packages/train/src/index.ts`, sees the canonical `@mlxts/*` package surfaces, and `bun run validate` passes. `examples/nanogpt` is present as a clearly documented in-repo example and regression surface, not a package.
 
 ---
 
@@ -181,7 +181,7 @@ And it works. On their Mac. From TypeScript.
 | `@mlxts/data` supports HuggingFace datasets format | Test: load a dataset from Hub |
 | Chat template support for instruction tuning | Test: format conversations correctly |
 | Canonical proof uses pinned real-data subsets | Test: short runs on `HuggingFaceH4/ultrachat_200k` and `HuggingFaceH4/ultrafeedback_binarized` produce held-out metrics |
-| Canonical training proof is CI-gated | CI runs `bun run proof:training` on the official anchor and fails on regression |
+| Canonical training proof is runnable on self-hosted Apple Silicon | Manual `Training Proof` workflow or local `bun run examples/train-proof/index.ts` succeeds on the official anchor |
 | `examples/lora-finetune/` runs end-to-end | Fine-tune, merge, generate |
 | Memory fits within 64GB for 1B-3B parameter models with LoRA | Measure peak memory |
 | QLoRA works with 4-bit base model | Test: load quantized model, apply LoRA, train |
@@ -352,7 +352,7 @@ If a developer can follow the example and do the same for a different paper, the
 - Coverage thresholds enforced per package
 - Type assertion check prevents `as` leaking out of FFI
 - Tensor lifetime check prevents anonymous intermediate leaks
-- Phase 8 adds `bun run proof:training` as a regression gate on Apple Silicon CI
+- The heavier `bun run examples/train-proof/index.ts` proof currently lives on a manual self-hosted Apple Silicon workflow; it can be promoted to a stricter regression gate later
 
 ### Semi-Automated (Agent Review)
 - Runtime review artifacts required for hot-path changes

@@ -13,6 +13,8 @@ import {
   asType,
   broadcastTo,
   concatenate,
+  conv1d,
+  cos,
   cumsum,
   divide,
   equal,
@@ -27,6 +29,7 @@ import {
   lessEqual,
   log,
   logsumexp,
+  maskedScatter,
   matmul,
   max,
   maximum,
@@ -42,6 +45,7 @@ import {
   repeat,
   reshape,
   sigmoid,
+  sin,
   slice,
   sliceDynamic,
   sliceUpdate,
@@ -248,6 +252,23 @@ describe("Arithmetic ops", () => {
     b.free();
   });
 
+  test("sin and cos match expected values", () => {
+    const a = array([0, Math.PI / 2], "float32");
+    const sinValues = sin(a);
+    const cosValues = cos(a);
+    sinValues.eval();
+    cosValues.eval();
+    const sinList = sinValues.toList() as number[];
+    const cosList = cosValues.toList() as number[];
+    expect(sinList[0]).toBeCloseTo(0, 5);
+    expect(sinList[1]).toBeCloseTo(1, 5);
+    expect(cosList[0]).toBeCloseTo(1, 5);
+    expect(cosList[1]).toBeCloseTo(0, 5);
+    a.free();
+    sinValues.free();
+    cosValues.free();
+  });
+
   test("geluApprox matches the tanh approximation", () => {
     const a = array([-1, 0, 1], "float32");
     const b = geluApprox(a);
@@ -258,6 +279,20 @@ describe("Arithmetic ops", () => {
     expect(list[2]).toBeCloseTo(0.8412, 4);
     a.free();
     b.free();
+  });
+
+  test("conv1d performs channel-last convolution", () => {
+    const input = MxArray.fromData([1, 2, 3, 4], [1, 4, 1]);
+    const weight = MxArray.fromData([1, 2], [1, 2, 1]);
+    const output = conv1d(input, weight);
+    mxEval(output);
+
+    expect(output.shape).toEqual([1, 3, 1]);
+    expect(output.toList()).toEqual([[[5], [8], [11]]]);
+
+    input.free();
+    weight.free();
+    output.free();
   });
 
   test("geluApprox rejects non-floating tensors", () => {
@@ -1274,6 +1309,43 @@ describe("where with scalar operands", () => {
     expect(rows[2]?.[2]).toBe(1);
     mask.free();
     scores.free();
+    result.free();
+  });
+
+  test("maskedScatter replaces only the true mask positions", () => {
+    const base = array(
+      [
+        [
+          [1, 1],
+          [2, 2],
+          [3, 3],
+        ],
+      ],
+      "float32",
+    );
+    const mask = array(
+      [
+        [
+          [0, 0],
+          [1, 1],
+          [0, 0],
+        ],
+      ],
+      "bool",
+    );
+    const src = array([9, 8], "float32");
+    const result = maskedScatter(base, mask, src);
+    result.eval();
+    expect(result.toList()).toEqual([
+      [
+        [1, 1],
+        [9, 8],
+        [3, 3],
+      ],
+    ]);
+    base.free();
+    mask.free();
+    src.free();
     result.free();
   });
 });

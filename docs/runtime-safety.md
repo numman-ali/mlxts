@@ -40,7 +40,7 @@ Use the soak ladder:
 3. long supervised soak (`1000` steps)
 4. only then loss-targeted acceptance (`5000` steps or more)
 
-Long unattended runs must go through the supervised `bun run run:nanogpt ...` surface.
+Long unattended runs must go through the supervised `cd examples/nanogpt && bun run manager ...` surface.
 
 ## Generation Performance
 
@@ -95,11 +95,11 @@ The invariants above protect the macro loop (one eval per token, no idle gaps). 
 
 ## Bench and Soak Surfaces
 
-- `bun run bench:memory` measures active-memory drift for the leak-prone scenarios we care about.
+- `cd examples/nanogpt && bun run bench:memory` measures active-memory drift for the leak-prone scenarios we care about.
 - `bun run bench:generation` measures generation throughput against recorded baselines.
-- `bun run soak:gpt-tiny` runs the canonical supervised soak for the tiny preset.
-- `bun run soak:gpt-small` runs the canonical supervised soak for the small preset.
-- `bun run acceptance:gpt-tiny` and `bun run acceptance:gpt-small` are the loss-targeted acceptance runs.
+- `cd examples/nanogpt && bun run soak:gpt-tiny` runs the canonical supervised soak for the tiny preset.
+- `cd examples/nanogpt && bun run soak:gpt-small` runs the canonical supervised soak for the small preset.
+- `cd examples/nanogpt && bun run acceptance:gpt-tiny` and `cd examples/nanogpt && bun run acceptance:gpt-small` are the loss-targeted acceptance runs.
 - These commands are intentionally lock-guarded. If one is already running, the next heavy MLX command must fail fast rather than contending for GPU/runtime state.
 
 ## Forward-Only Posture

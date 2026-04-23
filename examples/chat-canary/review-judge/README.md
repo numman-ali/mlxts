@@ -34,7 +34,7 @@ repo-native review and judgment.
 Train against the repo-owned JSONL file with the existing LoRA example:
 
 ```bash
-bun run example:lora-finetune \
+bun run examples/lora-finetune/index.ts \
   --source google/gemma-4-E2B-it \
   --mode lora \
   --preset all-linear \

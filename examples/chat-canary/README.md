@@ -35,7 +35,7 @@ That review/judge set is deliberately narrower and larger:
 Train against the repo-owned JSONL file with the existing LoRA example:
 
 ```bash
-bun run example:lora-finetune \
+bun run examples/lora-finetune/index.ts \
   --source google/gemma-4-E2B-it \
   --dataset-source jsonl \
   --dataset-jsonl examples/chat-canary/mlxts-chat-sft.jsonl \
@@ -54,7 +54,7 @@ example, then ask prompts from `mlxts-chat-canary.jsonl`.
 
 The tuned model should show more repo-native behavior, for example:
 
-- it prefers canonical `@mlxts/*` package surfaces over `packages/nanogpt`
+- it prefers canonical `@mlxts/*` package surfaces over `examples/nanogpt`
 - it keeps semantic surfaces readable and hides runtime strategy underneath
 - it distinguishes benchmark fairness from flattering local runs
 - it treats LoRA proofs, PEFT interop, and family presets in the repo's own terms

@@ -7,6 +7,7 @@ import { formatShape, MxArray, multiply } from "@mlxts/core";
 import { Embedding, Linear, Module } from "@mlxts/nn";
 
 import { LayerPatternKVCache } from "../../infrastructure/cache";
+import { retainInputEmbeddings } from "../../infrastructure/input-embeddings";
 import { type AttentionMask, createStepAttentionMask } from "../../infrastructure/masks";
 import type { CausalLM, ForwardOptions, TransformerCache } from "../../types";
 import { Gemma3DecoderBlock } from "./block";
@@ -20,11 +21,13 @@ export class Gemma3TextModel extends Module {
   norm: Gemma3RMSNorm;
   #embeddingScale: number;
   #slidingWindow: number;
+  #hiddenSize: number;
 
   constructor(config: Gemma3TextConfig) {
     super();
     this.#embeddingScale = config.embeddingScale;
     this.#slidingWindow = config.slidingWindow;
+    this.#hiddenSize = config.hiddenSize;
     this.embedTokens = new Embedding(config.vocabSize, config.hiddenSize);
     this.layers = Array.from(
       { length: config.numHiddenLayers },
@@ -37,7 +40,7 @@ export class Gemma3TextModel extends Module {
     return this.run(inputIds);
   }
 
-  run(inputIds: MxArray, cache?: TransformerCache): MxArray {
+  run(inputIds: MxArray, cache?: TransformerCache, inputEmbeddings?: MxArray): MxArray {
     const [batch, sequenceLength] = inputIds.shape;
     if (batch === undefined || sequenceLength === undefined || inputIds.shape.length !== 2) {
       throw new Error(
@@ -45,7 +48,13 @@ export class Gemma3TextModel extends Module {
       );
     }
 
-    using embedded = this.embedTokens.forward(inputIds);
+    using embedded =
+      retainInputEmbeddings(
+        inputIds,
+        inputEmbeddings,
+        this.#hiddenSize,
+        "Gemma3TextModel.forward",
+      ) ?? this.embedTokens.forward(inputIds);
     let hidden = multiply(embedded, this.#embeddingScale);
     const attentionMasks = this.createAttentionMasks(
       sequenceLength,
@@ -149,7 +158,7 @@ export class Gemma3TextCausalLM extends Module implements CausalLM {
         ? optionsOrTensor
         : undefined;
 
-    using hidden = this.model.run(inputIds, options?.cache);
+    using hidden = this.model.run(inputIds, options?.cache, options?.inputEmbeddings);
     const logits =
       this.lmHead === null ? this.model.embedTokens.asLinear(hidden) : this.lmHead.forward(hidden);
     options?.cache?.advance(sequenceLength);

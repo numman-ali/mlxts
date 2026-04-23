@@ -4,16 +4,55 @@ import { existsSync, readFileSync } from "fs";
 import { inspectSnapshot, resolvePretrainedSnapshot } from "./pretrained/snapshot";
 import type { LoadSourceOptions } from "./pretrained/types";
 
-/** A single chat turn used when formatting a model-specific prompt template. */
-export type ChatMessage = {
-  role: "system" | "user" | "assistant";
-  content: string;
+export type ChatToolCall = {
+  id?: string;
+  type: "function";
+  function: {
+    name: string;
+    arguments: string;
+  };
 };
+
+export type ChatTool = {
+  type: "function";
+  function: {
+    name: string;
+    description?: string;
+    parameters?: Record<string, unknown>;
+  };
+};
+
+/** A single chat turn used when formatting a model-specific prompt template. */
+export type ChatMessage =
+  | {
+      role: "system" | "user";
+      content: string;
+    }
+  | {
+      role: "assistant";
+      content: string;
+      reasoning_content?: string;
+      tool_calls?: readonly ChatToolCall[];
+    }
+  | {
+      role: "tool";
+      content: string;
+      name?: string;
+      tool_call_id?: string;
+    };
 
 /** A loaded chat template that can format message history into a model prompt string. */
 export type ChatTemplate = {
   readonly template: string;
-  format(messages: readonly ChatMessage[], options?: { addGenerationPrompt?: boolean }): string;
+  format(
+    messages: readonly ChatMessage[],
+    options?: {
+      addGenerationPrompt?: boolean;
+      tools?: readonly ChatTool[];
+      enableThinking?: boolean;
+      preserveThinking?: boolean;
+    },
+  ): string;
 };
 
 function tokenString(value: unknown): string | undefined {
@@ -122,9 +161,16 @@ export async function loadChatTemplate(
     format(messages, renderOptions = {}) {
       return template.render({
         messages,
+        tools: renderOptions.tools ?? [],
         bos_token: bosToken,
         eos_token: eosToken,
         add_generation_prompt: renderOptions.addGenerationPrompt ?? true,
+        ...(renderOptions.enableThinking === undefined
+          ? {}
+          : { enable_thinking: renderOptions.enableThinking }),
+        ...(renderOptions.preserveThinking === undefined
+          ? {}
+          : { preserve_thinking: renderOptions.preserveThinking }),
       });
     },
   };

@@ -14,7 +14,7 @@ The default dataset path is:
 - `HuggingFaceH4/ultrachat_200k` for LoRA, QLoRA, and SFT
 - `HuggingFaceH4/ultrafeedback_binarized` for DPO
 
-The runner keeps deterministic front-slice subsets, filters out overlong examples against a configurable token cap, and reports held-out evaluation loss plus preference accuracy for DPO.
+The runner keeps deterministic front-slice subsets, filters out overlong examples against a configurable token cap, and reports held-out evaluation loss plus DPO reward-aware metrics for the preference stage.
 
 LoRA target selection is now preset-driven rather than hardcoded. The proof uses:
 
@@ -26,16 +26,36 @@ That keeps the orchestration readable while letting the model-family layer own w
 ## Run
 
 ```bash
-bun run proof:training
+bun run examples/train-proof/index.ts
 ```
 
 That defaults to the official Meta model, the real Hugging Face dataset path, and writes the generated 4-bit snapshot and JSON report under `.tmp/training-proof/`.
+
+The repo also keeps a dedicated manual Apple Silicon GitHub workflow for this
+proof so you can run the full canonical check on a self-hosted Mac when you
+want it, without making every PR or push pay that cost. That runner must
+already have access to the official checkpoint and pinned datasets through
+`HF_TOKEN`, `HUGGINGFACE_HUB_TOKEN`, or the standard
+`~/.cache/huggingface/token` file that the pretrained loader reads.
 
 You can also override the proof size and output locations:
 
 ```bash
 bun run examples/train-proof/index.ts --source meta-llama/Llama-3.2-1B-Instruct --train-limit 32 --eval-limit 8 --batch-size 4 --steps 4 --quantized-output .tmp/training-proof/meta-llama-Llama-3.2-1B-Instruct-4bit --report .tmp/training-proof/meta-llama-Llama-3.2-1B-Instruct-report.json
 ```
+
+For faster DPO iteration, you can run only the preference stage and switch to a
+more handbook-aligned adapter recipe:
+
+```bash
+bun run examples/train-proof/index.ts --stages dpo --dpo-profile handbook --train-limit 128 --eval-limit 32
+```
+
+The stage selector accepts any comma-separated subset of `lora,qlora,sft,dpo`.
+The DPO profile options are:
+
+- `canonical` — the repo's lighter proof recipe
+- `handbook` — a broader `attention+mlp` LoRA recipe with lower `beta`, lower learning rate, non-zero dropout, and full-decoder targeting for faster preference-tuning iteration
 
 For a fast local smoke, you can still force the tiny built-in corpus:
 
@@ -46,7 +66,7 @@ bun run examples/train-proof/index.ts --dataset-source tiny --train-limit 8 --ev
 For a broader local family sweep, run the matrix wrapper:
 
 ```bash
-bun run proof:training:matrix --dataset-source tiny --train-limit 8 --eval-limit 4 --steps 2
+bun run examples/train-proof/matrix.ts --dataset-source tiny --train-limit 8 --eval-limit 4 --steps 2
 ```
 
 The default matrix covers:
@@ -63,5 +83,6 @@ The proof report records:
 - held-out evaluation loss before and after each stage
 - resolved LoRA preset plus target counts for adapter-backed stages
 - QLoRA merge preservation of the quantized base path
-- DPO held-out preference accuracy before and after
+- DPO held-out reward accuracy, reward margin, chosen/rejected rewards, and chosen/rejected log-probs
+- supplemental raw policy-only preference accuracy for DPO debugging
 - a short sample after each stage

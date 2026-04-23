@@ -1,3 +1,4 @@
+import type { ChatPreferenceConversation } from "@mlxts/align";
 import { type ChatMessage, loadHuggingFaceRowsDataset } from "@mlxts/data";
 
 import type { TrainingProofArgs } from "./args";
@@ -10,17 +11,11 @@ export type TrainingProofCorpus = {
   rejected: ChatMessage;
 };
 
-export type ParsedPreferenceConversation = {
-  promptMessages: readonly ChatMessage[];
-  chosen: ChatMessage;
-  rejected: ChatMessage;
-};
-
 export type TrainingProofRawDatasets = {
   supervisionTrainMessages: readonly ChatMessage[][];
   supervisionEvalMessages: readonly ChatMessage[][];
-  preferenceTrainRows: readonly ParsedPreferenceConversation[];
-  preferenceEvalRows: readonly ParsedPreferenceConversation[];
+  preferenceTrainRows: readonly ChatPreferenceConversation[];
+  preferenceEvalRows: readonly ChatPreferenceConversation[];
   samplePromptMessages: readonly ChatMessage[];
   notes: string[];
 };
@@ -224,7 +219,7 @@ export function parseUltrachatMessagesRow(row: unknown): readonly ChatMessage[] 
 }
 
 /** Parse one Ultrafeedback preference row into prompt, chosen, and rejected turns. */
-export function parseUltrafeedbackPreferenceRow(row: unknown): ParsedPreferenceConversation {
+export function parseUltrafeedbackPreferenceRow(row: unknown): ChatPreferenceConversation {
   const record = expectObject(row, "ultrafeedback row");
   const chosenMessages = parseChatMessages(record.chosen, "ultrafeedback row.chosen");
   const rejectedMessages = parseChatMessages(record.rejected, "ultrafeedback row.rejected");

@@ -1,11 +1,5 @@
-import { sftLoss, sftTrain } from "@mlxts/align";
-import { mxEval } from "@mlxts/core";
-import {
-  type ChatMessage,
-  collateTokenSupervisionBatch,
-  createRandomSource,
-  type TokenSupervisionExample,
-} from "@mlxts/data";
+import { evaluateSupervisionDatasetLoss, runSupervisionTrainingSteps } from "@mlxts/align";
+import type { ChatMessage, TokenSupervisionExample } from "@mlxts/data";
 import { Module } from "@mlxts/nn";
 import { Adam } from "@mlxts/optimizers";
 import {
@@ -46,72 +40,6 @@ function createGenerationOptions(): GenerationOptions {
     maxTokens: 32,
     temperature: 0,
     addSpecialTokens: false,
-  };
-}
-
-function evaluateLoss(loss: ReturnType<typeof sftLoss>): number {
-  mxEval(loss);
-  const value = loss.item();
-  loss.free();
-  return value;
-}
-
-function freeTokenBatch(batch: ReturnType<typeof collateTokenSupervisionBatch>): void {
-  batch.inputIds.free();
-  batch.targetIds.free();
-  batch.lossMask.free();
-}
-
-function evaluateSftBatchLoss(
-  model: CausalLM,
-  batch: ReturnType<typeof collateTokenSupervisionBatch>,
-): number {
-  try {
-    return evaluateLoss(sftLoss(model, batch));
-  } finally {
-    freeTokenBatch(batch);
-  }
-}
-
-function chunkExamples<T>(examples: readonly T[], batchSize: number): T[][] {
-  const chunks: T[][] = [];
-  for (let index = 0; index < examples.length; index += batchSize) {
-    chunks.push(examples.slice(index, index + batchSize));
-  }
-  return chunks;
-}
-
-function createShuffledOrder(length: number, seed: number): number[] {
-  const nextRandom = createRandomSource(seed);
-  const order = Array.from({ length }, (_, index) => index);
-  for (let index = order.length - 1; index > 0; index -= 1) {
-    const swapIndex = Math.floor(nextRandom() * (index + 1));
-    const current = order[index];
-    order[index] = order[swapIndex] ?? current;
-    order[swapIndex] = current;
-  }
-  return order;
-}
-
-function createBatchPicker<T>(
-  examples: readonly T[],
-  batchSize: number,
-  seed: number,
-): () => readonly T[] {
-  const order = createShuffledOrder(examples.length, seed);
-  let cursor = 0;
-  return () => {
-    const batch: T[] = [];
-    for (let index = 0; index < batchSize; index += 1) {
-      const exampleIndex = order[cursor % order.length];
-      const example = examples[exampleIndex];
-      if (example === undefined) {
-        throw new Error("lora-finetune: selected an undefined batch example.");
-      }
-      batch.push(example);
-      cursor += 1;
-    }
-    return batch;
   };
 }
 
@@ -177,13 +105,11 @@ export function evaluateDatasetLoss(
   padTokenId: number,
   batchSize: number,
 ): number {
-  let totalLoss = 0;
-  let batches = 0;
-  for (const chunk of chunkExamples(examples, batchSize)) {
-    totalLoss += evaluateSftBatchLoss(model, collateTokenSupervisionBatch(chunk, padTokenId));
-    batches += 1;
-  }
-  return totalLoss / batches;
+  return evaluateSupervisionDatasetLoss(model, {
+    examples,
+    padTokenId,
+    batchSize,
+  });
 }
 
 export function runTrainingSteps(
@@ -196,15 +122,13 @@ export function runTrainingSteps(
   learningRate: number,
 ): number {
   const optimizer = new Adam({ learningRate });
-  const nextBatch = createBatchPicker(examples, batchSize, seed);
-  let totalTrainingLoss = 0;
-  for (let step = 0; step < steps; step += 1) {
-    const result = sftTrain(model, {
-      optimizer,
-      batches: [collateTokenSupervisionBatch(nextBatch(), padTokenId)],
-      learningRate,
-    });
-    totalTrainingLoss += result.averageLoss;
-  }
-  return totalTrainingLoss / steps;
+  return runSupervisionTrainingSteps(model, {
+    optimizer,
+    examples,
+    padTokenId,
+    batchSize,
+    steps,
+    seed,
+    learningRate,
+  }).averageLoss;
 }

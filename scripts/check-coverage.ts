@@ -116,6 +116,20 @@ const PACKAGES: PackageConfig[] = [
     coverageDir: join(PROJECT_ROOT, "coverage", "transformers"),
     thresholds: DEFAULT_THRESHOLDS,
   },
+  {
+    label: "@mlxts/serve",
+    sourceDir: "serve",
+    cwd: join(PROJECT_ROOT, "packages", "serve"),
+    coverageDir: join(PROJECT_ROOT, "coverage", "serve"),
+    thresholds: DEFAULT_THRESHOLDS,
+  },
+  {
+    label: "@mlxts/agent",
+    sourceDir: "agent",
+    cwd: join(PROJECT_ROOT, "packages", "agent"),
+    coverageDir: join(PROJECT_ROOT, "coverage", "agent"),
+    thresholds: DEFAULT_THRESHOLDS,
+  },
 ];
 
 function percent(hit: number, found: number): number {

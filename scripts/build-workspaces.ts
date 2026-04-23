@@ -7,18 +7,20 @@ import { resolve } from "path";
 
 const ROOT = resolve(import.meta.dirname, "..");
 const WORKSPACE_ORDER = [
-  "core",
-  "tokenizers",
-  "data",
-  "nn",
-  "quantize",
-  "optimizers",
-  "train",
-  "transformers",
-  "lora",
-  "align",
-  "nanogpt",
-];
+  { label: "core", path: ["packages", "core"] },
+  { label: "tokenizers", path: ["packages", "tokenizers"] },
+  { label: "data", path: ["packages", "data"] },
+  { label: "nn", path: ["packages", "nn"] },
+  { label: "quantize", path: ["packages", "quantize"] },
+  { label: "optimizers", path: ["packages", "optimizers"] },
+  { label: "train", path: ["packages", "train"] },
+  { label: "transformers", path: ["packages", "transformers"] },
+  { label: "lora", path: ["packages", "lora"] },
+  { label: "align", path: ["packages", "align"] },
+  { label: "serve", path: ["packages", "serve"] },
+  { label: "agent", path: ["packages", "agent"] },
+  { label: "nanogpt example", path: ["examples", "nanogpt"] },
+] as const;
 
 async function run(command: string[], cwd: string): Promise<void> {
   const proc = Bun.spawn(command, {
@@ -33,10 +35,10 @@ async function run(command: string[], cwd: string): Promise<void> {
 }
 
 async function main(): Promise<void> {
-  for (const packageName of WORKSPACE_ORDER) {
-    const packageRoot = resolve(ROOT, "packages", packageName);
-    console.log(`\nBuilding ${packageName}...`);
-    await run([process.execPath, "run", "build"], packageRoot);
+  for (const workspace of WORKSPACE_ORDER) {
+    const workspaceRoot = resolve(ROOT, ...workspace.path);
+    console.log(`\nBuilding ${workspace.label}...`);
+    await run([process.execPath, "run", "build"], workspaceRoot);
   }
 }
 

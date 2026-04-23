@@ -21,7 +21,7 @@ bun run release:check
 ## Packaging expectations
 
 - public packages export only their root entrypoints in this phase
-- `packages/nanogpt` is private and is not a publish target
+- `examples/nanogpt` is a committed example surface and is not part of the npm publish set
 - `@mlxts/core` still expects an explicit native build step
 - Changesets are configured for the scoped public packages only
 

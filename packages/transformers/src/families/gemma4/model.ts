@@ -7,6 +7,7 @@ import { type DisposableTransform, formatShape, MxArray, multiply } from "@mlxts
 import { Embedding, Linear, Module } from "@mlxts/nn";
 
 import { LayerPatternKVCache } from "../../infrastructure/cache";
+import { retainInputEmbeddings } from "../../infrastructure/input-embeddings";
 import type { AttentionMask } from "../../infrastructure/masks";
 import type { CausalLM, ForwardOptions, TransformerCache } from "../../types";
 import { Gemma4TextDecoderBlock } from "./block";
@@ -37,6 +38,7 @@ export class Gemma4TextModel extends Module {
   #perLayerInputScale: number;
   #perLayerProjectionScale: number;
   #hiddenSizePerLayerInput: number;
+  #hiddenSize: number;
   #sharedKeyValueSourceIndices: (number | null)[];
   #retainedSharedKeyValueSources: boolean[];
   #slidingWindow: number;
@@ -48,6 +50,7 @@ export class Gemma4TextModel extends Module {
     this.#perLayerInputScale = 2 ** -0.5;
     this.#perLayerProjectionScale = config.hiddenSize ** -0.5;
     this.#hiddenSizePerLayerInput = config.hiddenSizePerLayerInput;
+    this.#hiddenSize = config.hiddenSize;
     this.#slidingWindow = config.slidingWindow;
     const sharedKeyValuePlan = buildSharedKeyValuePlan(config.layerTypes, config.numKvSharedLayers);
     this.#sharedKeyValueSourceIndices = sharedKeyValuePlan.sourceIndices;
@@ -83,14 +86,20 @@ export class Gemma4TextModel extends Module {
     return this.run(inputIds);
   }
 
-  run(inputIds: MxArray, cache?: TransformerCache): MxArray {
+  run(inputIds: MxArray, cache?: TransformerCache, inputEmbeddings?: MxArray): MxArray {
     this.assertTokenIds(inputIds, "Gemma4TextModel.forward");
     const sequenceLength = inputIds.shape[1];
     if (sequenceLength === undefined) {
       throw new Error("Gemma4TextModel.forward: token ids are missing a sequence axis.");
     }
 
-    using embedded = this.embedTokens.forward(inputIds);
+    using embedded =
+      retainInputEmbeddings(
+        inputIds,
+        inputEmbeddings,
+        this.#hiddenSize,
+        "Gemma4TextModel.forward",
+      ) ?? this.embedTokens.forward(inputIds);
     let hidden = multiply(embedded, this.#embeddingScale);
     const perLayerInputs = createPerLayerInputs(inputIds, hidden, this.perLayerInputModules(), {
       layerCount: this.layers.length,
@@ -267,7 +276,7 @@ export class Gemma4TextCausalLM extends Module implements CausalLM {
         ? optionsOrTensor
         : undefined;
 
-    using hidden = this.model.run(inputIds, options?.cache);
+    using hidden = this.model.run(inputIds, options?.cache, options?.inputEmbeddings);
     let logits =
       this.lmHead === null ? this.model.embedTokens.asLinear(hidden) : this.lmHead.forward(hidden);
 

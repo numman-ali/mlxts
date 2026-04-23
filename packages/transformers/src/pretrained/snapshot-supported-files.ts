@@ -7,6 +7,8 @@ const REMOTE_SUPPORTED_FILE_NAMES = new Set([
   "config.json",
   "generation_config.json",
   "processor_config.json",
+  "preprocessor_config.json",
+  "video_preprocessor_config.json",
   "chat_template.jinja",
   "model.safetensors.index.json",
   "tokenizer.json",

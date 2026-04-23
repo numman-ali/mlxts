@@ -103,6 +103,9 @@ export class BPETokenizer implements Tokenizer {
     for (const [token, id] of Object.entries(config.vocab)) {
       this.#idToToken[id] = token;
     }
+    for (const token of config.addedTokens) {
+      this.#idToToken[token.id] = token.content;
+    }
     this.#merges = new Map();
     for (let index = 0; index < config.merges.length; index += 1) {
       const merge = config.merges[index];

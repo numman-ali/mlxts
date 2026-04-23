@@ -5,6 +5,7 @@
 
 export { gelu, relu, silu, swiglu } from "./activations";
 export { checkpoint } from "./checkpoint";
+export { Conv1d } from "./conv1d";
 export { Dropout } from "./dropout";
 export { Embedding } from "./embedding";
 export { GroupedQueryAttention } from "./grouped-query-attention";

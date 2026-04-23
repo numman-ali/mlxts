@@ -13,6 +13,7 @@ import {
   resetCoreRuntimeProfile,
   snapshotCoreRuntimeProfile,
 } from "../../core/src/runtime-profile";
+import { materializeCacheState } from "../src/infrastructure/generation/helpers";
 import {
   isTransformerRuntimeProfilingEnabled,
   resetTransformerRuntimeProfile,
@@ -23,6 +24,7 @@ import {
   type BenchmarkOptions,
   type BenchmarkTarget,
   compareAgainstBaseline,
+  createDecodeMemoryTracker,
   createPromptTokenIds,
   loadBaselines,
   mean,
@@ -78,6 +80,103 @@ function printRuntimeProfile(generationTokens: number, trials: number): void {
   }
 }
 
+function materializeCacheIfRequested(
+  cache: Parameters<typeof materializeCacheState>[0],
+  options: BenchmarkOptions,
+): void {
+  if (options.materializeCacheEachToken) {
+    materializeCacheState(cache);
+  }
+}
+
+function recordDecodeStep(
+  index: number,
+  options: BenchmarkOptions,
+  decodeMemory: ReturnType<typeof createDecodeMemoryTracker>,
+): boolean {
+  const completedTokens = index + 1;
+  if (completedTokens % options.memorySampleInterval === 0) {
+    decodeMemory.sample();
+  }
+  if (completedTokens % PERIODIC_CACHE_CLEAR_INTERVAL === 0) {
+    clearMemoryCache();
+  }
+  return completedTokens >= options.generationTokens;
+}
+
+function takeScheduledToken(currentToken: MxArray, nextToken: MxArray | null): MxArray {
+  currentToken.free();
+  if (nextToken === null) {
+    throw new Error("benchmark-generation: async decode did not schedule the next token.");
+  }
+  return nextToken;
+}
+
+function runAsyncDecodeTrial(
+  model: BenchmarkModel,
+  cache: ReturnType<BenchmarkModel["createCache"]>,
+  currentToken: MxArray,
+  options: BenchmarkOptions,
+  decodeMemory: ReturnType<typeof createDecodeMemoryTracker>,
+): number {
+  let decodeSyncCount = 0;
+  let activeToken = currentToken;
+  let nextToken: MxArray | null = null;
+
+  try {
+    mxAsyncEval(activeToken);
+    for (let index = 0; index < options.generationTokens; index += 1) {
+      if (index + 1 < options.generationTokens) {
+        nextToken = predictGreedyToken(model, activeToken, cache);
+        materializeCacheIfRequested(cache, options);
+        mxAsyncEval(nextToken);
+      }
+      decodeSyncCount += 1;
+      activeToken.item();
+      if (recordDecodeStep(index, options, decodeMemory)) {
+        return decodeSyncCount;
+      }
+      activeToken = takeScheduledToken(activeToken, nextToken);
+      nextToken = null;
+    }
+    return decodeSyncCount;
+  } finally {
+    activeToken.free();
+    nextToken?.free();
+  }
+}
+
+function runSyncDecodeTrial(
+  model: BenchmarkModel,
+  cache: ReturnType<BenchmarkModel["createCache"]>,
+  currentToken: MxArray,
+  options: BenchmarkOptions,
+  decodeMemory: ReturnType<typeof createDecodeMemoryTracker>,
+): number {
+  let decodeSyncCount = 0;
+  let activeToken = currentToken;
+  let nextToken: MxArray | null = null;
+
+  try {
+    for (let index = 0; index < options.generationTokens; index += 1) {
+      decodeSyncCount += 1;
+      const tokenId = activeToken.item();
+      if (recordDecodeStep(index, options, decodeMemory)) {
+        return decodeSyncCount;
+      }
+      nextToken = predictGreedyToken(model, [tokenId], cache);
+      materializeCacheIfRequested(cache, options);
+      activeToken.free();
+      activeToken = nextToken;
+      nextToken = null;
+    }
+    return decodeSyncCount;
+  } finally {
+    activeToken.free();
+    nextToken?.free();
+  }
+}
+
 function runSyntheticTrial(
   model: BenchmarkModel,
   promptTokenIds: readonly number[],
@@ -93,51 +192,27 @@ function runSyntheticTrial(
     options.prefillStepSize,
   );
   let decodeSyncCount = 0;
-  let currentToken = predictGreedyToken(model, remainingPrompt, cache);
+  const currentToken = predictGreedyToken(model, remainingPrompt, cache);
 
   currentToken.item();
+  if (options.materializeCacheEachToken) {
+    materializeCacheState(cache);
+  }
   const promptSeconds = (performance.now() - promptStarted) / 1000;
   resetRuntimeProfiles();
+  const decodeMemory = createDecodeMemoryTracker();
   const decodeStarted = performance.now();
-  let nextToken: MxArray | null = null;
-
-  try {
-    mxAsyncEval(currentToken);
-
-    for (let index = 0; index < options.generationTokens; index += 1) {
-      if (index + 1 < options.generationTokens) {
-        nextToken = predictGreedyToken(model, currentToken, cache);
-        mxAsyncEval(nextToken);
-      }
-
-      decodeSyncCount += 1;
-      currentToken.item();
-
-      if ((index + 1) % PERIODIC_CACHE_CLEAR_INTERVAL === 0) {
-        clearMemoryCache();
-      }
-      if (index + 1 >= options.generationTokens) {
-        break;
-      }
-
-      currentToken.free();
-      const scheduledToken = nextToken;
-      nextToken = null;
-      if (scheduledToken === null) {
-        throw new Error("benchmark-generation: async decode did not schedule the next token.");
-      }
-      currentToken = scheduledToken;
-    }
-  } finally {
-    currentToken.free();
-    nextToken?.free();
-  }
+  decodeSyncCount =
+    options.decodeSchedule === "async"
+      ? runAsyncDecodeTrial(model, cache, currentToken, options, decodeMemory)
+      : runSyncDecodeTrial(model, cache, currentToken, options, decodeMemory);
 
   const decodeSeconds = (performance.now() - decodeStarted) / 1000;
   return {
     promptTps: promptTokenIds.length / promptSeconds,
     generationTps: options.generationTokens / decodeSeconds,
     peakMemoryGb: getPeakMemoryBytes() / 1e9,
+    ...decodeMemory.finish(options.generationTokens),
     // item() performs one blocking scalar sync per token in the steady-state decode loop.
     explicitEvalCountPerToken: decodeSyncCount / options.generationTokens,
     totalTimeSeconds: promptSeconds + decodeSeconds,
@@ -149,6 +224,11 @@ function averageTrialMetrics(trials: readonly TrialMetrics[]): TrialMetrics {
     promptTps: mean(trials.map((trial) => trial.promptTps)),
     generationTps: mean(trials.map((trial) => trial.generationTps)),
     peakMemoryGb: mean(trials.map((trial) => trial.peakMemoryGb)),
+    activeMemoryStartGb: mean(trials.map((trial) => trial.activeMemoryStartGb)),
+    activeMemoryEndGb: mean(trials.map((trial) => trial.activeMemoryEndGb)),
+    activeMemoryDeltaGb: mean(trials.map((trial) => trial.activeMemoryDeltaGb)),
+    activeMemoryMaxGb: mean(trials.map((trial) => trial.activeMemoryMaxGb)),
+    activeMemorySlopeMbPerToken: mean(trials.map((trial) => trial.activeMemorySlopeMbPerToken)),
     explicitEvalCountPerToken: mean(trials.map((trial) => trial.explicitEvalCountPerToken)),
     totalTimeSeconds: mean(trials.map((trial) => trial.totalTimeSeconds)),
   };
@@ -190,10 +270,13 @@ async function benchmarkTarget(target: BenchmarkTarget, options: BenchmarkOption
     promptTokens: target.promptTokens,
     generationTokens: target.generationTokens,
     prefillStepSize: target.prefillStepSize ?? options.prefillStepSize,
+    memorySampleInterval: options.memorySampleInterval,
+    decodeSchedule: options.decodeSchedule,
+    materializeCacheEachToken: options.materializeCacheEachToken,
   };
 
   console.log(
-    `Benchmarking ${target.name} (${resolvedModelSource}) with prompt_tokens=${targetOptions.promptTokens}, generation_tokens=${targetOptions.generationTokens}, trials=${targetOptions.trials}.`,
+    `Benchmarking ${target.name} (${resolvedModelSource}) with prompt_tokens=${targetOptions.promptTokens}, generation_tokens=${targetOptions.generationTokens}, trials=${targetOptions.trials}, decode_schedule=${targetOptions.decodeSchedule}, materialize_cache_each_token=${targetOptions.materializeCacheEachToken}.`,
   );
 
   using model = await loadCausalLM(resolvedModelSource, { localFilesOnly: true });

@@ -19,6 +19,7 @@ import {
   captureMlxLmReference,
   compareAgainstBaseline,
   compareAgainstMlxLmReference,
+  createDecodeMemoryTracker,
   createPromptTokenIds,
   enforceMlxLmDecodeBar,
   formatMlxLmReference,
@@ -105,6 +106,7 @@ function runParityTrial(
   let promptSeconds = 0;
   let decodeStarted = 0;
   let currentStep = predictGreedyStep(model, remainingPrompt, cache);
+  const decodeMemory = createDecodeMemoryTracker();
 
   try {
     mxAsyncEval(currentStep.token, currentStep.logprobs);
@@ -126,6 +128,9 @@ function runParityTrial(
         }
 
         currentStep.token.item();
+        if ((index + 1) % options.memorySampleInterval === 0) {
+          decodeMemory.sample();
+        }
         if ((index + 1) % PERIODIC_CACHE_CLEAR_INTERVAL === 0) {
           clearMemoryCache();
         }
@@ -153,6 +158,7 @@ function runParityTrial(
     promptTps: promptTokenIds.length / promptSeconds,
     generationTps: options.generationTokens / decodeSeconds,
     peakMemoryGb: getPeakMemoryBytes() / 1e9,
+    ...decodeMemory.finish(options.generationTokens),
     // item() performs one blocking scalar sync per token in the steady-state decode loop.
     explicitEvalCountPerToken: decodeSyncCount / options.generationTokens,
     totalTimeSeconds: promptSeconds + decodeSeconds,
@@ -164,6 +170,11 @@ function averageTrialMetrics(trials: readonly TrialMetrics[]): TrialMetrics {
     promptTps: mean(trials.map((trial) => trial.promptTps)),
     generationTps: mean(trials.map((trial) => trial.generationTps)),
     peakMemoryGb: mean(trials.map((trial) => trial.peakMemoryGb)),
+    activeMemoryStartGb: mean(trials.map((trial) => trial.activeMemoryStartGb)),
+    activeMemoryEndGb: mean(trials.map((trial) => trial.activeMemoryEndGb)),
+    activeMemoryDeltaGb: mean(trials.map((trial) => trial.activeMemoryDeltaGb)),
+    activeMemoryMaxGb: mean(trials.map((trial) => trial.activeMemoryMaxGb)),
+    activeMemorySlopeMbPerToken: mean(trials.map((trial) => trial.activeMemorySlopeMbPerToken)),
     explicitEvalCountPerToken: mean(trials.map((trial) => trial.explicitEvalCountPerToken)),
     totalTimeSeconds: mean(trials.map((trial) => trial.totalTimeSeconds)),
   };
@@ -211,6 +222,9 @@ async function benchmarkTarget(
     promptTokens: target.promptTokens,
     generationTokens: target.generationTokens,
     prefillStepSize: target.prefillStepSize ?? options.prefillStepSize,
+    memorySampleInterval: options.memorySampleInterval,
+    decodeSchedule: options.decodeSchedule,
+    materializeCacheEachToken: options.materializeCacheEachToken,
   };
 
   console.log(

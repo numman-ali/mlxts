@@ -6,8 +6,8 @@ This artifact tracks the runtime-sensitive review for the Phase 5 package
 restructure from the legacy monolith into the `@mlxts/*` package family. The
 current implementation focus is the reusable package surface: tensor, nn,
 optimizer, training, data, and tokenizer code are extracted and split into
-smaller files without changing their runtime behavior. The old `packages/nanogpt`
-surface remains a temporary validation fixture rather than the long-term
+smaller files without changing their runtime behavior. The old `examples/nanogpt`
+surface remains a temporary validation example rather than the long-term
 canonical example.
 
 ## Current State vs Deferred Work
@@ -16,11 +16,11 @@ The package-first extraction is the current Phase 5 target and is reflected in
 the repo today. The extracted packages are the canonical surfaces, and the old
 compatibility shim has been removed. The deferred work is a later dedicated
 examples pass, including a ground-up nanoGPT rewrite and eventual deletion of
-the temporary `packages/nanogpt` fixture once replacement surfaces are ready.
+the temporary `examples/nanogpt` fixture once replacement surfaces are ready.
 
 The current checkpointing, data, tokenizer, and step-orchestration direction is
 now package-canonical: `@mlxts/train`, `@mlxts/data`, and `@mlxts/tokenizers`
-own the reusable implementations, while `packages/nanogpt` carries only GPT-
+own the reusable implementations, while `examples/nanogpt` carries only GPT-
 specific adapters and the operator-facing validation harness.
 
 That fixture has now been split down below the repo-wide 500-line production
@@ -65,39 +65,39 @@ refreshed as the migration reaches new validation checkpoints.
 - `packages/core/src/tree.ts`
 - `packages/data/src/index.ts`
 - `packages/data/src/text.ts`
-- `packages/nanogpt/src/bench/memory.ts`
-- `packages/nanogpt/src/checkpoint.ts`
-- `packages/nanogpt/src/cli/commands.ts`
-- `packages/nanogpt/src/cli/help.ts`
-- `packages/nanogpt/src/cli/session.ts`
-- `packages/nanogpt/src/cli/shared.ts`
-- `packages/nanogpt/src/cli/train-events.ts`
-- `packages/nanogpt/src/cli.ts`
-- `packages/nanogpt/src/generate.ts`
-- `packages/nanogpt/src/index.ts`
-- `packages/nanogpt/src/model/causal-self-attention.ts`
-- `packages/nanogpt/src/model/gpt.ts`
-- `packages/nanogpt/src/model/init.ts`
-- `packages/nanogpt/src/model/mlp.ts`
-- `packages/nanogpt/src/model/transformer-block.ts`
-- `packages/nanogpt/src/optimizer-defaults.ts`
-- `packages/nanogpt/src/run/acceptance.ts`
-- `packages/nanogpt/src/run/acceptance-options.ts`
-- `packages/nanogpt/src/run/acceptance-runtime.ts`
-- `packages/nanogpt/src/safetensors.ts`
-- `packages/nanogpt/src/train.ts`
-- `packages/nanogpt/src/run/files-health.ts`
-- `packages/nanogpt/src/run/files-json.ts`
-- `packages/nanogpt/src/run/files-paths.ts`
-- `packages/nanogpt/src/run/files-types.ts`
-- `packages/nanogpt/src/run/files.ts`
-- `packages/nanogpt/src/run/manager-args.ts`
-- `packages/nanogpt/src/run/manager-run.ts`
-- `packages/nanogpt/src/run/manager-status.ts`
-- `packages/nanogpt/src/run/manager.ts`
-- `packages/nanogpt/src/run/supervisor-events.ts`
-- `packages/nanogpt/src/run/supervisor-streams.ts`
-- `packages/nanogpt/src/run/supervisor.ts`
+- `examples/nanogpt/src/bench/memory.ts`
+- `examples/nanogpt/src/checkpoint.ts`
+- `examples/nanogpt/src/cli/commands.ts`
+- `examples/nanogpt/src/cli/help.ts`
+- `examples/nanogpt/src/cli/session.ts`
+- `examples/nanogpt/src/cli/shared.ts`
+- `examples/nanogpt/src/cli/train-events.ts`
+- `examples/nanogpt/src/cli.ts`
+- `examples/nanogpt/src/generate.ts`
+- `examples/nanogpt/src/index.ts`
+- `examples/nanogpt/src/model/causal-self-attention.ts`
+- `examples/nanogpt/src/model/gpt.ts`
+- `examples/nanogpt/src/model/init.ts`
+- `examples/nanogpt/src/model/mlp.ts`
+- `examples/nanogpt/src/model/transformer-block.ts`
+- `examples/nanogpt/src/optimizer-defaults.ts`
+- `examples/nanogpt/src/run/acceptance.ts`
+- `examples/nanogpt/src/run/acceptance-options.ts`
+- `examples/nanogpt/src/run/acceptance-runtime.ts`
+- `examples/nanogpt/src/safetensors.ts`
+- `examples/nanogpt/src/train.ts`
+- `examples/nanogpt/src/run/files-health.ts`
+- `examples/nanogpt/src/run/files-json.ts`
+- `examples/nanogpt/src/run/files-paths.ts`
+- `examples/nanogpt/src/run/files-types.ts`
+- `examples/nanogpt/src/run/files.ts`
+- `examples/nanogpt/src/run/manager-args.ts`
+- `examples/nanogpt/src/run/manager-run.ts`
+- `examples/nanogpt/src/run/manager-status.ts`
+- `examples/nanogpt/src/run/manager.ts`
+- `examples/nanogpt/src/run/supervisor-events.ts`
+- `examples/nanogpt/src/run/supervisor-streams.ts`
+- `examples/nanogpt/src/run/supervisor.ts`
 - `packages/nn/src/activations.ts`
 - `packages/nn/src/checkpoint.ts`
 - `packages/nn/src/dropout.ts`
@@ -145,15 +145,15 @@ Current evidence:
 - `cd packages/core && bun test` passes after splitting `array.ts` and `transforms.ts`
 - `cd packages/train && bun test` passes after extracting the generic training
   schedule, loop, gradient, checkpoint, and step-orchestration surfaces
-- `cd packages/nanogpt && bun test` passes after rewiring the temporary fixture
+- `cd examples/nanogpt && bun test` passes after rewiring the temporary fixture
   directly onto `@mlxts/core`, `@mlxts/nn`, `@mlxts/optimizers`,
   `@mlxts/train`, `@mlxts/data`, and `@mlxts/tokenizers`
-- `bun run acceptance:gpt-tiny` passes on the current package-first fixture
+- `cd examples/nanogpt && bun run acceptance:gpt-tiny` passes on the current package-first fixture
   with the re-baselined tiny-run loss target
 - `bun run check:file-lines` passes for all active production source, including
   the temporary fixture
 
-Throughput-sensitive long-run evidence for the legacy `packages/nanogpt`
+Throughput-sensitive long-run evidence for the legacy `examples/nanogpt`
 fixture remains a follow-up once the package extraction settles and the example
 strategy is finalized.
 
@@ -166,10 +166,10 @@ before the Phase 5 migration is considered complete.
 
 - Runtime-sensitive file moves can accidentally hide tensor lifetimes if large
   files are split without preserving ownership clarity.
-- Rewiring the temporary `packages/nanogpt` fixture onto generic checkpoint
+- Rewiring the temporary `examples/nanogpt` fixture onto generic checkpoint
   metadata and package-owned training helpers touches training, checkpoint, and
   generation paths that still carry the long-run operational surface.
-- The `packages/nanogpt` fixture is no longer the primary Phase 5 target, so
+- The `examples/nanogpt` fixture is no longer the primary Phase 5 target, so
   example and operator docs still need a dedicated cleanup pass to match the new
   package-first direction.
 - Long-run throughput evidence still flows through the temporary validation

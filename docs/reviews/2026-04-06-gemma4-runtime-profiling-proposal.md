@@ -53,10 +53,10 @@ that one bucket owns a fixed percentage of the total gap.
 - `packages/core/src/transforms-compile.ts`
 - `packages/core/src/transforms.ts`
 - `packages/core/src/typed-array-copy.ts`
-- `packages/nanogpt/src/bench/memory.ts`
-- `packages/nanogpt/src/run/acceptance.ts`
-- `packages/nanogpt/src/run/soak.ts`
-- `packages/nanogpt/src/run/supervisor.ts`
+- `examples/nanogpt/src/bench/memory.ts`
+- `examples/nanogpt/src/run/acceptance.ts`
+- `examples/nanogpt/src/run/soak.ts`
+- `examples/nanogpt/src/run/supervisor.ts`
 - `packages/nn/src/activations.ts`
 - `packages/nn/src/losses.ts`
 - `packages/transformers/scripts/benchmark-generation.ts`

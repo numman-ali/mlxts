@@ -29,7 +29,7 @@ here live underneath them.
 | `@mlxts/nn` | `gelu` | GPT/nanoGPT MLP, generic dense FFN | single-output | `@mlxts/nn` | implemented | phase 1 | eager parity + cross-shape reuse + package tests |
 | `@mlxts/nn` | `silu` | SwiGLU and Phi/LLaMA-family helper math | single-output | `@mlxts/nn` | implemented | phase 1 | eager parity + cross-shape reuse + package tests |
 | `@mlxts/nn` | `swiglu` | LLaMA/Mistral/Phi decoder MLP | single-output | `@mlxts/nn` | implemented | phase 1 | eager parity + cross-shape reuse + transformer/nn tests |
-| `@mlxts/nn` | `crossEntropy` | training loss across packages | single-output | `@mlxts/nn` | implemented | phase 1 | eager parity + cross-shape reuse + train fixture tests |
+| `@mlxts/nn` | `crossEntropy` | training loss across packages | single-output | `@mlxts/nn` | implemented | phase 1 | eager parity + cross-shape reuse + train/example tests |
 | `@mlxts/transformers` | GEGLU approx helper | Gemma 3, Gemma 4, llama-like GELU MLP paths | single-output | `@mlxts/transformers` | implemented | phase 1 | eager parity + cross-shape reuse + family tests |
 | `@mlxts/transformers` | Gemma 4 per-layer gate helper | Gemma 4 block gating path | single-output | `@mlxts/transformers` | implemented via shared GEGLU helper | phase 1 | Gemma 4 model tests + benchmark evidence |
 | `@mlxts/transformers` | repetition penalty | generation sampling preprocess | single-output | `@mlxts/transformers` | implemented | phase 1 | sampling behavior tests |
@@ -45,7 +45,8 @@ here live underneath them.
 | `@mlxts/core` | `compile()` | single-output pure tensor closures | single-output | `@mlxts/core` | implemented | current | transforms tests |
 | `@mlxts/core` | `compileMany()` | multi-output pure tensor closures | multi-output | `@mlxts/core` | implemented; active mainline usage is currently parked during the readability-first pass | later adoption after readability-first cleanup | core transform tests + future runtime/helper coverage |
 | `@mlxts/core` | `mlx_detail_compile` binding | stateful compiled execution | stateful | `@mlxts/core` | not yet | phase 4 proposal | dedicated design + ABI review |
-| `packages/nanogpt` | GPT MLP via `nn.gelu` | validation fixture training/inference | inherited from `@mlxts/nn` | fixture | implemented indirectly | phase 1 | nanogpt coverage + integration tests |
+| `@mlxts/core` + `@mlxts/transformers` | first-party MLX/MLX-C capability audit | cross-package backend planning | research | shared runtime layer | active recurring audit | cross-phase | `.reference/mlx` / `.reference/mlx-c` diff against `ffi/symbols.ts` + matrix updates + benchmark-backed decisions |
+| `examples/nanogpt` | GPT MLP via `nn.gelu` | example training/inference | inherited from `@mlxts/nn` | example surface | implemented indirectly | phase 1 | nanogpt coverage + integration tests |
 
 ## Interpretation Rules
 

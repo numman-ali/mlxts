@@ -10,7 +10,7 @@ centers on:
 - `**@mlxts/core` / `@mlxts/nn` / `@mlxts/optimizers` / `@mlxts/train` / `@mlxts/data` / `@mlxts/tokenizers**`: the extracted reusable ML stack
 - `**@mlxts/transformers**`: Pretrained model architectures — LLaMA, Mistral, Gemma families with KV cache, generation, and auto-dispatch
 - `**Official Hugging Face JS packages**`: `@huggingface/hub` for snapshot download/cache and `@huggingface/jinja` for chat-template rendering inside the transformers loading surface
-- `**packages/nanogpt**`: a temporary GPT validation fixture built on the extracted packages
+- `**examples/nanogpt**`: the committed nanoGPT example and regression surface built on the extracted packages
 
 ## Repo Memory
 
@@ -57,7 +57,7 @@ See [docs/code-standards.md](./docs/code-standards.md) for the full code standar
 - `bun run typecheck` is a required validation gate, not optional cleanup
 - `bun run check:runtime-review` is required whenever runtime-sensitive production files change; the diff must include a review artifact under `docs/reviews/` and that artifact's `Files Reviewed` section must name the changed runtime-sensitive files
 - `bun run check:tensor-lifetimes` is an AST-based static backstop for the anonymous-intermediate leak class; when a new tensor-producing primitive is added, update the canonical tracked-op list in `scripts/`
-- `bun run check:coverage` is a required quality gate across the canonical package stack and the temporary `packages/nanogpt/` validation fixture (`95%` lines, `90%` functions, with branch thresholds enforced only when LCOV reports branch counters)
+- `bun run check:coverage` is a required quality gate across the canonical package stack (`95%` lines, `90%` functions, with branch thresholds enforced only when LCOV reports branch counters). `examples/nanogpt/` remains a committed example surface with its own tests and long-run checks.
 - Prefer direct unit coverage of exported behavior and dynamic failure paths over broad smoke-only tests
 - The repo is forward-moving and canonical: do not add legacy compatibility code, fallback modes, or stale docs for APIs we no longer want to carry
 - If a surface is no longer part of the intended product, delete it instead of preserving it behind flags or compatibility layers
@@ -65,7 +65,7 @@ See [docs/code-standards.md](./docs/code-standards.md) for the full code standar
 - FFI result pointers must use per-call `OutSlot`-style ownership. Do not reintroduce shared reusable output buffers.
 - Transform-returning helpers should be explicitly disposable when they hold native resources beyond a single call.
 - If a serious runtime, memory, or performance incident is fixed, the same change must also add a preventive rule, test, benchmark, or validation gate.
-- `packages/nanogpt/` is currently a temporary validation fixture during the package extraction, not the long-term canonical product surface. Prefer improving the reusable `@mlxts/*` packages over deepening the temporary app.
+- `examples/nanogpt/` is the committed in-repo example surface, not a publishable package. Prefer improving the reusable `@mlxts/*` packages over deepening example-only abstractions, and document example-owned commands from the example directory rather than as root scripts.
 - Non-trivial operator logic belongs under canonical package-owned surfaces, not loose root scripts. Avoid creating new permanent product contracts on top of temporary migration code.
 - Snapshot checkpoints and resume checkpoints are both canonical, but they serve different purposes: snapshots are lightweight model saves, resume checkpoints carry optimizer state for exact continuation.
 - **Code must be self-documenting**: names, types, and structure carry meaning. Comments explain *why*, never *what*.
@@ -78,6 +78,8 @@ The `.reference/` folder contains local clones of upstream repositories for rese
 
 | Repo                             | Purpose                                                                                                                          |
 | -------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| `.reference/mlx`                 | Apple's main MLX repo — primary reference for core tensor ops, convolution semantics, backend/runtime capabilities, and compile/native extension decisions |
+| `.reference/mlx-c`               | Apple's C bindings for MLX — primary reference for low-level ABI surface, exposed ops, missing bindings, and opportunities for proper FFI or custom native helpers |
 | `.reference/mlx-lm`              | Apple's MLX language model library — primary reference for model architectures, weight loading, generation, LoRA, quantization   |
 | `.reference/mlx-examples`        | Apple's MLX examples — reference for LLaVA, Stable Diffusion, Whisper, and other end-to-end MLX application patterns            |
 | `.reference/mlx-swift`           | Apple's Swift MLX bindings — reference for first-party API shape, compile surfaces, and native runtime ergonomics               |
@@ -124,7 +126,8 @@ Before non-trivial work, agents should:
 1. Read `AGENTS.md`, then Tier 1 of [`MEMORY.md`](./MEMORY.md).
 2. Inspect `git status` and recent local changes before editing.
 3. Read the relevant source-of-truth docs and search `MEMORY.md` for the area being changed.
-4. Prefer the narrowest validation that proves the change, then run required repo gates before handoff.
+4. When Nomi has authorized sub-agents, treat them as part of the default workflow for non-trivial repo changes: use at least one well-scoped second-opinion explorer or worker for architecture truth, implementation review, or parallel bounded work, and integrate their findings deliberately rather than as decoration.
+5. Prefer the narrowest validation that proves the change, then run required repo gates before handoff.
 
 ## Key Technical Context
 
@@ -199,7 +202,8 @@ bun run check:runtime-review
 # Check for suspicious nested tensor-producing calls
 bun run check:tensor-lifetimes
 
-# Memory and soak investigation
+# Example-local nanoGPT checks
+cd examples/nanogpt
 bun run bench:memory
 bun run soak:gpt-tiny
 bun run soak:gpt-small
@@ -209,10 +213,10 @@ bun run acceptance:gpt-tiny
 bun run acceptance:gpt-small
 
 # Canonical supervised long-run control
-bun run run:nanogpt start --preset gpt-small --max-steps 5000
-bun run run:nanogpt status --name <run-id>
-bun run run:nanogpt stop --name <run-id>
-bun run run:nanogpt resume --from <run-id> --max-steps 10000
+bun run manager start --preset gpt-small --max-steps 5000
+bun run manager status --name <run-id>
+bun run manager stop --name <run-id>
+bun run manager resume --from <run-id> --max-steps 10000
 
 # Type check
 bun run typecheck
@@ -234,6 +238,7 @@ This project uses multiple AI agents in a structured loop. See [docs/agentic-loo
 
 - **Done fully, never simply.** Every phase should be thoroughly researched and planned before implementation begins. Do not rush features into earlier phases to "get them done sooner." If something is scoped for a later phase, that is the right decision — better to do it fully later than partially now.
 - **Research spike before new territory.** Phases involving genuinely new architectural ground (new generation paradigms, new model families with novel architecture patterns) require a dedicated research spike before implementation begins. See Phase 0.5 as the model: investigate official sources, validate assumptions, then plan.
+- **When delegation is available, use it as force multiplication, not garnish.** Complex repo work benefits from multiple eyes. Ask sub-agents concrete questions, give them bounded ownership, and use their results to sharpen design choices, uncover upstream truth, and catch blind spots while local context is crowded.
 - **Phases fan out, not chain.** Phases 8 (fine-tuning), 9 (serving), and 10 (multimodal + diffusion) all depend on Phase 7 (model architectures) but not on each other. Do not treat the phase numbering as a strict sequential dependency.
 - **Contracts describe behavior, not internals.** When a new model variant appears, ask "does the existing contract cover its external behavior?" before proposing a new interface. MoE is a block-level swap, not a new CausalLM. VLMs compose encoders with CausalLM, not a replacement.
 - **Reference parity audit before benchmarking.** When implementing a new model family in `@mlxts/transformers`, audit each hot-path function against its mlx-lm equivalent *before* running benchmarks. Count: (a) MLX ops per decode token, (b) intermediate tensor allocations per decode token, (c) mask values passed to SDPA during single-token decode (`null` vs boolean tensor), (d) cache update strategy (O(1) write vs O(n) concatenation). If any of these differ significantly from mlx-lm, investigate and resolve before benchmarking. The benchmark tells you *that* something is slow; the parity audit tells you *why* before you ship it. See [docs/runtime-safety.md § Forward pass performance invariants](./docs/runtime-safety.md#forward-pass-performance-invariants) for the specific invariants to check.
@@ -244,6 +249,7 @@ This project uses multiple AI agents in a structured loop. See [docs/agentic-loo
 
 Runtime-sensitive changes add one more requirement: they need a review artifact under `docs/reviews/` that records the files reviewed, tensor-lifetime audit, memory/performance evidence, independent review, and remaining risks. The `Files Reviewed` section must list the exact changed runtime-sensitive files.
 
-For now, `packages/nanogpt/` remains a validation fixture rather than the long-term operator
-surface. Do not create new permanent product contracts on top of it; the package ecosystem is the
-primary deliverable, and polished examples move to a dedicated examples repo later.
+`examples/nanogpt/` is the canonical end-to-end example and operator surface for
+the GPT proof path. Do not create new permanent product contracts on top of the
+example; keep reusable behavior in `@mlxts/*`, and keep example-owned commands
+documented as example-local workflows.
