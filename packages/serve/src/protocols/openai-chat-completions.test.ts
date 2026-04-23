@@ -300,6 +300,170 @@ describe("OpenAI chat completions adapter", () => {
     });
   });
 
+  test("formats generated tool-call envelopes as OpenAI tool calls", () => {
+    const chat = normalizeOpenAIChatCompletionRequest(
+      {
+        model: "tiny",
+        messages: [{ role: "user", content: "read the file" }],
+        tools: [
+          {
+            type: "function",
+            function: {
+              name: "read_file",
+              parameters: { type: "object", properties: { path: { type: "string" } } },
+            },
+          },
+        ],
+      },
+      { id: "chat-test" },
+    );
+
+    const response = formatOpenAIChatCompletionResponse(
+      chat,
+      {
+        text: '<tool_call>{"name":"read_file","arguments":{"path":"README.md"}}</tool_call>',
+        finishReason: "stop",
+      },
+      { id: "chat-test", created: 123 },
+    );
+
+    expect(response.choices[0]).toEqual({
+      index: 0,
+      message: {
+        role: "assistant",
+        content: null,
+        tool_calls: [
+          {
+            id: "call_1",
+            type: "function",
+            function: { name: "read_file", arguments: '{"path":"README.md"}' },
+          },
+        ],
+      },
+      finish_reason: "tool_calls",
+    });
+  });
+
+  test("formats generated Qwen-style native tool calls", () => {
+    const chat = normalizeOpenAIChatCompletionRequest(
+      {
+        model: "tiny",
+        messages: [{ role: "user", content: "list files" }],
+        tools: [{ type: "function", function: { name: "list_files" } }],
+      },
+      { id: "chat-test" },
+    );
+
+    const response = formatOpenAIChatCompletionResponse(
+      chat,
+      {
+        text: "<tool_call><function=list_files><parameter=path>.</parameter></function></tool_call>",
+        finishReason: "stop",
+      },
+      { id: "chat-test", created: 123 },
+    );
+
+    expect(response.choices[0]?.message.tool_calls?.[0]).toEqual({
+      id: "call_1",
+      type: "function",
+      function: { name: "list_files", arguments: '{"path":"."}' },
+    });
+    expect(response.choices[0]?.finish_reason).toBe("tool_calls");
+  });
+
+  test("formats reasoning plus multiple generated tool calls without XML leakage", () => {
+    const chat = normalizeOpenAIChatCompletionRequest(
+      {
+        model: "tiny",
+        messages: [{ role: "user", content: "read and list" }],
+        tools: [
+          { type: "function", function: { name: "read_file" } },
+          { type: "function", function: { name: "list_files" } },
+        ],
+      },
+      { id: "chat-test" },
+    );
+
+    const response = formatOpenAIChatCompletionResponse(
+      chat,
+      {
+        text: [
+          "<think>I need two tools.</think>",
+          '<tool_call>{"id":"call-read","name":"read_file","arguments":{"path":"README.md"}}</tool_call>',
+          '<tool_call>{"name":"list_files","arguments":{"path":"."}}</tool_call>',
+        ].join("\n"),
+        finishReason: "stop",
+      },
+      { id: "chat-test", created: 123 },
+    );
+
+    expect(response.choices[0]).toEqual({
+      index: 0,
+      message: {
+        role: "assistant",
+        content: null,
+        reasoning_content: "I need two tools.",
+        tool_calls: [
+          {
+            id: "call-read",
+            type: "function",
+            function: { name: "read_file", arguments: '{"path":"README.md"}' },
+          },
+          {
+            id: "call_2",
+            type: "function",
+            function: { name: "list_files", arguments: '{"path":"."}' },
+          },
+        ],
+      },
+      finish_reason: "tool_calls",
+    });
+  });
+
+  test("leaves malformed generated tool-call text as content", () => {
+    const chat = normalizeOpenAIChatCompletionRequest(
+      {
+        model: "tiny",
+        messages: [{ role: "user", content: "read" }],
+        tools: [{ type: "function", function: { name: "read_file" } }],
+      },
+      { id: "chat-test" },
+    );
+
+    const response = formatOpenAIChatCompletionResponse(
+      chat,
+      {
+        text: '<tool_call>{"arguments":{"path":"README.md"}}</tool_call>',
+        finishReason: "stop",
+      },
+      { id: "chat-test", created: 123 },
+    );
+
+    expect(response.choices[0]?.message.tool_calls).toBeUndefined();
+    expect(response.choices[0]?.message.content).toContain("<tool_call>");
+    expect(response.choices[0]?.finish_reason).toBe("stop");
+  });
+
+  test("leaves tool-call-looking text alone when tools are not enabled", () => {
+    const chat = normalizeOpenAIChatCompletionRequest(
+      { model: "tiny", messages: [{ role: "user", content: "hi" }] },
+      { id: "chat-test" },
+    );
+
+    const response = formatOpenAIChatCompletionResponse(
+      chat,
+      {
+        text: '<tool_call>{"name":"read_file","arguments":{"path":"README.md"}}</tool_call>',
+        finishReason: "stop",
+      },
+      { id: "chat-test", created: 123 },
+    );
+
+    expect(response.choices[0]?.message.tool_calls).toBeUndefined();
+    expect(response.choices[0]?.message.content).toContain("<tool_call>");
+    expect(response.choices[0]?.finish_reason).toBe("stop");
+  });
+
   test("moves Qwen thinking text into reasoning_content", () => {
     const chat = normalizeOpenAIChatCompletionRequest(
       { model: "tiny", messages: [{ role: "user", content: "hi" }] },

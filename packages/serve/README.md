@@ -75,9 +75,12 @@ When `temperature`, `top_p`, or `top_k` are omitted, serving leaves them unset s
 Qwen-style thinking templates can be controlled per request with
 `"chat_template_kwargs": { "enable_thinking": false }`; generated `<think>`
 content is returned as `message.reasoning_content`, not mixed into
-`message.content`. `/v1/completions` and `/v1/chat/completions` both support
-SSE streaming when the served engine supports it, and chat streaming keeps
-reasoning in `reasoning_content` deltas instead of leaking raw `<think>` tags.
+`message.content`. When tools are enabled, non-streaming chat completions format
+valid generated `<tool_call>` blocks as OpenAI `message.tool_calls`; streaming
+tool-call deltas are intentionally left for a buffered SSE follow-up.
+`/v1/completions` and `/v1/chat/completions` both support SSE streaming when the
+served engine supports it, and chat streaming keeps reasoning in
+`reasoning_content` deltas instead of leaking raw `<think>` tags.
 
 ## Programmatic Serving
 

@@ -15,6 +15,7 @@ import {
   type OpenAIChatCompletionUsage,
   parseOpenAIChatCompletionStreamOptions,
 } from "./openai-chat-completion-streaming";
+import { extractOpenAIChatToolCalls } from "./openai-chat-tool-calls";
 import { parseOpenAIStopSequences } from "./openai-stop";
 
 export type {
@@ -31,7 +32,7 @@ export {
 
 export type OpenAIChatCompletionMessage = {
   role: "assistant";
-  content: string;
+  content: string | null;
   reasoning_content?: string;
   tool_calls?: ChatToolCall[];
 };
@@ -347,6 +348,14 @@ function formatUsage(usage: GenerationUsage): OpenAIChatCompletionUsage {
   };
 }
 
+function hasToolOutputEnabled(chat: NormalizedChatCompletion): boolean {
+  return (
+    chat.request.input.kind === "messages" &&
+    chat.request.input.tools !== undefined &&
+    chat.request.input.tools.length > 0
+  );
+}
+
 /** Normalize an OpenAI chat completions JSON body into one generation request. */
 export function normalizeOpenAIChatCompletionRequest(
   body: unknown,
@@ -407,6 +416,10 @@ export function formatOpenAIChatCompletionResponse(
 ): OpenAIChatCompletionResponse {
   const reasoning = splitReasoningContent(result.text);
   const reasoningContent = result.reasoningContent ?? reasoning.reasoningContent;
+  const extractedToolCalls = hasToolOutputEnabled(chat)
+    ? extractOpenAIChatToolCalls(reasoning.content)
+    : null;
+  const content = extractedToolCalls?.content ?? reasoning.content;
   return {
     id: options.id,
     object: "chat.completion",
@@ -417,10 +430,12 @@ export function formatOpenAIChatCompletionResponse(
         index: 0,
         message: {
           role: "assistant",
-          content: reasoning.content,
+          content: extractedToolCalls !== null && content === "" ? null : content,
           ...(reasoningContent === undefined ? {} : { reasoning_content: reasoningContent }),
+          ...(extractedToolCalls === null ? {} : { tool_calls: extractedToolCalls.toolCalls }),
         },
-        finish_reason: finishReason(result.finishReason),
+        finish_reason:
+          extractedToolCalls === null ? finishReason(result.finishReason) : "tool_calls",
       },
     ],
     ...(result.usage === undefined ? {} : { usage: formatUsage(result.usage) }),
