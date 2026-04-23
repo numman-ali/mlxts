@@ -21,6 +21,19 @@ export type OpenAIModelsResponse = {
   data: OpenAIModelInfo[];
 };
 
+/** Format one served model as OpenAI-compatible model metadata. */
+export function formatOpenAIModelResponse(
+  model: ServedModelInfo,
+  options: { created: number },
+): OpenAIModelInfo {
+  return {
+    id: model.id,
+    object: "model",
+    created: model.created ?? options.created,
+    owned_by: model.ownedBy ?? "mlxts",
+  };
+}
+
 /** Format served model metadata as an OpenAI-compatible model list. */
 export function formatOpenAIModelsResponse(
   models: readonly ServedModelInfo[],
@@ -28,11 +41,6 @@ export function formatOpenAIModelsResponse(
 ): OpenAIModelsResponse {
   return {
     object: "list",
-    data: models.map((model) => ({
-      id: model.id,
-      object: "model",
-      created: model.created ?? options.created,
-      owned_by: model.ownedBy ?? "mlxts",
-    })),
+    data: models.map((model) => formatOpenAIModelResponse(model, options)),
   };
 }

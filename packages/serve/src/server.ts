@@ -13,7 +13,11 @@ import {
   formatOpenAICompletionResponse,
   normalizeOpenAICompletionRequest,
 } from "./protocols/openai-completions";
-import { formatOpenAIModelsResponse, type ServedModelInfo } from "./protocols/openai-models";
+import {
+  formatOpenAIModelResponse,
+  formatOpenAIModelsResponse,
+  type ServedModelInfo,
+} from "./protocols/openai-models";
 import {
   closeStreamEvents,
   sseHeaders,
@@ -163,6 +167,18 @@ function authorize(request: Request, apiKey: string | undefined): void {
       status: 401,
     });
   }
+}
+
+function servedModelById(models: readonly ServedModelInfo[], id: string): ServedModelInfo {
+  const model = models.find((entry) => entry.id === id);
+  if (model === undefined) {
+    throw new ServeError(`Model "${id}" is not served by this endpoint.`, {
+      code: "model_not_found",
+      param: "model",
+      status: 404,
+    });
+  }
+  return model;
 }
 
 async function generateBatch(
@@ -377,6 +393,14 @@ async function openAIRouteResponse(
   if (request.method === "GET" && pathname === "/v1/models") {
     const created = unixSeconds(options.now?.() ?? new Date());
     return jsonResponse(formatOpenAIModelsResponse(options.models ?? [], { created }));
+  }
+
+  if (request.method === "GET" && pathname.startsWith("/v1/models/")) {
+    const modelId = decodeURIComponent(pathname.slice("/v1/models/".length));
+    const created = unixSeconds(options.now?.() ?? new Date());
+    return jsonResponse(
+      formatOpenAIModelResponse(servedModelById(options.models ?? [], modelId), { created }),
+    );
   }
 
   if (request.method === "POST" && pathname === "/v1/completions") {

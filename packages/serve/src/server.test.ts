@@ -40,12 +40,25 @@ describe("serve fetch handler", () => {
 
     const response = await fetch(new Request("http://localhost/v1/models"));
     const body = await response.json();
+    const retrieve = await fetch(new Request("http://localhost/v1/models/tiny"));
+    const retrieveBody = await retrieve.json();
+    const missing = await fetch(new Request("http://localhost/v1/models/missing"));
+    const missingBody = await missing.json();
 
     expect(response.status).toBe(200);
     expect(body).toEqual({
       object: "list",
       data: [{ id: "tiny", object: "model", created: 42, owned_by: "test-suite" }],
     });
+    expect(retrieve.status).toBe(200);
+    expect(retrieveBody).toEqual({
+      id: "tiny",
+      object: "model",
+      created: 42,
+      owned_by: "test-suite",
+    });
+    expect(missing.status).toBe(404);
+    expect(missingBody.error.param).toBe("model");
   });
 
   test("enforces optional bearer auth on OpenAI-compatible routes", async () => {

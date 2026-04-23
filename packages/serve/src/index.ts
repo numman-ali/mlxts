@@ -67,6 +67,7 @@ export {
   type OpenAICompletionUsage,
 } from "./protocols/openai-completions";
 export {
+  formatOpenAIModelResponse,
   formatOpenAIModelsResponse,
   type OpenAIModelInfo,
   type OpenAIModelsResponse,
