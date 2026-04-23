@@ -11,6 +11,7 @@ import type {
   NormalizedGenerationRequest,
   NormalizedGenerationResult,
 } from "../types";
+import { parseOpenAIStopSequences } from "./openai-stop";
 
 export type OpenAICompletionUsage = {
   prompt_tokens?: number;
@@ -142,27 +143,6 @@ function promptInputs(record: Record<string, unknown>): GenerationInput[] {
     'OpenAI completions: "prompt" must be a string, string array, token id array, or array of token id arrays.',
     { param: "prompt" },
   );
-}
-
-function stopSequences(record: Record<string, unknown>): readonly string[] | undefined {
-  const value = record.stop;
-  if (value === undefined || value === null) {
-    return undefined;
-  }
-  if (typeof value === "string") {
-    return [value];
-  }
-  if (Array.isArray(value) && value.every((entry) => typeof entry === "string")) {
-    if (value.length > 4) {
-      throw new ServeError('OpenAI completions: "stop" can contain at most 4 sequences.', {
-        param: "stop",
-      });
-    }
-    return value;
-  }
-  throw new ServeError('OpenAI completions: "stop" must be a string, string array, or null.', {
-    param: "stop",
-  });
 }
 
 function optionalString(record: Record<string, unknown>, key: string): string | undefined {
@@ -373,7 +353,7 @@ export function normalizeOpenAICompletionRequest(
   const topK = optionalInteger(body, "top_k", (value) => value > 0, "a positive integer");
   const stream = optionalBoolean(body, "stream") ?? false;
   const seed = optionalInteger(body, "seed", (value) => value >= 0, "a non-negative integer");
-  const stop = stopSequences(body);
+  const stop = parseOpenAIStopSequences(body, "completions");
   const user = optionalString(body, "user");
   const parsedStreamOptions = streamOptions(body, stream);
 

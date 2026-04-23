@@ -27,6 +27,7 @@ describe("serve CLI args", () => {
         maxTotalTokens: 4096,
         maxBatchSize: 32,
         batchWindowMs: 1,
+        maxConcurrentRequests: 1,
         localFilesOnly: false,
         verbose: false,
       },
@@ -50,6 +51,8 @@ describe("serve CLI args", () => {
       "16",
       "--batch-window-ms",
       "4",
+      "--max-concurrent-requests",
+      "2",
       "--revision",
       "main",
       "--access-token",
@@ -73,6 +76,7 @@ describe("serve CLI args", () => {
         maxTotalTokens: 1536,
         maxBatchSize: 16,
         batchWindowMs: 4,
+        maxConcurrentRequests: 2,
         revision: "main",
         accessToken: "hf_secret",
         cacheDir: ".cache/hf",
@@ -103,6 +107,11 @@ describe("serve CLI args", () => {
       kind: "help",
       exitCode: 1,
       message: 'Expected --batch-window-ms to be a non-negative integer, got "-1".',
+    });
+    expect(parseServeArgs(["model", "--max-concurrent-requests", "0"])).toMatchObject({
+      kind: "help",
+      exitCode: 1,
+      message: 'Expected --max-concurrent-requests to be a positive integer, got "0".',
     });
     expect(parseServeArgs(["model", "--model-id"])).toMatchObject({
       kind: "help",
@@ -180,6 +189,7 @@ describe("serve CLI args", () => {
       maxTotalTokens: 256,
       maxBatchSize: 8,
       batchWindowMs: 2,
+      maxConcurrentRequests: 1,
       localFilesOnly: false,
       verbose: false,
     };
@@ -187,6 +197,9 @@ describe("serve CLI args", () => {
     expect(formatServeReady("http://127.0.0.1:8000", options)).not.toContain("temperature");
     expect(formatServeReady("http://127.0.0.1:8000", options)).toContain(
       "Micro-batching: max_batch=8 window_ms=2",
+    );
+    expect(formatServeReady("http://127.0.0.1:8000", options)).toContain(
+      "Admission concurrency: max_in_flight=1",
     );
     expect(publicBindWarning(options)).toContain("exposes the endpoint");
     expect(publicBindWarning({ ...options, apiKey: "secret" })).toBeNull();
@@ -295,6 +308,7 @@ describe("serve CLI args", () => {
         expect(options.hostname).toBe("0.0.0.0");
         expect(options.maxBatchSize).toBe(32);
         expect(options.batchWindowMs).toBe(1);
+        expect(options.maxConcurrentRequests).toBe(1);
         return running;
       },
       log(message) {

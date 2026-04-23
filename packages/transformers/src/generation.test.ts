@@ -2,9 +2,22 @@ import { describe, expect, test } from "bun:test";
 
 import { array, type MxArray, type ParameterTree } from "@mlxts/core";
 import type { Tokenizer } from "@mlxts/tokenizers";
-import { generateStep, generateTextStream, generateTokens, makePromptCache } from "./generation";
+import {
+  generatePreparedTokenEvents,
+  generateStep,
+  generateTextStream,
+  generateTokenEvents,
+  generateTokens,
+  makePromptCache,
+} from "./generation";
 import { KVCache } from "./infrastructure/cache";
-import type { BaseModelConfig, CausalLM, ForwardOptions, TransformerCache } from "./types";
+import type {
+  BaseModelConfig,
+  CausalLM,
+  ForwardOptions,
+  TokenGenerationEvent,
+  TransformerCache,
+} from "./types";
 
 class DeterministicGenerationModel implements CausalLM {
   readonly family = "gemma";
@@ -161,5 +174,122 @@ describe("generation", () => {
 
     expect(result.tokenIds).toHaveLength(3);
     expect(counts).toEqual([1, 2, 3]);
+  });
+
+  test("generateTokenEvents streams token progress and a final summary", async () => {
+    using model = new DeterministicGenerationModel();
+    const events: TokenGenerationEvent[] = [];
+
+    for await (const event of generateTokenEvents(model, [0], {
+      maxTokens: 3,
+      temperature: 0,
+      eosTokenIds: [],
+    })) {
+      events.push(event);
+    }
+
+    expect(events).toEqual([
+      { type: "token", tokenId: 2, completionTokens: 1 },
+      { type: "token", tokenId: 2, completionTokens: 2 },
+      { type: "token", tokenId: 2, completionTokens: 3 },
+      { type: "done", tokenIds: [2, 2, 2], finishReason: "length" },
+    ]);
+  });
+
+  test("generateTokenEvents validates prompt and token limits", () => {
+    using model = new DeterministicGenerationModel();
+
+    expect(() =>
+      generateTokenEvents(model, [], {
+        maxTokens: 1,
+        temperature: 0,
+        eosTokenIds: [],
+      }),
+    ).toThrow("promptTokenIds must contain at least one token");
+    expect(() =>
+      generateTokenEvents(model, [0], {
+        maxTokens: -1,
+        temperature: 0,
+        eosTokenIds: [],
+      }),
+    ).toThrow("maxTokens must be >= 0");
+  });
+
+  test("generateTokenEvents returns an immediate done event for zero-token requests", async () => {
+    using model = new DeterministicGenerationModel();
+    const events: TokenGenerationEvent[] = [];
+
+    for await (const event of generateTokenEvents(model, [0], {
+      maxTokens: 0,
+      temperature: 0,
+      eosTokenIds: [],
+    })) {
+      events.push(event);
+    }
+
+    expect(events).toEqual([{ type: "done", tokenIds: [], finishReason: "length" }]);
+    expect(model.cacheCreates).toBe(0);
+  });
+
+  test("generateTokenEvents supports uncached streaming", async () => {
+    using model = new DeterministicGenerationModel();
+    const events: TokenGenerationEvent[] = [];
+
+    for await (const event of generateTokenEvents(model, [0], {
+      maxTokens: 2,
+      temperature: 0,
+      eosTokenIds: [],
+      useCache: false,
+    })) {
+      events.push(event);
+    }
+
+    expect(events).toEqual([
+      { type: "token", tokenId: 2, completionTokens: 1 },
+      { type: "token", tokenId: 2, completionTokens: 2 },
+      { type: "done", tokenIds: [2, 2], finishReason: "length" },
+    ]);
+    expect(model.lastForwardCache).toBeUndefined();
+    expect(model.cacheCreates).toBe(0);
+  });
+
+  test("generateTokenEvents reuses an external cache and stops on EOS after prefill", async () => {
+    using model = new DeterministicGenerationModel();
+    using cache = new KVCache(1);
+    const events: TokenGenerationEvent[] = [];
+
+    for await (const event of generateTokenEvents(model, [0, 1], {
+      maxTokens: 4,
+      temperature: 0,
+      eosTokenIds: [2],
+      cache,
+      prefillStepSize: 1,
+    })) {
+      events.push(event);
+    }
+
+    expect(events).toEqual([
+      { type: "token", tokenId: 2, completionTokens: 1 },
+      { type: "done", tokenIds: [2], finishReason: "eos" },
+    ]);
+    expect(model.lastForwardCache).toBe(cache);
+    expect(model.cacheCreates).toBe(0);
+  });
+
+  test("generatePreparedTokenEvents preserves prepared prompt generation", async () => {
+    using model = new DeterministicGenerationModel();
+    const doneEvents: TokenGenerationEvent[] = [];
+
+    for await (const event of generatePreparedTokenEvents(
+      model,
+      { tokenIds: [0] },
+      { maxTokens: 1, temperature: 0, eosTokenIds: [] },
+    )) {
+      if (event.type === "done") {
+        doneEvents.push(event);
+      }
+    }
+
+    expect(doneEvents).toEqual([{ type: "done", tokenIds: [2], finishReason: "length" }]);
   });
 });

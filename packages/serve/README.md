@@ -35,7 +35,9 @@ Use `--api-key <key>` when binding outside localhost, `--max-generated-tokens <n
 to reject unsafe generation lengths before they reach the model, and
 `--max-batch-size <n>` plus `--batch-window-ms <n>` to control the built-in
 admission micro-batching queue for concurrent requests against one model
-instance.
+instance. `--max-concurrent-requests <n>` bounds the number of in-flight model
+jobs; the default is `1` so one loaded Gemma/Qwen runtime is owned by one
+generation at a time.
 
 Generation start, completion, and errors are logged by default so native
 generation failures leave a useful last known stage in the terminal. Use
@@ -45,14 +47,18 @@ The first-class model server wraps one loaded model in a small single-flight
 admission queue. Nearby non-streaming requests can coalesce into one
 micro-batch; engines without native `generateBatch()` support still benefit from
 serialized request admission instead of overlapping local generations on the
-same model instance.
+same model instance. Streaming requests pass through the same concurrency gate,
+so one model-backed engine does not accept overlapping decode loops just because
+the HTTP surface is async.
 
 When `temperature`, `top_p`, or `top_k` are omitted, serving leaves them unset so
 `@mlxts/transformers` can apply the checkpoint's `generation_config.json`.
 Qwen-style thinking templates can be controlled per request with
 `"chat_template_kwargs": { "enable_thinking": false }`; generated `<think>`
 content is returned as `message.reasoning_content`, not mixed into
-`message.content`.
+`message.content`. `/v1/completions` and `/v1/chat/completions` both support
+SSE streaming when the served engine supports it, and chat streaming keeps
+reasoning in `reasoning_content` deltas instead of leaking raw `<think>` tags.
 
 ## Programmatic Serving
 
@@ -66,6 +72,7 @@ const server = await serveModel({
   maxGeneratedTokens: 2048,
   maxBatchSize: 16,
   batchWindowMs: 2,
+  maxConcurrentRequests: 1,
 });
 
 console.log(server.endpoint);
@@ -167,6 +174,11 @@ into `generateBatch()` calls when the underlying engine supports them. This is
 admission micro-batching, not full continuous token-level batching; production
 continuous batching should live inside a batch-aware generation engine behind
 the same contract.
+
+`createConcurrencyLimitGenerationEngine()` is the companion admission guard for
+single-model serving. It bounds the number of active model jobs across
+`generate()`, `generateBatch()`, and `stream()` so a local runtime is not asked
+to run overlapping decode loops accidentally.
 
 See `examples/serve-completions/` for a deterministic four-agent concurrency
 harness. Real model serving is a package API and CLI, not an example entrypoint.

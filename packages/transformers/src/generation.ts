@@ -11,6 +11,10 @@ import {
   generateTokensInternal,
   predictNextTokenWithState,
 } from "./infrastructure/generation/runtime";
+import {
+  generatePreparedTokenEventsInternal,
+  generateTokenEventsInternal,
+} from "./infrastructure/generation/runtime-streaming";
 import { SamplerState } from "./infrastructure/sampling";
 import type {
   CausalLM,
@@ -19,6 +23,7 @@ import type {
   PreparedPrompt,
   SamplerOptions,
   TextGenerationResult,
+  TokenGenerationEvent,
   TransformerCache,
 } from "./types";
 
@@ -93,6 +98,24 @@ export function generatePreparedTokens(
   onToken?: (tokenId: number, generatedTokenIds: readonly number[]) => void,
 ): GenerationResult {
   return generatePreparedTokensInternal(model, prompt, options, makePromptCache, onToken);
+}
+
+/** Stream generated token IDs from a prompt as an async iterable. */
+export function generateTokenEvents(
+  model: CausalLM,
+  promptTokenIds: readonly number[],
+  options: GenerationOptions,
+): AsyncIterable<TokenGenerationEvent> {
+  return generateTokenEventsInternal(model, promptTokenIds, options, makePromptCache);
+}
+
+/** Stream generated token IDs from a prepared prompt as an async iterable. */
+export function generatePreparedTokenEvents(
+  model: CausalLM,
+  prompt: PreparedPrompt,
+  options: GenerationOptions,
+): AsyncIterable<TokenGenerationEvent> {
+  return generatePreparedTokenEventsInternal(model, prompt, options, makePromptCache);
 }
 
 /** Tokenize a prompt, stream decoded continuation chunks, and return the final text. */

@@ -11,12 +11,23 @@ import type {
   NormalizedGenerationRequest,
   NormalizedGenerationResult,
 } from "../types";
+import {
+  type OpenAIChatCompletionUsage,
+  parseOpenAIChatCompletionStreamOptions,
+} from "./openai-chat-completion-streaming";
+import { parseOpenAIStopSequences } from "./openai-stop";
 
-export type OpenAIChatCompletionUsage = {
-  prompt_tokens?: number;
-  completion_tokens?: number;
-  total_tokens?: number;
-};
+export type {
+  OpenAIChatCompletionChunk,
+  OpenAIChatCompletionChunkChoice,
+  OpenAIChatCompletionStreamDelta,
+  OpenAIChatCompletionUsage,
+} from "./openai-chat-completion-streaming";
+export {
+  createOpenAIChatCompletionReasoningStream,
+  formatOpenAIChatCompletionStreamChunk,
+  formatOpenAIChatCompletionUsageStreamChunk,
+} from "./openai-chat-completion-streaming";
 
 export type OpenAIChatCompletionMessage = {
   role: "assistant";
@@ -42,6 +53,10 @@ export type OpenAIChatCompletionResponse = {
 
 export type NormalizedChatCompletion = {
   model: string;
+  stream: boolean;
+  streamOptions: {
+    includeUsage: boolean;
+  };
   request: NormalizedGenerationRequest;
 };
 
@@ -343,13 +358,6 @@ export function normalizeOpenAIChatCompletionRequest(
 
   validateToolChoice(body);
   const stream = optionalBoolean(body, "stream") ?? false;
-  if (stream) {
-    throw new ServeError("OpenAI chat completions: streaming is not supported yet.", {
-      code: "stream_not_supported",
-      param: "stream",
-    });
-  }
-
   const model = stringField(body, "model");
   const parsedTools = body.tool_choice === "none" ? undefined : tools(body);
   const templateOptions = chatTemplateOptions(body);
@@ -361,8 +369,12 @@ export function normalizeOpenAIChatCompletionRequest(
   );
   const topP = optionalNumber(body, "top_p", (value) => value > 0 && value <= 1, "0 < value <= 1");
   const topK = optionalInteger(body, "top_k", (value) => value > 0, "a positive integer");
+  const stop = parseOpenAIStopSequences(body, "chat completions");
+  const parsedStreamOptions = parseOpenAIChatCompletionStreamOptions(body, stream);
   return {
     model,
+    stream,
+    streamOptions: parsedStreamOptions,
     request: {
       id: options.id,
       model,
@@ -379,6 +391,7 @@ export function normalizeOpenAIChatCompletionRequest(
         ...(temperature === undefined ? {} : { temperature }),
         ...(topP === undefined ? {} : { topP }),
         ...(topK === undefined ? {} : { topK }),
+        ...(stop === undefined ? {} : { stop }),
       },
       stream,
       protocol: "openai.chat_completions",

@@ -11,16 +11,12 @@ import {
 } from "./protocols/openai-chat-completions";
 import {
   formatOpenAICompletionResponse,
-  formatOpenAICompletionStreamChunk,
-  formatOpenAICompletionUsageStreamChunk,
   normalizeOpenAICompletionRequest,
 } from "./protocols/openai-completions";
 import { formatOpenAIModelsResponse, type ServedModelInfo } from "./protocols/openai-models";
+import { sseHeaders, writeChatStreamEvents, writeStreamEvents } from "./server-streaming";
 import type {
   GenerationEngine,
-  GenerationStreamEvent,
-  GenerationUsage,
-  NormalizedFinishReason,
   NormalizedGenerationRequest,
   NormalizedGenerationResult,
   ServeEvent,
@@ -160,47 +156,6 @@ async function generateBatch(
   return results;
 }
 
-function encodeSse(payload: string): Uint8Array {
-  return new TextEncoder().encode(payload);
-}
-
-async function writeStreamEvents(
-  controller: ReadableStreamDefaultController<Uint8Array>,
-  stream: AsyncIterable<GenerationStreamEvent>,
-  batch: ReturnType<typeof normalizeOpenAICompletionRequest>,
-  request: ReturnType<typeof normalizeOpenAICompletionRequest>["requests"][number],
-  options: { id: string; created: number },
-): Promise<{ finishReason: NormalizedFinishReason; usage?: GenerationUsage }> {
-  let finalUsage: GenerationUsage | undefined;
-  let finalFinishReason: NormalizedFinishReason = "stop";
-  for await (const event of stream) {
-    if (event.type === "text") {
-      const chunk = formatOpenAICompletionStreamChunk(request, event.text, {
-        ...options,
-        includeUsage: batch.streamOptions.includeUsage,
-      });
-      controller.enqueue(encodeSse(`data: ${JSON.stringify(chunk)}\n\n`));
-    } else {
-      finalUsage = event.usage;
-      finalFinishReason = event.finishReason;
-      const chunk = formatOpenAICompletionStreamChunk(request, "", {
-        ...options,
-        finishReason: event.finishReason,
-        includeUsage: batch.streamOptions.includeUsage,
-      });
-      controller.enqueue(encodeSse(`data: ${JSON.stringify(chunk)}\n\n`));
-    }
-  }
-  if (batch.streamOptions.includeUsage) {
-    const chunk = formatOpenAICompletionUsageStreamChunk(batch, finalUsage, options);
-    controller.enqueue(encodeSse(`data: ${JSON.stringify(chunk)}\n\n`));
-  }
-  controller.enqueue(encodeSse("data: [DONE]\n\n"));
-  return finalUsage === undefined
-    ? { finishReason: finalFinishReason }
-    : { finishReason: finalFinishReason, usage: finalUsage };
-}
-
 async function completionResponse(request: Request, options: ServeAppOptions): Promise<Response> {
   const id = options.idGenerator?.() ?? defaultId();
   const created = unixSeconds(options.now?.() ?? new Date());
@@ -247,13 +202,7 @@ async function completionResponse(request: Request, options: ServeAppOptions): P
           );
         },
       }),
-      {
-        headers: {
-          "content-type": "text/event-stream; charset=utf-8",
-          "cache-control": "no-cache",
-          connection: "keep-alive",
-        },
-      },
+      { headers: sseHeaders() },
     );
   }
 
@@ -268,6 +217,40 @@ async function chatCompletionResponse(
   const id = options.idGenerator?.() ?? defaultId();
   const created = unixSeconds(options.now?.() ?? new Date());
   const chat = normalizeOpenAIChatCompletionRequest(await readJson(request), { id });
+  if (chat.stream) {
+    if (options.engine.stream === undefined) {
+      throw new ServeError("This generation engine does not support streaming yet.", {
+        code: "stream_not_supported",
+        param: "stream",
+      });
+    }
+
+    const startedAt = performance.now();
+    emitGenerationStart(options, chat.request);
+    const stream = await options.engine.stream(chat.request);
+    return new Response(
+      new ReadableStream<Uint8Array>({
+        start(controller) {
+          return writeChatStreamEvents(controller, stream, chat, { id, created }).then(
+            (summary) => {
+              const result: NormalizedGenerationResult = {
+                text: "",
+                finishReason: summary.finishReason,
+                ...(summary.usage === undefined ? {} : { usage: summary.usage }),
+              };
+              emitGenerationComplete(options, chat.request, result, performance.now() - startedAt);
+              controller.close();
+            },
+            (error: unknown) => {
+              controller.error(error);
+            },
+          );
+        },
+      }),
+      { headers: sseHeaders() },
+    );
+  }
+
   const startedAt = performance.now();
   emitGenerationStart(options, chat.request);
   const result = await options.engine.generate(chat.request);

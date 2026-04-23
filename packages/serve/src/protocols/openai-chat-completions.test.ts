@@ -1,7 +1,10 @@
 import { describe, expect, test } from "bun:test";
 
 import {
+  createOpenAIChatCompletionReasoningStream,
   formatOpenAIChatCompletionResponse,
+  formatOpenAIChatCompletionStreamChunk,
+  formatOpenAIChatCompletionUsageStreamChunk,
   normalizeOpenAIChatCompletionRequest,
 } from "./openai-chat-completions";
 
@@ -24,6 +27,7 @@ describe("OpenAI chat completions adapter", () => {
         max_tokens: 32,
         temperature: 0,
         top_k: 20,
+        stop: ["Observation:", "Final answer:"],
         chat_template_kwargs: { enable_thinking: false },
       },
       { id: "chat-test" },
@@ -38,9 +42,16 @@ describe("OpenAI chat completions adapter", () => {
         tools: [{ type: "function", function: { name: "read_file" } }],
         chatTemplate: { enableThinking: false },
       },
-      sampling: { maxTokens: 32, temperature: 0, topK: 20 },
+      sampling: {
+        maxTokens: 32,
+        temperature: 0,
+        topK: 20,
+        stop: ["Observation:", "Final answer:"],
+      },
       protocol: "openai.chat_completions",
     });
+    expect(normalized.stream).toBe(false);
+    expect(normalized.streamOptions).toEqual({ includeUsage: false });
   });
 
   test("omits sampling overrides so model generation config can apply", () => {
@@ -50,6 +61,7 @@ describe("OpenAI chat completions adapter", () => {
     );
 
     expect(normalized.request.sampling).toEqual({ maxTokens: 16 });
+    expect(normalized.stream).toBe(false);
   });
 
   test("preserves assistant tool calls and tool observations", () => {
@@ -94,12 +106,6 @@ describe("OpenAI chat completions adapter", () => {
   });
 
   test("rejects unsupported chat shapes explicitly", () => {
-    expect(() =>
-      normalizeOpenAIChatCompletionRequest(
-        { model: "tiny", messages: [{ role: "user", content: "hi" }], stream: true },
-        { id: "chat-test" },
-      ),
-    ).toThrow("streaming is not supported yet");
     expect(() =>
       normalizeOpenAIChatCompletionRequest(
         { model: "tiny", messages: [{ role: "user", content: "hi" }], stream: "yes" },
@@ -209,11 +215,57 @@ describe("OpenAI chat completions adapter", () => {
         {
           model: "tiny",
           messages: [{ role: "user", content: "hi" }],
+          stop: 1,
+        },
+        { id: "chat-test" },
+      ),
+    ).toThrow("stop");
+    expect(() =>
+      normalizeOpenAIChatCompletionRequest(
+        {
+          model: "tiny",
+          messages: [{ role: "user", content: "hi" }],
+          stop: ["1", "2", "3", "4", "5"],
+        },
+        { id: "chat-test" },
+      ),
+    ).toThrow("at most 4");
+    expect(() =>
+      normalizeOpenAIChatCompletionRequest(
+        {
+          model: "tiny",
+          messages: [{ role: "user", content: "hi" }],
           chat_template_kwargs: "bad",
         },
         { id: "chat-test" },
       ),
     ).toThrow("chat_template_kwargs");
+    expect(() =>
+      normalizeOpenAIChatCompletionRequest(
+        {
+          model: "tiny",
+          messages: [{ role: "user", content: "hi" }],
+          stream_options: { include_usage: true },
+        },
+        { id: "chat-test" },
+      ),
+    ).toThrow("stream_options");
+  });
+
+  test("normalizes chat streaming flags and usage streaming options", () => {
+    const normalized = normalizeOpenAIChatCompletionRequest(
+      {
+        model: "tiny",
+        messages: [{ role: "user", content: "hi" }],
+        stream: true,
+        stream_options: { include_usage: true },
+      },
+      { id: "chat-test" },
+    );
+
+    expect(normalized.stream).toBe(true);
+    expect(normalized.streamOptions).toEqual({ includeUsage: true });
+    expect(normalized.request.stream).toBe(true);
   });
 
   test("formats chat completions with usage", () => {
@@ -297,5 +349,77 @@ describe("OpenAI chat completions adapter", () => {
         { id: "chat-test", created: 123 },
       ).choices[0]?.finish_reason,
     ).toBe("content_filter");
+  });
+
+  test("formats chat completion stream chunks and usage chunks", () => {
+    const chat = normalizeOpenAIChatCompletionRequest(
+      { model: "tiny", messages: [{ role: "user", content: "hi" }], stream: true },
+      { id: "chat-test" },
+    );
+
+    expect(
+      formatOpenAIChatCompletionStreamChunk(
+        chat,
+        { content: "Hello" },
+        { id: "chat-test", created: 123, includeRole: true },
+      ),
+    ).toEqual({
+      id: "chat-test",
+      object: "chat.completion.chunk",
+      created: 123,
+      model: "tiny",
+      choices: [
+        {
+          index: 0,
+          delta: { role: "assistant", content: "Hello" },
+          finish_reason: null,
+        },
+      ],
+    });
+
+    expect(
+      formatOpenAIChatCompletionStreamChunk(
+        chat,
+        {},
+        { id: "chat-test", created: 123, finishReason: "error" },
+      ).choices[0]?.finish_reason,
+    ).toBe("content_filter");
+    expect(
+      formatOpenAIChatCompletionStreamChunk(
+        chat,
+        {},
+        { id: "chat-test", created: 123, finishReason: "cancelled" },
+      ).choices[0]?.finish_reason,
+    ).toBeNull();
+
+    expect(
+      formatOpenAIChatCompletionUsageStreamChunk(
+        chat,
+        { promptTokens: 1, completionTokens: 2, totalTokens: 3 },
+        { id: "chat-test", created: 123 },
+      ),
+    ).toEqual({
+      id: "chat-test",
+      object: "chat.completion.chunk",
+      created: 123,
+      model: "tiny",
+      choices: [],
+      usage: { prompt_tokens: 1, completion_tokens: 2, total_tokens: 3 },
+    });
+    expect(
+      formatOpenAIChatCompletionUsageStreamChunk(chat, undefined, {
+        id: "chat-test",
+        created: 123,
+      }).usage,
+    ).toBeNull();
+  });
+
+  test("splits streamed Qwen reasoning from visible content", () => {
+    const stream = createOpenAIChatCompletionReasoningStream();
+
+    expect(stream.push("<think>I should ")).toEqual([{ reasoningContent: "I " }]);
+    expect(stream.push("greet.</think>\n\nHel")).toEqual([{ reasoningContent: "should greet." }]);
+    expect(stream.push("lo")).toEqual([]);
+    expect(stream.finish()).toEqual([{ content: "\n\nHello" }]);
   });
 });

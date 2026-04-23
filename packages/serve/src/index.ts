@@ -7,6 +7,10 @@ export {
   createMicroBatchingGenerationEngine,
   type MicroBatchingGenerationEngineOptions,
 } from "./batching-engine";
+export {
+  type ConcurrencyLimitGenerationEngineOptions,
+  createConcurrencyLimitGenerationEngine,
+} from "./concurrency-engine";
 export { ServeError } from "./errors";
 export {
   createModelRouterGenerationEngine,
@@ -16,6 +20,7 @@ export {
   DEFAULT_MODEL_SERVER_BATCH_WINDOW_MS,
   DEFAULT_MODEL_SERVER_HOSTNAME,
   DEFAULT_MODEL_SERVER_MAX_BATCH_SIZE,
+  DEFAULT_MODEL_SERVER_MAX_CONCURRENT_REQUESTS,
   DEFAULT_MODEL_SERVER_MAX_GENERATED_TOKENS,
   DEFAULT_MODEL_SERVER_MAX_TOTAL_TOKENS,
   DEFAULT_MODEL_SERVER_PORT,
@@ -26,12 +31,18 @@ export {
   serveModel,
 } from "./model-server";
 export {
+  createOpenAIChatCompletionReasoningStream,
   formatOpenAIChatCompletionResponse,
+  formatOpenAIChatCompletionStreamChunk,
+  formatOpenAIChatCompletionUsageStreamChunk,
   type NormalizedChatCompletion,
   normalizeOpenAIChatCompletionRequest,
   type OpenAIChatCompletionChoice,
+  type OpenAIChatCompletionChunk,
+  type OpenAIChatCompletionChunkChoice,
   type OpenAIChatCompletionMessage,
   type OpenAIChatCompletionResponse,
+  type OpenAIChatCompletionStreamDelta,
   type OpenAIChatCompletionUsage,
 } from "./protocols/openai-chat-completions";
 export {

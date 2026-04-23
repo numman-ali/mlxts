@@ -15,6 +15,7 @@ import {
   resolvePretrainedSource,
 } from "@mlxts/transformers";
 import { createMicroBatchingGenerationEngine } from "./batching-engine";
+import { createConcurrencyLimitGenerationEngine } from "./concurrency-engine";
 import { createModelRouterGenerationEngine } from "./model-router";
 import { createRequestLimitGenerationEngine } from "./request-limits";
 import { startServeServer } from "./server";
@@ -27,6 +28,7 @@ export const DEFAULT_MODEL_SERVER_MAX_GENERATED_TOKENS = 2048;
 export const DEFAULT_MODEL_SERVER_MAX_TOTAL_TOKENS = 4096;
 export const DEFAULT_MODEL_SERVER_MAX_BATCH_SIZE = 32;
 export const DEFAULT_MODEL_SERVER_BATCH_WINDOW_MS = 1;
+export const DEFAULT_MODEL_SERVER_MAX_CONCURRENT_REQUESTS = 1;
 
 export type ServeLoadedModelOptions = {
   model: CausalLM;
@@ -39,6 +41,7 @@ export type ServeLoadedModelOptions = {
   maxTotalTokens?: number;
   maxBatchSize?: number;
   batchWindowMs?: number;
+  maxConcurrentRequests?: number;
   apiKey?: string;
   disposeModelOnStop?: boolean;
   onEvent?: (event: ServeEvent) => void;
@@ -53,6 +56,7 @@ export type ServeModelOptions = {
   maxTotalTokens?: number;
   maxBatchSize?: number;
   batchWindowMs?: number;
+  maxConcurrentRequests?: number;
   revision?: string;
   accessToken?: string;
   cacheDir?: string;
@@ -88,6 +92,7 @@ type ResolvedLoadedModelOptions = {
   maxTotalTokens: number;
   maxBatchSize: number;
   batchWindowMs: number;
+  maxConcurrentRequests: number;
   apiKey?: string;
   disposeModelOnStop: boolean;
   onEvent?: (event: ServeEvent) => void;
@@ -102,6 +107,7 @@ type ResolvedServeModelOptions = {
   maxTotalTokens: number;
   maxBatchSize: number;
   batchWindowMs: number;
+  maxConcurrentRequests: number;
   revision?: string;
   accessToken?: string;
   cacheDir?: string;
@@ -158,6 +164,10 @@ function resolveLoadedOptions(options: ServeLoadedModelOptions): ResolvedLoadedM
       "batchWindowMs",
       options.batchWindowMs ?? DEFAULT_MODEL_SERVER_BATCH_WINDOW_MS,
     ),
+    maxConcurrentRequests: requirePositiveInteger(
+      "maxConcurrentRequests",
+      options.maxConcurrentRequests ?? DEFAULT_MODEL_SERVER_MAX_CONCURRENT_REQUESTS,
+    ),
     ...(options.apiKey === undefined ? {} : { apiKey: options.apiKey }),
     disposeModelOnStop: options.disposeModelOnStop ?? false,
     ...(options.onEvent === undefined ? {} : { onEvent: options.onEvent }),
@@ -185,6 +195,10 @@ function resolveServeOptions(options: ServeModelOptions): ResolvedServeModelOpti
     batchWindowMs: requireNonNegativeInteger(
       "batchWindowMs",
       options.batchWindowMs ?? DEFAULT_MODEL_SERVER_BATCH_WINDOW_MS,
+    ),
+    maxConcurrentRequests: requirePositiveInteger(
+      "maxConcurrentRequests",
+      options.maxConcurrentRequests ?? DEFAULT_MODEL_SERVER_MAX_CONCURRENT_REQUESTS,
     ),
     ...(options.revision === undefined ? {} : { revision: options.revision }),
     ...(options.accessToken === undefined ? {} : { accessToken: options.accessToken }),
@@ -214,14 +228,17 @@ function endpointFor(server: ReturnType<typeof Bun.serve>): string {
 export function serveLoadedModel(options: ServeLoadedModelOptions): RunningModelServer {
   const resolved = resolveLoadedOptions(options);
   const modelEngine = createMicroBatchingGenerationEngine({
-    engine: createTransformersGenerationEngine({
-      model: resolved.model,
-      tokenizer: resolved.tokenizer,
-      maxTotalTokens: resolved.maxTotalTokens,
-      ...(resolved.interactionProfile === undefined
-        ? {}
-        : { interactionProfile: resolved.interactionProfile }),
-      ...(resolved.onEvent === undefined ? {} : { onEvent: resolved.onEvent }),
+    engine: createConcurrencyLimitGenerationEngine({
+      engine: createTransformersGenerationEngine({
+        model: resolved.model,
+        tokenizer: resolved.tokenizer,
+        maxTotalTokens: resolved.maxTotalTokens,
+        ...(resolved.interactionProfile === undefined
+          ? {}
+          : { interactionProfile: resolved.interactionProfile }),
+        ...(resolved.onEvent === undefined ? {} : { onEvent: resolved.onEvent }),
+      }),
+      maxConcurrentRequests: resolved.maxConcurrentRequests,
     }),
     maxBatchSize: resolved.maxBatchSize,
     batchWindowMs: resolved.batchWindowMs,
@@ -301,6 +318,7 @@ export async function serveModelWithRuntime(
       maxTotalTokens: resolved.maxTotalTokens,
       maxBatchSize: resolved.maxBatchSize,
       batchWindowMs: resolved.batchWindowMs,
+      maxConcurrentRequests: resolved.maxConcurrentRequests,
       ...(resolved.apiKey === undefined ? {} : { apiKey: resolved.apiKey }),
       ...(resolved.onEvent === undefined ? {} : { onEvent: resolved.onEvent }),
       disposeModelOnStop: true,

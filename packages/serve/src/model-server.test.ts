@@ -207,6 +207,14 @@ describe("serveLoadedModel", () => {
         batchWindowMs: -1,
       }),
     ).toThrow("batchWindowMs must be a non-negative integer.");
+    expect(() =>
+      serveLoadedModel({
+        model,
+        tokenizer,
+        modelId: "bad-concurrency",
+        maxConcurrentRequests: 0,
+      }),
+    ).toThrow("maxConcurrentRequests must be a positive integer.");
   });
 
   test("validates public serveModel options before resolving sources", async () => {
@@ -235,7 +243,7 @@ describe("serveLoadedModel", () => {
       },
       serveLoadedModel(options) {
         calls.push(
-          `serve:${options.modelId}:${options.apiKey}:${options.maxTotalTokens}:${options.maxBatchSize}:${options.batchWindowMs}:${options.disposeModelOnStop}`,
+          `serve:${options.modelId}:${options.apiKey}:${options.maxTotalTokens}:${options.maxBatchSize}:${options.batchWindowMs}:${options.maxConcurrentRequests}:${options.disposeModelOnStop}`,
         );
         return fakeRunningServer(options.modelId);
       },
@@ -250,6 +258,7 @@ describe("serveLoadedModel", () => {
         localFilesOnly: true,
         maxBatchSize: 16,
         batchWindowMs: 3,
+        maxConcurrentRequests: 2,
       },
       runtime,
     );
@@ -260,7 +269,7 @@ describe("serveLoadedModel", () => {
       "model:/snapshots/qwen",
       "tokenizer:/snapshots/qwen",
       "profile:/snapshots/qwen",
-      "serve:qwen-local:secret:4096:16:3:true",
+      "serve:qwen-local:secret:4096:16:3:2:true",
     ]);
     expect(model.disposeCount).toBe(0);
     running.stop();

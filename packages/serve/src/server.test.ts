@@ -208,6 +208,46 @@ describe("serve fetch handler", () => {
     expect(body.usage).toEqual({ prompt_tokens: 4, completion_tokens: 2, total_tokens: 6 });
   });
 
+  test("streams OpenAI chat completions as SSE chunks with reasoning separation", async () => {
+    const engine: GenerationEngine = {
+      generate() {
+        throw new Error("generate should not be used");
+      },
+      async *stream() {
+        yield { type: "text", text: "<think>I should greet.</think>\n\nHel" };
+        yield { type: "text", text: "lo" };
+        yield {
+          type: "done",
+          finishReason: "stop",
+          usage: { promptTokens: 2, completionTokens: 4, totalTokens: 6 },
+        };
+      },
+    };
+    const fetch = createFetchHandler({
+      engine,
+      idGenerator: () => "chat-stream",
+      now: () => new Date(123_000),
+    });
+
+    const response = await fetch(
+      request("/v1/chat/completions", {
+        model: "tiny",
+        messages: [{ role: "user", content: "Hello" }],
+        stream: true,
+        stream_options: { include_usage: true },
+      }),
+    );
+    const text = await response.text();
+
+    expect(response.headers.get("content-type")).toContain("text/event-stream");
+    expect(text).toContain('"role":"assistant"');
+    expect(text).toContain('"reasoning_content":"I should greet."');
+    expect(text).toContain('"content":"\\n\\nHello"');
+    expect(text).toContain('"choices":[]');
+    expect(text).toContain('"prompt_tokens":2');
+    expect(text).toContain("data: [DONE]");
+  });
+
   test("returns OpenAI-shaped errors for invalid completion requests", async () => {
     const fetch = createFetchHandler({
       engine: {
@@ -321,12 +361,21 @@ describe("serve fetch handler", () => {
         stream: true,
       }),
     );
+    const missingChatStream = await fetch(
+      request("/v1/chat/completions", {
+        model: "tiny",
+        messages: [{ role: "user", content: "Hello" }],
+        stream: true,
+      }),
+    );
     const notFound = await fetch(new Request("http://localhost/v1/chat/completions"));
 
     expect(missingStream.status).toBe(400);
     expect((await missingStream.json()).error.code).toBe("stream_not_supported");
     expect(multiPrompt.status).toBe(400);
     expect((await multiPrompt.json()).error.param).toBe("prompt");
+    expect(missingChatStream.status).toBe(400);
+    expect((await missingChatStream.json()).error.code).toBe("stream_not_supported");
     expect(notFound.status).toBe(404);
   });
 

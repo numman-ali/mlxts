@@ -10,6 +10,7 @@ import {
   KVCache,
 } from "@mlxts/transformers";
 import { createTransformersGenerationEngine } from "./transformers-engine";
+import type { GenerationStreamEvent } from "./types";
 
 class TinyTokenizer implements Tokenizer {
   readonly vocabSize = 4;
@@ -271,6 +272,69 @@ describe("transformers generation engine", () => {
     expect(result.text).toBe("");
     expect(result.reasoningContent).toBe("cc");
     expect(result.finishReason).toBe("length");
+  });
+
+  test("streams generated text for text prompts", async () => {
+    using model = new TinyModel();
+    const tokenizer = new TinyTokenizer();
+    const engine = createTransformersGenerationEngine({ model, tokenizer });
+    const events: GenerationStreamEvent[] = [];
+
+    for await (const event of (await engine.stream?.({
+      id: "request-1",
+      model: "tiny",
+      input: { kind: "text", text: "hi" },
+      sampling: { maxTokens: 2, temperature: 0 },
+      stream: true,
+      protocol: "openai.completions",
+    })) ?? []) {
+      events.push(event);
+    }
+
+    expect(events).toEqual([
+      { type: "text", text: "cc" },
+      {
+        type: "done",
+        finishReason: "length",
+        usage: { promptTokens: 2, completionTokens: 2, totalTokens: 4 },
+      },
+    ]);
+  });
+
+  test("streams prompt-open thinking as raw think-tagged text", async () => {
+    using model = new TinyModel();
+    const tokenizer = new TinyTokenizer();
+    const thinkingProfile: InteractionProfile = {
+      ...chatProfile,
+      compileMessages(tokenizer, messages) {
+        const text = `${messages.map((message) => `${message.role}:${message.content}`).join("\n")}\n<think>\n`;
+        return { text, tokenIds: tokenizer.encode(text) };
+      },
+    };
+    const engine = createTransformersGenerationEngine({
+      model,
+      tokenizer,
+      interactionProfile: thinkingProfile,
+    });
+    const events: GenerationStreamEvent[] = [];
+
+    for await (const event of (await engine.stream?.({
+      id: "request-1",
+      model: "tiny",
+      input: { kind: "messages", messages: [{ role: "user", content: "hi" }] },
+      sampling: { maxTokens: 2, temperature: 0 },
+      stream: true,
+      protocol: "openai.chat_completions",
+    })) ?? []) {
+      events.push(event);
+    }
+
+    expect(events[0]).toEqual({ type: "text", text: "<think>cc" });
+    expect(events[1]).toEqual({
+      type: "done",
+      finishReason: "length",
+      usage: { promptTokens: "user:hi\n<think>\n".length, completionTokens: 2, totalTokens: 18 },
+    });
   });
 
   test("rejects message input without an interaction profile", () => {

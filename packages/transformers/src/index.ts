@@ -25,10 +25,12 @@ export {
   smartResizeQwen3_5Image,
 } from "./families/qwen3_5/preprocessing";
 export {
+  generatePreparedTokenEvents,
   generatePreparedTokens,
   generateStep,
   generateText,
   generateTextStream,
+  generateTokenEvents,
   generateTokens,
   makePromptCache,
 } from "./generation";
@@ -71,6 +73,7 @@ export type {
   SamplerOptions,
   SupportedModelFamily,
   TextGenerationResult,
+  TokenGenerationEvent,
   TransformerCache,
 } from "./types";
 export {

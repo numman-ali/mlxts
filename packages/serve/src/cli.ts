@@ -5,6 +5,7 @@ import {
   DEFAULT_MODEL_SERVER_BATCH_WINDOW_MS,
   DEFAULT_MODEL_SERVER_HOSTNAME,
   DEFAULT_MODEL_SERVER_MAX_BATCH_SIZE,
+  DEFAULT_MODEL_SERVER_MAX_CONCURRENT_REQUESTS,
   DEFAULT_MODEL_SERVER_MAX_GENERATED_TOKENS,
   DEFAULT_MODEL_SERVER_MAX_TOTAL_TOKENS,
   DEFAULT_MODEL_SERVER_PORT,
@@ -23,6 +24,7 @@ export type ServeCliOptions = {
   maxTotalTokens: number;
   maxBatchSize: number;
   batchWindowMs: number;
+  maxConcurrentRequests: number;
   revision?: string;
   accessToken?: string;
   cacheDir?: string;
@@ -59,6 +61,7 @@ type ParseState = {
   maxTotalTokens: number;
   maxBatchSize: number;
   batchWindowMs: number;
+  maxConcurrentRequests: number;
   revision?: string;
   accessToken?: string;
   cacheDir?: string;
@@ -109,6 +112,7 @@ function createParseState(): ParseState {
     maxTotalTokens: DEFAULT_MODEL_SERVER_MAX_TOTAL_TOKENS,
     maxBatchSize: DEFAULT_MODEL_SERVER_MAX_BATCH_SIZE,
     batchWindowMs: DEFAULT_MODEL_SERVER_BATCH_WINDOW_MS,
+    maxConcurrentRequests: DEFAULT_MODEL_SERVER_MAX_CONCURRENT_REQUESTS,
     localFilesOnly: false,
     verbose: false,
   };
@@ -169,6 +173,14 @@ function applyFlag(state: ParseState, argv: readonly string[], index: number): n
         argv[index + 1],
         (value) => value >= 0,
         "a non-negative integer",
+      );
+      return index + 1;
+    case "--max-concurrent-requests":
+      state.maxConcurrentRequests = readIntegerFlag(
+        arg,
+        argv[index + 1],
+        (value) => value > 0,
+        "a positive integer",
       );
       return index + 1;
     case "--revision":
@@ -234,6 +246,7 @@ function stateToOptions(state: ParseState): ServeCliParseResult {
       maxTotalTokens: state.maxTotalTokens,
       maxBatchSize: state.maxBatchSize,
       batchWindowMs: state.batchWindowMs,
+      maxConcurrentRequests: state.maxConcurrentRequests,
       ...(state.revision === undefined ? {} : { revision: state.revision }),
       ...(state.accessToken === undefined ? {} : { accessToken: state.accessToken }),
       ...(state.cacheDir === undefined ? {} : { cacheDir: state.cacheDir }),
@@ -261,6 +274,7 @@ export function formatServeUsage(): string {
     `  --max-total-tokens <n>       Reject prompt_tokens + max_tokens above this cap (default: ${DEFAULT_MODEL_SERVER_MAX_TOTAL_TOKENS})`,
     `  --max-batch-size <n>         Admission micro-batch size for one model instance (default: ${DEFAULT_MODEL_SERVER_MAX_BATCH_SIZE})`,
     `  --batch-window-ms <n>        Wait window before flushing a micro-batch (default: ${DEFAULT_MODEL_SERVER_BATCH_WINDOW_MS})`,
+    `  --max-concurrent-requests <n>  Max in-flight model jobs per served model (default: ${DEFAULT_MODEL_SERVER_MAX_CONCURRENT_REQUESTS})`,
     "  --revision <ref>             Hugging Face revision when source is a repo id",
     "  --access-token <token>       Hugging Face access token for private or gated repos",
     "  --cache-dir <path>           Hugging Face cache directory",
@@ -318,6 +332,7 @@ export function formatServeReady(endpoint: string, options: ServeCliOptions): st
     `Generated-token limit: ${options.maxGeneratedTokens}`,
     `Total-token limit: ${options.maxTotalTokens}`,
     `Micro-batching: max_batch=${options.maxBatchSize} window_ms=${options.batchWindowMs}`,
+    `Admission concurrency: max_in_flight=${options.maxConcurrentRequests}`,
     "",
     "Try:",
     [
@@ -412,6 +427,7 @@ function toServeModelOptions(options: ServeCliOptions): ServeModelOptions {
     maxTotalTokens: options.maxTotalTokens,
     maxBatchSize: options.maxBatchSize,
     batchWindowMs: options.batchWindowMs,
+    maxConcurrentRequests: options.maxConcurrentRequests,
     ...(options.revision === undefined ? {} : { revision: options.revision }),
     ...(options.accessToken === undefined ? {} : { accessToken: options.accessToken }),
     ...(options.cacheDir === undefined ? {} : { cacheDir: options.cacheDir }),

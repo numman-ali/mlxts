@@ -49,6 +49,18 @@ export type GenerationResult = {
   finishReason: "length" | "eos";
 };
 
+export type TokenGenerationEvent =
+  | {
+      type: "token";
+      tokenId: number;
+      completionTokens: number;
+    }
+  | {
+      type: "done";
+      tokenIds: readonly number[];
+      finishReason: GenerationResult["finishReason"];
+    };
+
 export type TextGenerationResult = GenerationResult & {
   text: string;
 };

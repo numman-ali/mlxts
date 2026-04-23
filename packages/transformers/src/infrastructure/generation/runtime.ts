@@ -93,20 +93,20 @@ export function runGenerationScope<T>(fn: () => T): T {
   }
 }
 
-function finishIfEos(
+export function finishIfEos(
   eosTokenIds: ReadonlySet<number>,
   tokenId: number,
 ): GenerationResult["finishReason"] | null {
   return eosTokenIds.has(tokenId) ? "eos" : null;
 }
 
-function maybeClearGenerationCache(index: number): void {
+export function maybeClearGenerationCache(index: number): void {
   if ((index + 1) % PERIODIC_CACHE_CLEAR_INTERVAL === 0) {
     clearMemoryCache();
   }
 }
 
-function scheduleAsyncCachedToken(
+export function scheduleAsyncCachedToken(
   model: CausalLM,
   currentToken: MxArray,
   cache: TransformerCache,
@@ -119,14 +119,14 @@ function scheduleAsyncCachedToken(
   return nextToken;
 }
 
-function takeCurrentToken(currentToken: MxArray | null): MxArray {
+export function takeCurrentToken(currentToken: MxArray | null): MxArray {
   if (currentToken === null) {
     throw new Error("generateTokens: current token was not initialized.");
   }
   return currentToken;
 }
 
-function takeScheduledAsyncToken(nextToken: MxArray | null): MxArray {
+export function takeScheduledAsyncToken(nextToken: MxArray | null): MxArray {
   if (nextToken === null) {
     throw new Error("generateTokens: async decode did not schedule the next token.");
   }
@@ -229,7 +229,7 @@ export function generateWithoutCache(
   generated: number[],
   onToken?: (tokenId: number, generatedTokenIds: readonly number[]) => void,
 ): GenerationResult {
-  using samplerState = new SamplerState(promptTokenIds, options);
+  const samplerState = new SamplerState(promptTokenIds, options);
   const runningPrompt = [...promptTokenIds];
   const initialInputEmbeddings = retainPromptInputEmbeddings(
     promptTokenIds,
