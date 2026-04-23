@@ -21,6 +21,12 @@ describe("serve CLI args", () => {
       options: {
         source: "mlx-community/Qwen3.6-27B-4bit",
         modelId: "mlx-community/Qwen3.6-27B-4bit",
+        models: [
+          {
+            source: "mlx-community/Qwen3.6-27B-4bit",
+            modelId: "mlx-community/Qwen3.6-27B-4bit",
+          },
+        ],
         hostname: "127.0.0.1",
         port: 8000,
         maxGeneratedTokens: 2048,
@@ -70,6 +76,7 @@ describe("serve CLI args", () => {
       options: {
         source: "local-model",
         modelId: "qwen-local",
+        models: [{ source: "local-model", modelId: "qwen-local" }],
         hostname: "0.0.0.0",
         port: 8080,
         maxGeneratedTokens: 512,
@@ -83,6 +90,32 @@ describe("serve CLI args", () => {
         apiKey: "secret",
         localFilesOnly: true,
         verbose: true,
+      },
+    });
+  });
+
+  test("parses repeatable model entries for multi-model serving", () => {
+    const parsed = parseServeArgs([
+      "--model",
+      "gemma=google/gemma-4-E2B-it",
+      "--model",
+      "mlx-community/Qwen3.6-27B-4bit",
+      "--local-files-only",
+    ]);
+
+    expect(parsed).toMatchObject({
+      kind: "serve",
+      options: {
+        source: "google/gemma-4-E2B-it",
+        modelId: "gemma",
+        models: [
+          { source: "google/gemma-4-E2B-it", modelId: "gemma" },
+          {
+            source: "mlx-community/Qwen3.6-27B-4bit",
+            modelId: "mlx-community/Qwen3.6-27B-4bit",
+          },
+        ],
+        localFilesOnly: true,
       },
     });
   });
@@ -120,6 +153,26 @@ describe("serve CLI args", () => {
     expect(parseServeArgs(["model", "--unknown"])).toMatchObject({
       kind: "help",
       message: "Unknown argument: --unknown",
+    });
+    expect(parseServeArgs(["model", "--model", "repo/model"])).toMatchObject({
+      kind: "help",
+      message: "Cannot mix a positional model source with --model entries.",
+    });
+    expect(parseServeArgs(["--model", "repo/model", "--model-id", "alias"])).toMatchObject({
+      kind: "help",
+      message: "Cannot use --model-id with --model; use --model <model-id=source>.",
+    });
+    expect(parseServeArgs(["--model", "alias="])).toMatchObject({
+      kind: "help",
+      message: "Expected --model to include a non-empty source.",
+    });
+    expect(parseServeArgs(["--model", "=repo/model"])).toMatchObject({
+      kind: "help",
+      message: "Expected --model to include a non-empty model id.",
+    });
+    expect(parseServeArgs(["--model", "same=one", "--model", "same=two"])).toMatchObject({
+      kind: "help",
+      message: 'model id "same" is duplicated.',
     });
     expect(parseServeArgs(["one", "two"])).toMatchObject({
       kind: "help",
@@ -183,6 +236,7 @@ describe("serve CLI args", () => {
     const options = {
       source: "repo/model",
       modelId: "qwen-local",
+      models: [{ source: "repo/model", modelId: "qwen-local" }],
       hostname: "0.0.0.0",
       port: 8000,
       maxGeneratedTokens: 64,
@@ -194,6 +248,7 @@ describe("serve CLI args", () => {
       verbose: false,
     };
     expect(formatServeReady("http://127.0.0.1:8000", options)).toContain("/v1/completions");
+    expect(formatServeReady("http://127.0.0.1:8000", options)).toContain("Models: qwen-local");
     expect(formatServeReady("http://127.0.0.1:8000", options)).not.toContain("temperature");
     expect(formatServeReady("http://127.0.0.1:8000", options)).toContain(
       "Micro-batching: max_batch=8 window_ms=2",
@@ -203,6 +258,15 @@ describe("serve CLI args", () => {
     );
     expect(publicBindWarning(options)).toContain("exposes the endpoint");
     expect(publicBindWarning({ ...options, apiKey: "secret" })).toBeNull();
+    expect(
+      formatServeReady("http://127.0.0.1:8000", {
+        ...options,
+        models: [
+          { source: "repo/gemma", modelId: "gemma" },
+          { source: "repo/qwen", modelId: "qwen" },
+        ],
+      }),
+    ).toContain("Serving 2 models");
     expect(
       formatServeEvent({
         type: "generation_start",
@@ -356,6 +420,42 @@ describe("serve CLI args", () => {
     expect(running.stopped).toBe(true);
   });
 
+  test("runs the serve CLI with repeatable model entries", async () => {
+    const logs: string[] = [];
+    const errors: string[] = [];
+    const running = fakeRunningServer(["gemma", "qwen"]);
+    await runServeCli(["--model", "gemma=repo/gemma", "--model", "qwen=repo/qwen"], {
+      async serveModel() {
+        throw new Error("single-model server should not be used for repeatable --model entries");
+      },
+      async serveModels(options) {
+        options.onProgress?.(
+          { stage: "resolve", status: "start", source: "repo/gemma" },
+          { index: 0, source: "repo/gemma", modelId: "gemma" },
+        );
+        expect(options.models).toEqual([
+          { source: "repo/gemma", modelId: "gemma" },
+          { source: "repo/qwen", modelId: "qwen" },
+        ]);
+        return running;
+      },
+      log(message) {
+        logs.push(message);
+      },
+      error(message) {
+        errors.push(message);
+      },
+      async waitForShutdown(server) {
+        server.stop();
+      },
+    });
+
+    expect(errors).toEqual([]);
+    expect(logs.join("\n")).toContain("[load 1/2 gemma] [resolve] resolving repo/gemma");
+    expect(logs.join("\n")).toContain("Models: gemma, qwen");
+    expect(running.stopped).toBe(true);
+  });
+
   test("runs help through injectable exit", async () => {
     const errors: string[] = [];
     let exitCode = -1;
@@ -375,7 +475,9 @@ describe("serve CLI args", () => {
   });
 });
 
-function fakeRunningServer(): RunningModelServer & { stopped: boolean } {
+function fakeRunningServer(modelIds: readonly string[] = ["qwen-local"]): RunningModelServer & {
+  stopped: boolean;
+} {
   const server = Bun.serve({
     port: 0,
     fetch() {
@@ -384,8 +486,8 @@ function fakeRunningServer(): RunningModelServer & { stopped: boolean } {
   });
   return {
     endpoint: "http://127.0.0.1:8000",
-    modelId: "qwen-local",
-    modelIds: ["qwen-local"],
+    modelId: modelIds[0] ?? "qwen-local",
+    modelIds,
     server,
     stopped: false,
     stop() {

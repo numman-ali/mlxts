@@ -18,6 +18,18 @@ or directly from the package:
 bunx @mlxts/serve mlx-community/Qwen3.6-27B-4bit --port 8000
 ```
 
+Use repeatable `--model` entries when one local endpoint should expose multiple
+models. Plain `--model <source>` uses the source as the served id; `id=source`
+sets an explicit OpenAI model id:
+
+```bash
+mlxts-serve \
+  --model gemma=google/gemma-4-E2B-it \
+  --model qwen=mlx-community/Qwen3.6-27B-4bit \
+  --port 8000 \
+  --local-files-only
+```
+
 The server exposes `/health`, `/v1/models`, `/v1/completions`, and
 `/v1/chat/completions`:
 
@@ -42,6 +54,8 @@ generation at a time.
 Generation start, static batch start, completion, and errors are logged by
 default so native generation failures leave a useful last known stage in the
 terminal. Use `--verbose` while debugging to add request start/completion logs.
+Multi-model CLI loads are logged with the model index and model id so long
+startup sequences are easier to follow.
 
 The first-class model server wraps one loaded model in a small single-flight
 admission queue. Nearby non-streaming requests can coalesce into one

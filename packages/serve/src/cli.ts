@@ -2,72 +2,25 @@
 
 import type { PretrainedLoadProgressEvent } from "@mlxts/transformers";
 import {
-  DEFAULT_MODEL_SERVER_BATCH_WINDOW_MS,
-  DEFAULT_MODEL_SERVER_HOSTNAME,
-  DEFAULT_MODEL_SERVER_MAX_BATCH_SIZE,
-  DEFAULT_MODEL_SERVER_MAX_CONCURRENT_REQUESTS,
-  DEFAULT_MODEL_SERVER_MAX_GENERATED_TOKENS,
-  DEFAULT_MODEL_SERVER_MAX_TOTAL_TOKENS,
-  DEFAULT_MODEL_SERVER_PORT,
-  type RunningModelServer,
-  type ServeModelOptions,
-  serveModel,
-} from "./model-server";
+  formatServeUsage,
+  parseServeArgs,
+  type ServeCliOptions,
+  type ServeCliParseResult,
+} from "./cli-options";
+import { type RunningModelServer, type ServeModelOptions, serveModel } from "./model-server";
+import { type ServeModelsOptions, serveModels } from "./model-sources";
 import type { GenerationMemoryUsage, ServeEvent } from "./types";
 
-export type ServeCliOptions = {
-  source: string;
-  modelId: string;
-  hostname: string;
-  port: number;
-  maxGeneratedTokens: number;
-  maxTotalTokens: number;
-  maxBatchSize: number;
-  batchWindowMs: number;
-  maxConcurrentRequests: number;
-  revision?: string;
-  accessToken?: string;
-  cacheDir?: string;
-  apiKey?: string;
-  localFilesOnly: boolean;
-  verbose: boolean;
-};
-
-export type ServeCliParseResult =
-  | {
-      kind: "serve";
-      options: ServeCliOptions;
-    }
-  | {
-      kind: "help";
-      exitCode: number;
-      message?: string;
-    };
+export type { ServeCliOptions, ServeCliParseResult };
+export { formatServeUsage, parseServeArgs };
 
 export type ServeCliRuntime = {
   serveModel?: (options: ServeModelOptions) => Promise<RunningModelServer>;
+  serveModels?: (options: ServeModelsOptions) => Promise<RunningModelServer>;
   log?: (message: string) => void;
   error?: (message: string) => void;
   exit?: (code: number) => void;
   waitForShutdown?: (running: RunningModelServer) => Promise<void>;
-};
-
-type ParseState = {
-  source?: string;
-  modelId?: string;
-  hostname: string;
-  port: number;
-  maxGeneratedTokens: number;
-  maxTotalTokens: number;
-  maxBatchSize: number;
-  batchWindowMs: number;
-  maxConcurrentRequests: number;
-  revision?: string;
-  accessToken?: string;
-  cacheDir?: string;
-  apiKey?: string;
-  localFilesOnly: boolean;
-  verbose: boolean;
 };
 
 function formatBytes(bytes: number): string {
@@ -81,224 +34,6 @@ function formatBytes(bytes: number): string {
     return `${(bytes / 1e3).toFixed(1)} KB`;
   }
   return `${bytes} B`;
-}
-
-function readStringFlag(flag: string, value: string | undefined): string {
-  if (value === undefined || value.trim() === "") {
-    throw new Error(`Missing value for ${flag}.`);
-  }
-  return value;
-}
-
-function readIntegerFlag(
-  flag: string,
-  value: string | undefined,
-  isValid: (value: number) => boolean,
-  description: string,
-): number {
-  const raw = readStringFlag(flag, value);
-  const parsed = Number(raw);
-  if (!Number.isInteger(parsed) || !isValid(parsed)) {
-    throw new Error(`Expected ${flag} to be ${description}, got "${raw}".`);
-  }
-  return parsed;
-}
-
-function createParseState(): ParseState {
-  return {
-    hostname: DEFAULT_MODEL_SERVER_HOSTNAME,
-    port: DEFAULT_MODEL_SERVER_PORT,
-    maxGeneratedTokens: DEFAULT_MODEL_SERVER_MAX_GENERATED_TOKENS,
-    maxTotalTokens: DEFAULT_MODEL_SERVER_MAX_TOTAL_TOKENS,
-    maxBatchSize: DEFAULT_MODEL_SERVER_MAX_BATCH_SIZE,
-    batchWindowMs: DEFAULT_MODEL_SERVER_BATCH_WINDOW_MS,
-    maxConcurrentRequests: DEFAULT_MODEL_SERVER_MAX_CONCURRENT_REQUESTS,
-    localFilesOnly: false,
-    verbose: false,
-  };
-}
-
-function applyPositionalArg(state: ParseState, arg: string): void {
-  if (state.source !== undefined) {
-    throw new Error(`Unexpected extra positional argument: ${arg}`);
-  }
-  state.source = arg;
-}
-
-function applyFlag(state: ParseState, argv: readonly string[], index: number): number {
-  const arg = argv[index];
-  switch (arg) {
-    case "--model-id":
-    case "--served-model-name":
-      state.modelId = readStringFlag(arg, argv[index + 1]);
-      return index + 1;
-    case "--host":
-      state.hostname = readStringFlag(arg, argv[index + 1]);
-      return index + 1;
-    case "--port":
-      state.port = readIntegerFlag(
-        arg,
-        argv[index + 1],
-        (value) => value >= 0,
-        "a non-negative integer",
-      );
-      return index + 1;
-    case "--max-generated-tokens":
-      state.maxGeneratedTokens = readIntegerFlag(
-        arg,
-        argv[index + 1],
-        (value) => value > 0,
-        "a positive integer",
-      );
-      return index + 1;
-    case "--max-total-tokens":
-      state.maxTotalTokens = readIntegerFlag(
-        arg,
-        argv[index + 1],
-        (value) => value > 0,
-        "a positive integer",
-      );
-      return index + 1;
-    case "--max-batch-size":
-      state.maxBatchSize = readIntegerFlag(
-        arg,
-        argv[index + 1],
-        (value) => value > 0,
-        "a positive integer",
-      );
-      return index + 1;
-    case "--batch-window-ms":
-      state.batchWindowMs = readIntegerFlag(
-        arg,
-        argv[index + 1],
-        (value) => value >= 0,
-        "a non-negative integer",
-      );
-      return index + 1;
-    case "--max-concurrent-requests":
-      state.maxConcurrentRequests = readIntegerFlag(
-        arg,
-        argv[index + 1],
-        (value) => value > 0,
-        "a positive integer",
-      );
-      return index + 1;
-    case "--revision":
-      state.revision = readStringFlag(arg, argv[index + 1]);
-      return index + 1;
-    case "--access-token":
-      state.accessToken = readStringFlag(arg, argv[index + 1]);
-      return index + 1;
-    case "--cache-dir":
-      state.cacheDir = readStringFlag(arg, argv[index + 1]);
-      return index + 1;
-    case "--api-key":
-      state.apiKey = readStringFlag(arg, argv[index + 1]);
-      return index + 1;
-    case "--local-files-only":
-      state.localFilesOnly = true;
-      return index;
-    case "--verbose":
-      state.verbose = true;
-      return index;
-    default:
-      if (arg?.startsWith("--")) {
-        throw new Error(`Unknown argument: ${arg}`);
-      }
-      return index;
-  }
-}
-
-function parseServeState(argv: readonly string[]): ParseState {
-  const state = createParseState();
-  for (let index = 0; index < argv.length; index += 1) {
-    const arg = argv[index];
-    if (arg === undefined) {
-      continue;
-    }
-    const nextIndex = applyFlag(state, argv, index);
-    if (nextIndex !== index || arg.startsWith("--")) {
-      index = nextIndex;
-      continue;
-    }
-    applyPositionalArg(state, arg);
-  }
-  return state;
-}
-
-function stateToOptions(state: ParseState): ServeCliParseResult {
-  if (state.source === undefined || state.source.trim() === "") {
-    return {
-      kind: "help",
-      exitCode: 1,
-      message: "Missing model path or Hugging Face repo id.",
-    };
-  }
-
-  return {
-    kind: "serve",
-    options: {
-      source: state.source,
-      modelId: state.modelId ?? state.source,
-      hostname: state.hostname,
-      port: state.port,
-      maxGeneratedTokens: state.maxGeneratedTokens,
-      maxTotalTokens: state.maxTotalTokens,
-      maxBatchSize: state.maxBatchSize,
-      batchWindowMs: state.batchWindowMs,
-      maxConcurrentRequests: state.maxConcurrentRequests,
-      ...(state.revision === undefined ? {} : { revision: state.revision }),
-      ...(state.accessToken === undefined ? {} : { accessToken: state.accessToken }),
-      ...(state.cacheDir === undefined ? {} : { cacheDir: state.cacheDir }),
-      ...(state.apiKey === undefined ? {} : { apiKey: state.apiKey }),
-      localFilesOnly: state.localFilesOnly,
-      verbose: state.verbose,
-    },
-  };
-}
-
-export function formatServeUsage(): string {
-  return [
-    "Serve one local or Hugging Face model through the @mlxts/serve OpenAI-compatible API.",
-    "",
-    "Usage:",
-    "  mlxts-serve <model-path-or-repo-id> [options]",
-    "  bunx @mlxts/serve <model-path-or-repo-id> [options]",
-    "",
-    "Options:",
-    "  --model-id <id>              Served model id returned by /v1/models (default: source)",
-    "  --served-model-name <id>     Alias for --model-id",
-    `  --host <host>                Hostname to bind (default: ${DEFAULT_MODEL_SERVER_HOSTNAME})`,
-    `  --port <port>                Port to bind (default: ${DEFAULT_MODEL_SERVER_PORT})`,
-    `  --max-generated-tokens <n>   Reject requests above this max_tokens cap (default: ${DEFAULT_MODEL_SERVER_MAX_GENERATED_TOKENS})`,
-    `  --max-total-tokens <n>       Reject prompt_tokens + max_tokens above this cap (default: ${DEFAULT_MODEL_SERVER_MAX_TOTAL_TOKENS})`,
-    `  --max-batch-size <n>         Admission micro-batch size for one model instance (default: ${DEFAULT_MODEL_SERVER_MAX_BATCH_SIZE})`,
-    `  --batch-window-ms <n>        Wait window before flushing a micro-batch (default: ${DEFAULT_MODEL_SERVER_BATCH_WINDOW_MS})`,
-    `  --max-concurrent-requests <n>  Max in-flight model jobs per served model (default: ${DEFAULT_MODEL_SERVER_MAX_CONCURRENT_REQUESTS})`,
-    "  --revision <ref>             Hugging Face revision when source is a repo id",
-    "  --access-token <token>       Hugging Face access token for private or gated repos",
-    "  --cache-dir <path>           Hugging Face cache directory",
-    "  --api-key <key>              Require Authorization: Bearer <key> for /v1 routes",
-    "  --local-files-only           Use only already-cached/local files",
-    "  --verbose                    Log request and generation lifecycle events",
-    "  --help                       Show this help",
-  ].join("\n");
-}
-
-export function parseServeArgs(argv: readonly string[]): ServeCliParseResult {
-  if (argv.includes("--help")) {
-    return { kind: "help", exitCode: 0 };
-  }
-
-  try {
-    return stateToOptions(parseServeState(argv));
-  } catch (error) {
-    return {
-      kind: "help",
-      exitCode: 1,
-      message: error instanceof Error ? error.message : String(error),
-    };
-  }
 }
 
 export function formatPretrainedLoadProgress(event: PretrainedLoadProgressEvent): string {
@@ -321,14 +56,29 @@ export function formatPretrainedLoadProgress(event: PretrainedLoadProgressEvent)
   }
 }
 
+function formatModelLoadProgress(
+  event: PretrainedLoadProgressEvent,
+  index: number,
+  total: number,
+  modelId: string,
+): string {
+  return `[load ${index + 1}/${total} ${modelId}] ${formatPretrainedLoadProgress(event)}`;
+}
+
 function authHeader(options: ServeCliOptions): string[] {
   return options.apiKey === undefined ? [] : ["-H 'authorization: Bearer <your-api-key>'"];
 }
 
 export function formatServeReady(endpoint: string, options: ServeCliOptions): string {
+  const modelIds = options.models.map((model) => model.modelId);
+  const servingLine =
+    modelIds.length === 1
+      ? `Serving ${options.modelId} at ${endpoint}`
+      : `Serving ${modelIds.length} models at ${endpoint}`;
   return [
     "",
-    `Serving ${options.modelId} at ${endpoint}`,
+    servingLine,
+    `Models: ${modelIds.join(", ")}`,
     `Generated-token limit: ${options.maxGeneratedTokens}`,
     `Total-token limit: ${options.maxTotalTokens}`,
     `Micro-batching: max_batch=${options.maxBatchSize} window_ms=${options.batchWindowMs}`,
@@ -439,6 +189,56 @@ function toServeModelOptions(options: ServeCliOptions): ServeModelOptions {
   };
 }
 
+function toServeModelsOptions(options: ServeCliOptions): ServeModelsOptions {
+  return {
+    models: options.models.map((model) => ({
+      source: model.source,
+      modelId: model.modelId,
+    })),
+    hostname: options.hostname,
+    port: options.port,
+    maxGeneratedTokens: options.maxGeneratedTokens,
+    maxTotalTokens: options.maxTotalTokens,
+    maxBatchSize: options.maxBatchSize,
+    batchWindowMs: options.batchWindowMs,
+    maxConcurrentRequests: options.maxConcurrentRequests,
+    ...(options.revision === undefined ? {} : { revision: options.revision }),
+    ...(options.accessToken === undefined ? {} : { accessToken: options.accessToken }),
+    ...(options.cacheDir === undefined ? {} : { cacheDir: options.cacheDir }),
+    ...(options.apiKey === undefined ? {} : { apiKey: options.apiKey }),
+    localFilesOnly: options.localFilesOnly,
+  };
+}
+
+async function startParsedServer(
+  options: ServeCliOptions,
+  runtime: ServeCliRuntime,
+  log: (message: string) => void,
+): Promise<RunningModelServer> {
+  const onEvent = (event: ServeEvent) => {
+    if (shouldLogServeEvent(event, options.verbose)) {
+      log(formatServeEvent(event));
+    }
+  };
+
+  if (options.models.length === 1) {
+    const startModelServer = runtime.serveModel ?? serveModel;
+    return startModelServer({
+      ...toServeModelOptions(options),
+      onProgress: (event) => log(formatPretrainedLoadProgress(event)),
+      onEvent,
+    });
+  }
+
+  const startModelsServer = runtime.serveModels ?? serveModels;
+  return startModelsServer({
+    ...toServeModelsOptions(options),
+    onProgress: (event, context) =>
+      log(formatModelLoadProgress(event, context.index, options.models.length, context.modelId)),
+    onEvent,
+  });
+}
+
 export async function runServeCli(
   argv: readonly string[] = Bun.argv.slice(2),
   runtime: ServeCliRuntime = {},
@@ -446,7 +246,6 @@ export async function runServeCli(
   const log = runtime.log ?? console.log;
   const error = runtime.error ?? console.error;
   const exit = runtime.exit ?? process.exit;
-  const startModelServer = runtime.serveModel ?? serveModel;
   const shutdown = runtime.waitForShutdown ?? waitForShutdown;
   const parsed = parseServeArgs(argv);
   if (parsed.kind === "help") {
@@ -459,15 +258,7 @@ export async function runServeCli(
     return;
   }
 
-  const running = await startModelServer({
-    ...toServeModelOptions(parsed.options),
-    onProgress: (event) => log(formatPretrainedLoadProgress(event)),
-    onEvent: (event) => {
-      if (shouldLogServeEvent(event, parsed.options.verbose)) {
-        log(formatServeEvent(event));
-      }
-    },
-  });
+  const running = await startParsedServer(parsed.options, runtime, log);
   const warning = publicBindWarning(parsed.options);
   if (warning !== null) {
     log(warning);
