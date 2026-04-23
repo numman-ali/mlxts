@@ -83,6 +83,25 @@ const server = await serveModel({
 console.log(server.endpoint);
 ```
 
+Use `serveModels()` to load and expose multiple local directories or Hub repos
+from one process. Loading is sequential to avoid RAM spikes, and the loaded
+models are owned by the returned server:
+
+```ts
+import { serveModels } from "@mlxts/serve";
+
+const server = await serveModels({
+  models: [
+    { source: "google/gemma-4-E2B-it", modelId: "gemma-local" },
+    { source: "mlx-community/Qwen3.6-27B-4bit", modelId: "qwen-local" },
+  ],
+  port: 8000,
+  maxConcurrentRequests: 1,
+});
+
+console.log(server.modelIds);
+```
+
 If you already own the loaded model and tokenizer, use `serveLoadedModel()`:
 
 ```ts

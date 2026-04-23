@@ -34,6 +34,14 @@ export {
   serveModel,
 } from "./model-server";
 export {
+  type ServeModelSourceEntry,
+  type ServeModelsOptions,
+  type ServeModelsProgressContext,
+  type ServeModelsRuntime,
+  serveModels,
+  serveModelsWithRuntime,
+} from "./model-sources";
+export {
   createOpenAIChatCompletionReasoningStream,
   formatOpenAIChatCompletionResponse,
   formatOpenAIChatCompletionStreamChunk,
