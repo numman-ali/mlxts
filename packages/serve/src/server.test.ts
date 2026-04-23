@@ -248,7 +248,7 @@ describe("serve fetch handler", () => {
     expect(text).toContain("data: [DONE]");
   });
 
-  test("returns OpenAI-shaped errors for invalid completion requests", async () => {
+  test("returns OpenAI-shaped errors for invalid OpenAI requests", async () => {
     const fetch = createFetchHandler({
       engine: {
         generate() {
@@ -268,6 +268,18 @@ describe("serve fetch handler", () => {
 
     expect(response.status).toBe(400);
     expect(body.error.param).toBe("n");
+
+    const chatResponse = await fetch(
+      request("/v1/chat/completions", {
+        model: "tiny",
+        messages: [{ role: "user", content: "Hello" }],
+        n: 2,
+      }),
+    );
+    const chatBody = await chatResponse.json();
+
+    expect(chatResponse.status).toBe(400);
+    expect(chatBody.error.param).toBe("n");
   });
 
   test("returns OpenAI-shaped server errors for malformed batch engine results", async () => {

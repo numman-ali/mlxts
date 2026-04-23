@@ -65,6 +65,29 @@ describe("OpenAI chat completions adapter", () => {
     expect(normalized.stream).toBe(false);
   });
 
+  test("normalizes OpenAI chat option parity fields", () => {
+    const normalized = normalizeOpenAIChatCompletionRequest(
+      {
+        model: "qwen-local",
+        messages: [{ role: "user", content: "Hi" }],
+        max_completion_tokens: 64,
+        n: 1,
+        seed: 123,
+        user: "user-1",
+        frequency_penalty: 0,
+        presence_penalty: 0,
+        logit_bias: {},
+        logprobs: false,
+        parallel_tool_calls: true,
+        response_format: { type: "text" },
+      },
+      { id: "chat-test" },
+    );
+
+    expect(normalized.request.sampling).toEqual({ maxTokens: 64, seed: 123 });
+    expect(normalized.request.metadata).toEqual({ user: "user-1" });
+  });
+
   test("preserves assistant tool calls and tool observations", () => {
     const normalized = normalizeOpenAIChatCompletionRequest(
       {
@@ -296,6 +319,31 @@ describe("OpenAI chat completions adapter", () => {
         { id: "chat-test" },
       ),
     ).toThrow("stream_options");
+  });
+
+  test("rejects unsupported OpenAI chat option semantics explicitly", () => {
+    const base = { model: "tiny", messages: [{ role: "user", content: "hi" }] };
+    const cases: Array<{ extra: Record<string, unknown>; message: string }> = [
+      { extra: { n: 2 }, message: "n" },
+      { extra: { max_completion_tokens: -1 }, message: "max_completion_tokens" },
+      { extra: { max_tokens: 2, max_completion_tokens: 3 }, message: "must match" },
+      { extra: { seed: -1 }, message: "seed" },
+      { extra: { user: 1 }, message: "user" },
+      { extra: { presence_penalty: 0.5 }, message: "presence_penalty" },
+      { extra: { frequency_penalty: -0.5 }, message: "frequency_penalty" },
+      { extra: { logit_bias: { "1": 10 } }, message: "logit_bias" },
+      { extra: { logprobs: true }, message: "logprobs" },
+      { extra: { top_logprobs: 1 }, message: "top_logprobs" },
+      { extra: { parallel_tool_calls: false }, message: "parallel_tool_calls" },
+      { extra: { response_format: "json" }, message: "response_format" },
+      { extra: { response_format: { type: "json_object" } }, message: "json_object" },
+    ];
+
+    for (const item of cases) {
+      expect(() =>
+        normalizeOpenAIChatCompletionRequest({ ...base, ...item.extra }, { id: "chat-test" }),
+      ).toThrow(item.message);
+    }
   });
 
   test("normalizes chat streaming flags and usage streaming options", () => {
