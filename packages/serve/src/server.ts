@@ -15,6 +15,7 @@ import {
 import {
   formatOpenAIModelResponse,
   formatOpenAIModelsResponse,
+  parseOpenAIModelIdPath,
   type ServedModelInfo,
 } from "./protocols/openai-models";
 import {
@@ -396,7 +397,7 @@ async function openAIRouteResponse(
   }
 
   if (request.method === "GET" && pathname.startsWith("/v1/models/")) {
-    const modelId = decodeURIComponent(pathname.slice("/v1/models/".length));
+    const modelId = parseOpenAIModelIdPath(pathname);
     const created = unixSeconds(options.now?.() ?? new Date());
     return jsonResponse(
       formatOpenAIModelResponse(servedModelById(options.models ?? [], modelId), { created }),

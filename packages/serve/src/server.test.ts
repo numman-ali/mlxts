@@ -28,14 +28,17 @@ describe("serve fetch handler", () => {
     expect(await response.json()).toEqual({ status: "ok" });
   });
 
-  test("lists served models with OpenAI-compatible shape", async () => {
+  test("lists and retrieves served models with OpenAI-compatible shape", async () => {
     const fetch = createFetchHandler({
       engine: {
         generate() {
           return { text: "", finishReason: "stop" };
         },
       },
-      models: [{ id: "tiny", ownedBy: "test-suite", created: 42 }],
+      models: [
+        { id: "tiny", ownedBy: "test-suite", created: 42 },
+        { id: "org/model", ownedBy: "slash-suite", created: 43 },
+      ],
       now: () => new Date(123_000),
     });
 
@@ -43,13 +46,20 @@ describe("serve fetch handler", () => {
     const body = await response.json();
     const retrieve = await fetch(new Request("http://localhost/v1/models/tiny"));
     const retrieveBody = await retrieve.json();
+    const encodedRetrieve = await fetch(new Request("http://localhost/v1/models/org%2Fmodel"));
+    const encodedRetrieveBody = await encodedRetrieve.json();
     const missing = await fetch(new Request("http://localhost/v1/models/missing"));
     const missingBody = await missing.json();
+    const malformed = await fetch(new Request("http://localhost/v1/models/%E0%A4%A"));
+    const malformedBody = await malformed.json();
 
     expect(response.status).toBe(200);
     expect(body).toEqual({
       object: "list",
-      data: [{ id: "tiny", object: "model", created: 42, owned_by: "test-suite" }],
+      data: [
+        { id: "tiny", object: "model", created: 42, owned_by: "test-suite" },
+        { id: "org/model", object: "model", created: 43, owned_by: "slash-suite" },
+      ],
     });
     expect(retrieve.status).toBe(200);
     expect(retrieveBody).toEqual({
@@ -58,8 +68,17 @@ describe("serve fetch handler", () => {
       created: 42,
       owned_by: "test-suite",
     });
+    expect(encodedRetrieve.status).toBe(200);
+    expect(encodedRetrieveBody).toEqual({
+      id: "org/model",
+      object: "model",
+      created: 43,
+      owned_by: "slash-suite",
+    });
     expect(missing.status).toBe(404);
     expect(missingBody.error.param).toBe("model");
+    expect(malformed.status).toBe(400);
+    expect(malformedBody.error.param).toBe("model");
   });
 
   test("enforces optional bearer auth on OpenAI-compatible routes", async () => {
