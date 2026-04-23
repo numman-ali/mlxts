@@ -12,12 +12,7 @@ import {
   formatOpenAICompletionResponse,
   normalizeOpenAICompletionRequest,
 } from "./protocols/openai-completions";
-import {
-  formatOpenAIModelResponse,
-  formatOpenAIModelsResponse,
-  parseOpenAIModelIdPath,
-  type ServedModelInfo,
-} from "./protocols/openai-models";
+import type { ServedModelInfo } from "./protocols/openai-models";
 import {
   emitGenerationComplete,
   emitGenerationError,
@@ -27,6 +22,11 @@ import {
   emitServeEvent,
   serveErrorDetails,
 } from "./server-events";
+import {
+  openAIModelRouteResponse,
+  type ServeRuntimeLimits,
+  serveInfoResponse,
+} from "./server-info";
 import { openAIResponseResponse } from "./server-responses";
 import {
   closeStreamEvents,
@@ -44,6 +44,7 @@ import type {
 export type ServeAppOptions = {
   engine: GenerationEngine;
   models?: readonly ServedModelInfo[];
+  limits?: ServeRuntimeLimits;
   apiKey?: string;
   idGenerator?: () => string;
   now?: () => Date;
@@ -99,18 +100,6 @@ function authorize(request: Request, apiKey: string | undefined): void {
       status: 401,
     });
   }
-}
-
-function servedModelById(models: readonly ServedModelInfo[], id: string): ServedModelInfo {
-  const model = models.find((entry) => entry.id === id);
-  if (model === undefined) {
-    throw new ServeError(`Model "${id}" is not served by this endpoint.`, {
-      code: "model_not_found",
-      param: "model",
-      status: 404,
-    });
-  }
-  return model;
 }
 
 function assertBatchResultCount(
@@ -389,23 +378,6 @@ async function chatCompletionResponse(
   }
 }
 
-function modelResponse(pathname: string, options: ServeAppOptions): Response | null {
-  if (pathname === "/v1/models") {
-    const created = unixSeconds(options.now?.() ?? new Date());
-    return jsonResponse(formatOpenAIModelsResponse(options.models ?? [], { created }));
-  }
-
-  if (pathname.startsWith("/v1/models/")) {
-    const modelId = parseOpenAIModelIdPath(pathname);
-    const created = unixSeconds(options.now?.() ?? new Date());
-    return jsonResponse(
-      formatOpenAIModelResponse(servedModelById(options.models ?? [], modelId), { created }),
-    );
-  }
-
-  return null;
-}
-
 async function openAIRouteResponse(
   request: Request,
   options: ServeAppOptions,
@@ -414,7 +386,7 @@ async function openAIRouteResponse(
   authorize(request, options.apiKey);
 
   if (request.method === "GET") {
-    const response = modelResponse(pathname, options);
+    const response = openAIModelRouteResponse(pathname, options);
     if (response !== null) {
       return response;
     }
@@ -452,6 +424,13 @@ export function createFetchHandler(
     }
 
     try {
+      if (request.method === "GET" && url.pathname === "/info") {
+        authorize(request, options.apiKey);
+        const response = serveInfoResponse(options);
+        emitRequestComplete(options, request, response.status, startedAt);
+        return response;
+      }
+
       const response = await openAIRouteResponse(request, options, url.pathname);
       if (response !== null) {
         if (isStreamingResponse(response)) {

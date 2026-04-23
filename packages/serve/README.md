@@ -30,7 +30,7 @@ mlxts-serve \
   --local-files-only
 ```
 
-The server exposes `/health`, `/v1/models`, `/v1/completions`,
+The server exposes `/health`, `/info`, `/v1/models`, `/v1/completions`,
 `/v1/chat/completions`, and `/v1/responses`:
 
 ```bash
@@ -43,13 +43,20 @@ curl -s http://127.0.0.1:8000/v1/completions \
   }'
 ```
 
-Use `--api-key <key>` when binding outside localhost, `--max-generated-tokens <n>`
-to reject unsafe generation lengths before they reach the model, and
-`--max-batch-size <n>` plus `--batch-window-ms <n>` to control the built-in
-admission micro-batching queue for concurrent requests against one model
-instance. `--max-concurrent-requests <n>` bounds the number of in-flight model
-jobs; the default is `1` so one loaded Gemma/Qwen runtime is owned by one
+Use `--api-key <key>` when binding outside localhost; it protects `/info` and
+all `/v1/*` routes while leaving `/health` open for process checks.
+`--max-generated-tokens <n>` rejects unsafe generation lengths before they reach
+the model, and `--max-batch-size <n>` plus `--batch-window-ms <n>` control the
+built-in admission micro-batching queue for concurrent requests against one
+model instance. `--max-concurrent-requests <n>` bounds the number of in-flight
+model jobs; the default is `1` so one loaded Gemma/Qwen runtime is owned by one
 generation at a time.
+
+`GET /info` is a lightweight operator endpoint for confirming the served model
+ids, enabled wire routes, configured request limits, and whether the current
+engine exposes streaming or batch generation. It does not expose local paths,
+cache locations, access tokens, queue internals, or claims of continuous
+batching.
 
 Generation start, admission micro-batch, static batch start, completion, and
 errors are logged by default so native generation failures leave a useful last

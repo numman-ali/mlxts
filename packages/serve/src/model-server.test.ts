@@ -168,15 +168,33 @@ describe("serveLoadedModel", () => {
       tokenizer: new FakeTokenizer(),
       modelId: "tiny",
       port: 0,
+      maxGeneratedTokens: 128,
+      maxTotalTokens: 256,
+      maxBatchSize: 4,
+      batchWindowMs: 2,
+      maxConcurrentRequests: 1,
       disposeModelOnStop: true,
     });
 
     try {
       const response = await fetch(`${running.endpoint}/v1/models`);
+      const infoResponse = await fetch(`${running.endpoint}/info`);
       expect(response.status).toBe(200);
+      expect(infoResponse.status).toBe(200);
       expect(await response.json()).toMatchObject({
         object: "list",
         data: [{ id: "tiny", object: "model" }],
+      });
+      expect(await infoResponse.json()).toMatchObject({
+        model_id: "tiny",
+        model_ids: ["tiny"],
+        limits: {
+          max_generated_tokens: 128,
+          max_total_tokens: 256,
+          max_client_batch_size: 4,
+          batch_window_ms: 2,
+          max_concurrent_requests: 1,
+        },
       });
       expect(running.modelIds).toEqual(["tiny"]);
     } finally {
@@ -319,13 +337,20 @@ describe("serveLoadedModel", () => {
 
     try {
       const modelsResponse = await fetch(`${running.endpoint}/v1/models`);
+      const infoResponse = await fetch(`${running.endpoint}/info`);
       expect(modelsResponse.status).toBe(200);
+      expect(infoResponse.status).toBe(200);
       expect(await modelsResponse.json()).toMatchObject({
         object: "list",
         data: [
           { id: "gemma-local", object: "model" },
           { id: "qwen-local", object: "model" },
         ],
+      });
+      expect(await infoResponse.json()).toMatchObject({
+        model_id: "gemma-local",
+        model_ids: ["gemma-local", "qwen-local"],
+        model_count: 2,
       });
       expect(running.modelId).toBe("gemma-local");
       expect(running.modelIds).toEqual(["gemma-local", "qwen-local"]);

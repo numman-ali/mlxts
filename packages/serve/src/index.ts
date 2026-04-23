@@ -25,6 +25,7 @@ export {
   DEFAULT_MODEL_SERVER_MAX_TOTAL_TOKENS,
   DEFAULT_MODEL_SERVER_PORT,
   type LoadedModelServerEntry,
+  type ModelServerRuntimeOptions,
   type RunningModelServer,
   type ServeLoadedModelOptions,
   type ServeLoadedModelsOptions,
@@ -94,6 +95,11 @@ export {
   type ServeServerOptions,
   startServeServer,
 } from "./server";
+export {
+  formatServeInfoResponse,
+  type ServeInfoResponse,
+  type ServeRuntimeLimits,
+} from "./server-info";
 export {
   createTransformersGenerationEngine,
   type TransformersGenerationEngineOptions,

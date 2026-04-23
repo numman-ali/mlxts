@@ -28,6 +28,65 @@ describe("serve fetch handler", () => {
     expect(await response.json()).toEqual({ status: "ok" });
   });
 
+  test("reports lightweight server info without invoking the engine", async () => {
+    let invoked = false;
+    const fetch = createFetchHandler({
+      engine: {
+        generate() {
+          invoked = true;
+          return { text: "", finishReason: "stop" };
+        },
+        generateBatch() {
+          invoked = true;
+          return [];
+        },
+        async *stream() {
+          invoked = true;
+          yield { type: "text", text: "" };
+        },
+      },
+      models: [{ id: "tiny" }, { id: "qwen-local" }],
+      limits: {
+        maxGeneratedTokens: 2048,
+        maxTotalTokens: 4096,
+        maxBatchSize: 32,
+        batchWindowMs: 1,
+        maxConcurrentRequests: 1,
+      },
+    });
+
+    const response = await fetch(new Request("http://localhost/info"));
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(invoked).toBe(false);
+    expect(body).toMatchObject({
+      status: "ok",
+      router: "@mlxts/serve",
+      version: null,
+      model_id: "tiny",
+      model_ids: ["tiny", "qwen-local"],
+      model_count: 2,
+      limits: {
+        max_generated_tokens: 2048,
+        max_total_tokens: 4096,
+        max_client_batch_size: 32,
+        batch_window_ms: 1,
+        max_concurrent_requests: 1,
+      },
+      capabilities: {
+        completions: true,
+        chat_completions: true,
+        responses: "text_only",
+        sse_streaming: true,
+        batch_generation: true,
+        reasoning_content: true,
+        tool_calls: true,
+      },
+    });
+    expect(body.endpoints).toContain("/v1/responses");
+  });
+
   test("lists and retrieves served models with OpenAI-compatible shape", async () => {
     const fetch = createFetchHandler({
       engine: {
@@ -92,8 +151,14 @@ describe("serve fetch handler", () => {
     });
 
     const missing = await fetch(new Request("http://localhost/v1/models"));
+    const infoMissing = await fetch(new Request("http://localhost/info"));
     const authorized = await fetch(
       new Request("http://localhost/v1/models", {
+        headers: { authorization: "Bearer secret" },
+      }),
+    );
+    const infoAuthorized = await fetch(
+      new Request("http://localhost/info", {
         headers: { authorization: "Bearer secret" },
       }),
     );
@@ -101,7 +166,10 @@ describe("serve fetch handler", () => {
 
     expect(missing.status).toBe(401);
     expect((await missing.json()).error.code).toBe("invalid_api_key");
+    expect(infoMissing.status).toBe(401);
+    expect((await infoMissing.json()).error.code).toBe("invalid_api_key");
     expect(authorized.status).toBe(200);
+    expect(infoAuthorized.status).toBe(200);
     expect(health.status).toBe(200);
   });
 

@@ -29,12 +29,7 @@ export const DEFAULT_MODEL_SERVER_MAX_TOTAL_TOKENS = 4096;
 export const DEFAULT_MODEL_SERVER_MAX_BATCH_SIZE = 32;
 export const DEFAULT_MODEL_SERVER_BATCH_WINDOW_MS = 1;
 export const DEFAULT_MODEL_SERVER_MAX_CONCURRENT_REQUESTS = 1;
-
-export type ServeLoadedModelOptions = {
-  model: CausalLM;
-  tokenizer: Tokenizer;
-  interactionProfile?: InteractionProfile;
-  modelId: string;
+export type ModelServerRuntimeOptions = {
   hostname?: string;
   port?: number;
   maxGeneratedTokens?: number;
@@ -43,8 +38,15 @@ export type ServeLoadedModelOptions = {
   batchWindowMs?: number;
   maxConcurrentRequests?: number;
   apiKey?: string;
-  disposeModelOnStop?: boolean;
   onEvent?: (event: ServeEvent) => void;
+};
+
+export type ServeLoadedModelOptions = ModelServerRuntimeOptions & {
+  model: CausalLM;
+  tokenizer: Tokenizer;
+  interactionProfile?: InteractionProfile;
+  modelId: string;
+  disposeModelOnStop?: boolean;
 };
 
 export type LoadedModelServerEntry = {
@@ -54,37 +56,19 @@ export type LoadedModelServerEntry = {
   modelId: string;
 };
 
-export type ServeLoadedModelsOptions = {
+export type ServeLoadedModelsOptions = ModelServerRuntimeOptions & {
   models: readonly LoadedModelServerEntry[];
-  hostname?: string;
-  port?: number;
-  maxGeneratedTokens?: number;
-  maxTotalTokens?: number;
-  maxBatchSize?: number;
-  batchWindowMs?: number;
-  maxConcurrentRequests?: number;
-  apiKey?: string;
   disposeModelsOnStop?: boolean;
-  onEvent?: (event: ServeEvent) => void;
 };
 
-export type ServeModelOptions = {
+export type ServeModelOptions = ModelServerRuntimeOptions & {
   source: string;
   modelId?: string;
-  hostname?: string;
-  port?: number;
-  maxGeneratedTokens?: number;
-  maxTotalTokens?: number;
-  maxBatchSize?: number;
-  batchWindowMs?: number;
-  maxConcurrentRequests?: number;
   revision?: string;
   accessToken?: string;
   cacheDir?: string;
-  apiKey?: string;
   localFilesOnly?: boolean;
   onProgress?: (event: PretrainedLoadProgressEvent) => void;
-  onEvent?: (event: ServeEvent) => void;
 };
 
 export type RunningModelServer = Disposable & {
@@ -416,6 +400,13 @@ export function serveLoadedModels(options: ServeLoadedModelsOptions): RunningMod
     port: resolved.port,
     engine,
     models: resolved.models.map((model) => ({ id: model.modelId })),
+    limits: {
+      maxGeneratedTokens: resolved.maxGeneratedTokens,
+      maxTotalTokens: resolved.maxTotalTokens,
+      maxBatchSize: resolved.maxBatchSize,
+      batchWindowMs: resolved.batchWindowMs,
+      maxConcurrentRequests: resolved.maxConcurrentRequests,
+    },
     ...(resolved.apiKey === undefined ? {} : { apiKey: resolved.apiKey }),
     ...(resolved.onEvent === undefined ? {} : { onEvent: resolved.onEvent }),
   };
