@@ -62,11 +62,37 @@ export type AgentModelResponse = {
   toolCalls?: readonly AgentToolCall[];
 };
 
+export type AgentModelStreamEvent =
+  | {
+      type: "content_delta";
+      contentDelta: string;
+    }
+  | {
+      type: "reasoning_delta";
+      reasoningContentDelta: string;
+    }
+  | {
+      type: "tool_call_delta";
+      index: number;
+      id?: string;
+      nameDelta?: string;
+      argumentsDelta?: string;
+    };
+
 export type AgentModel = {
   complete(request: AgentModelRequest): AgentModelResponse | Promise<AgentModelResponse>;
+  stream?(
+    request: AgentModelRequest,
+  ): AsyncIterable<AgentModelStreamEvent> | Promise<AsyncIterable<AgentModelStreamEvent>>;
 };
 
 export type AgentEvent =
+  | {
+      type: "model_delta";
+      iteration: number;
+      contentDelta?: string;
+      reasoningContentDelta?: string;
+    }
   | {
       type: "model_response";
       iteration: number;
@@ -94,6 +120,7 @@ export type AgentRunOptions = {
   model: AgentModel;
   messages: readonly AgentMessage[];
   tools?: readonly AgentTool[];
+  stream?: boolean;
   maxIterations?: number;
   maxToolResultChars?: number;
   onEvent?: (event: AgentEvent) => void | Promise<void>;

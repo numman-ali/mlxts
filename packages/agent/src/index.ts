@@ -27,6 +27,7 @@ export type {
   AgentModel,
   AgentModelRequest,
   AgentModelResponse,
+  AgentModelStreamEvent,
   AgentRole,
   AgentRunOptions,
   AgentRunResult,

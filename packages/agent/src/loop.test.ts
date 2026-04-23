@@ -57,6 +57,92 @@ describe("runAgentTurn", () => {
     ]);
   });
 
+  test("streams model deltas before aggregate response and tool execution", async () => {
+    const events: string[] = [];
+    const model: AgentModel = {
+      complete() {
+        throw new Error("stream should be used");
+      },
+      async *stream(request) {
+        if (request.messages.some((message) => message.role === "tool")) {
+          yield { type: "content_delta", contentDelta: "final answer" };
+          return;
+        }
+        yield { type: "reasoning_delta", reasoningContentDelta: "Need a lookup." };
+        yield {
+          type: "tool_call_delta",
+          index: 0,
+          id: "call-lookup",
+          nameDelta: "lookup",
+          argumentsDelta: '{"topic"',
+        };
+        yield { type: "tool_call_delta", index: 0, argumentsDelta: ':"mlxts"}' };
+      },
+    };
+    const tool: AgentTool = {
+      name: "lookup",
+      description: "Lookup a topic",
+      execute(args) {
+        events.push(`execute:${args.topic}`);
+        return `value:${args.topic}`;
+      },
+    };
+
+    const result = await runAgentTurn({
+      model,
+      tools: [tool],
+      messages: [{ role: "user", content: "lookup mlxts" }],
+      onEvent(event) {
+        if (event.type === "model_delta" && event.reasoningContentDelta !== undefined) {
+          events.push(`delta:${event.reasoningContentDelta}`);
+        }
+        if (event.type === "model_response" && event.reasoningContent !== undefined) {
+          events.push(`response:${event.reasoningContent}`);
+        }
+        if (event.type === "tool_call") {
+          events.push(`tool:${event.call.name}`);
+        }
+        if (event.type === "final") {
+          events.push(`final:${event.content}`);
+        }
+      },
+    });
+
+    expect(events).toEqual([
+      "delta:Need a lookup.",
+      "response:Need a lookup.",
+      "tool:lookup",
+      "execute:mlxts",
+      "final:final answer",
+    ]);
+    expect(result.toolCalls).toEqual([
+      { id: "call-lookup", name: "lookup", arguments: { topic: "mlxts" } },
+    ]);
+  });
+
+  test("uses non-streaming completion when streaming is disabled", async () => {
+    const events: string[] = [];
+    const model: AgentModel = {
+      complete() {
+        events.push("complete");
+        return { content: "non-streamed answer" };
+      },
+      async *stream() {
+        events.push("stream");
+        yield { type: "content_delta", contentDelta: "streamed answer" };
+      },
+    };
+
+    const result = await runAgentTurn({
+      model,
+      stream: false,
+      messages: [{ role: "user", content: "hi" }],
+    });
+
+    expect(events).toEqual(["complete"]);
+    expect(result.finalText).toBe("non-streamed answer");
+  });
+
   test("preserves reasoning across multi-step tool turns", async () => {
     const events: string[] = [];
     const model: AgentModel = {

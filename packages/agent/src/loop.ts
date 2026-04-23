@@ -8,6 +8,7 @@ import type {
   AgentEvent,
   AgentMessage,
   AgentModelResponse,
+  AgentModelStreamEvent,
   AgentRunOptions,
   AgentRunResult,
   AgentTool,
@@ -123,6 +124,134 @@ function modelResponseEvent(iteration: number, response: AgentModelResponse): Ag
   };
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+type StreamingToolCallState = {
+  id?: string;
+  name?: string;
+  arguments: string;
+};
+
+type StreamingModelState = {
+  content: string;
+  reasoningContent: string;
+  toolCalls: Map<number, StreamingToolCallState>;
+};
+
+function parseToolArguments(value: string): Record<string, unknown> {
+  if (value.trim() === "") {
+    return {};
+  }
+  try {
+    const parsed: unknown = JSON.parse(value);
+    return isRecord(parsed) ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function streamingToolCallAt(state: StreamingModelState, index: number): StreamingToolCallState {
+  const existing = state.toolCalls.get(index);
+  if (existing !== undefined) {
+    return existing;
+  }
+  const created = { arguments: "" };
+  state.toolCalls.set(index, created);
+  return created;
+}
+
+function applyStreamEvent(
+  state: StreamingModelState,
+  event: AgentModelStreamEvent,
+): AgentEvent | null {
+  switch (event.type) {
+    case "content_delta":
+      state.content += event.contentDelta;
+      return { type: "model_delta", iteration: 0, contentDelta: event.contentDelta };
+    case "reasoning_delta":
+      state.reasoningContent += event.reasoningContentDelta;
+      return {
+        type: "model_delta",
+        iteration: 0,
+        reasoningContentDelta: event.reasoningContentDelta,
+      };
+    case "tool_call_delta": {
+      const call = streamingToolCallAt(state, event.index);
+      if (event.id !== undefined && event.id.trim() !== "") {
+        call.id = event.id;
+      }
+      if (event.nameDelta !== undefined && event.nameDelta !== "") {
+        call.name = `${call.name ?? ""}${event.nameDelta}`;
+      }
+      if (event.argumentsDelta !== undefined) {
+        call.arguments += event.argumentsDelta;
+      }
+      return null;
+    }
+  }
+}
+
+function streamingToolCalls(state: StreamingModelState): AgentToolCall[] | undefined {
+  const calls = [...state.toolCalls.entries()]
+    .sort(([left], [right]) => left - right)
+    .map(([index, call]) => {
+      if (call.name === undefined || call.name.trim() === "") {
+        return null;
+      }
+      return {
+        id: call.id ?? `tool-${index + 1}`,
+        name: call.name,
+        arguments: parseToolArguments(call.arguments),
+      };
+    })
+    .filter((call): call is AgentToolCall => call !== null);
+  return calls.length === 0 ? undefined : calls;
+}
+
+async function modelResponse(
+  options: AgentRunOptions,
+  request: {
+    messages: readonly AgentMessage[];
+    tools: readonly AgentTool[];
+    iteration: number;
+  },
+): Promise<AgentModelResponse> {
+  if (options.stream === false || options.model.stream === undefined) {
+    return await options.model.complete(request);
+  }
+
+  const state: StreamingModelState = {
+    content: "",
+    reasoningContent: "",
+    toolCalls: new Map(),
+  };
+  const stream = await options.model.stream(request);
+  for await (const event of stream) {
+    const visible = applyStreamEvent(state, event);
+    if (visible !== null) {
+      await emit(options.onEvent, { ...visible, iteration: request.iteration });
+    }
+  }
+
+  const toolCalls = streamingToolCalls(state);
+  return toolCalls === undefined
+    ? {
+        content: state.content,
+        ...(state.reasoningContent.trim() === ""
+          ? {}
+          : { reasoningContent: state.reasoningContent.trim() }),
+      }
+    : {
+        content: state.content,
+        ...(state.reasoningContent.trim() === ""
+          ? {}
+          : { reasoningContent: state.reasoningContent.trim() }),
+        toolCalls,
+      };
+}
+
 /** Run one user-visible agent turn until a final answer or max-iteration stop. */
 export async function runAgentTurn(options: AgentRunOptions): Promise<AgentRunResult> {
   const tools = toolMap(options.tools ?? []);
@@ -132,7 +261,7 @@ export async function runAgentTurn(options: AgentRunOptions): Promise<AgentRunRe
   const maxToolResultChars = options.maxToolResultChars ?? DEFAULT_MAX_TOOL_RESULT_CHARS;
 
   for (let iteration = 0; iteration < maxIterations; iteration += 1) {
-    const response = await options.model.complete({
+    const response = await modelResponse(options, {
       messages,
       tools: [...tools.values()],
       iteration,

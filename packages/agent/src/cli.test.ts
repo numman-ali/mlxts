@@ -34,6 +34,7 @@ describe("agent CLI args", () => {
         maxTokens: 256,
         temperature: 0.7,
         enableThinking: false,
+        stream: true,
         maxIterations: 4,
         verbose: true,
       },
@@ -48,6 +49,7 @@ describe("agent CLI args", () => {
         endpoint: "http://127.0.0.1:8000",
         cwd: process.cwd(),
         maxTokens: 512,
+        stream: true,
         maxIterations: 8,
         verbose: false,
       },
@@ -64,9 +66,14 @@ describe("agent CLI args", () => {
         maxTokens: 512,
         temperature: 0,
         enableThinking: true,
+        stream: true,
         maxIterations: 8,
         verbose: false,
       },
+    });
+    expect(parseAgentArgs(["--model", "qwen-local", "--no-stream"])).toMatchObject({
+      kind: "agent",
+      options: { stream: false },
     });
   });
 
@@ -117,6 +124,7 @@ describe("agent CLI args", () => {
         endpoint: "http://localhost:8000",
         cwd: ".",
         maxTokens: 32,
+        stream: true,
         maxIterations: 4,
         verbose: false,
       },
@@ -157,6 +165,7 @@ describe("agent CLI args", () => {
         endpoint: "http://localhost:8000",
         cwd: ".",
         maxTokens: 32,
+        stream: true,
         maxIterations: 4,
         verbose: false,
       },
@@ -178,6 +187,89 @@ describe("agent CLI args", () => {
     expect(logs.join("\n")).toContain("[assistant]\n  answer 2");
   });
 
+  test("prints streamed assistant content without duplicating the final answer", async () => {
+    const inputs = ["hello", "exit"];
+    const logs: string[] = [];
+    const model: AgentModel = {
+      complete() {
+        throw new Error("stream should be used");
+      },
+      async *stream() {
+        yield { type: "reasoning_delta", reasoningContentDelta: "Say hello." };
+        yield { type: "content_delta", contentDelta: "Hel" };
+        yield { type: "content_delta", contentDelta: "lo" };
+      },
+    };
+
+    await runAgentRepl(
+      {
+        model: "qwen-local",
+        endpoint: "http://localhost:8000",
+        cwd: ".",
+        maxTokens: 32,
+        stream: true,
+        maxIterations: 4,
+        verbose: false,
+      },
+      {
+        model,
+        tools: [],
+        prompt() {
+          return inputs.shift() ?? "exit";
+        },
+        log(message) {
+          logs.push(message);
+        },
+      },
+    );
+
+    const rendered = logs.join("\n");
+    expect(rendered).toContain("[thinking]\n  Say hello.");
+    expect(rendered).toContain("[assistant]\n  Hel\n  lo");
+    expect(rendered.match(/\[assistant\]/g)).toHaveLength(1);
+  });
+
+  test("honors non-streaming REPL mode even when the model can stream", async () => {
+    const inputs = ["hello", "exit"];
+    const calls: string[] = [];
+    const logs: string[] = [];
+    const model: AgentModel = {
+      complete() {
+        calls.push("complete");
+        return { content: "whole answer" };
+      },
+      async *stream() {
+        calls.push("stream");
+        yield { type: "content_delta", contentDelta: "streamed answer" };
+      },
+    };
+
+    await runAgentRepl(
+      {
+        model: "qwen-local",
+        endpoint: "http://localhost:8000",
+        cwd: ".",
+        maxTokens: 32,
+        stream: false,
+        maxIterations: 4,
+        verbose: false,
+      },
+      {
+        model,
+        tools: [],
+        prompt() {
+          return inputs.shift() ?? "exit";
+        },
+        log(message) {
+          logs.push(message);
+        },
+      },
+    );
+
+    expect(calls).toEqual(["complete"]);
+    expect(logs.join("\n")).toContain("[assistant]\n  whole answer");
+  });
+
   test("prints a clear notice when a turn exhausts max iterations", async () => {
     const logs: string[] = [];
     const inputs = ["loop", "exit"];
@@ -188,6 +280,7 @@ describe("agent CLI args", () => {
         endpoint: "http://localhost:8000",
         cwd: ".",
         maxTokens: 32,
+        stream: true,
         maxIterations: 1,
         verbose: false,
       },
@@ -228,6 +321,7 @@ describe("agent CLI args", () => {
         endpoint: "http://localhost:8000",
         cwd: ".",
         maxTokens: 32,
+        stream: true,
         maxIterations: 4,
         verbose: false,
       },

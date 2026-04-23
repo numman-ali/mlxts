@@ -3,6 +3,7 @@
  * @module
  */
 
+import { aggregateAgentModelStream, streamOpenAIChatCompletionEvents } from "./chat-streaming";
 import { formatToolInstructions } from "./tool-calls";
 import type { AgentMessage, AgentModel, AgentTool, AgentToolCall } from "./types";
 
@@ -13,6 +14,7 @@ export type ChatAgentModelOptions = {
   maxTokens?: number;
   temperature?: number;
   enableThinking?: boolean;
+  stream?: boolean;
   verbose?: boolean;
   fetch?: (input: string | URL | Request, init?: ChatFetchInit) => Promise<Response>;
 };
@@ -85,12 +87,14 @@ function requestBody(
   options: ChatAgentModelOptions,
   messages: readonly AgentMessage[],
   tools: readonly AgentTool[],
+  stream: boolean,
 ) {
   return {
     model: options.model,
     messages: messagesWithToolInstructions(messages, tools),
     ...(tools.length === 0 ? {} : { tools: tools.map(toOpenAITool), tool_choice: "auto" }),
     max_tokens: options.maxTokens ?? DEFAULT_AGENT_MAX_TOKENS,
+    ...(stream ? { stream: true } : {}),
     ...(options.temperature === undefined ? {} : { temperature: options.temperature }),
     ...(options.enableThinking === undefined
       ? {}
@@ -202,7 +206,7 @@ export function createOpenAIChatAgentModel(options: ChatAgentModelOptions): Agen
   const fetchImpl = options.fetch ?? fetch;
   const url = chatUrl(options.endpoint);
 
-  return {
+  const model: AgentModel = {
     async complete(request) {
       const headers = new Headers({ "content-type": "application/json" });
       if (options.apiKey !== undefined) {
@@ -212,7 +216,9 @@ export function createOpenAIChatAgentModel(options: ChatAgentModelOptions): Agen
       const init: ChatFetchInit = {
         method: "POST",
         headers,
-        body: JSON.stringify(requestBody(options, request.messages, request.tools)),
+        body: JSON.stringify(
+          requestBody(options, request.messages, request.tools, options.stream === true),
+        ),
       };
       if (options.verbose === true) {
         init.verbose = true;
@@ -225,7 +231,42 @@ export function createOpenAIChatAgentModel(options: ChatAgentModelOptions): Agen
         );
       }
 
+      if (options.stream === true) {
+        return await aggregateAgentModelStream(streamOpenAIChatCompletionEvents(response));
+      }
+
       return responseMessage(await response.json());
     },
   };
+
+  if (options.stream === false) {
+    return model;
+  }
+
+  model.stream = async (request) => {
+    const headers = new Headers({ "content-type": "application/json" });
+    if (options.apiKey !== undefined) {
+      headers.set("authorization", `Bearer ${options.apiKey}`);
+    }
+
+    const init: ChatFetchInit = {
+      method: "POST",
+      headers,
+      body: JSON.stringify(requestBody(options, request.messages, request.tools, true)),
+    };
+    if (options.verbose === true) {
+      init.verbose = true;
+    }
+
+    const response = await fetchImpl(url, init);
+    if (!response.ok) {
+      throw new Error(
+        `Chat completion request failed (${response.status}): ${await errorText(response)}`,
+      );
+    }
+
+    return streamOpenAIChatCompletionEvents(response);
+  };
+
+  return model;
 }

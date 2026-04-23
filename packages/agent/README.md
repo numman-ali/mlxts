@@ -23,7 +23,9 @@ mlxts-agent --model qwen-local --endpoint http://127.0.0.1:8000 --cwd .
 Agent turns use the served model's generation defaults unless you override them.
 Use `--greedy` or `--deterministic` when you want `temperature: 0`, and use
 `--thinking` / `--no-thinking` to pass Qwen-style thinking controls through the
-chat template when the served model supports them.
+chat template when the served model supports them. The CLI uses streaming chat
+completions by default so reasoning and assistant text appear as the model
+generates; use `--no-stream` to force the older whole-response path.
 
 The CLI prints model reasoning, tool calls, tool results, and final answers as
 separate sections (`[thinking]`, `[tool call]`, `[tool result]`, `[assistant]`)

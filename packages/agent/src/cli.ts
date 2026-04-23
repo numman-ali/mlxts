@@ -13,6 +13,7 @@ export type AgentCliOptions = {
   maxTokens: number;
   temperature?: number;
   enableThinking?: boolean;
+  stream: boolean;
   maxIterations: number;
   verbose: boolean;
 };
@@ -36,6 +37,7 @@ type ParseState = {
   maxTokens: number;
   temperature?: number;
   enableThinking?: boolean;
+  stream: boolean;
   maxIterations: number;
   verbose: boolean;
 };
@@ -66,6 +68,7 @@ function createParseState(): ParseState {
     endpoint: "http://127.0.0.1:8000",
     cwd: process.cwd(),
     maxTokens: DEFAULT_AGENT_MAX_TOKENS,
+    stream: true,
     maxIterations: 8,
     verbose: false,
   };
@@ -112,6 +115,12 @@ function applyFlag(state: ParseState, argv: readonly string[], index: number): n
     case "--no-thinking":
       state.enableThinking = false;
       return index;
+    case "--stream":
+      state.stream = true;
+      return index;
+    case "--no-stream":
+      state.stream = false;
+      return index;
     case "--max-iterations":
       state.maxIterations = readNumberFlag(
         arg,
@@ -150,6 +159,7 @@ function stateToOptions(state: ParseState): AgentCliParseResult {
       maxTokens: state.maxTokens,
       ...(state.temperature === undefined ? {} : { temperature: state.temperature }),
       ...(state.enableThinking === undefined ? {} : { enableThinking: state.enableThinking }),
+      stream: state.stream,
       maxIterations: state.maxIterations,
       verbose: state.verbose,
     },
@@ -174,6 +184,8 @@ export function formatAgentUsage(): string {
     "  --deterministic           Alias for --temperature 0",
     "  --thinking                Ask compatible chat templates to enable thinking",
     "  --no-thinking             Ask compatible chat templates to disable thinking",
+    "  --stream                  Use chat-completion streaming transport (default)",
+    "  --no-stream               Use non-streaming chat completions",
     "  --max-iterations <n>      Max model/tool loop steps per user turn (default: 8)",
     "  --verbose                 Enable verbose fetch diagnostics",
     "  --help                    Show this help",
@@ -219,6 +231,14 @@ export function printAgentEvent(
   log: (message: string) => void = console.log,
 ): void {
   switch (event.type) {
+    case "model_delta":
+      if (event.reasoningContentDelta !== undefined) {
+        log(formatCliSection("[thinking]", event.reasoningContentDelta));
+      }
+      if (event.contentDelta !== undefined) {
+        log(formatCliSection("[assistant]", event.contentDelta));
+      }
+      return;
     case "tool_call":
       log(
         formatCliSection(
@@ -246,6 +266,95 @@ export function printAgentEvent(
   }
 }
 
+type AgentEventPrinterState = {
+  iteration: number;
+  streamedContent: boolean;
+  streamedReasoning: boolean;
+};
+
+function resetPrinterState(state: AgentEventPrinterState, eventIteration: number): void {
+  if (eventIteration === state.iteration) {
+    return;
+  }
+  state.iteration = eventIteration;
+  state.streamedContent = false;
+  state.streamedReasoning = false;
+}
+
+function printStreamDelta(
+  event: Extract<AgentEvent, { type: "model_delta" }>,
+  state: AgentEventPrinterState,
+  log: (message: string) => void,
+): void {
+  if (event.reasoningContentDelta !== undefined) {
+    if (!state.streamedReasoning) {
+      log("\n[thinking]");
+      state.streamedReasoning = true;
+    }
+    log(indentBlock(event.reasoningContentDelta));
+  }
+  if (event.contentDelta !== undefined) {
+    if (!state.streamedContent) {
+      log("\n[assistant]");
+      state.streamedContent = true;
+    }
+    log(indentBlock(event.contentDelta));
+  }
+}
+
+function printAggregateReasoning(
+  event: Extract<AgentEvent, { type: "model_response" }>,
+  state: AgentEventPrinterState,
+  log: (message: string) => void,
+): void {
+  if (
+    !state.streamedReasoning &&
+    event.reasoningContent !== undefined &&
+    event.reasoningContent.trim() !== ""
+  ) {
+    log(formatCliSection("[thinking]", event.reasoningContent));
+  }
+}
+
+function printFinalAnswer(
+  event: Extract<AgentEvent, { type: "final" }>,
+  state: AgentEventPrinterState,
+  log: (message: string) => void,
+): void {
+  if (state.streamedContent) {
+    log("");
+    return;
+  }
+  log(`${formatCliSection("[assistant]", event.content)}\n`);
+}
+
+export function createAgentEventPrinter(
+  log: (message: string) => void = console.log,
+): (event: AgentEvent) => void {
+  const state: AgentEventPrinterState = {
+    iteration: -1,
+    streamedContent: false,
+    streamedReasoning: false,
+  };
+
+  return (event) => {
+    resetPrinterState(state, event.iteration);
+    switch (event.type) {
+      case "model_delta":
+        printStreamDelta(event, state, log);
+        return;
+      case "model_response":
+        printAggregateReasoning(event, state, log);
+        return;
+      case "final":
+        printFinalAnswer(event, state, log);
+        return;
+      default:
+        printAgentEvent(event, log);
+    }
+  };
+}
+
 export async function runAgentRepl(
   options: AgentCliOptions,
   runtime: AgentCliRuntime = {},
@@ -254,6 +363,7 @@ export async function runAgentRepl(
   const tools = runtime.tools ?? createReadOnlyFileTools({ root: options.cwd });
   const readInput = runtime.prompt ?? prompt;
   const log = runtime.log ?? console.log;
+  const printEvent = createAgentEventPrinter(log);
   const messages: AgentMessage[] = [];
 
   log(`Talking to ${options.model} at ${options.endpoint}. Type "exit" to quit.`);
@@ -271,8 +381,9 @@ export async function runAgentRepl(
       model,
       tools,
       messages,
+      stream: options.stream,
       maxIterations: options.maxIterations,
-      onEvent: (event) => printAgentEvent(event, log),
+      onEvent: (event) => printEvent(event),
     });
     if (result.finishReason === "max_iterations") {
       log(
