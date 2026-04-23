@@ -10,13 +10,13 @@ import {
   KVCache,
 } from "@mlxts/transformers";
 import { createTransformersGenerationEngine } from "./transformers-engine";
-import type { GenerationStreamEvent } from "./types";
+import type { GenerationStreamEvent, NormalizedGenerationRequest } from "./types";
 
 class TinyTokenizer implements Tokenizer {
   readonly vocabSize = 4;
-  readonly bosTokenId = undefined;
+  readonly bosTokenId: number | undefined = undefined;
   readonly eosTokenIds: number[] = [];
-  readonly padTokenId = undefined;
+  readonly padTokenId: number | undefined = undefined;
 
   encode(text: string): number[] {
     return text.split("").map(() => 0);
@@ -39,20 +39,54 @@ class TinyTokenizer implements Tokenizer {
   }
 }
 
-class TinyModel implements CausalLM {
-  readonly family = "gemma";
-  readonly layerCount = 1;
-  readonly config: BaseModelConfig = {
-    family: "gemma",
-    modelType: "serve-test",
-    rawConfig: {},
-    vocabSize: 4,
-    hiddenSize: 1,
-    numHiddenLayers: 1,
-  };
+class SpecialTokenTokenizer extends TinyTokenizer {
+  override readonly bosTokenId: number | undefined = 3;
 
-  forward(_inputIds: MxArray, _options?: ForwardOptions): MxArray {
-    return array([[[0.1, 0.2, 0.9, 0.0]]], "float32");
+  override encode(text: string, options: Parameters<Tokenizer["encode"]>[1] = {}): number[] {
+    const ids = super.encode(text);
+    return options.addSpecialTokens === false ? ids : [3, ...ids];
+  }
+}
+
+class TinyModel implements CausalLM {
+  readonly family: BaseModelConfig["family"];
+  readonly layerCount = 1;
+  readonly config: BaseModelConfig;
+  readonly forwardBatchSizes: number[] = [];
+
+  constructor(config: Partial<BaseModelConfig> = {}) {
+    const family = config.family ?? "gemma";
+    this.family = family;
+    this.config = {
+      family,
+      modelType: config.modelType ?? "serve-test",
+      rawConfig: config.rawConfig ?? {},
+      vocabSize: 4,
+      hiddenSize: 1,
+      numHiddenLayers: 1,
+      ...(config.generationDefaults === undefined
+        ? {}
+        : { generationDefaults: config.generationDefaults }),
+    };
+  }
+
+  get batchForwardCount(): number {
+    return this.forwardBatchSizes.filter((batchSize) => batchSize > 1).length;
+  }
+
+  forward(inputIds: MxArray, options?: ForwardOptions): MxArray {
+    const [batchSize, sequenceLength] = inputIds.shape;
+    if (batchSize === undefined || sequenceLength === undefined) {
+      throw new Error("TinyModel.forward expected rank-2 token ids.");
+    }
+    this.forwardBatchSizes.push(batchSize);
+    options?.cache?.advance(sequenceLength);
+    return array(
+      Array.from({ length: batchSize }, () =>
+        Array.from({ length: sequenceLength }, () => [0.1, 0.2, 0.9, 0.0]),
+      ),
+      "float32",
+    );
   }
 
   createCache() {
@@ -114,6 +148,24 @@ const chatProfile: InteractionProfile = {
   },
 };
 
+function textRequest(
+  id: string,
+  sampling: NormalizedGenerationRequest["sampling"] = { maxTokens: 2, temperature: 0 },
+): NormalizedGenerationRequest {
+  return {
+    id,
+    model: "tiny",
+    input: { kind: "text", text: "hi" },
+    sampling,
+    stream: false,
+    protocol: "openai.completions",
+  };
+}
+
+function batchEligibleModel(config: Partial<BaseModelConfig> = {}): TinyModel {
+  return new TinyModel({ family: "llama", modelType: "llama", ...config });
+}
+
 describe("transformers generation engine", () => {
   test("adapts text requests to generateTextStream", async () => {
     using model = new TinyModel();
@@ -160,6 +212,23 @@ describe("transformers generation engine", () => {
 
     expect(result.text).toBe("");
     expect(result.finishReason).toBe("stop");
+  });
+
+  test("counts text prompt tokens with the special tokens used for generation", async () => {
+    using model = new TinyModel();
+    const tokenizer = new SpecialTokenTokenizer();
+    const engine = createTransformersGenerationEngine({ model, tokenizer });
+
+    const result = await engine.generate({
+      id: "request-1",
+      model: "tiny",
+      input: { kind: "text", text: "hi" },
+      sampling: { maxTokens: 1, temperature: 0 },
+      stream: false,
+      protocol: "openai.completions",
+    });
+
+    expect(result.usage).toEqual({ promptTokens: 3, completionTokens: 1, totalTokens: 4 });
   });
 
   test("rejects requests over the configured total token budget before generation", () => {
@@ -217,6 +286,138 @@ describe("transformers generation engine", () => {
 
     expect(result.text).toBe("cc");
     expect(result.usage).toEqual({ promptTokens: 7, completionTokens: 2, totalTokens: 9 });
+  });
+
+  test("uses static batch generation for eligible greedy full-cache requests", async () => {
+    using model = batchEligibleModel();
+    const tokenizer = new TinyTokenizer();
+    const engine = createTransformersGenerationEngine({ model, tokenizer });
+    const generateBatch = engine.generateBatch;
+    if (generateBatch === undefined) {
+      throw new Error("Expected transformers engine to expose generateBatch.");
+    }
+
+    const results = await generateBatch([textRequest("one"), textRequest("two")]);
+
+    expect(results.map((result) => result.text)).toEqual(["cc", "cc"]);
+    expect(results.map((result) => result.usage)).toEqual([
+      { promptTokens: 2, completionTokens: 2, totalTokens: 4 },
+      { promptTokens: 2, completionTokens: 2, totalTokens: 4 },
+    ]);
+    expect(model.batchForwardCount).toBeGreaterThan(0);
+  });
+
+  test("keeps per-row stop handling on static batch results", async () => {
+    using model = batchEligibleModel();
+    const tokenizer = new TinyTokenizer();
+    const engine = createTransformersGenerationEngine({ model, tokenizer });
+    const generateBatch = engine.generateBatch;
+    if (generateBatch === undefined) {
+      throw new Error("Expected transformers engine to expose generateBatch.");
+    }
+
+    const results = await generateBatch([
+      textRequest("stopped", { maxTokens: 2, temperature: 0, stop: ["c"] }),
+      textRequest("plain"),
+    ]);
+
+    expect(results[0]?.text).toBe("");
+    expect(results[0]?.finishReason).toBe("stop");
+    expect(results[1]?.text).toBe("cc");
+    expect(results[1]?.finishReason).toBe("length");
+    expect(model.batchForwardCount).toBeGreaterThan(0);
+  });
+
+  test("falls back when static batch requests have different generation lengths", async () => {
+    using model = batchEligibleModel();
+    const tokenizer = new TinyTokenizer();
+    const engine = createTransformersGenerationEngine({ model, tokenizer });
+    const generateBatch = engine.generateBatch;
+    if (generateBatch === undefined) {
+      throw new Error("Expected transformers engine to expose generateBatch.");
+    }
+
+    const results = await generateBatch([
+      textRequest("short", { maxTokens: 1, temperature: 0 }),
+      textRequest("long", { maxTokens: 2, temperature: 0 }),
+    ]);
+
+    expect(results.map((result) => result.text)).toEqual(["c", "cc"]);
+    expect(model.batchForwardCount).toBe(0);
+  });
+
+  test("falls back for explicit or model-default sampled requests", async () => {
+    using explicitSampled = batchEligibleModel();
+    using defaultSampled = batchEligibleModel({
+      generationDefaults: { temperature: 1, topK: 1 },
+    });
+    const tokenizer = new TinyTokenizer();
+    const explicitEngine = createTransformersGenerationEngine({
+      model: explicitSampled,
+      tokenizer,
+    });
+    const defaultEngine = createTransformersGenerationEngine({ model: defaultSampled, tokenizer });
+    const explicitBatch = explicitEngine.generateBatch;
+    const defaultBatch = defaultEngine.generateBatch;
+    if (explicitBatch === undefined || defaultBatch === undefined) {
+      throw new Error("Expected transformers engine to expose generateBatch.");
+    }
+
+    await explicitBatch([
+      textRequest("sampled-one", { maxTokens: 2, temperature: 1, topK: 1 }),
+      textRequest("sampled-two", { maxTokens: 2, temperature: 1, topK: 1 }),
+    ]);
+    await defaultBatch([
+      textRequest("default-one", { maxTokens: 2 }),
+      textRequest("default-two", { maxTokens: 2 }),
+    ]);
+
+    expect(explicitSampled.batchForwardCount).toBe(0);
+    expect(defaultSampled.batchForwardCount).toBe(0);
+  });
+
+  test("preserves prompt-open reasoning handling on static chat batches", async () => {
+    using model = batchEligibleModel();
+    const tokenizer = new TinyTokenizer();
+    const thinkingProfile: InteractionProfile = {
+      ...chatProfile,
+      compileMessages(tokenizer, messages) {
+        const text = `${messages.map((message) => `${message.role}:${message.content}`).join("\n")}\n<think>\n`;
+        return { text, tokenIds: tokenizer.encode(text) };
+      },
+    };
+    const engine = createTransformersGenerationEngine({
+      model,
+      tokenizer,
+      interactionProfile: thinkingProfile,
+    });
+    const generateBatch = engine.generateBatch;
+    if (generateBatch === undefined) {
+      throw new Error("Expected transformers engine to expose generateBatch.");
+    }
+
+    const results = await generateBatch([
+      {
+        id: "chat-one",
+        model: "tiny",
+        input: { kind: "messages", messages: [{ role: "user", content: "hi" }] },
+        sampling: { maxTokens: 1, temperature: 0 },
+        stream: false,
+        protocol: "openai.chat_completions",
+      },
+      {
+        id: "chat-two",
+        model: "tiny",
+        input: { kind: "messages", messages: [{ role: "user", content: "hello" }] },
+        sampling: { maxTokens: 1, temperature: 0 },
+        stream: false,
+        protocol: "openai.chat_completions",
+      },
+    ]);
+
+    expect(results.map((result) => result.text)).toEqual(["", ""]);
+    expect(results.map((result) => result.reasoningContent)).toEqual(["c", "c"]);
+    expect(model.batchForwardCount).toBeGreaterThan(0);
   });
 
   test("passes chat template thinking controls through the interaction profile", async () => {

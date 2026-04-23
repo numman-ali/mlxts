@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type { MxArray, ParameterTree } from "@mlxts/core";
+import { array, type MxArray, type ParameterTree } from "@mlxts/core";
 import type { Tokenizer } from "@mlxts/tokenizers";
 import type {
   BaseModelConfig,
@@ -8,6 +8,7 @@ import type {
   InteractionProfile,
   TransformerCache,
 } from "@mlxts/transformers";
+import { KVCache } from "@mlxts/transformers";
 
 import {
   type ServeModelRuntime,
@@ -18,7 +19,7 @@ import {
 
 class FakeModel implements CausalLM {
   readonly family = "llama";
-  readonly layerCount = 0;
+  readonly layerCount: number = 0;
   readonly config: BaseModelConfig = {
     family: "llama",
     modelType: "fake",
@@ -77,10 +78,10 @@ class FakeModel implements CausalLM {
 }
 
 class FakeTokenizer implements Tokenizer {
-  readonly vocabSize = 8;
-  readonly bosTokenId = undefined;
-  readonly eosTokenIds = [];
-  readonly padTokenId = undefined;
+  readonly vocabSize: number = 8;
+  readonly bosTokenId: number | undefined = undefined;
+  readonly eosTokenIds: number[] = [];
+  readonly padTokenId: number | undefined = undefined;
 
   encode(text: string): number[] {
     return [...text].map((char) => char.charCodeAt(0));
@@ -100,6 +101,50 @@ class FakeTokenizer implements Tokenizer {
 
   decodeBatch(batch: number[][]): string[] {
     return batch.map((tokenIds) => this.decode(tokenIds));
+  }
+}
+
+class GeneratingModel extends FakeModel {
+  override readonly config: BaseModelConfig = {
+    family: "llama",
+    modelType: "llama",
+    rawConfig: {},
+    vocabSize: 4,
+    hiddenSize: 1,
+    numHiddenLayers: 1,
+  };
+  override readonly layerCount: number = 1;
+  readonly forwardBatchSizes: number[] = [];
+
+  get batchForwardCount(): number {
+    return this.forwardBatchSizes.filter((batchSize) => batchSize > 1).length;
+  }
+
+  override forward(inputIds: MxArray, options?: ForwardOptions): MxArray {
+    const [batchSize, sequenceLength] = inputIds.shape;
+    if (batchSize === undefined || sequenceLength === undefined) {
+      throw new Error("GeneratingModel.forward expected rank-2 token ids.");
+    }
+    this.forwardBatchSizes.push(batchSize);
+    options?.cache?.advance(sequenceLength);
+    return array(
+      Array.from({ length: batchSize }, () =>
+        Array.from({ length: sequenceLength }, () => [0.1, 0.2, 0.9, 0.0]),
+      ),
+      "float32",
+    );
+  }
+
+  override createCache(): TransformerCache {
+    return new KVCache(this.layerCount);
+  }
+}
+
+class GeneratingTokenizer extends FakeTokenizer {
+  override readonly vocabSize: number = 4;
+
+  override decode(tokenIds: number[]): string {
+    return tokenIds.map((tokenId) => String.fromCharCode(97 + tokenId)).join("");
   }
 }
 
@@ -154,6 +199,48 @@ describe("serveLoadedModel", () => {
 
     running[Symbol.dispose]();
     expect(model.disposeCount).toBe(1);
+  });
+
+  test("coalesces concurrent non-streaming completions into the transformer batch path", async () => {
+    const model = new GeneratingModel();
+    const running = serveLoadedModel({
+      model,
+      tokenizer: new GeneratingTokenizer(),
+      modelId: "tiny",
+      port: 0,
+      maxBatchSize: 2,
+      batchWindowMs: 5,
+      maxConcurrentRequests: 1,
+    });
+
+    try {
+      const body = JSON.stringify({
+        model: "tiny",
+        prompt: "hi",
+        max_tokens: 2,
+        temperature: 0,
+      });
+      const [first, second] = await Promise.all([
+        fetch(`${running.endpoint}/v1/completions`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body,
+        }),
+        fetch(`${running.endpoint}/v1/completions`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body,
+        }),
+      ]);
+
+      expect(first.status).toBe(200);
+      expect(second.status).toBe(200);
+      expect(await first.json()).toMatchObject({ choices: [{ text: "cc" }] });
+      expect(await second.json()).toMatchObject({ choices: [{ text: "cc" }] });
+      expect(model.batchForwardCount).toBeGreaterThan(0);
+    } finally {
+      running.stop();
+    }
   });
 
   test("validates operator-facing server options before binding", () => {
