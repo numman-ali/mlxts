@@ -133,6 +133,16 @@ export type ServeEvent =
       maxTokensByRequest: readonly number[];
     }
   | {
+      type: "generation_admission_batch";
+      mode: "micro";
+      engineMode: "batch" | "sequential";
+      model: string;
+      ids: readonly string[];
+      batchSize: number;
+      maxTokens: number;
+      maxTokensByRequest: readonly number[];
+    }
+  | {
       type: "generation_complete";
       id: string;
       protocol: GenerationProtocol;

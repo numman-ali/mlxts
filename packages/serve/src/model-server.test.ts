@@ -17,6 +17,7 @@ import {
   serveModel,
   serveModelWithRuntime,
 } from "./model-server";
+import type { ServeEvent } from "./types";
 
 class FakeModel implements CausalLM {
   readonly family = "llama";
@@ -215,6 +216,7 @@ describe("serveLoadedModel", () => {
 
   test("coalesces concurrent non-streaming completions into the transformer batch path", async () => {
     const model = new GeneratingModel();
+    const events: ServeEvent[] = [];
     const running = serveLoadedModel({
       model,
       tokenizer: new GeneratingTokenizer(),
@@ -223,6 +225,7 @@ describe("serveLoadedModel", () => {
       maxBatchSize: 2,
       batchWindowMs: 5,
       maxConcurrentRequests: 1,
+      onEvent: (event) => events.push(event),
     });
 
     try {
@@ -250,6 +253,17 @@ describe("serveLoadedModel", () => {
       expect(await first.json()).toMatchObject({ choices: [{ text: "cc" }] });
       expect(await second.json()).toMatchObject({ choices: [{ text: "cc" }] });
       expect(model.batchForwardCount).toBeGreaterThan(0);
+      expect(events.find((event) => event.type === "generation_admission_batch")).toMatchObject({
+        mode: "micro",
+        engineMode: "batch",
+        model: "tiny",
+        batchSize: 2,
+      });
+      expect(events.find((event) => event.type === "generation_batch_start")).toMatchObject({
+        mode: "static",
+        model: "tiny",
+        batchSize: 2,
+      });
     } finally {
       running.stop();
     }

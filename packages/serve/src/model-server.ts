@@ -351,6 +351,7 @@ function createLoadedModelEngine(
     }),
     maxBatchSize: options.maxBatchSize,
     batchWindowMs: options.batchWindowMs,
+    ...(options.onEvent === undefined ? {} : { onEvent: options.onEvent }),
   });
   return createRequestLimitGenerationEngine({
     engine: modelEngine,

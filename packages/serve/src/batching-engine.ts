@@ -8,12 +8,14 @@ import type {
   GenerationEngine,
   NormalizedGenerationRequest,
   NormalizedGenerationResult,
+  ServeEvent,
 } from "./types";
 
 export type MicroBatchingGenerationEngineOptions = {
   engine: GenerationEngine;
   maxBatchSize?: number;
   batchWindowMs?: number;
+  onEvent?: (event: ServeEvent) => void;
 };
 
 type PendingGeneration = {
@@ -64,6 +66,32 @@ async function runBatch(
   return results;
 }
 
+function batchModel(requests: readonly NormalizedGenerationRequest[]): string {
+  const first = requests[0]?.model ?? "unknown";
+  return requests.every((request) => request.model === first) ? first : "mixed";
+}
+
+function emitAdmissionBatch(
+  options: MicroBatchingGenerationEngineOptions,
+  batch: readonly PendingGeneration[],
+): void {
+  if (batch.length <= 1) {
+    return;
+  }
+  const requests = batch.map((entry) => entry.request);
+  const maxTokensByRequest = requests.map((request) => request.sampling.maxTokens);
+  options.onEvent?.({
+    type: "generation_admission_batch",
+    mode: "micro",
+    engineMode: options.engine.generateBatch === undefined ? "sequential" : "batch",
+    model: batchModel(requests),
+    ids: requests.map((request) => request.id),
+    batchSize: batch.length,
+    maxTokens: Math.max(...maxTokensByRequest),
+    maxTokensByRequest,
+  });
+}
+
 /**
  * Coalesce nearby non-streaming `generate()` calls into `generateBatch()` calls.
  *
@@ -81,6 +109,7 @@ export function createMicroBatchingGenerationEngine(
   let flushInFlight = false;
 
   async function settleBatch(batch: readonly PendingGeneration[]): Promise<void> {
+    emitAdmissionBatch(options, batch);
     try {
       const results = await runBatch(
         options.engine,

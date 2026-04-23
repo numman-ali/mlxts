@@ -51,11 +51,11 @@ instance. `--max-concurrent-requests <n>` bounds the number of in-flight model
 jobs; the default is `1` so one loaded Gemma/Qwen runtime is owned by one
 generation at a time.
 
-Generation start, static batch start, completion, and errors are logged by
-default so native generation failures leave a useful last known stage in the
-terminal. Use `--verbose` while debugging to add request start/completion logs.
-Multi-model CLI loads are logged with the model index and model id so long
-startup sequences are easier to follow.
+Generation start, admission micro-batch, static batch start, completion, and
+errors are logged by default so native generation failures leave a useful last
+known stage in the terminal. Use `--verbose` while debugging to add request
+start/completion logs. Multi-model CLI loads are logged with the model index and
+model id so long startup sequences are easier to follow.
 
 The first-class model server wraps one loaded model in a small single-flight
 admission queue. Nearby non-streaming requests can coalesce into one

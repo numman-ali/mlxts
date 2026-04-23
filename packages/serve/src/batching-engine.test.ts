@@ -1,7 +1,12 @@
 import { describe, expect, test } from "bun:test";
 
 import { createMicroBatchingGenerationEngine } from "./batching-engine";
-import type { GenerationEngine, GenerationStreamEvent, NormalizedGenerationRequest } from "./types";
+import type {
+  GenerationEngine,
+  GenerationStreamEvent,
+  NormalizedGenerationRequest,
+  ServeEvent,
+} from "./types";
 
 function textRequest(id: string): NormalizedGenerationRequest {
   return {
@@ -32,6 +37,7 @@ describe("micro-batching generation engine", () => {
 
   test("coalesces nearby generate calls into one batch-capable engine call", async () => {
     const batchIds: string[][] = [];
+    const events: ServeEvent[] = [];
     const inner: GenerationEngine = {
       generate() {
         throw new Error("generate should not be called when generateBatch is available");
@@ -45,6 +51,7 @@ describe("micro-batching generation engine", () => {
       engine: inner,
       batchWindowMs: 0,
       maxBatchSize: 8,
+      onEvent: (event) => events.push(event),
     });
 
     const results = await Promise.all([
@@ -55,6 +62,18 @@ describe("micro-batching generation engine", () => {
     ]);
 
     expect(batchIds).toEqual([["agent-1", "agent-2", "agent-3", "agent-4"]]);
+    expect(events).toEqual([
+      {
+        type: "generation_admission_batch",
+        mode: "micro",
+        engineMode: "batch",
+        model: "tiny",
+        ids: ["agent-1", "agent-2", "agent-3", "agent-4"],
+        batchSize: 4,
+        maxTokens: 1,
+        maxTokensByRequest: [1, 1, 1, 1],
+      },
+    ]);
     expect(results.map((result) => result.text)).toEqual([
       "ok:agent-1",
       "ok:agent-2",
@@ -142,17 +161,34 @@ describe("micro-batching generation engine", () => {
 
   test("falls back to sequential generation when the inner engine is not batch-capable", async () => {
     const seen: string[] = [];
+    const events: ServeEvent[] = [];
     const inner: GenerationEngine = {
       generate(request) {
         seen.push(request.id);
         return { text: request.id, finishReason: "stop" };
       },
     };
-    const engine = createMicroBatchingGenerationEngine({ engine: inner, batchWindowMs: 0 });
+    const engine = createMicroBatchingGenerationEngine({
+      engine: inner,
+      batchWindowMs: 0,
+      onEvent: (event) => events.push(event),
+    });
 
     const results = await engine.generateBatch?.([textRequest("a"), textRequest("b")]);
 
     expect(seen).toEqual(["a", "b"]);
+    expect(events).toEqual([
+      {
+        type: "generation_admission_batch",
+        mode: "micro",
+        engineMode: "sequential",
+        model: "tiny",
+        ids: ["a", "b"],
+        batchSize: 2,
+        maxTokens: 1,
+        maxTokensByRequest: [1, 1],
+      },
+    ]);
     expect(results?.map((result) => result.text)).toEqual(["a", "b"]);
   });
 

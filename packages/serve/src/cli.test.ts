@@ -313,6 +313,20 @@ describe("serve CLI args", () => {
     );
     expect(
       formatServeEvent({
+        type: "generation_admission_batch",
+        mode: "micro",
+        engineMode: "batch",
+        model: "qwen-local",
+        ids: ["cmpl-a", "cmpl-b"],
+        batchSize: 2,
+        maxTokens: 64,
+        maxTokensByRequest: [32, 64],
+      }),
+    ).toBe(
+      "[batch] micro model=qwen-local size=2 engine=batch max_tokens=64 per_request=32,64 ids=cmpl-a,cmpl-b admitted",
+    );
+    expect(
+      formatServeEvent({
         type: "generation_complete",
         id: "cmpl-test",
         protocol: "openai.chat_completions",
@@ -346,8 +360,9 @@ describe("serve CLI args", () => {
     expect(
       shouldLogServeEvent(
         {
-          type: "generation_batch_start",
-          mode: "static",
+          type: "generation_admission_batch",
+          mode: "micro",
+          engineMode: "batch",
           model: "qwen-local",
           ids: ["cmpl-a", "cmpl-b"],
           batchSize: 2,
