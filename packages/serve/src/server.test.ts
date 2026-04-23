@@ -338,6 +338,109 @@ describe("serve fetch handler", () => {
     ).toEqual(["generation_start", "generation_complete"]);
   });
 
+  test("keeps streaming requests alive with Bun timeout override and completes them after the body ends", async () => {
+    const events: ServeEvent[] = [];
+    const timeouts: number[] = [];
+    const engine: GenerationEngine = {
+      generate() {
+        throw new Error("generate should not be used");
+      },
+      async *stream() {
+        yield { type: "text", text: "Hello" };
+        yield {
+          type: "done",
+          finishReason: "stop",
+          usage: { promptTokens: 1, completionTokens: 1, totalTokens: 2 },
+        };
+      },
+    };
+    const fetch = createFetchHandler({
+      engine,
+      idGenerator: () => "cmpl-timeout",
+      now: () => new Date(123_000),
+      onEvent: (event) => events.push(event),
+    });
+
+    const response = await fetch(
+      request("/v1/completions", {
+        model: "tiny",
+        prompt: "Hello",
+        stream: true,
+      }),
+      {
+        timeout(_request, seconds) {
+          timeouts.push(seconds);
+        },
+      },
+    );
+    const text = await response.text();
+
+    expect(timeouts).toEqual([0]);
+    expect(response.headers.get("content-type")).toContain("text/event-stream");
+    expect(text).toContain("data: [DONE]");
+    expect(events.filter((event) => event.type === "request_complete")).toHaveLength(1);
+  });
+
+  test("cancels streaming chat responses when the client disconnects", async () => {
+    const events: ServeEvent[] = [];
+    let streamClosed = false;
+    const engine: GenerationEngine = {
+      generate() {
+        throw new Error("generate should not be used");
+      },
+      async *stream() {
+        try {
+          yield { type: "text", text: "Hello" };
+          await new Promise((resolve) => setTimeout(resolve, 10));
+          yield {
+            type: "done",
+            finishReason: "stop",
+            usage: { promptTokens: 2, completionTokens: 1, totalTokens: 3 },
+          };
+        } finally {
+          streamClosed = true;
+        }
+      },
+    };
+    const fetch = createFetchHandler({
+      engine,
+      idGenerator: () => "chat-cancel",
+      now: () => new Date(123_000),
+      onEvent: (event) => events.push(event),
+    });
+
+    const response = await fetch(
+      request("/v1/chat/completions", {
+        model: "tiny",
+        messages: [{ role: "user", content: "Hello" }],
+        stream: true,
+      }),
+    );
+
+    expect(events.map((event) => event.type)).toEqual(["request_start", "generation_start"]);
+
+    const reader = response.body?.getReader();
+    expect(reader).toBeDefined();
+    if (reader === undefined) {
+      throw new Error("expected a response body reader");
+    }
+
+    const firstChunk = await reader.read();
+    expect(firstChunk.done).toBe(false);
+    await reader.cancel();
+    await new Promise((resolve) => setTimeout(resolve, 25));
+
+    expect(streamClosed).toBe(true);
+    expect(events.find((event) => event.type === "generation_complete")).toMatchObject({
+      finishReason: "cancelled",
+    });
+    expect(events.find((event) => event.type === "request_error")).toMatchObject({
+      code: "client_cancelled",
+      status: 499,
+    });
+    expect(events.find((event) => event.type === "request_complete")).toBeUndefined();
+  });
+
   test("rejects unsupported streaming shapes and unknown routes", async () => {
     const fetch = createFetchHandler({
       engine: {

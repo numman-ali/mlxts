@@ -16,6 +16,12 @@ import {
 } from "./protocols/openai-completions";
 import type { GenerationStreamEvent, GenerationUsage, NormalizedFinishReason } from "./types";
 
+type StreamControlOptions = {
+  id: string;
+  created: number;
+  signal?: AbortSignal;
+};
+
 function encodeSse(payload: string): Uint8Array {
   return new TextEncoder().encode(payload);
 }
@@ -278,28 +284,89 @@ function emitChatTerminalChunk(
   emitChatStreamChunk(controller, chat, {}, { ...options, finishReason: state.finalFinishReason });
 }
 
-export async function writeStreamEvents(
+function toAsyncIterator(
+  stream: AsyncIterable<GenerationStreamEvent> | AsyncIterator<GenerationStreamEvent>,
+): AsyncIterator<GenerationStreamEvent> {
+  return Symbol.asyncIterator in stream ? stream[Symbol.asyncIterator]() : stream;
+}
+
+function streamWasCancelled(signal: AbortSignal | undefined): boolean {
+  return signal?.aborted ?? false;
+}
+
+function markCancelled(
+  finishReason: NormalizedFinishReason,
+  signal: AbortSignal | undefined,
+): NormalizedFinishReason {
+  return streamWasCancelled(signal) ? "cancelled" : finishReason;
+}
+
+async function nextStreamEvent(
+  iterator: AsyncIterator<GenerationStreamEvent>,
+): Promise<IteratorResult<GenerationStreamEvent>> {
+  return await iterator.next();
+}
+
+export async function closeStreamEvents(
+  stream: AsyncIterable<GenerationStreamEvent> | AsyncIterator<GenerationStreamEvent>,
+): Promise<void> {
+  const iterator = toAsyncIterator(stream);
+  await iterator.return?.();
+}
+
+type StreamReadResult =
+  | { type: "finished" }
+  | { type: "cancelled" }
+  | { type: "event"; event: GenerationStreamEvent };
+
+async function readStreamEvent(
+  iterator: AsyncIterator<GenerationStreamEvent>,
+  signal: AbortSignal | undefined,
+): Promise<StreamReadResult> {
+  const next = await nextStreamEvent(iterator);
+  if (next.done) {
+    return { type: "finished" };
+  }
+  if (streamWasCancelled(signal)) {
+    await iterator.return?.();
+    return { type: "cancelled" };
+  }
+  return { type: "event", event: next.value };
+}
+
+function streamSummary(
+  finishReason: NormalizedFinishReason,
+  usage: GenerationUsage | undefined,
+): { finishReason: NormalizedFinishReason; usage?: GenerationUsage } {
+  return usage === undefined ? { finishReason } : { finishReason, usage };
+}
+
+function handleCompletionStreamEvent(
   controller: ReadableStreamDefaultController<Uint8Array>,
-  stream: AsyncIterable<GenerationStreamEvent>,
+  state: CompletionStreamState,
   batch: ReturnType<typeof normalizeOpenAICompletionRequest>,
   request: ReturnType<typeof normalizeOpenAICompletionRequest>["requests"][number],
   options: { id: string; created: number },
-): Promise<{ finishReason: NormalizedFinishReason; usage?: GenerationUsage }> {
-  const state: CompletionStreamState = {
-    stopFilter: createStopSequenceFilter(request.sampling.stop),
-    finalUsage: undefined,
-    finalFinishReason: "stop",
-    sentTerminalChunk: false,
-  };
-  for await (const event of stream) {
-    if (event.type === "text") {
-      if (handleCompletionTextStreamEvent(controller, state, batch, request, options, event.text)) {
-        break;
-      }
-      continue;
-    }
+  event: GenerationStreamEvent,
+): boolean {
+  if (event.type === "text") {
+    return handleCompletionTextStreamEvent(controller, state, batch, request, options, event.text);
+  }
 
-    handleCompletionDoneStreamEvent(controller, state, batch, request, options, event);
+  handleCompletionDoneStreamEvent(controller, state, batch, request, options, event);
+  return false;
+}
+
+function finalizeCompletionStream(
+  controller: ReadableStreamDefaultController<Uint8Array>,
+  state: CompletionStreamState,
+  batch: ReturnType<typeof normalizeOpenAICompletionRequest>,
+  request: ReturnType<typeof normalizeOpenAICompletionRequest>["requests"][number],
+  options: StreamControlOptions,
+): { finishReason: NormalizedFinishReason; usage?: GenerationUsage } {
+  state.finalFinishReason = markCancelled(state.finalFinishReason, options.signal);
+  if (streamWasCancelled(options.signal)) {
+    return streamSummary(state.finalFinishReason, state.finalUsage);
   }
   if (!state.sentTerminalChunk) {
     flushCompletionTail(controller, state, batch, request, options);
@@ -312,39 +379,33 @@ export async function writeStreamEvents(
     );
   }
   controller.enqueue(encodeSse("data: [DONE]\n\n"));
-  return state.finalUsage === undefined
-    ? { finishReason: state.finalFinishReason }
-    : { finishReason: state.finalFinishReason, usage: state.finalUsage };
+  return streamSummary(state.finalFinishReason, state.finalUsage);
 }
 
-export async function writeChatStreamEvents(
+function handleChatStreamEvent(
   controller: ReadableStreamDefaultController<Uint8Array>,
-  stream: AsyncIterable<GenerationStreamEvent>,
+  state: ChatStreamState,
   chat: ReturnType<typeof normalizeOpenAIChatCompletionRequest>,
   options: { id: string; created: number },
-): Promise<{ finishReason: NormalizedFinishReason; usage?: GenerationUsage }> {
-  const state: ChatStreamState = {
-    reasoning: createOpenAIChatCompletionReasoningStream(),
-    stopFilter: createStopSequenceFilter(chat.request.sampling.stop),
-    finalUsage: undefined,
-    finalFinishReason: "stop",
-    sentTerminalChunk: false,
-    stoppedByStopSequence: false,
-  };
-  emitChatStreamChunk(controller, chat, {}, { ...options, includeRole: true });
+  event: GenerationStreamEvent,
+): boolean {
+  if (event.type === "text") {
+    return handleChatTextStreamEvent(controller, state, chat, options, event.text);
+  }
 
-  for await (const event of stream) {
-    if (event.type === "text") {
-      if (handleChatTextStreamEvent(controller, state, chat, options, event.text)) {
-        break;
-      }
-      continue;
-    }
+  handleChatDoneStreamEvent(controller, state, chat, options, event);
+  return state.stoppedByStopSequence;
+}
 
-    handleChatDoneStreamEvent(controller, state, chat, options, event);
-    if (state.stoppedByStopSequence) {
-      break;
-    }
+function finalizeChatStream(
+  controller: ReadableStreamDefaultController<Uint8Array>,
+  state: ChatStreamState,
+  chat: ReturnType<typeof normalizeOpenAIChatCompletionRequest>,
+  options: StreamControlOptions,
+): { finishReason: NormalizedFinishReason; usage?: GenerationUsage } {
+  state.finalFinishReason = markCancelled(state.finalFinishReason, options.signal);
+  if (streamWasCancelled(options.signal)) {
+    return streamSummary(state.finalFinishReason, state.finalUsage);
   }
   if (!state.sentTerminalChunk && !state.stoppedByStopSequence) {
     flushChatTail(controller, state, chat, options);
@@ -357,7 +418,66 @@ export async function writeChatStreamEvents(
     );
   }
   controller.enqueue(encodeSse("data: [DONE]\n\n"));
-  return state.finalUsage === undefined
-    ? { finishReason: state.finalFinishReason }
-    : { finishReason: state.finalFinishReason, usage: state.finalUsage };
+  return streamSummary(state.finalFinishReason, state.finalUsage);
+}
+
+export async function writeStreamEvents(
+  controller: ReadableStreamDefaultController<Uint8Array>,
+  stream: AsyncIterable<GenerationStreamEvent> | AsyncIterator<GenerationStreamEvent>,
+  batch: ReturnType<typeof normalizeOpenAICompletionRequest>,
+  request: ReturnType<typeof normalizeOpenAICompletionRequest>["requests"][number],
+  options: StreamControlOptions,
+): Promise<{ finishReason: NormalizedFinishReason; usage?: GenerationUsage }> {
+  const state: CompletionStreamState = {
+    stopFilter: createStopSequenceFilter(request.sampling.stop),
+    finalUsage: undefined,
+    finalFinishReason: "stop",
+    sentTerminalChunk: false,
+  };
+  const iterator = toAsyncIterator(stream);
+  while (true) {
+    const next = await readStreamEvent(iterator, options.signal);
+    if (next.type === "finished") {
+      break;
+    }
+    if (next.type === "cancelled") {
+      break;
+    }
+    if (handleCompletionStreamEvent(controller, state, batch, request, options, next.event)) {
+      break;
+    }
+  }
+  return finalizeCompletionStream(controller, state, batch, request, options);
+}
+
+export async function writeChatStreamEvents(
+  controller: ReadableStreamDefaultController<Uint8Array>,
+  stream: AsyncIterable<GenerationStreamEvent> | AsyncIterator<GenerationStreamEvent>,
+  chat: ReturnType<typeof normalizeOpenAIChatCompletionRequest>,
+  options: StreamControlOptions,
+): Promise<{ finishReason: NormalizedFinishReason; usage?: GenerationUsage }> {
+  const state: ChatStreamState = {
+    reasoning: createOpenAIChatCompletionReasoningStream(),
+    stopFilter: createStopSequenceFilter(chat.request.sampling.stop),
+    finalUsage: undefined,
+    finalFinishReason: "stop",
+    sentTerminalChunk: false,
+    stoppedByStopSequence: false,
+  };
+  emitChatStreamChunk(controller, chat, {}, { ...options, includeRole: true });
+
+  const iterator = toAsyncIterator(stream);
+  while (true) {
+    const next = await readStreamEvent(iterator, options.signal);
+    if (next.type === "finished") {
+      break;
+    }
+    if (next.type === "cancelled") {
+      break;
+    }
+    if (handleChatStreamEvent(controller, state, chat, options, next.event)) {
+      break;
+    }
+  }
+  return finalizeChatStream(controller, state, chat, options);
 }

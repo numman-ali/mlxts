@@ -14,7 +14,12 @@ import {
   normalizeOpenAICompletionRequest,
 } from "./protocols/openai-completions";
 import { formatOpenAIModelsResponse, type ServedModelInfo } from "./protocols/openai-models";
-import { sseHeaders, writeChatStreamEvents, writeStreamEvents } from "./server-streaming";
+import {
+  closeStreamEvents,
+  sseHeaders,
+  writeChatStreamEvents,
+  writeStreamEvents,
+} from "./server-streaming";
 import type {
   GenerationEngine,
   NormalizedGenerationRequest,
@@ -36,6 +41,10 @@ export type ServeServerOptions = ServeAppOptions & {
   hostname?: string;
 };
 
+type ServerRequestControls = {
+  timeout(request: Request, seconds: number): void;
+};
+
 function defaultId(): string {
   return `cmpl-${crypto.randomUUID()}`;
 }
@@ -46,6 +55,40 @@ function unixSeconds(date: Date): number {
 
 function emit(options: ServeAppOptions, event: ServeEvent): void {
   options.onEvent?.(event);
+}
+
+function emitRequestComplete(
+  options: ServeAppOptions,
+  request: Request,
+  status: number,
+  startedAt: number,
+): void {
+  const url = new URL(request.url);
+  emit(options, {
+    type: "request_complete",
+    method: request.method,
+    path: url.pathname,
+    status,
+    durationMs: performance.now() - startedAt,
+  });
+}
+
+function emitRequestError(
+  options: ServeAppOptions,
+  request: Request,
+  details: { message: string; code: string; status: number },
+  startedAt: number,
+): void {
+  const url = new URL(request.url);
+  emit(options, {
+    type: "request_error",
+    method: request.method,
+    path: url.pathname,
+    message: details.message,
+    code: details.code,
+    status: details.status,
+    durationMs: performance.now() - startedAt,
+  });
 }
 
 function serveErrorDetails(error: unknown): { message: string; code: string; status: number } {
@@ -92,6 +135,10 @@ function emitGenerationComplete(
     durationMs,
     ...(memory === undefined ? {} : { memory }),
   });
+}
+
+function isStreamingResponse(response: Response): boolean {
+  return response.headers.get("content-type")?.startsWith("text/event-stream") ?? false;
 }
 
 async function readJson(request: Request): Promise<unknown> {
@@ -183,10 +230,17 @@ async function completionResponse(request: Request, options: ServeAppOptions): P
     const startedAt = performance.now();
     emitGenerationStart(options, normalized);
     const stream = await options.engine.stream(normalized);
+    const streamAbort = new AbortController();
+    const iterator = stream[Symbol.asyncIterator]();
+    let cancelled = false;
     return new Response(
       new ReadableStream<Uint8Array>({
         start(controller) {
-          return writeStreamEvents(controller, stream, batch, normalized, { id, created }).then(
+          return writeStreamEvents(controller, iterator, batch, normalized, {
+            id,
+            created,
+            signal: streamAbort.signal,
+          }).then(
             (summary) => {
               const result: NormalizedGenerationResult = {
                 text: "",
@@ -194,12 +248,36 @@ async function completionResponse(request: Request, options: ServeAppOptions): P
                 ...(summary.usage === undefined ? {} : { usage: summary.usage }),
               };
               emitGenerationComplete(options, normalized, result, performance.now() - startedAt);
-              controller.close();
+              if (summary.finishReason === "cancelled") {
+                emitRequestError(
+                  options,
+                  request,
+                  {
+                    message: "Client disconnected during streaming completion output.",
+                    code: "client_cancelled",
+                    status: 499,
+                  },
+                  startedAt,
+                );
+              } else {
+                emitRequestComplete(options, request, 200, startedAt);
+              }
+              if (!cancelled) {
+                controller.close();
+              }
             },
             (error: unknown) => {
-              controller.error(error);
+              emitRequestError(options, request, serveErrorDetails(error), startedAt);
+              if (!cancelled) {
+                controller.error(error);
+              }
             },
           );
+        },
+        async cancel() {
+          cancelled = true;
+          streamAbort.abort();
+          void closeStreamEvents(iterator);
         },
       }),
       { headers: sseHeaders() },
@@ -228,10 +306,17 @@ async function chatCompletionResponse(
     const startedAt = performance.now();
     emitGenerationStart(options, chat.request);
     const stream = await options.engine.stream(chat.request);
+    const streamAbort = new AbortController();
+    const iterator = stream[Symbol.asyncIterator]();
+    let cancelled = false;
     return new Response(
       new ReadableStream<Uint8Array>({
         start(controller) {
-          return writeChatStreamEvents(controller, stream, chat, { id, created }).then(
+          return writeChatStreamEvents(controller, iterator, chat, {
+            id,
+            created,
+            signal: streamAbort.signal,
+          }).then(
             (summary) => {
               const result: NormalizedGenerationResult = {
                 text: "",
@@ -239,12 +324,36 @@ async function chatCompletionResponse(
                 ...(summary.usage === undefined ? {} : { usage: summary.usage }),
               };
               emitGenerationComplete(options, chat.request, result, performance.now() - startedAt);
-              controller.close();
+              if (summary.finishReason === "cancelled") {
+                emitRequestError(
+                  options,
+                  request,
+                  {
+                    message: "Client disconnected during streaming chat output.",
+                    code: "client_cancelled",
+                    status: 499,
+                  },
+                  startedAt,
+                );
+              } else {
+                emitRequestComplete(options, request, 200, startedAt);
+              }
+              if (!cancelled) {
+                controller.close();
+              }
             },
             (error: unknown) => {
-              controller.error(error);
+              emitRequestError(options, request, serveErrorDetails(error), startedAt);
+              if (!cancelled) {
+                controller.error(error);
+              }
             },
           );
+        },
+        async cancel() {
+          cancelled = true;
+          streamAbort.abort();
+          void closeStreamEvents(iterator);
         },
       }),
       { headers: sseHeaders() },
@@ -284,66 +393,46 @@ async function openAIRouteResponse(
 /** Create a Bun-compatible fetch handler for the serving API. */
 export function createFetchHandler(
   options: ServeAppOptions,
-): (request: Request) => Promise<Response> {
-  return async (request) => {
+): (request: Request, server?: ServerRequestControls) => Promise<Response> {
+  return async (request, server) => {
     const url = new URL(request.url);
     const startedAt = performance.now();
     emit(options, { type: "request_start", method: request.method, path: url.pathname });
     if (request.method === "GET" && url.pathname === "/health") {
       const response = jsonResponse({ status: "ok" });
-      emit(options, {
-        type: "request_complete",
-        method: request.method,
-        path: url.pathname,
-        status: response.status,
-        durationMs: performance.now() - startedAt,
-      });
+      emitRequestComplete(options, request, response.status, startedAt);
       return response;
     }
 
     try {
       const response = await openAIRouteResponse(request, options, url.pathname);
       if (response !== null) {
-        emit(options, {
-          type: "request_complete",
-          method: request.method,
-          path: url.pathname,
-          status: response.status,
-          durationMs: performance.now() - startedAt,
-        });
+        if (isStreamingResponse(response)) {
+          server?.timeout(request, 0);
+        } else {
+          emitRequestComplete(options, request, response.status, startedAt);
+        }
         return response;
       }
     } catch (error) {
-      const details = serveErrorDetails(error);
-      emit(options, {
-        type: "request_error",
-        method: request.method,
-        path: url.pathname,
-        message: details.message,
-        code: details.code,
-        status: details.status,
-        durationMs: performance.now() - startedAt,
-      });
+      emitRequestError(options, request, serveErrorDetails(error), startedAt);
       return openAIErrorResponse(error);
     }
 
     const response = jsonResponse({ error: { message: "Not found" } }, 404);
-    emit(options, {
-      type: "request_complete",
-      method: request.method,
-      path: url.pathname,
-      status: response.status,
-      durationMs: performance.now() - startedAt,
-    });
+    emitRequestComplete(options, request, response.status, startedAt);
     return response;
   };
 }
 
 /** Start a Bun server for the serving API. */
 export function startServeServer(options: ServeServerOptions): ReturnType<typeof Bun.serve> {
+  const fetch = createFetchHandler(options);
   const serverOptions: Parameters<typeof Bun.serve>[0] = {
     port: options.port ?? 3000,
-    fetch: createFetchHandler(options),
+    fetch(request, server) {
+      return fetch(request, server);
+    },
   };
   if (options.hostname !== undefined) {
     serverOptions.hostname = options.hostname;
