@@ -25,6 +25,7 @@ export {
   smartResizeQwen3_5Image,
 } from "./families/qwen3_5/preprocessing";
 export {
+  generateBatchTokens,
   generatePreparedTokenEvents,
   generatePreparedTokens,
   generateStep,
@@ -34,7 +35,12 @@ export {
   generateTokens,
   makePromptCache,
 } from "./generation";
-export { KVCache, LayerPatternKVCache, SlidingWindowKVCache } from "./infrastructure/cache";
+export {
+  BatchKVCache,
+  KVCache,
+  LayerPatternKVCache,
+  SlidingWindowKVCache,
+} from "./infrastructure/cache";
 export {
   createInteractionProfile,
   type InteractionProfile,
@@ -60,7 +66,9 @@ export { quantizePretrainedSnapshot } from "./quantize";
 export { FAMILY_REGISTRY, resolveFamily } from "./registry";
 export type {
   BaseModelConfig,
+  BatchGenerationOptions,
   CausalLM,
+  DecoderCache,
   FamilyRegistration,
   ForwardOptions,
   GenerationDefaults,
@@ -74,6 +82,7 @@ export type {
   SupportedModelFamily,
   TextGenerationResult,
   TokenGenerationEvent,
+  TransformerBatchCache,
   TransformerCache,
 } from "./types";
 export {

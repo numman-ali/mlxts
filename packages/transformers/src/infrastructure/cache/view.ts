@@ -1,6 +1,6 @@
 import { type MxArray, retainArray } from "@mlxts/core";
 
-import type { TransformerCache } from "../../types";
+import type { DecoderCache } from "../../types";
 
 export const INTERNAL_CACHE_VIEW = Symbol("mlxts.transformers.internalCacheView");
 
@@ -22,9 +22,9 @@ export interface TransformerCacheView extends Disposable {
   materializeOwnedPair(): OwnedKeyValuePair;
 }
 
-export interface InternalTransformerCache extends TransformerCache {
+export type InternalTransformerCache = DecoderCache & {
   [INTERNAL_CACHE_VIEW](layerIndex: number, keys: MxArray, values: MxArray): TransformerCacheView;
-}
+};
 
 class CacheView implements TransformerCacheView {
   #keys: MxArray | null;
@@ -97,12 +97,12 @@ export function retainTransformerCacheView(keys: MxArray, values: MxArray): Tran
   return createOwnedTransformerCacheView(retainArray(keys), retainArray(values));
 }
 
-function hasInternalCacheView(cache: TransformerCache): cache is InternalTransformerCache {
+function hasInternalCacheView(cache: DecoderCache): cache is InternalTransformerCache {
   return INTERNAL_CACHE_VIEW in cache;
 }
 
 export function updateAndFetchTransformerCacheView(
-  cache: TransformerCache,
+  cache: DecoderCache,
   layerIndex: number,
   keys: MxArray,
   values: MxArray,

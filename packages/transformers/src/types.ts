@@ -16,7 +16,7 @@ import type {
 export type SupportedModelFamily = "llama" | "mistral" | "gemma" | "phi" | "qwen";
 
 export type ForwardOptions = {
-  cache?: TransformerCache;
+  cache?: DecoderCache;
   inputEmbeddings?: MxArray;
   positionIds?: MxArray;
 };
@@ -37,6 +37,10 @@ export type GenerationOptions = SamplerOptions & {
   cache?: TransformerCache;
   addSpecialTokens?: boolean;
   prefillStepSize?: number;
+};
+
+export type BatchGenerationOptions = GenerationOptions & {
+  padTokenId?: number;
 };
 
 export type GenerationDefaults = Omit<
@@ -106,6 +110,34 @@ export interface TransformerCache extends Disposable {
   /** Return retained cache-state arrays for explicit eval. The caller owns the returned views. */
   arrays(): MxArray[];
 }
+
+export interface TransformerBatchCache extends Disposable {
+  readonly layerCount: number;
+  readonly batchSize: number;
+  readonly length: number;
+  readonly leftPadding: readonly number[];
+  readonly offsets: readonly number[];
+
+  updateAndFetch(
+    layerIndex: number,
+    keys: MxArray,
+    values: MxArray,
+  ): { keys: MxArray; values: MxArray };
+  advance(sequenceLength: number): void;
+  filter(batchIndices: readonly number[]): void;
+  extend(other: TransformerBatchCache): void;
+  extract(batchIndex: number): TransformerCache;
+  /** Return per-request RoPE offsets as an int32 tensor. The caller owns the returned array. */
+  offsetTensor(): MxArray;
+  /** Return per-request left-padding lengths as an int32 tensor. The caller owns the returned array. */
+  leftPaddingTensor(): MxArray;
+  isEmpty(): boolean;
+  isTrimmable(): boolean;
+  /** Return retained cache-state arrays for explicit eval. The caller owns the returned views. */
+  arrays(): MxArray[];
+}
+
+export type DecoderCache = TransformerCache | TransformerBatchCache;
 
 export interface CausalLM extends Disposable {
   readonly family: SupportedModelFamily;

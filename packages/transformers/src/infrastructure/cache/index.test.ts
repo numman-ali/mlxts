@@ -1,7 +1,13 @@
 import { describe, expect, test } from "bun:test";
 
 import { array, mxEval } from "@mlxts/core";
-import { cacheStateArrays, KVCache, LayerPatternKVCache, SlidingWindowKVCache } from "./index";
+import {
+  BatchKVCache,
+  cacheStateArrays,
+  KVCache,
+  LayerPatternKVCache,
+  SlidingWindowKVCache,
+} from "./index";
 import { updateAndFetchTransformerCacheView } from "./view";
 
 function runFullAppendScenario(cache: KVCache): void {
@@ -164,5 +170,142 @@ describe("Transformer caches", () => {
 
     expect(firstOwnedKeys.toList()).toEqual([[[[1], [2]]]]);
     expect(secondView.keys.toList()).toEqual([[[[1], [2], [3]]]]);
+  });
+
+  test("managed BatchKVCache tracks per-request offsets and appends batched updates", () => {
+    using cache = new BatchKVCache(1, [1, 0]);
+    using firstKeys = array([[[[0], [1]]], [[[2], [3]]]], "float32");
+    using firstValues = array([[[[10], [11]]], [[[12], [13]]]], "float32");
+    using secondKeys = array([[[[4]]], [[[5]]]], "float32");
+    using secondValues = array([[[[14]]], [[[15]]]], "float32");
+
+    using firstView = cache.updateAndFetch(0, firstKeys, firstValues).keys;
+    cache.advance(2);
+    using secondView = cache.updateAndFetch(0, secondKeys, secondValues).keys;
+    cache.advance(1);
+    mxEval(firstView, secondView);
+
+    expect(cache.batchSize).toBe(2);
+    expect(cache.length).toBe(3);
+    expect(cache.leftPadding).toEqual([1, 0]);
+    expect(cache.offsets).toEqual([2, 3]);
+    expect(firstView.toList()).toEqual([[[[0], [1]]], [[[2], [3]]]]);
+    expect(secondView.toList()).toEqual([[[[0], [1], [4]]], [[[2], [3], [5]]]]);
+  });
+
+  test("managed BatchKVCache filters active requests and removes shared left padding", () => {
+    using cache = new BatchKVCache(1, [2, 1, 0]);
+    using keys = array([[[[0], [0], [1]]], [[[0], [2], [3]]], [[[4], [5], [6]]]], "float32");
+    using values = array(
+      [[[[10], [10], [11]]], [[[10], [12], [13]]], [[[14], [15], [16]]]],
+      "float32",
+    );
+    using view = cache.updateAndFetch(0, keys, values).keys;
+    cache.advance(3);
+    mxEval(view);
+
+    cache.filter([0, 1]);
+    const stateArrays = cache.arrays();
+    const retainedKeys = stateArrays[0];
+    if (retainedKeys === undefined) {
+      throw new Error("expected retained batch cache keys");
+    }
+    using ownedRetainedKeys = retainedKeys;
+    mxEval(ownedRetainedKeys);
+
+    expect(cache.batchSize).toBe(2);
+    expect(cache.length).toBe(2);
+    expect(cache.leftPadding).toEqual([1, 0]);
+    expect(cache.offsets).toEqual([1, 2]);
+    expect(ownedRetainedKeys.toList()).toEqual([[[[0], [1]]], [[[2], [3]]]]);
+  });
+
+  test("managed BatchKVCache extracts single-request caches", () => {
+    using cache = new BatchKVCache(1, [1, 0]);
+    using keys = array([[[[0], [1], [2]]], [[[3], [4], [5]]]], "float32");
+    using values = array([[[[10], [11], [12]]], [[[13], [14], [15]]]], "float32");
+    using view = cache.updateAndFetch(0, keys, values).keys;
+    cache.advance(3);
+    mxEval(view);
+
+    using extracted = cache.extract(0);
+    const stateArrays = extracted.arrays();
+    const extractedKeys = stateArrays[0];
+    if (extractedKeys === undefined) {
+      throw new Error("expected extracted cache keys");
+    }
+    using ownedExtractedKeys = extractedKeys;
+    mxEval(ownedExtractedKeys);
+
+    expect(extracted.offset).toBe(2);
+    expect(ownedExtractedKeys.toList()).toEqual([[[[1], [2]]]]);
+  });
+
+  test("managed BatchKVCache extends batches by left-aligning shorter histories", () => {
+    using first = new BatchKVCache(1, [0]);
+    using firstKeys = array([[[[1], [2], [3]]]], "float32");
+    using firstValues = array([[[[11], [12], [13]]]], "float32");
+    using firstView = first.updateAndFetch(0, firstKeys, firstValues).keys;
+    first.advance(3);
+
+    using second = new BatchKVCache(1, [0]);
+    using secondKeys = array([[[[4]]]], "float32");
+    using secondValues = array([[[[14]]]], "float32");
+    using secondView = second.updateAndFetch(0, secondKeys, secondValues).keys;
+    second.advance(1);
+    mxEval(firstView, secondView);
+
+    first.extend(second);
+    const stateArrays = first.arrays();
+    const extendedKeys = stateArrays[0];
+    if (extendedKeys === undefined) {
+      throw new Error("expected extended cache keys");
+    }
+    using ownedExtendedKeys = extendedKeys;
+    mxEval(ownedExtendedKeys);
+
+    expect(first.batchSize).toBe(2);
+    expect(first.length).toBe(3);
+    expect(first.leftPadding).toEqual([0, 2]);
+    expect(first.offsets).toEqual([3, 1]);
+    expect(ownedExtendedKeys.toList()).toEqual([[[[1], [2], [3]]], [[[0], [0], [4]]]]);
+  });
+
+  test("managed BatchKVCache exposes disposable metadata tensors for batched model calls", () => {
+    using cache = new BatchKVCache(1, [2, 0]);
+    cache.advance(3);
+
+    using offsets = cache.offsetTensor();
+    using leftPadding = cache.leftPaddingTensor();
+
+    expect(offsets.shape).toEqual([2]);
+    expect(offsets.toList()).toEqual([1, 3]);
+    expect(leftPadding.shape).toEqual([2]);
+    expect(leftPadding.toList()).toEqual([2, 0]);
+  });
+
+  test("managed BatchKVCache extends empty and populated cache states", () => {
+    using empty = new BatchKVCache(1, [0]);
+    using populated = new BatchKVCache(1, [0]);
+    using keys = array([[[[7], [8]]]], "float32");
+    using values = array([[[[17], [18]]]], "float32");
+    using view = populated.updateAndFetch(0, keys, values).keys;
+    populated.advance(2);
+    mxEval(view);
+
+    empty.extend(populated);
+    const stateArrays = empty.arrays();
+    const extendedKeys = stateArrays[0];
+    if (extendedKeys === undefined) {
+      throw new Error("expected extended cache keys");
+    }
+    using ownedExtendedKeys = extendedKeys;
+    mxEval(ownedExtendedKeys);
+
+    expect(empty.batchSize).toBe(2);
+    expect(empty.length).toBe(2);
+    expect(empty.leftPadding).toEqual([2, 0]);
+    expect(empty.offsets).toEqual([0, 2]);
+    expect(ownedExtendedKeys.toList()).toEqual([[[[0], [0]]], [[[7], [8]]]]);
   });
 });

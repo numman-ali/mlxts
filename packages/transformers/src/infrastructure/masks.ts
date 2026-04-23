@@ -160,6 +160,61 @@ export function createFastAttentionMask(
   return createBooleanCausalMask(queryLength, totalKeyLength, pastLength, windowSize);
 }
 
+/** Build a boolean causal mask for left-padded batched decoder inputs. */
+export function createLeftPaddedAttentionMask(
+  queryLength: number,
+  totalKeyLength: number,
+  pastLength: number,
+  leftPadding: MxArray,
+  windowSize?: number,
+): MxArray {
+  if (queryLength <= 0 || totalKeyLength <= 0) {
+    throw new Error(
+      `createLeftPaddedAttentionMask: queryLength and totalKeyLength must be positive, got ${queryLength} and ${totalKeyLength}`,
+    );
+  }
+  if (windowSize !== undefined && (!Number.isInteger(windowSize) || windowSize <= 0)) {
+    throw new Error(
+      `createLeftPaddedAttentionMask: windowSize must be a positive integer when present, got ${windowSize}`,
+    );
+  }
+  if (leftPadding.shape.length !== 1) {
+    throw new Error(
+      `createLeftPaddedAttentionMask: leftPadding must be rank-1, got rank ${leftPadding.shape.length}.`,
+    );
+  }
+
+  using queryOffsets = arange(pastLength, pastLength + queryLength, 1, "int32");
+  using keyPositions = arange(0, totalKeyLength, 1, "int32");
+  using queryBatch = expandDims(queryOffsets, 0);
+  using keyBatch = expandDims(keyPositions, 0);
+  using leftPaddingBatch = expandDims(leftPadding, 1);
+  using queryRows = expandDims(queryBatch, 2);
+  using keyColumns = expandDims(keyBatch, 0);
+  using leftPaddingRows = expandDims(leftPaddingBatch, 2);
+  using causalMask = greaterEqual(queryRows, keyColumns);
+  using paddingMask = greaterEqual(keyColumns, leftPaddingRows);
+  using causalInts = asType(causalMask, "int32");
+  using paddingInts = asType(paddingMask, "int32");
+  let combinedInts = multiply(causalInts, paddingInts);
+
+  try {
+    if (windowSize !== undefined) {
+      using keyWindowLimit = add(keyColumns, windowSize);
+      using localMask = less(queryRows, keyWindowLimit);
+      using localInts = asType(localMask, "int32");
+      const nextCombinedInts = multiply(combinedInts, localInts);
+      combinedInts.free();
+      combinedInts = nextCombinedInts;
+    }
+
+    using combinedMask = asType(combinedInts, "bool");
+    return expandDims(combinedMask, 1);
+  } finally {
+    combinedInts.free();
+  }
+}
+
 /** Build the fast attention mask for one decoder step from the current cache offset. */
 export function createStepAttentionMask(
   queryLength: number,

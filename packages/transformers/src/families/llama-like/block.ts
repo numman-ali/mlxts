@@ -8,7 +8,7 @@ import { add } from "@mlxts/core";
 import { Module } from "@mlxts/nn";
 
 import type { AttentionMask } from "../../infrastructure/masks";
-import type { TransformerCache } from "../../types";
+import type { DecoderCache } from "../../types";
 import { LlamaLikeAttention } from "./attention";
 import { LlamaLikeMLP } from "./mlp";
 import { LlamaLikeNorm } from "./norm";
@@ -36,7 +36,7 @@ export class LlamaLikeDecoderBlock extends Module {
   run(
     x: MxArray,
     layerIndex: number,
-    cache?: TransformerCache,
+    cache?: DecoderCache,
     attentionMask?: AttentionMask,
   ): MxArray {
     using normalizedForAttention = this.inputLayerNorm.forward(x);

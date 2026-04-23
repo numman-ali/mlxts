@@ -5,6 +5,7 @@
 
 import type { MxArray } from "@mlxts/core";
 import type { Tokenizer } from "@mlxts/tokenizers";
+import { generateBatchTokensInternal } from "./infrastructure/generation/batch";
 import { resolveGenerationOptions } from "./infrastructure/generation/defaults";
 import {
   generatePreparedTokensInternal,
@@ -17,6 +18,7 @@ import {
 } from "./infrastructure/generation/runtime-streaming";
 import { SamplerState } from "./infrastructure/sampling";
 import type {
+  BatchGenerationOptions,
   CausalLM,
   GenerationOptions,
   GenerationResult,
@@ -98,6 +100,15 @@ export function generatePreparedTokens(
   onToken?: (tokenId: number, generatedTokenIds: readonly number[]) => void,
 ): GenerationResult {
   return generatePreparedTokensInternal(model, prompt, options, makePromptCache, onToken);
+}
+
+/** Generate continuation token IDs for a fixed batch of prompts. */
+export function generateBatchTokens(
+  model: CausalLM,
+  promptTokenIdsBatch: readonly (readonly number[])[],
+  options: BatchGenerationOptions,
+): GenerationResult[] {
+  return generateBatchTokensInternal(model, promptTokenIdsBatch, options);
 }
 
 /** Stream generated token IDs from a prompt as an async iterable. */

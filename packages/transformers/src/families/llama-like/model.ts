@@ -6,13 +6,45 @@
 import { formatShape, MxArray, multiply } from "@mlxts/core";
 import { Embedding, Linear, Module } from "@mlxts/nn";
 
-import { KVCache, SlidingWindowKVCache } from "../../infrastructure/cache";
+import {
+  isManagedBatchKVCache,
+  isSingleTransformerCache,
+  KVCache,
+  SlidingWindowKVCache,
+} from "../../infrastructure/cache";
 import { retainInputEmbeddings } from "../../infrastructure/input-embeddings";
-import { createStepAttentionMask } from "../../infrastructure/masks";
-import type { CausalLM, ForwardOptions, TransformerCache } from "../../types";
+import {
+  type AttentionMask,
+  createLeftPaddedAttentionMask,
+  createStepAttentionMask,
+} from "../../infrastructure/masks";
+import type { CausalLM, DecoderCache, ForwardOptions, TransformerCache } from "../../types";
 import { LlamaLikeDecoderBlock } from "./block";
 import { LlamaLikeNorm } from "./norm";
 import type { LlamaLikeConfig } from "./types";
+
+function createAttentionMask(
+  sequenceLength: number,
+  cache: DecoderCache | undefined,
+): AttentionMask {
+  if (cache === undefined) {
+    return createStepAttentionMask(sequenceLength, 0, undefined);
+  }
+  if (isSingleTransformerCache(cache)) {
+    return createStepAttentionMask(sequenceLength, cache.offset, undefined);
+  }
+  if (!isManagedBatchKVCache(cache)) {
+    throw new Error("LlamaLikeModel.forward: unsupported batch cache implementation.");
+  }
+
+  using leftPadding = cache.leftPaddingTensor();
+  return createLeftPaddedAttentionMask(
+    sequenceLength,
+    cache.length + sequenceLength,
+    cache.length,
+    leftPadding,
+  );
+}
 
 /** Decoder backbone shared by the supported LLaMA-like families. */
 export class LlamaLikeModel extends Module {
@@ -38,7 +70,7 @@ export class LlamaLikeModel extends Module {
     return this.run(inputIds);
   }
 
-  run(inputIds: MxArray, cache?: TransformerCache, inputEmbeddings?: MxArray): MxArray {
+  run(inputIds: MxArray, cache?: DecoderCache, inputEmbeddings?: MxArray): MxArray {
     const [batch, sequenceLength] = inputIds.shape;
     if (batch === undefined || sequenceLength === undefined || inputIds.shape.length !== 2) {
       throw new Error(
@@ -54,7 +86,7 @@ export class LlamaLikeModel extends Module {
         "LlamaLikeModel.forward",
       ) ?? this.embedTokens.forward(inputIds);
     let hidden = this.#embeddingScale === 1.0 ? embedded : multiply(embedded, this.#embeddingScale);
-    const attentionMask = createStepAttentionMask(sequenceLength, cache?.offset ?? 0, undefined);
+    const attentionMask = createAttentionMask(sequenceLength, cache);
 
     try {
       for (let index = 0; index < this.layers.length; index += 1) {
@@ -126,6 +158,14 @@ export class LlamaLikeCausalLM extends Module implements CausalLM {
       optionsOrTensor instanceof Object && !(optionsOrTensor instanceof MxArray)
         ? optionsOrTensor
         : undefined;
+
+    if (options?.cache !== undefined && isManagedBatchKVCache(options.cache)) {
+      if (this.#slidingWindow !== undefined) {
+        throw new Error(
+          "LlamaLikeCausalLM.forward: BatchKVCache is only supported for full-cache models.",
+        );
+      }
+    }
 
     using hidden = this.model.run(inputIds, options?.cache, options?.inputEmbeddings);
     const logits =

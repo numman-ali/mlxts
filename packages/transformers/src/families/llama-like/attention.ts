@@ -15,17 +15,62 @@ import {
 } from "@mlxts/core";
 import { Linear, Module, RoPE } from "@mlxts/nn";
 
+import { isManagedBatchKVCache, isSingleTransformerCache } from "../../infrastructure/cache";
 import {
   retainTransformerCacheView,
   updateAndFetchTransformerCacheView,
 } from "../../infrastructure/cache/view";
 import { type AttentionMask, createCausalMask } from "../../infrastructure/masks";
-import type { TransformerCache } from "../../types";
+import type { DecoderCache } from "../../types";
 import type { LlamaLikeConfig } from "./types";
 
 function takeLastAxisRange(x: MxArray, start: number, end: number): MxArray {
   using indices = arange(start, end, 1, "int32");
   return takeAxis(x, indices, x.shape.length - 1);
+}
+
+function ropeOffsetForCache(cache: DecoderCache | undefined): number | MxArray {
+  if (cache === undefined) {
+    return 0;
+  }
+  if (isManagedBatchKVCache(cache)) {
+    return cache.offsetTensor();
+  }
+  if (isSingleTransformerCache(cache)) {
+    return cache.offset;
+  }
+  throw new Error("LlamaLikeAttention.forward: unsupported batch cache implementation.");
+}
+
+function attentionOptionsForMask(mask: AttentionMask, headDim: number) {
+  if (mask === null) {
+    return { scale: headDim ** -0.5 };
+  }
+  if (mask === "causal") {
+    return { scale: headDim ** -0.5, maskMode: "causal" as const };
+  }
+  return { scale: headDim ** -0.5, maskArray: mask };
+}
+
+function retainAttentionMask(
+  attentionMask: AttentionMask | undefined,
+  keys: MxArray,
+  sequenceLength: number,
+  dtype: MxArray["dtype"],
+): AttentionMask {
+  const totalKeyLength = keys.shape[2];
+  if (totalKeyLength === undefined) {
+    throw new Error("LlamaLikeAttention.forward: attention key cache is missing a sequence axis.");
+  }
+
+  if (attentionMask !== undefined) {
+    return attentionMask === null || attentionMask === "causal"
+      ? attentionMask
+      : retainArray(attentionMask);
+  }
+
+  const visiblePastLength = Math.max(0, totalKeyLength - sequenceLength);
+  return createCausalMask(sequenceLength, totalKeyLength, visiblePastLength, dtype);
 }
 
 /** Decoder self-attention with cache integration and offset-aware RoPE. */
@@ -90,7 +135,7 @@ export class LlamaLikeAttention extends Module {
   run(
     x: MxArray,
     layerIndex: number,
-    cache?: TransformerCache,
+    cache?: DecoderCache,
     attentionMask?: AttentionMask,
   ): MxArray {
     const [batch, sequenceLength, hiddenSize] = x.shape;
@@ -132,65 +177,43 @@ export class LlamaLikeAttention extends Module {
       using queryHeads = transpose(queryInputs, [0, 2, 1, 3]);
       using keyHeads = transpose(keyInputs, [0, 2, 1, 3]);
       using valueHeads = transpose(valueInputs, [0, 2, 1, 3]);
-      using rotatedQueries = this.rope.forward(queryHeads, cache?.offset ?? 0);
-      using rotatedKeys = this.rope.forward(keyHeads, cache?.offset ?? 0);
-      using activeKeyValues =
-        cache === undefined
-          ? retainTransformerCacheView(rotatedKeys, valueHeads)
-          : updateAndFetchTransformerCacheView(cache, layerIndex, rotatedKeys, valueHeads);
-      const retainedMask = (() => {
-        const totalKeyLength = activeKeyValues.keys.shape[2];
-        if (totalKeyLength === undefined) {
-          throw new Error(
-            "LlamaLikeAttention.forward: attention key cache is missing a sequence axis.",
-          );
-        }
-
-        if (attentionMask !== undefined) {
-          return attentionMask === null || attentionMask === "causal"
-            ? attentionMask
-            : retainArray(attentionMask);
-        }
-
-        const visiblePastLength = Math.max(0, totalKeyLength - sequenceLength);
-        return createCausalMask(
+      const ropeOffset = ropeOffsetForCache(cache);
+      try {
+        using rotatedQueries = this.rope.forward(queryHeads, ropeOffset);
+        using rotatedKeys = this.rope.forward(keyHeads, ropeOffset);
+        using activeKeyValues =
+          cache === undefined
+            ? retainTransformerCacheView(rotatedKeys, valueHeads)
+            : updateAndFetchTransformerCacheView(cache, layerIndex, rotatedKeys, valueHeads);
+        const retainedMask = retainAttentionMask(
+          attentionMask,
+          activeKeyValues.keys,
           sequenceLength,
-          totalKeyLength,
-          visiblePastLength,
           rotatedQueries.dtype,
         );
-      })();
 
-      try {
-        const totalKeyLength = activeKeyValues.keys.shape[2];
-        if (totalKeyLength === undefined) {
-          throw new Error(
-            "LlamaLikeAttention.forward: attention key cache is missing a sequence axis.",
+        try {
+          using attentionOutput = scaledDotProductAttention(
+            rotatedQueries,
+            activeKeyValues.keys,
+            activeKeyValues.values,
+            attentionOptionsForMask(retainedMask, this.#headDim),
           );
+          using transposedOutput = transpose(attentionOutput, [0, 2, 1, 3]);
+          using mergedOutput = reshape(transposedOutput, [
+            batch,
+            sequenceLength,
+            this.#numHeads * this.#headDim,
+          ]);
+          return this.outputProjection.forward(mergedOutput);
+        } finally {
+          if (retainedMask instanceof MxArray) {
+            retainedMask.free();
+          }
         }
-
-        const attentionOptions =
-          retainedMask === null
-            ? { scale: this.#headDim ** -0.5 }
-            : retainedMask === "causal"
-              ? { scale: this.#headDim ** -0.5, maskMode: "causal" as const }
-              : { scale: this.#headDim ** -0.5, maskArray: retainedMask };
-        using attentionOutput = scaledDotProductAttention(
-          rotatedQueries,
-          activeKeyValues.keys,
-          activeKeyValues.values,
-          attentionOptions,
-        );
-        using transposedOutput = transpose(attentionOutput, [0, 2, 1, 3]);
-        using mergedOutput = reshape(transposedOutput, [
-          batch,
-          sequenceLength,
-          this.#numHeads * this.#headDim,
-        ]);
-        return this.outputProjection.forward(mergedOutput);
       } finally {
-        if (retainedMask instanceof MxArray) {
-          retainedMask.free();
+        if (ropeOffset instanceof MxArray) {
+          ropeOffset.free();
         }
       }
     } finally {

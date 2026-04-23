@@ -6,7 +6,7 @@
 import { type DisposableTransform, formatShape, MxArray, multiply } from "@mlxts/core";
 import { Embedding, Linear, Module } from "@mlxts/nn";
 
-import { LayerPatternKVCache } from "../../infrastructure/cache";
+import { expectSingleTransformerCache, LayerPatternKVCache } from "../../infrastructure/cache";
 import { retainInputEmbeddings } from "../../infrastructure/input-embeddings";
 import type { AttentionMask } from "../../infrastructure/masks";
 import type { CausalLM, ForwardOptions, TransformerCache } from "../../types";
@@ -276,7 +276,8 @@ export class Gemma4TextCausalLM extends Module implements CausalLM {
         ? optionsOrTensor
         : undefined;
 
-    using hidden = this.model.run(inputIds, options?.cache, options?.inputEmbeddings);
+    const cache = expectSingleTransformerCache(options?.cache, "Gemma4TextCausalLM.forward");
+    using hidden = this.model.run(inputIds, cache, options?.inputEmbeddings);
     let logits =
       this.lmHead === null ? this.model.embedTokens.asLinear(hidden) : this.lmHead.forward(hidden);
 
@@ -286,7 +287,7 @@ export class Gemma4TextCausalLM extends Module implements CausalLM {
         logits.free();
         logits = softcappedLogits;
       }
-      options?.cache?.advance(sequenceLength);
+      cache?.advance(sequenceLength);
       return logits;
     } catch (error) {
       logits.free();

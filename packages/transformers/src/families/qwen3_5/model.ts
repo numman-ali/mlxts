@@ -8,13 +8,13 @@ import { Embedding, Linear, Module } from "@mlxts/nn";
 
 import { retainInputEmbeddings } from "../../infrastructure/input-embeddings";
 import { type AttentionMask, createStepAttentionMask } from "../../infrastructure/masks";
-import type { CausalLM, ForwardOptions, TransformerCache } from "../../types";
+import type { CausalLM, DecoderCache, ForwardOptions, TransformerCache } from "../../types";
 import { Qwen3_5TextDecoderLayer } from "./block";
 import { Qwen3_5TextCache } from "./cache";
 import { Qwen3_5RMSNorm } from "./norm";
 import type { Qwen3_5TextConfig } from "./types";
 
-function expectQwenCache(cache: TransformerCache | undefined): Qwen3_5TextCache | undefined {
+function expectQwenCache(cache: DecoderCache | undefined): Qwen3_5TextCache | undefined {
   if (cache === undefined) {
     return undefined;
   }
@@ -88,7 +88,7 @@ export class Qwen3_5TextModel extends Module {
 
   run(
     inputIds: MxArray,
-    cache?: TransformerCache,
+    cache?: DecoderCache,
     inputEmbeddings?: MxArray,
     positionIds?: MxArray,
   ): MxArray {

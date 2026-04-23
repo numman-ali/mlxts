@@ -13,7 +13,7 @@ import {
   retainArray,
 } from "@mlxts/core";
 import { Linear, Module } from "@mlxts/nn";
-
+import { expectSingleTransformerCache } from "../../infrastructure/cache";
 import {
   retainInputEmbeddings,
   retainInputPositionIds,
@@ -201,7 +201,10 @@ export class Qwen3_5ForConditionalGeneration extends Module implements CausalLM 
     }
 
     const options = forwardOptions(optionsOrTensor);
-    const cache = options?.cache;
+    const cache = expectSingleTransformerCache(
+      options?.cache,
+      "Qwen3_5ForConditionalGeneration.forward",
+    );
     const inputEmbeddings = retainInputEmbeddings(
       inputIds,
       options?.inputEmbeddings,
@@ -211,6 +214,7 @@ export class Qwen3_5ForConditionalGeneration extends Module implements CausalLM 
     const positionIds = this.prepareForwardPositionIds(
       inputIds,
       options,
+      cache,
       batchSize,
       sequenceLength,
     );
@@ -237,10 +241,10 @@ export class Qwen3_5ForConditionalGeneration extends Module implements CausalLM 
   private prepareForwardPositionIds(
     inputIds: MxArray,
     options: ForwardOptions | undefined,
+    cache: TransformerCache | undefined,
     batchSize: number,
     sequenceLength: number,
   ): MxArray | null {
-    const cache = options?.cache;
     const positionIds = retainInputPositionIds(
       inputIds,
       options?.positionIds,

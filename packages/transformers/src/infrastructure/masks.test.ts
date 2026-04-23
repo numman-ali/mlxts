@@ -1,10 +1,11 @@
 import { describe, expect, test } from "bun:test";
 
-import { MxArray } from "@mlxts/core";
+import { array, MxArray } from "@mlxts/core";
 
 import {
   createCausalMask,
   createFastAttentionMask,
+  createLeftPaddedAttentionMask,
   createStepAttentionMask,
   createStepCausalMask,
 } from "./masks";
@@ -86,15 +87,62 @@ describe("causal masks", () => {
     ]);
   });
 
+  test("creates batched causal masks for left-padded prompts", () => {
+    using leftPadding = array([1, 3, 0], "int32");
+    using mask = createLeftPaddedAttentionMask(4, 4, 0, leftPadding);
+
+    expect(mask.dtype).toBe("bool");
+    expect(mask.shape).toEqual([3, 1, 4, 4]);
+    expect(mask.toList()).toEqual([
+      [
+        [
+          [0, 0, 0, 0],
+          [0, 1, 0, 0],
+          [0, 1, 1, 0],
+          [0, 1, 1, 1],
+        ],
+      ],
+      [
+        [
+          [0, 0, 0, 0],
+          [0, 0, 0, 0],
+          [0, 0, 0, 0],
+          [0, 0, 0, 1],
+        ],
+      ],
+      [
+        [
+          [1, 0, 0, 0],
+          [1, 1, 0, 0],
+          [1, 1, 1, 0],
+          [1, 1, 1, 1],
+        ],
+      ],
+    ]);
+  });
+
+  test("creates batched left-padded decode masks against retained prompt state", () => {
+    using leftPadding = array([1, 3], "int32");
+    using mask = createLeftPaddedAttentionMask(1, 5, 4, leftPadding);
+
+    expect(mask.shape).toEqual([2, 1, 1, 5]);
+    expect(mask.toList()).toEqual([[[[0, 1, 1, 1, 1]]], [[[0, 0, 0, 1, 1]]]]);
+  });
+
   test("rejects non-positive query and key lengths", () => {
     expect(() => createCausalMask(0, 1, 0)).toThrow("must be positive");
     expect(() => createCausalMask(1, 0, 0)).toThrow("must be positive");
     expect(() => createFastAttentionMask(0, 1, 0)).toThrow("must be positive");
     expect(() => createFastAttentionMask(1, 0, 0)).toThrow("must be positive");
+    using leftPadding = array([0], "int32");
+    expect(() => createLeftPaddedAttentionMask(0, 1, 0, leftPadding)).toThrow("must be positive");
+    expect(() => createLeftPaddedAttentionMask(1, 0, 0, leftPadding)).toThrow("must be positive");
   });
 
   test("rejects non-positive sliding-window sizes", () => {
     expect(() => createCausalMask(1, 1, 0, "float32", 0)).toThrow("windowSize");
     expect(() => createFastAttentionMask(1, 1, 0, 0)).toThrow("windowSize");
+    using leftPadding = array([0], "int32");
+    expect(() => createLeftPaddedAttentionMask(1, 1, 0, leftPadding, 0)).toThrow("windowSize");
   });
 });

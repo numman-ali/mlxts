@@ -14,6 +14,7 @@ import { KVCache } from "./infrastructure/cache";
 import type {
   BaseModelConfig,
   CausalLM,
+  DecoderCache,
   ForwardOptions,
   TokenGenerationEvent,
   TransformerCache,
@@ -30,7 +31,7 @@ class DeterministicGenerationModel implements CausalLM {
     hiddenSize: 1,
     numHiddenLayers: 1,
   };
-  lastForwardCache: TransformerCache | undefined;
+  lastForwardCache: DecoderCache | undefined;
   lastInputEmbeddings: MxArray | undefined;
   cacheCreates = 0;
 
