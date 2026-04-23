@@ -124,6 +124,14 @@ export type ServeEvent =
       memory?: GenerationMemoryUsage;
     }
   | {
+      type: "generation_batch_start";
+      mode: "static";
+      model: string;
+      ids: readonly string[];
+      batchSize: number;
+      maxTokens: number;
+    }
+  | {
       type: "generation_complete";
       id: string;
       protocol: GenerationProtocol;

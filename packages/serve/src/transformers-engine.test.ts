@@ -10,7 +10,7 @@ import {
   KVCache,
 } from "@mlxts/transformers";
 import { createTransformersGenerationEngine } from "./transformers-engine";
-import type { GenerationStreamEvent, NormalizedGenerationRequest } from "./types";
+import type { GenerationStreamEvent, NormalizedGenerationRequest, ServeEvent } from "./types";
 
 class TinyTokenizer implements Tokenizer {
   readonly vocabSize = 4;
@@ -291,7 +291,14 @@ describe("transformers generation engine", () => {
   test("uses static batch generation for eligible greedy full-cache requests", async () => {
     using model = batchEligibleModel();
     const tokenizer = new TinyTokenizer();
-    const engine = createTransformersGenerationEngine({ model, tokenizer });
+    const events: ServeEvent[] = [];
+    const engine = createTransformersGenerationEngine({
+      model,
+      tokenizer,
+      onEvent(event) {
+        events.push(event);
+      },
+    });
     const generateBatch = engine.generateBatch;
     if (generateBatch === undefined) {
       throw new Error("Expected transformers engine to expose generateBatch.");
@@ -304,6 +311,14 @@ describe("transformers generation engine", () => {
       { promptTokens: 2, completionTokens: 2, totalTokens: 4 },
       { promptTokens: 2, completionTokens: 2, totalTokens: 4 },
     ]);
+    expect(events).toContainEqual({
+      type: "generation_batch_start",
+      mode: "static",
+      model: "tiny",
+      ids: ["one", "two"],
+      batchSize: 2,
+      maxTokens: 2,
+    });
     expect(model.batchForwardCount).toBeGreaterThan(0);
   });
 

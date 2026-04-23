@@ -241,10 +241,27 @@ function emitBatchStart(
   group: readonly number[],
   options: TransformersGenerationEngineOptions,
 ): void {
+  const first = preparedAt(preparedRequests, firstGroupIndex(group));
+  options.onEvent?.({
+    type: "generation_batch_start",
+    mode: "static",
+    model: first.request.model,
+    ids: group.map((index) => preparedAt(preparedRequests, index).request.id),
+    batchSize: group.length,
+    maxTokens: first.request.sampling.maxTokens,
+  });
   for (const index of group) {
     const prepared = preparedAt(preparedRequests, index);
     emitGenerationProgress(options, prepared.request, prepared.promptTokens, 0);
   }
+}
+
+function firstGroupIndex(group: readonly number[]): number {
+  const firstIndex = group[0];
+  if (firstIndex === undefined) {
+    throw invalidBatchResult();
+  }
+  return firstIndex;
 }
 
 function assignBatchResults(
@@ -278,11 +295,7 @@ function runBatchGroup(
   options: TransformersGenerationEngineOptions,
   results: (NormalizedGenerationResult | undefined)[],
 ): void {
-  const firstIndex = group[0];
-  if (firstIndex === undefined) {
-    throw invalidBatchResult();
-  }
-  const first = preparedAt(preparedRequests, firstIndex);
+  const first = preparedAt(preparedRequests, firstGroupIndex(group));
   emitBatchStart(preparedRequests, group, options);
   assignBatchResults(
     preparedRequests,

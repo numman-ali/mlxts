@@ -236,6 +236,16 @@ describe("serve CLI args", () => {
     );
     expect(
       formatServeEvent({
+        type: "generation_batch_start",
+        mode: "static",
+        model: "qwen-local",
+        ids: ["cmpl-a", "cmpl-b"],
+        batchSize: 2,
+        maxTokens: 64,
+      }),
+    ).toBe("[batch] static model=qwen-local size=2 max_tokens=64 ids=cmpl-a,cmpl-b started");
+    expect(
+      formatServeEvent({
         type: "generation_complete",
         id: "cmpl-test",
         protocol: "openai.chat_completions",
@@ -253,6 +263,19 @@ describe("serve CLI args", () => {
         false,
       ),
     ).toBe(false);
+    expect(
+      shouldLogServeEvent(
+        {
+          type: "generation_batch_start",
+          mode: "static",
+          model: "qwen-local",
+          ids: ["cmpl-a", "cmpl-b"],
+          batchSize: 2,
+          maxTokens: 64,
+        },
+        false,
+      ),
+    ).toBe(true);
     expect(
       shouldLogServeEvent(
         { type: "request_start", method: "POST", path: "/v1/chat/completions" },

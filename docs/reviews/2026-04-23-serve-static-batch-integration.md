@@ -14,11 +14,17 @@ with compatible generation options. Sampled/model-native-default requests,
 mixed generation lengths, streaming, and unsupported cache families fall back to
 the existing single-request path.
 
+The same tranche also makes static batching observable through a
+`generation_batch_start` serve event and default CLI log line, so local operators
+can see when requests actually coalesced.
+
 ## Files Reviewed
 
 - `packages/serve/src/transformers-engine.ts`
 - `packages/serve/src/transformers-engine-generation.ts`
 - `packages/serve/src/transformers-engine-shared.ts`
+- `packages/serve/src/types.ts`
+- `packages/serve/src/cli.ts`
 
 ## Tensor Lifetime Audit
 
@@ -38,6 +44,7 @@ host-side, and model/tokenizer ownership remains with the caller or
 Validated with:
 
 - `bun test packages/serve/src/transformers-engine.test.ts packages/serve/src/model-server.test.ts`
+- `bun test packages/serve/src/transformers-engine.test.ts packages/serve/src/cli.test.ts`
 - `bun test packages/serve/src`
 - `bun run typecheck`
 
@@ -50,6 +57,8 @@ The tests prove:
 - mixed `max_tokens`, explicit sampled requests, and model-default sampled
   requests fall back instead of entering static batching
 - text prompt usage counts the tokenization mode actually used for generation
+- static batch start events are emitted by the transformer engine and formatted
+  by the CLI logs
 
 No new generation hot-path benchmark was required by the runtime-review gate for
 this tranche because only the serving adapter changed; the lower transformer
