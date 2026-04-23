@@ -1,5 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import type { Tokenizer } from "@mlxts/tokenizers";
+import { mkdtempSync, rmSync, writeFileSync } from "fs";
+import { tmpdir } from "os";
+import { join } from "path";
 
 import {
   type BenchmarkBaselines,
@@ -8,10 +11,15 @@ import {
   formatMlxLmReference,
   parseBaselineData,
   parseBenchmarkArgs,
+  readBenchmarkVocabSize,
   resolveCachedSnapshotPath,
   safeDecodedTokenLength,
   selectTargets,
 } from "./benchmark-common";
+
+function tempDirectory(prefix: string): string {
+  return mkdtempSync(join(tmpdir(), prefix));
+}
 
 describe("benchmark-common", () => {
   test("parseBenchmarkArgs reads model and integer flags", () => {
@@ -65,6 +73,16 @@ describe("benchmark-common", () => {
       enforceMlxLmDecodeBar: true,
       mlxLmPython: "/tmp/venv/bin/python",
     });
+  });
+
+  test("parseBenchmarkArgs can skip live mlx-lm capture for local profiling", () => {
+    const parsed = parseBenchmarkArgs([
+      "--model",
+      "mlx-community/Qwen3.6-27B-4bit",
+      "--skip-mlx-lm-reference",
+    ]);
+
+    expect(parsed.reference.captureMlxLmReference).toBe(false);
   });
 
   test("parseBaselineData requires synthetic and parity sections", () => {
@@ -194,6 +212,44 @@ describe("benchmark-common", () => {
     ).toBe(
       "MLX-LM reference: prompt_tps=45.000 generation_tps=49.000 peak_memory=2.500 captured_at=2026-04-05",
     );
+  });
+
+  test("formatMlxLmReference includes live reference trial counts", () => {
+    expect(
+      formatMlxLmReference({
+        name: "qwen-parity",
+        model: "mlx-community/Qwen3.6-27B-4bit",
+        promptTokens: 128,
+        generationTokens: 128,
+        mlxLmReference: {
+          promptTps: 45,
+          generationTps: 49,
+          peakMemoryGb: 2.5,
+          trialCount: 3,
+          capturedAt: "2026-04-23",
+        },
+      }),
+    ).toBe(
+      "MLX-LM reference: prompt_tps=45.000 generation_tps=49.000 peak_memory=2.500 trials=3 captured_at=2026-04-23",
+    );
+  });
+
+  test("readBenchmarkVocabSize reads direct and nested text config vocab sizes", async () => {
+    const directDirectory = tempDirectory("mlxts-bench-vocab-direct-");
+    const nestedDirectory = tempDirectory("mlxts-bench-vocab-nested-");
+    try {
+      writeFileSync(join(directDirectory, "config.json"), JSON.stringify({ vocab_size: 32000 }));
+      writeFileSync(
+        join(nestedDirectory, "config.json"),
+        JSON.stringify({ text_config: { vocab_size: 248064 } }),
+      );
+
+      await expect(readBenchmarkVocabSize(directDirectory)).resolves.toBe(32000);
+      await expect(readBenchmarkVocabSize(nestedDirectory)).resolves.toBe(248064);
+    } finally {
+      rmSync(directDirectory, { recursive: true, force: true });
+      rmSync(nestedDirectory, { recursive: true, force: true });
+    }
   });
 
   test("compareAgainstMlxLmReference warns when current metrics trail mlx-lm", () => {

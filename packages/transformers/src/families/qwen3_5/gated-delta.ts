@@ -6,6 +6,7 @@
 import {
   add,
   asType,
+  compile,
   concatenate,
   exp,
   fastRmsNorm,
@@ -82,16 +83,23 @@ function stableSoftplus(x: MxArray): MxArray {
   return where(mask, x, slowPath);
 }
 
+const decayFactorsTransform = compile(
+  (a: MxArray, aLog: MxArray, dtBias: MxArray) => {
+    using floatA = asType(a, "float32");
+    using floatDtBias = asType(dtBias, "float32");
+    using shifted = add(floatA, floatDtBias);
+    using softplus = stableSoftplus(shifted);
+    using floatALog = asType(aLog, "float32");
+    using expALog = exp(floatALog);
+    using scaled = multiply(expALog, softplus);
+    using negated = multiply(scaled, -1);
+    return exp(negated);
+  },
+  { shapeless: true },
+);
+
 function decayFactors(a: MxArray, aLog: MxArray, dtBias: MxArray): MxArray {
-  using floatA = asType(a, "float32");
-  using floatDtBias = asType(dtBias, "float32");
-  using shifted = add(floatA, floatDtBias);
-  using softplus = stableSoftplus(shifted);
-  using floatALog = asType(aLog, "float32");
-  using expALog = exp(floatALog);
-  using scaled = multiply(expALog, softplus);
-  using negated = multiply(scaled, -1);
-  return exp(negated);
+  return decayFactorsTransform(a, aLog, dtBias);
 }
 
 function gatedDeltaStep(

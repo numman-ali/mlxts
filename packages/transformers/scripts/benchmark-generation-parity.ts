@@ -7,6 +7,7 @@ import {
   resetCoreRuntimeProfile,
   snapshotCoreRuntimeProfile,
 } from "../../core/src/runtime-profile";
+import { materializeCacheState } from "../src/infrastructure/generation/helpers";
 import {
   isTransformerRuntimeProfilingEnabled,
   resetTransformerRuntimeProfile,
@@ -28,6 +29,7 @@ import {
   parseBenchmarkArgs,
   printTrial,
   type ReferenceBenchmarkOptions,
+  readBenchmarkVocabSize,
   resolveCachedSnapshotPath,
   selectTargets,
   type TrialMetrics,
@@ -41,6 +43,14 @@ import {
 } from "./benchmark-model";
 
 const PERIODIC_CACHE_CLEAR_INTERVAL = 256;
+
+type BenchmarkCache = ReturnType<BenchmarkModel["createCache"]>;
+
+type DecodeTiming = {
+  promptSeconds: number;
+  decodeSeconds: number;
+  decodeSyncCount: number;
+};
 
 function formatNsPerToken(totalNs: number, generationTokens: number, trials: number): string {
   const tokenCount = Math.max(generationTokens * trials, 1);
@@ -88,27 +98,42 @@ function freeGreedyStep(step: GreedyStepResult | null): void {
   step?.logprobs.free();
 }
 
-function runParityTrial(
-  model: BenchmarkModel,
-  promptTokenIds: readonly number[],
+function materializeCacheIfRequested(cache: BenchmarkCache, options: BenchmarkOptions): void {
+  if (options.materializeCacheEachToken) {
+    materializeCacheState(cache);
+  }
+}
+
+function recordDecodeStep(
+  index: number,
   options: BenchmarkOptions,
-): TrialMetrics {
-  resetPeakMemory();
-  using cache = model.createCache();
-  const promptStarted = performance.now();
-  const remainingPrompt = prefillBenchmarkCache(
-    model,
-    promptTokenIds,
-    cache,
-    options.prefillStepSize,
-  );
+  decodeMemory: ReturnType<typeof createDecodeMemoryTracker>,
+): boolean {
+  const completedTokens = index + 1;
+  if (completedTokens % options.memorySampleInterval === 0) {
+    decodeMemory.sample();
+  }
+  if (completedTokens % PERIODIC_CACHE_CLEAR_INTERVAL === 0) {
+    clearMemoryCache();
+  }
+  return completedTokens >= options.generationTokens;
+}
+
+function runAsyncParityDecode(
+  model: BenchmarkModel,
+  cache: BenchmarkCache,
+  initialStep: GreedyStepResult,
+  promptStarted: number,
+  options: BenchmarkOptions,
+  decodeMemory: ReturnType<typeof createDecodeMemoryTracker>,
+): DecodeTiming {
+  let currentStep = initialStep;
   let decodeSyncCount = 0;
   let promptSeconds = 0;
   let decodeStarted = 0;
-  let currentStep = predictGreedyStep(model, remainingPrompt, cache);
-  const decodeMemory = createDecodeMemoryTracker();
 
   try {
+    materializeCacheIfRequested(cache, options);
     mxAsyncEval(currentStep.token, currentStep.logprobs);
 
     for (let index = 0; index < options.generationTokens; index += 1) {
@@ -117,6 +142,7 @@ function runParityTrial(
       try {
         if (index + 1 < options.generationTokens) {
           nextStep = predictGreedyStep(model, currentStep.token, cache);
+          materializeCacheIfRequested(cache, options);
           mxAsyncEval(nextStep.token, nextStep.logprobs);
         }
 
@@ -128,14 +154,7 @@ function runParityTrial(
         }
 
         currentStep.token.item();
-        if ((index + 1) % options.memorySampleInterval === 0) {
-          decodeMemory.sample();
-        }
-        if ((index + 1) % PERIODIC_CACHE_CLEAR_INTERVAL === 0) {
-          clearMemoryCache();
-        }
-
-        if (index + 1 >= options.generationTokens) {
+        if (recordDecodeStep(index, options, decodeMemory)) {
           break;
         }
 
@@ -153,15 +172,87 @@ function runParityTrial(
     freeGreedyStep(currentStep);
   }
 
-  const decodeSeconds = (performance.now() - decodeStarted) / 1000;
   return {
-    promptTps: promptTokenIds.length / promptSeconds,
-    generationTps: options.generationTokens / decodeSeconds,
+    promptSeconds,
+    decodeSeconds: (performance.now() - decodeStarted) / 1000,
+    decodeSyncCount,
+  };
+}
+
+function runSyncParityDecode(
+  model: BenchmarkModel,
+  cache: BenchmarkCache,
+  initialStep: GreedyStepResult,
+  promptStarted: number,
+  options: BenchmarkOptions,
+  decodeMemory: ReturnType<typeof createDecodeMemoryTracker>,
+): DecodeTiming {
+  let currentStep = initialStep;
+  let decodeSyncCount = 0;
+  let promptSeconds = 0;
+  let decodeStarted = 0;
+
+  try {
+    for (let index = 0; index < options.generationTokens; index += 1) {
+      materializeCacheIfRequested(cache, options);
+      mxAsyncEval(currentStep.token, currentStep.logprobs);
+
+      decodeSyncCount += 1;
+      if (index === 0) {
+        promptSeconds = (performance.now() - promptStarted) / 1000;
+        resetRuntimeProfiles();
+        decodeStarted = performance.now();
+      }
+
+      const tokenId = currentStep.token.item();
+      if (recordDecodeStep(index, options, decodeMemory)) {
+        break;
+      }
+
+      const nextStep = predictGreedyStep(model, [tokenId], cache);
+      freeGreedyStep(currentStep);
+      currentStep = nextStep;
+    }
+  } finally {
+    freeGreedyStep(currentStep);
+  }
+
+  return {
+    promptSeconds,
+    decodeSeconds: (performance.now() - decodeStarted) / 1000,
+    decodeSyncCount,
+  };
+}
+
+function runParityTrial(
+  model: BenchmarkModel,
+  promptTokenIds: readonly number[],
+  options: BenchmarkOptions,
+): TrialMetrics {
+  resetPeakMemory();
+  using cache = model.createCache();
+  const promptStarted = performance.now();
+  const remainingPrompt = prefillBenchmarkCache(
+    model,
+    promptTokenIds,
+    cache,
+    options.prefillStepSize,
+  );
+  const currentStep = predictGreedyStep(model, remainingPrompt, cache);
+  const decodeMemory = createDecodeMemoryTracker();
+  const timing =
+    options.decodeSchedule === "async"
+      ? runAsyncParityDecode(model, cache, currentStep, promptStarted, options, decodeMemory)
+      : runSyncParityDecode(model, cache, currentStep, promptStarted, options, decodeMemory);
+
+  return {
+    promptTps: promptTokenIds.length / timing.promptSeconds,
+    generationTps: options.generationTokens / timing.decodeSeconds,
     peakMemoryGb: getPeakMemoryBytes() / 1e9,
     ...decodeMemory.finish(options.generationTokens),
     // item() performs one blocking scalar sync per token in the steady-state decode loop.
-    explicitEvalCountPerToken: decodeSyncCount / options.generationTokens,
-    totalTimeSeconds: promptSeconds + decodeSeconds,
+    explicitEvalCountPerToken: timing.decodeSyncCount / options.generationTokens,
+    totalTimeSeconds: timing.promptSeconds + timing.decodeSeconds,
   };
 }
 
@@ -228,19 +319,22 @@ async function benchmarkTarget(
   };
 
   console.log(
-    `Benchmarking ${target.name} parity (${resolvedModelSource}) with prompt_tokens=${targetOptions.promptTokens}, generation_tokens=${targetOptions.generationTokens}, trials=${targetOptions.trials}.`,
+    `Benchmarking ${target.name} parity (${resolvedModelSource}) with prompt_tokens=${targetOptions.promptTokens}, generation_tokens=${targetOptions.generationTokens}, trials=${targetOptions.trials}, decode_schedule=${targetOptions.decodeSchedule}, materialize_cache_each_token=${targetOptions.materializeCacheEachToken}.`,
   );
   let mlxLmReference = target.mlxLmReference ?? null;
-
-  using model = await loadCausalLM(resolvedModelSource, { localFilesOnly: true });
-  const promptTokenIds = createPromptTokenIds(targetOptions.promptTokens, model.config.vocabSize);
+  const vocabSize = await readBenchmarkVocabSize(resolvedModelSource);
+  const promptTokenIds = createPromptTokenIds(targetOptions.promptTokens, vocabSize);
 
   try {
     const liveReference = await captureMlxLmReference(
       resolvedModelSource,
       promptTokenIds,
-      targetOptions.generationTokens,
       referenceOptions,
+      {
+        generationTokens: targetOptions.generationTokens,
+        prefillStepSize: targetOptions.prefillStepSize,
+        trials: targetOptions.trials,
+      },
     );
     if (liveReference !== null) {
       mlxLmReference = liveReference;
@@ -260,6 +354,13 @@ async function benchmarkTarget(
         ...target,
         mlxLmReference,
       }),
+    );
+  }
+
+  using model = await loadCausalLM(resolvedModelSource, { localFilesOnly: true });
+  if (model.config.vocabSize !== vocabSize) {
+    throw new Error(
+      `benchmark-generation: loaded model vocab size ${model.config.vocabSize} did not match config prompt vocab size ${vocabSize}.`,
     );
   }
 

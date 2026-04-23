@@ -32,6 +32,7 @@ export type BenchmarkTarget = {
     generationTps: number;
     peakMemoryGb: number;
     capturedAt: string;
+    trialCount?: number;
   };
 };
 
@@ -67,6 +68,12 @@ export type ReferenceBenchmarkOptions = {
   captureMlxLmReference: boolean;
   enforceMlxLmDecodeBar: boolean;
   mlxLmPython?: string;
+};
+
+export type MlxLmCaptureOptions = {
+  generationTokens: number;
+  prefillStepSize: number;
+  trials: number;
 };
 
 export type TrialMetrics = {
@@ -213,6 +220,9 @@ function parseTarget(entry: unknown, context: string): BenchmarkTarget {
             generationTps: entry.mlxLmReference.generationTps,
             peakMemoryGb: entry.mlxLmReference.peakMemoryGb,
             capturedAt: entry.mlxLmReference.capturedAt,
+            ...(typeof entry.mlxLmReference.trialCount === "number"
+              ? { trialCount: entry.mlxLmReference.trialCount }
+              : {}),
           },
         }
       : {}),
@@ -271,6 +281,10 @@ function applyBooleanFlag(mutable: MutableBenchmarkOptions, flag: string): boole
       return true;
     case "--capture-mlx-lm-reference":
       mutable.captureMlxLmReference = true;
+      return true;
+    case "--skip-mlx-lm-reference":
+    case "--no-capture-mlx-lm-reference":
+      mutable.captureMlxLmReference = false;
       return true;
     case "--enforce-mlx-lm-decode-bar":
       mutable.enforceMlxLmDecodeBar = true;
@@ -430,6 +444,7 @@ export function formatMlxLmReference(target: BenchmarkTarget): string | null {
     `prompt_tps=${reference.promptTps.toFixed(3)}`,
     `generation_tps=${reference.generationTps.toFixed(3)}`,
     `peak_memory=${reference.peakMemoryGb.toFixed(3)}`,
+    ...(reference.trialCount === undefined ? [] : [`trials=${reference.trialCount}`]),
     `captured_at=${reference.capturedAt}`,
   ].join(" ");
 }
@@ -547,7 +562,8 @@ function parseMlxLmReferencePayload(output: string): ParsedMlxLmReferencePayload
     typeof parsed.peak_memory_gb !== "number" ||
     typeof parsed.captured_at !== "string" ||
     typeof parsed.generation_tokens !== "number" ||
-    typeof parsed.finish_reason !== "string"
+    typeof parsed.finish_reason !== "string" ||
+    (typeof parsed.trial_count !== "number" && parsed.trial_count !== undefined)
   ) {
     throw new Error("benchmark-generation: MLX-LM helper returned malformed benchmark JSON.");
   }
@@ -557,17 +573,56 @@ function parseMlxLmReferencePayload(output: string): ParsedMlxLmReferencePayload
     generationTps: parsed.generation_tps,
     peakMemoryGb: parsed.peak_memory_gb,
     capturedAt: parsed.captured_at,
+    ...(typeof parsed.trial_count === "number" ? { trialCount: parsed.trial_count } : {}),
     generationTokens: parsed.generation_tokens,
     finishReason: parsed.finish_reason,
   };
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function extractPositiveInteger(value: unknown): number | null {
+  return Number.isInteger(value) && typeof value === "number" && value > 0 ? value : null;
+}
+
+function configVocabSize(config: Record<string, unknown>): number | null {
+  const directVocabSize = extractPositiveInteger(config.vocab_size);
+  if (directVocabSize !== null) {
+    return directVocabSize;
+  }
+
+  const textConfig = config.text_config;
+  if (!isRecord(textConfig)) {
+    return null;
+  }
+  return extractPositiveInteger(textConfig.vocab_size);
+}
+
+/** Read enough checkpoint config metadata to create deterministic benchmark prompts. */
+export async function readBenchmarkVocabSize(snapshotPath: string): Promise<number> {
+  const configPath = `${snapshotPath}/config.json`;
+  const payload = await Bun.file(configPath).json();
+  if (!isRecord(payload)) {
+    throw new Error(`benchmark-generation: ${configPath} must contain a JSON object.`);
+  }
+
+  const vocabSize = configVocabSize(payload);
+  if (vocabSize === null) {
+    throw new Error(
+      `benchmark-generation: ${configPath} must include a positive vocab_size, directly or under text_config.`,
+    );
+  }
+  return vocabSize;
 }
 
 /** Run the local MLX-LM helper on the exact prompt-token sequence used by mlxts. */
 export async function captureMlxLmReference(
   modelPath: string,
   promptTokenIds: readonly number[],
-  generationTokens: number,
   referenceOptions: ReferenceBenchmarkOptions,
+  captureOptions: MlxLmCaptureOptions,
 ): Promise<MlxLmReference | null> {
   if (!referenceOptions.captureMlxLmReference) {
     return null;
@@ -587,7 +642,13 @@ export async function captureMlxLmReference(
       "--prompt-token-ids-json",
       JSON.stringify(promptTokenIds),
       "--max-tokens",
-      String(generationTokens),
+      String(captureOptions.generationTokens),
+      "--prefill-step-size",
+      String(captureOptions.prefillStepSize),
+      "--trials",
+      String(captureOptions.trials),
+      "--warmup-trials",
+      "1",
     ],
     {
       stdout: "pipe",
@@ -620,7 +681,10 @@ export async function captureMlxLmReference(
   }
 
   const parsed = parseMlxLmReferencePayload(stdout);
-  if (parsed.generationTokens !== generationTokens || parsed.finishReason !== "length") {
+  if (
+    parsed.generationTokens !== captureOptions.generationTokens ||
+    parsed.finishReason !== "length"
+  ) {
     throw new Error(
       `benchmark-generation: MLX-LM helper did not complete the requested fixed-length decode (tokens=${parsed.generationTokens}, finish_reason=${parsed.finishReason}).`,
     );
@@ -630,6 +694,7 @@ export async function captureMlxLmReference(
     promptTps: parsed.promptTps,
     generationTps: parsed.generationTps,
     peakMemoryGb: parsed.peakMemoryGb,
+    ...(parsed.trialCount === undefined ? {} : { trialCount: parsed.trialCount }),
     capturedAt: parsed.capturedAt,
   };
 }
