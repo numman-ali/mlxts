@@ -9,6 +9,7 @@ export type ServeBenchmarkOptions = {
   promptTokens: number[];
   generationTokens: number[];
   concurrency: number[];
+  requestStaggerMs: number;
   rungs?: ServeBenchmarkRung[];
   reportJson?: string;
   trials: number;
@@ -35,6 +36,10 @@ export type ServeBenchmarkRung = {
   concurrency: number;
 };
 
+export function requestLaunchDelayMs(requestIndex: number, requestStaggerMs: number): number {
+  return Math.max(0, requestIndex) * requestStaggerMs;
+}
+
 type PromptOutputPair = Pick<ServeBenchmarkRung, "promptTokens" | "generationTokens">;
 
 const DEFAULT_PROMPT_TOKENS = [128];
@@ -51,6 +56,7 @@ function usage(): never {
       "  --generation-tokens <list>      Comma-separated max_tokens targets, default 128",
       "  --concurrency <list>            Comma-separated parallel request counts, default 1",
       "  --rungs <spec>                  Explicit rungs like 128x128@1,1024x512@2",
+      "  --request-stagger-ms <n>        Delay each request launch by index*n ms, default 0",
       "  --matrix <cartesian|zip>        Pair prompt/output rungs, default cartesian",
       "  --trials <n>                    Trials per rung, default 1",
       "  --report-json <path>            Write a structured JSON report at the end",
@@ -158,6 +164,7 @@ type ParseState = {
   promptTokens: number[];
   generationTokens: number[];
   concurrency: number[];
+  requestStaggerMs: number;
   rungs?: ServeBenchmarkRung[];
   reportJson?: string;
   trials: number;
@@ -183,6 +190,7 @@ function defaultParseState(): ParseState {
     promptTokens: DEFAULT_PROMPT_TOKENS,
     generationTokens: DEFAULT_GENERATION_TOKENS,
     concurrency: DEFAULT_CONCURRENCY,
+    requestStaggerMs: 0,
     trials: 1,
     warmup: true,
     matrix: "cartesian",
@@ -228,6 +236,9 @@ function readBenchmarkValueArg(state: ParseState, arg: string, value: string | u
       return true;
     case "--concurrency":
       state.concurrency = parsePositiveIntegerList(arg, value);
+      return true;
+    case "--request-stagger-ms":
+      state.requestStaggerMs = readNonNegativeInteger(arg, value);
       return true;
     case "--rungs":
       state.rungs = parseServeBenchmarkRungs(arg, value);
@@ -348,6 +359,7 @@ export function parseServeBenchmarkArgs(argv: readonly string[]): ServeBenchmark
     promptTokens: state.promptTokens,
     generationTokens: state.generationTokens,
     concurrency: state.concurrency,
+    requestStaggerMs: state.requestStaggerMs,
     ...(state.rungs === undefined ? {} : { rungs: state.rungs }),
     ...(state.reportJson === undefined ? {} : { reportJson: state.reportJson }),
     trials: state.trials,

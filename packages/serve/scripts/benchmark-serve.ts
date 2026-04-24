@@ -15,6 +15,7 @@ import { runCompletionRequest } from "./benchmark-serve-completions";
 import {
   buildServeBenchmarkRungs,
   parseServeBenchmarkArgs,
+  requestLaunchDelayMs,
   type ServeBenchmarkOptions,
   type ServeBenchmarkRung,
 } from "./benchmark-serve-options";
@@ -52,6 +53,7 @@ type TrialMetrics = {
 
 type RungReport = {
   rung: ServeBenchmarkRung;
+  arrivalSpanMs: number;
   trials: TrialMetrics[];
   averages: TrialMetrics;
 };
@@ -67,6 +69,7 @@ type BenchmarkReport = {
   ignoreEos: boolean;
   maxBatchSize: number;
   batchWindowMs: number;
+  requestStaggerMs: number;
   maxConcurrentRequests: number;
   gpuMemoryUtilization: number;
   rungs: RungReport[];
@@ -189,6 +192,10 @@ function sum(values: readonly number[]): number {
   return values.reduce((total, value) => total + value, 0);
 }
 
+function arrivalSpanMs(rung: ServeBenchmarkRung, options: ServeBenchmarkOptions): number {
+  return requestLaunchDelayMs(rung.concurrency - 1, options.requestStaggerMs);
+}
+
 async function runTrial(
   endpoint: string,
   modelId: string,
@@ -202,9 +209,13 @@ async function runTrial(
   const memoryBefore = getMemoryStats();
   const eventStart = serveEvents.length;
   const started = performance.now();
-  const requests = Array.from({ length: rung.concurrency }, () =>
-    runCompletionRequest(endpoint, modelId, prompt, rung, options),
-  );
+  const requests = Array.from({ length: rung.concurrency }, async (_, requestIndex) => {
+    const delayMs = requestLaunchDelayMs(requestIndex, options.requestStaggerMs);
+    if (delayMs > 0) {
+      await Bun.sleep(delayMs);
+    }
+    return runCompletionRequest(endpoint, modelId, prompt, rung, options);
+  });
   const results = await Promise.all(requests);
   const wallMs = performance.now() - started;
   const memoryAfter = getMemoryStats();
@@ -357,6 +368,8 @@ async function benchmarkRung(
       `sampling=${options.samplingMode}`,
       `transport=${options.transportMode}`,
       `protocol=${options.protocolMode}`,
+      `request_stagger_ms=${options.requestStaggerMs}`,
+      `arrival_span_ms=${arrivalSpanMs(rung, options)}`,
     ].join(" "),
   );
 
@@ -376,7 +389,7 @@ async function benchmarkRung(
   const averages = averageTrialMetrics(trials);
   printMetrics("Averages: ", averages);
   console.log("");
-  return { rung, trials, averages };
+  return { rung, arrivalSpanMs: arrivalSpanMs(rung, options), trials, averages };
 }
 
 function maximum(values: readonly number[]): number {
@@ -401,6 +414,7 @@ async function main(): Promise<void> {
       `ignore_eos=${options.ignoreEos}`,
       `max_batch_size=${options.maxBatchSize}`,
       `batch_window_ms=${options.batchWindowMs}`,
+      `request_stagger_ms=${options.requestStaggerMs}`,
       `max_concurrent_requests=${options.maxConcurrentRequests}`,
       `gpu_memory_utilization=${options.gpuMemoryUtilization}`,
     ].join(" "),
@@ -461,6 +475,7 @@ async function main(): Promise<void> {
         ignoreEos: options.ignoreEos,
         maxBatchSize: options.maxBatchSize,
         batchWindowMs: options.batchWindowMs,
+        requestStaggerMs: options.requestStaggerMs,
         maxConcurrentRequests: options.maxConcurrentRequests,
         gpuMemoryUtilization: options.gpuMemoryUtilization,
         rungs: reports,

@@ -17,6 +17,7 @@ describe("serve benchmark options", () => {
       promptTokens: [128],
       generationTokens: [128],
       concurrency: [1],
+      requestStaggerMs: 0,
       trials: 1,
       warmup: true,
       matrix: "cartesian",
@@ -48,6 +49,8 @@ describe("serve benchmark options", () => {
       "1,4",
       "--rungs",
       "128x128,1024x512@2",
+      "--request-stagger-ms",
+      "25",
       "--trials",
       "3",
       "--report-json",
@@ -103,6 +106,7 @@ describe("serve benchmark options", () => {
       batchWindowMs: 2,
       maxConcurrentRequests: 2,
       requestTimeoutMs: 7_200_000,
+      requestStaggerMs: 25,
       gpuMemoryUtilization: 0.75,
       maxPromptTokens: 2048,
       maxTotalTokens: 4096,
@@ -185,6 +189,9 @@ describe("serve benchmark options", () => {
     ).toThrow("--ignore-eos is not supported with --protocol responses");
     expect(() => parsePositiveIntegerList("--concurrency", "1,0")).toThrow(
       "--concurrency expects a positive integer",
+    );
+    expect(() => parseServeBenchmarkArgs(["model", "--request-stagger-ms", "-1"])).toThrow(
+      "--request-stagger-ms expects a non-negative integer",
     );
     expect(() =>
       buildServeBenchmarkRungs(

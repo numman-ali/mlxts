@@ -153,6 +153,12 @@ work as a usable text endpoint while benchmark and scheduler work continues.
   Responses after the harness learned to fail streams that end without usage or
   a finish reason. See
   `docs/reviews/2026-04-24-serve-protocol-benchmarking.md`.
+- `bench:serve` now supports staggered request arrivals with
+  `--request-stagger-ms <n>`. Trials still measure each request's service
+  duration after its artificial arrival delay, while wall time captures the full
+  arrival span. JSON reports include `requestStaggerMs` and per-rung
+  `arrivalSpanMs`, so waiting-row continuous scheduler evidence is not confused
+  with simultaneous admission-window coalescing.
 
 ## Next Work
 
@@ -192,11 +198,15 @@ work as a usable text endpoint while benchmark and scheduler work continues.
   endpoint rungs, then serialized concurrency `1,2,4`, then streaming rungs with
   larger outputs. Use `--max-concurrent-requests 1` first to prove queueing
   stability before any scheduler-backed concurrency claims.
-- Prefer explicit staggered endpoint rungs for overnight runs:
+- Prefer explicit endpoint capability rungs for overnight runs:
   `--rungs 128x128@1,1024x512@1,5000x128@2,10000x128@2` plus
   `--report-json .tmp/<model>-serve-ladder.json`. The report now includes
   p95/max request latency, batch row counters, and max observed generation batch
   size so concurrency is not confused with real batching.
+- Add `--request-stagger-ms <n>` when the benchmark should test waiting-row
+  scheduler fairness instead of only simultaneous arrivals. This is especially
+  useful after full-KV continuous batching changes, because it exercises queued
+  prompts arriving behind already-active decode rows.
 - For publishable mlx-lm parity claims, use `bench:generation:parity
   --require-mlx-lm-reference`; otherwise a missing Python reference is just a
   local-only profiling run. The parity comparison now warns when peak memory is

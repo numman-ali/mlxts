@@ -222,6 +222,9 @@ Pass `--stream` to drive the same rungs through SSE completions with
 `stream_options.include_usage=true`; streaming runs add mean time-to-first-token,
 prompt-to-first-token throughput, post-TTFT completion throughput, SSE chunk
 count, and streamed byte count.
+Pass `--request-stagger-ms <n>` to launch concurrent requests at deliberate
+offsets rather than all at once. That is the benchmark shape for testing
+waiting-row scheduler fairness instead of only admission-window coalescing.
 For huge prompt rungs, prefer streaming: the server sends SSE keepalive comments
 and uses cooperative streaming prefill so long prefill phases do not leave the
 client connection silent until the first generated token.
@@ -231,7 +234,7 @@ hour so long-context prefill does not get mislabeled as a model failure.
 
 Use comma lists with the default cartesian matrix for broad serving sweeps,
 `--matrix zip` for paired prompt/output rungs, or `--rungs` for a deliberate
-staggered ladder such as `128x128@1,1024x512@1,10000x128@2`. Add
+capability ladder such as `128x128@1,1024x512@1,10000x128@2`. Add
 `--report-json <path>` for overnight evidence that can be compared later.
 The batch row counters are important: Qwen and Gemma4 currently exercise the
 single-request path even when requests are admitted together, so endpoint
