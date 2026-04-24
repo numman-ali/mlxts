@@ -24,3 +24,5 @@
   checkpoint.
 - Long-context retrieval benchmarks should disable Qwen thinking and grade the
   first non-empty generated answer line while still printing the full response.
+  Broad Qwen context-window claims need early, middle, and late marker evidence,
+  not only the default late-position needle.

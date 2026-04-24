@@ -194,6 +194,10 @@ work as a usable text endpoint while benchmark and scheduler work continues.
   --require-mlx-lm-reference`; otherwise a missing Python reference is just a
   local-only profiling run. The parity comparison now warns when peak memory is
   materially above mlx-lm, not only when decode TPS trails.
+- For broad context-window recall claims, use `bench:generation:context
+  --needle-placements all --report-json .tmp/<model>-context.json`. The report
+  records actual prompt length plus marker token span/center and is rewritten
+  after each placement so partial long-run evidence survives later failures.
 - Use `--ignore-eos` only for exact-length throughput/parity ladders. Normal
   serving should still honor EOS, but Qwen/Gemma parity claims need a way to
   request the full output rung when the benchmark is measuring decode speed

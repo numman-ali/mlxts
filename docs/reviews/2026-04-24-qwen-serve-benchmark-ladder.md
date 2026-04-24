@@ -125,7 +125,9 @@ eligible.
   around cache representation and temporary peak accounting.
 - Qwen hybrid-cache continuous batching remains separate work. Do not claim Qwen
   batching from queued concurrency.
-- Protocol benchmarks are still missing for chat and Responses. The current
-  harness proves `/v1/completions` with token-array prompts.
-- Long-context retrieval should add early/middle/late needle placement before
-  making broad recall claims.
+- Protocol benchmarks now exist through `bench:serve --protocol chat|responses`;
+  tool-quality benchmarks are still separate work.
+- Long-context retrieval now supports early/middle/late needle placement through
+  `bench:generation:context --needle-placements all --report-json <path>`.
+  Run that ladder before making broad recall claims beyond the prior late-needle
+  Qwen evidence.
