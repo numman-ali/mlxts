@@ -8,6 +8,8 @@ export type ServeBenchmarkOptions = {
   promptTokens: number[];
   generationTokens: number[];
   concurrency: number[];
+  rungs?: ServeBenchmarkRung[];
+  reportJson?: string;
   trials: number;
   warmup: boolean;
   matrix: MatrixMode;
@@ -46,8 +48,10 @@ function usage(): never {
       "  --prompt-tokens <list>          Comma-separated prompt token targets, default 128",
       "  --generation-tokens <list>      Comma-separated max_tokens targets, default 128",
       "  --concurrency <list>            Comma-separated parallel request counts, default 1",
+      "  --rungs <spec>                  Explicit rungs like 128x128@1,1024x512@2",
       "  --matrix <cartesian|zip>        Pair prompt/output rungs, default cartesian",
       "  --trials <n>                    Trials per rung, default 1",
+      "  --report-json <path>            Write a structured JSON report at the end",
       "  --stream                        Measure SSE streaming and time-to-first-token",
       "  --ignore-eos                    Request exact max_tokens for throughput ladders",
       "  --greedy                        Send temperature=0 for deterministic throughput",
@@ -105,6 +109,30 @@ export function parsePositiveIntegerList(flag: string, value: string | undefined
   return [...new Set(parsed)];
 }
 
+function parseServeBenchmarkRung(flag: string, value: string): ServeBenchmarkRung {
+  const match = /^(\d+)x(\d+)(?:@(\d+))?$/.exec(value);
+  if (match === null) {
+    throw new Error(`benchmark-serve: ${flag} entries must look like 128x128@1.`);
+  }
+  const [, promptTokensText, generationTokensText, concurrencyText] = match;
+  return {
+    promptTokens: readPositiveInteger(flag, promptTokensText),
+    generationTokens: readPositiveInteger(flag, generationTokensText),
+    concurrency: concurrencyText === undefined ? 1 : readPositiveInteger(flag, concurrencyText),
+  };
+}
+
+export function parseServeBenchmarkRungs(
+  flag: string,
+  value: string | undefined,
+): ServeBenchmarkRung[] {
+  const requiredValue = readRequiredValue(flag, value);
+  if (requiredValue.trim() === "") {
+    throw new Error(`benchmark-serve: ${flag} expects comma-separated rungs.`);
+  }
+  return requiredValue.split(",").map((entry) => parseServeBenchmarkRung(flag, entry.trim()));
+}
+
 function parseMatrixMode(value: string | undefined): MatrixMode {
   const requiredValue = readRequiredValue("--matrix", value);
   if (requiredValue === "cartesian" || requiredValue === "zip") {
@@ -121,148 +149,198 @@ function defaultModelId(model: string | undefined): string {
   return pieces.at(-1) ?? "local-model";
 }
 
+type ParseState = {
+  model?: string;
+  modelId?: string;
+  promptTokens: number[];
+  generationTokens: number[];
+  concurrency: number[];
+  rungs?: ServeBenchmarkRung[];
+  reportJson?: string;
+  trials: number;
+  warmup: boolean;
+  matrix: MatrixMode;
+  samplingMode: SamplingMode;
+  transportMode: TransportMode;
+  ignoreEos: boolean;
+  localFilesOnly: boolean;
+  port: number;
+  maxBatchSize: number;
+  batchWindowMs: number;
+  maxConcurrentRequests: number;
+  requestTimeoutMs: number;
+  gpuMemoryUtilization: number;
+  maxPromptTokens?: number;
+  maxTotalTokens?: number;
+};
+
+function defaultParseState(): ParseState {
+  return {
+    promptTokens: DEFAULT_PROMPT_TOKENS,
+    generationTokens: DEFAULT_GENERATION_TOKENS,
+    concurrency: DEFAULT_CONCURRENCY,
+    trials: 1,
+    warmup: true,
+    matrix: "cartesian",
+    samplingMode: "model-defaults",
+    transportMode: "non-streaming",
+    ignoreEos: false,
+    localFilesOnly: true,
+    port: 0,
+    maxBatchSize: 32,
+    batchWindowMs: 1,
+    maxConcurrentRequests: 1,
+    requestTimeoutMs: 3_600_000,
+    gpuMemoryUtilization: 0.9,
+  };
+}
+
+function readBenchmarkValueArg(state: ParseState, arg: string, value: string | undefined): boolean {
+  switch (arg) {
+    case "--model":
+      state.model = readRequiredValue(arg, value);
+      return true;
+    case "--model-id":
+      state.modelId = readRequiredValue(arg, value);
+      return true;
+    case "--prompt-tokens":
+      state.promptTokens = parsePositiveIntegerList(arg, value);
+      return true;
+    case "--generation-tokens":
+      state.generationTokens = parsePositiveIntegerList(arg, value);
+      return true;
+    case "--concurrency":
+      state.concurrency = parsePositiveIntegerList(arg, value);
+      return true;
+    case "--rungs":
+      state.rungs = parseServeBenchmarkRungs(arg, value);
+      return true;
+    case "--trials":
+      state.trials = readPositiveInteger(arg, value);
+      return true;
+    case "--report-json":
+      state.reportJson = readRequiredValue(arg, value);
+      return true;
+    case "--matrix":
+      state.matrix = parseMatrixMode(value);
+      return true;
+    default:
+      return false;
+  }
+}
+
+function readServerValueArg(state: ParseState, arg: string, value: string | undefined): boolean {
+  switch (arg) {
+    case "--port":
+      state.port = readNonNegativeInteger(arg, value);
+      return true;
+    case "--max-batch-size":
+      state.maxBatchSize = readPositiveInteger(arg, value);
+      return true;
+    case "--batch-window-ms":
+      state.batchWindowMs = readNonNegativeInteger(arg, value);
+      return true;
+    case "--max-concurrent-requests":
+      state.maxConcurrentRequests = readPositiveInteger(arg, value);
+      return true;
+    case "--gpu-memory-utilization":
+      state.gpuMemoryUtilization = readPositiveFraction(arg, value);
+      return true;
+    case "--request-timeout-ms":
+      state.requestTimeoutMs = readPositiveInteger(arg, value);
+      return true;
+    case "--max-prompt-tokens":
+      state.maxPromptTokens = readPositiveInteger(arg, value);
+      return true;
+    case "--max-total-tokens":
+      state.maxTotalTokens = readPositiveInteger(arg, value);
+      return true;
+    default:
+      return false;
+  }
+}
+
+function readBooleanArg(state: ParseState, arg: string): boolean {
+  if (arg === "--help" || arg === "-h") {
+    usage();
+  }
+  switch (arg) {
+    case "--greedy":
+      state.samplingMode = "greedy";
+      return true;
+    case "--stream":
+      state.transportMode = "streaming";
+      return true;
+    case "--ignore-eos":
+      state.ignoreEos = true;
+      return true;
+    case "--no-warmup":
+      state.warmup = false;
+      return true;
+    case "--allow-download":
+      state.localFilesOnly = false;
+      return true;
+    default:
+      return false;
+  }
+}
+
+function readValueArg(state: ParseState, arg: string, value: string | undefined): boolean {
+  return readBenchmarkValueArg(state, arg, value) || readServerValueArg(state, arg, value);
+}
+
+function readBenchmarkArg(state: ParseState, argv: readonly string[], index: number): number {
+  const arg = argv[index];
+  if (arg === undefined) {
+    return index;
+  }
+  if (readValueArg(state, arg, argv[index + 1])) {
+    return index + 1;
+  }
+  if (readBooleanArg(state, arg)) {
+    return index;
+  }
+  if (!arg.startsWith("--") && state.model === undefined) {
+    state.model = arg;
+    return index;
+  }
+  throw new Error(`benchmark-serve: unknown argument "${arg}".`);
+}
+
 export function parseServeBenchmarkArgs(argv: readonly string[]): ServeBenchmarkOptions {
-  let model: string | undefined;
-  let modelId: string | undefined;
-  let promptTokens = DEFAULT_PROMPT_TOKENS;
-  let generationTokens = DEFAULT_GENERATION_TOKENS;
-  let concurrency = DEFAULT_CONCURRENCY;
-  let trials = 1;
-  let warmup = true;
-  let matrix: MatrixMode = "cartesian";
-  let samplingMode: SamplingMode = "model-defaults";
-  let transportMode: TransportMode = "non-streaming";
-  let ignoreEos = false;
-  let localFilesOnly = true;
-  let port = 0;
-  let maxBatchSize = 32;
-  let batchWindowMs = 1;
-  let maxConcurrentRequests = 1;
-  let requestTimeoutMs = 3_600_000;
-  let gpuMemoryUtilization = 0.9;
-  let maxPromptTokens: number | undefined;
-  let maxTotalTokens: number | undefined;
+  const state = defaultParseState();
 
   for (let index = 0; index < argv.length; index += 1) {
-    const arg = argv[index];
-    if (arg === undefined) {
-      continue;
-    }
-
-    switch (arg) {
-      case "--model":
-        model = readRequiredValue(arg, argv[index + 1]);
-        index += 1;
-        break;
-      case "--model-id":
-        modelId = readRequiredValue(arg, argv[index + 1]);
-        index += 1;
-        break;
-      case "--prompt-tokens":
-        promptTokens = parsePositiveIntegerList(arg, argv[index + 1]);
-        index += 1;
-        break;
-      case "--generation-tokens":
-        generationTokens = parsePositiveIntegerList(arg, argv[index + 1]);
-        index += 1;
-        break;
-      case "--concurrency":
-        concurrency = parsePositiveIntegerList(arg, argv[index + 1]);
-        index += 1;
-        break;
-      case "--trials":
-        trials = readPositiveInteger(arg, argv[index + 1]);
-        index += 1;
-        break;
-      case "--matrix":
-        matrix = parseMatrixMode(argv[index + 1]);
-        index += 1;
-        break;
-      case "--port":
-        port = readNonNegativeInteger(arg, argv[index + 1]);
-        index += 1;
-        break;
-      case "--max-batch-size":
-        maxBatchSize = readPositiveInteger(arg, argv[index + 1]);
-        index += 1;
-        break;
-      case "--batch-window-ms":
-        batchWindowMs = readNonNegativeInteger(arg, argv[index + 1]);
-        index += 1;
-        break;
-      case "--max-concurrent-requests":
-        maxConcurrentRequests = readPositiveInteger(arg, argv[index + 1]);
-        index += 1;
-        break;
-      case "--gpu-memory-utilization":
-        gpuMemoryUtilization = readPositiveFraction(arg, argv[index + 1]);
-        index += 1;
-        break;
-      case "--request-timeout-ms":
-        requestTimeoutMs = readPositiveInteger(arg, argv[index + 1]);
-        index += 1;
-        break;
-      case "--max-prompt-tokens":
-        maxPromptTokens = readPositiveInteger(arg, argv[index + 1]);
-        index += 1;
-        break;
-      case "--max-total-tokens":
-        maxTotalTokens = readPositiveInteger(arg, argv[index + 1]);
-        index += 1;
-        break;
-      case "--greedy":
-        samplingMode = "greedy";
-        break;
-      case "--stream":
-        transportMode = "streaming";
-        break;
-      case "--ignore-eos":
-        ignoreEos = true;
-        break;
-      case "--no-warmup":
-        warmup = false;
-        break;
-      case "--allow-download":
-        localFilesOnly = false;
-        break;
-      case "--help":
-      case "-h":
-        usage();
-        break;
-      default:
-        if (!arg.startsWith("--") && model === undefined) {
-          model = arg;
-          break;
-        }
-        throw new Error(`benchmark-serve: unknown argument "${arg}".`);
-    }
+    index = readBenchmarkArg(state, argv, index);
   }
 
-  if (model === undefined || model.trim() === "") {
+  if (state.model === undefined || state.model.trim() === "") {
     usage();
   }
 
   return {
-    model,
-    modelId: modelId ?? defaultModelId(model),
-    promptTokens,
-    generationTokens,
-    concurrency,
-    trials,
-    warmup,
-    matrix,
-    samplingMode,
-    transportMode,
-    ignoreEos,
-    localFilesOnly,
-    port,
-    maxBatchSize,
-    batchWindowMs,
-    maxConcurrentRequests,
-    requestTimeoutMs,
-    gpuMemoryUtilization,
-    ...(maxPromptTokens === undefined ? {} : { maxPromptTokens }),
-    ...(maxTotalTokens === undefined ? {} : { maxTotalTokens }),
+    model: state.model,
+    modelId: state.modelId ?? defaultModelId(state.model),
+    promptTokens: state.promptTokens,
+    generationTokens: state.generationTokens,
+    concurrency: state.concurrency,
+    ...(state.rungs === undefined ? {} : { rungs: state.rungs }),
+    ...(state.reportJson === undefined ? {} : { reportJson: state.reportJson }),
+    trials: state.trials,
+    warmup: state.warmup,
+    matrix: state.matrix,
+    samplingMode: state.samplingMode,
+    transportMode: state.transportMode,
+    ignoreEos: state.ignoreEos,
+    localFilesOnly: state.localFilesOnly,
+    port: state.port,
+    maxBatchSize: state.maxBatchSize,
+    batchWindowMs: state.batchWindowMs,
+    maxConcurrentRequests: state.maxConcurrentRequests,
+    requestTimeoutMs: state.requestTimeoutMs,
+    gpuMemoryUtilization: state.gpuMemoryUtilization,
+    ...(state.maxPromptTokens === undefined ? {} : { maxPromptTokens: state.maxPromptTokens }),
+    ...(state.maxTotalTokens === undefined ? {} : { maxTotalTokens: state.maxTotalTokens }),
   };
 }
 
@@ -296,6 +374,9 @@ function buildPromptOutputPairs(options: ServeBenchmarkOptions): PromptOutputPai
 }
 
 export function buildServeBenchmarkRungs(options: ServeBenchmarkOptions): ServeBenchmarkRung[] {
+  if (options.rungs !== undefined) {
+    return options.rungs;
+  }
   return buildPromptOutputPairs(options).flatMap((pair) =>
     options.concurrency.map((concurrency) => ({ ...pair, concurrency })),
   );

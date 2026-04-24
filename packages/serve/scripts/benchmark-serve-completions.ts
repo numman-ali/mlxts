@@ -95,8 +95,8 @@ async function runBufferedCompletionRequest(
       ),
     ),
   });
-  const durationMs = performance.now() - started;
   const body = (await response.json()) as CompletionResponseBody;
+  const durationMs = performance.now() - started;
   if (!response.ok) {
     throw new Error(
       `benchmark-serve: request failed (${response.status}): ${JSON.stringify(body)}`,

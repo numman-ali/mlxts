@@ -25,6 +25,7 @@ import {
   enforceMlxLmDecodeBar,
   formatMlxLmReference,
   loadBaselines,
+  type MlxLmReference,
   mean,
   parseBenchmarkArgs,
   printTrial,
@@ -302,6 +303,65 @@ function runParityBenchmarks(
   });
 }
 
+async function resolveMlxLmReference(
+  target: BenchmarkTarget,
+  resolvedModelSource: string,
+  promptTokenIds: readonly number[],
+  targetOptions: BenchmarkOptions,
+  referenceOptions: ReferenceBenchmarkOptions,
+): Promise<MlxLmReference | null> {
+  const liveReference = await captureMlxLmReference(
+    resolvedModelSource,
+    promptTokenIds,
+    referenceOptions,
+    {
+      generationTokens: targetOptions.generationTokens,
+      prefillStepSize: targetOptions.prefillStepSize,
+      trials: targetOptions.trials,
+    },
+  );
+  if (liveReference !== null) {
+    return liveReference;
+  }
+  if (target.mlxLmReference !== undefined) {
+    return target.mlxLmReference;
+  }
+  if (referenceOptions.requireMlxLmReference) {
+    throw new Error(
+      `benchmark-generation: MLX-LM reference is required for ${target.name} but unavailable.`,
+    );
+  }
+  console.warn(
+    `Warning: MLX-LM reference unavailable for ${target.name}; falling back to no external comparison.`,
+  );
+  return null;
+}
+
+async function captureTargetReference(
+  target: BenchmarkTarget,
+  resolvedModelSource: string,
+  promptTokenIds: readonly number[],
+  targetOptions: BenchmarkOptions,
+  referenceOptions: ReferenceBenchmarkOptions,
+): Promise<MlxLmReference | null> {
+  try {
+    return await resolveMlxLmReference(
+      target,
+      resolvedModelSource,
+      promptTokenIds,
+      targetOptions,
+      referenceOptions,
+    );
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (referenceOptions.requireMlxLmReference) {
+      throw new Error(`benchmark-generation: required mlx-lm reference failed: ${message}`);
+    }
+    console.warn(`Warning: unable to run mlx-lm reference for ${target.name}: ${message}`);
+    return target.mlxLmReference ?? null;
+  }
+}
+
 async function benchmarkTarget(
   target: BenchmarkTarget,
   options: BenchmarkOptions,
@@ -321,32 +381,15 @@ async function benchmarkTarget(
   console.log(
     `Benchmarking ${target.name} parity (${resolvedModelSource}) with prompt_tokens=${targetOptions.promptTokens}, generation_tokens=${targetOptions.generationTokens}, trials=${targetOptions.trials}, decode_schedule=${targetOptions.decodeSchedule}, materialize_cache_each_token=${targetOptions.materializeCacheEachToken}.`,
   );
-  let mlxLmReference = target.mlxLmReference ?? null;
   const vocabSize = await readBenchmarkVocabSize(resolvedModelSource);
   const promptTokenIds = createPromptTokenIds(targetOptions.promptTokens, vocabSize);
-
-  try {
-    const liveReference = await captureMlxLmReference(
-      resolvedModelSource,
-      promptTokenIds,
-      referenceOptions,
-      {
-        generationTokens: targetOptions.generationTokens,
-        prefillStepSize: targetOptions.prefillStepSize,
-        trials: targetOptions.trials,
-      },
-    );
-    if (liveReference !== null) {
-      mlxLmReference = liveReference;
-    } else if (mlxLmReference === null) {
-      console.warn(
-        `Warning: MLX-LM reference unavailable for ${target.name}; falling back to no external comparison.`,
-      );
-    }
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    console.warn(`Warning: unable to run mlx-lm reference for ${target.name}: ${message}`);
-  }
+  const mlxLmReference = await captureTargetReference(
+    target,
+    resolvedModelSource,
+    promptTokenIds,
+    targetOptions,
+    referenceOptions,
+  );
 
   if (mlxLmReference !== null) {
     console.log(

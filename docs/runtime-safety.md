@@ -49,7 +49,8 @@ Performance is an observable, not a review opinion. The generation hot path (`ge
 ### Benchmark infrastructure
 
 - `bun run bench:generation` runs the synthetic throughput benchmark: real cached checkpoints, synthetic random-token prompts, no downloads or network during the benchmark itself. It measures prefill tok/s, decode tok/s, peak memory, and eval-count-per-token, and acts as the low-level throughput canary.
-- `bun run bench:generation:parity` runs the MLX-LM parity benchmark: the same real cached checkpoints and token counts, but with the decode-side work structured for fair comparison with `mlx-lm`.
+- `bun run bench:generation:parity` runs the MLX-LM parity benchmark: the same real cached checkpoints and token counts, but with the decode-side work structured for fair comparison with `mlx-lm`. Use `--require-mlx-lm-reference` for publishable parity claims so a missing Python reference cannot silently become a local-only run.
+- `bun run bench:serve` runs endpoint-level completions benchmarks over exact token-array prompts. Prefer explicit staggered ladders with `--rungs 128x128@1,1024x512@1,...` and `--report-json <path>` for overnight serving evidence.
 - The benchmark implementations live with the transformer generation surface in `packages/transformers/scripts/`; shared benchmark data and traces live under repo-root `benchmarks/`.
 - Baselines in `benchmarks/baselines.json` now carry both surfaces. Parity targets also record the paired MLX-LM reference numbers captured on the same machine and date.
 - The benchmarks warn on >2x regression. They do not hard-fail `bun run validate` (tok/s varies with system load), but the numbers must be reviewed for any hot-path diff.

@@ -197,10 +197,10 @@ quality rather than raw in-process model decode:
 ```bash
 bun run bench:serve --model mlx-community/Qwen3.6-27B-4bit \
   --model-id qwen-local \
-  --prompt-tokens 128,1024 \
-  --generation-tokens 128,512 \
-  --concurrency 1,4 \
+  --rungs 128x128@1,1024x512@1,10000x128@2 \
   --greedy \
+  --ignore-eos \
+  --report-json .tmp/qwen-serve-ladder.json \
   --max-concurrent-requests 1 \
   --max-batch-size 8 \
   --batch-window-ms 2
@@ -212,9 +212,9 @@ intentional. Omitted sampling fields preserve model-native
 `generation_config.json`; `--greedy` is explicit for deterministic throughput
 runs. It sends exact token-array prompts through `/v1/completions` and reports
 wall time, request throughput, end-to-end completion-token throughput,
-total-token throughput, mean latency, memory, finish reasons, admission
-micro-batch events, real static batch events, and continuous scheduler admission
-events.
+total-token throughput, mean/p95/max latency, memory, finish reasons, admission
+micro-batch rows, real static batch rows, and continuous scheduler admission
+rows.
 Use `--ignore-eos` for exact-length throughput ladders when comparing against
 in-process benchmarks that intentionally decode the full requested token count;
 normal serving behavior still honors EOS unless this extension is explicit.
@@ -229,11 +229,16 @@ For very long buffered runs, `--request-timeout-ms` controls the benchmark
 client timeout independently of server-side admission limits; it defaults to one
 hour so long-context prefill does not get mislabeled as a model failure.
 
-Use comma lists with the default cartesian matrix for broad serving sweeps, or
-`--matrix zip` for paired prompt/output rungs. The static batch event count is
-important: Qwen and Gemma4 currently exercise the single-request path even when
-requests are admitted together, so endpoint benchmark output should be used to
-separate real batch execution from admission coalescing.
+Use comma lists with the default cartesian matrix for broad serving sweeps,
+`--matrix zip` for paired prompt/output rungs, or `--rungs` for a deliberate
+staggered ladder such as `128x128@1,1024x512@1,10000x128@2`. Add
+`--report-json <path>` for overnight evidence that can be compared later.
+The batch row counters are important: Qwen and Gemma4 currently exercise the
+single-request path even when requests are admitted together, so endpoint
+benchmark output should be used to separate real batch execution from admission
+coalescing. This harness measures completions serving over token-array prompts;
+chat, Responses, tools, and prompt-template quality need their own protocol
+benchmarks rather than being inferred from these exact-token runs.
 
 ## Engine Primitives
 

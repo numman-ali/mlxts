@@ -158,6 +158,15 @@ work as a usable text endpoint while benchmark and scheduler work continues.
   endpoint rungs, then serialized concurrency `1,2,4`, then streaming rungs with
   larger outputs. Use `--max-concurrent-requests 1` first to prove queueing
   stability before any scheduler-backed concurrency claims.
+- Prefer explicit staggered endpoint rungs for overnight runs:
+  `--rungs 128x128@1,1024x512@1,5000x128@2,10000x128@2` plus
+  `--report-json .tmp/<model>-serve-ladder.json`. The report now includes
+  p95/max request latency, batch row counters, and max observed generation batch
+  size so concurrency is not confused with real batching.
+- For publishable mlx-lm parity claims, use `bench:generation:parity
+  --require-mlx-lm-reference`; otherwise a missing Python reference is just a
+  local-only profiling run. The parity comparison now warns when peak memory is
+  materially above mlx-lm, not only when decode TPS trails.
 - Use `--ignore-eos` only for exact-length throughput/parity ladders. Normal
   serving should still honor EOS, but Qwen/Gemma parity claims need a way to
   request the full output rung when the benchmark is measuring decode speed

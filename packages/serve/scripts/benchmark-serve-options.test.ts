@@ -4,6 +4,7 @@ import {
   buildServeBenchmarkRungs,
   parsePositiveIntegerList,
   parseServeBenchmarkArgs,
+  parseServeBenchmarkRungs,
 } from "./benchmark-serve-options";
 
 describe("serve benchmark options", () => {
@@ -44,8 +45,12 @@ describe("serve benchmark options", () => {
       "64,256",
       "--concurrency",
       "1,4",
+      "--rungs",
+      "128x128,1024x512@2",
       "--trials",
       "3",
+      "--report-json",
+      ".tmp/serve-report.json",
       "--matrix",
       "zip",
       "--port",
@@ -77,6 +82,11 @@ describe("serve benchmark options", () => {
       promptTokens: [128, 1024],
       generationTokens: [64, 256],
       concurrency: [1, 4],
+      rungs: [
+        { promptTokens: 128, generationTokens: 128, concurrency: 1 },
+        { promptTokens: 1024, generationTokens: 512, concurrency: 2 },
+      ],
+      reportJson: ".tmp/serve-report.json",
       trials: 3,
       warmup: false,
       matrix: "zip",
@@ -97,6 +107,17 @@ describe("serve benchmark options", () => {
 
   test("deduplicates comma-separated integer lists", () => {
     expect(parsePositiveIntegerList("--prompt-tokens", "128,1024,128")).toEqual([128, 1024]);
+  });
+
+  test("parses explicit staggered benchmark rungs", () => {
+    expect(parseServeBenchmarkRungs("--rungs", "128x128,1024x512@2,5000x128@4")).toEqual([
+      { promptTokens: 128, generationTokens: 128, concurrency: 1 },
+      { promptTokens: 1024, generationTokens: 512, concurrency: 2 },
+      { promptTokens: 5000, generationTokens: 128, concurrency: 4 },
+    ]);
+    expect(() => parseServeBenchmarkRungs("--rungs", "128/128/1")).toThrow(
+      "entries must look like 128x128@1",
+    );
   });
 
   test("builds cartesian and zip benchmark rungs", () => {
@@ -136,6 +157,12 @@ describe("serve benchmark options", () => {
     expect(buildServeBenchmarkRungs(zipped)).toEqual([
       { promptTokens: 128, generationTokens: 32, concurrency: 4 },
       { promptTokens: 1024, generationTokens: 64, concurrency: 4 },
+    ]);
+
+    const explicit = parseServeBenchmarkArgs(["model", "--rungs", "128x128,1024x512@2"]);
+    expect(buildServeBenchmarkRungs(explicit)).toEqual([
+      { promptTokens: 128, generationTokens: 128, concurrency: 1 },
+      { promptTokens: 1024, generationTokens: 512, concurrency: 2 },
     ]);
   });
 

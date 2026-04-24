@@ -13,6 +13,7 @@ import type { Tokenizer } from "@mlxts/tokenizers";
 export const BASELINE_PATH = "benchmarks/baselines.json";
 const TRACE_DIR = "benchmarks/traces";
 const MLX_LM_DECODE_TOLERANCE_RATIO = 0.98;
+const MLX_LM_MEMORY_WARNING_RATIO = 1.15;
 
 export type BenchmarkMode = "synthetic" | "parity";
 export type BenchmarkDecodeSchedule = "async" | "sync";
@@ -67,6 +68,7 @@ export type ParsedBenchmarkArgs = {
 export type ReferenceBenchmarkOptions = {
   captureMlxLmReference: boolean;
   enforceMlxLmDecodeBar: boolean;
+  requireMlxLmReference: boolean;
   mlxLmPython?: string;
 };
 
@@ -115,6 +117,7 @@ type MutableBenchmarkOptions = {
   materializeCacheEachToken: boolean;
   captureMlxLmReference: boolean;
   enforceMlxLmDecodeBar: boolean;
+  requireMlxLmReference: boolean;
   mlxLmPython?: string;
 };
 
@@ -131,6 +134,7 @@ function defaultOptions(): MutableBenchmarkOptions {
     materializeCacheEachToken: false,
     captureMlxLmReference: true,
     enforceMlxLmDecodeBar: false,
+    requireMlxLmReference: false,
     mlxLmPython: undefined,
   };
 }
@@ -289,6 +293,9 @@ function applyBooleanFlag(mutable: MutableBenchmarkOptions, flag: string): boole
     case "--enforce-mlx-lm-decode-bar":
       mutable.enforceMlxLmDecodeBar = true;
       return true;
+    case "--require-mlx-lm-reference":
+      mutable.requireMlxLmReference = true;
+      return true;
     default:
       return false;
   }
@@ -361,12 +368,18 @@ export function parseBenchmarkArgs(argv: readonly string[]): ParsedBenchmarkArgs
     materializeCacheEachToken: mutable.materializeCacheEachToken,
   };
   validateOptions(options);
+  if (mutable.requireMlxLmReference && !mutable.captureMlxLmReference) {
+    throw new Error(
+      "benchmark-generation: --require-mlx-lm-reference cannot be combined with --skip-mlx-lm-reference.",
+    );
+  }
   return {
     model: mutable.model,
     options,
     reference: {
       captureMlxLmReference: mutable.captureMlxLmReference,
       enforceMlxLmDecodeBar: mutable.enforceMlxLmDecodeBar,
+      requireMlxLmReference: mutable.requireMlxLmReference,
       mlxLmPython: mutable.mlxLmPython,
     },
   };
@@ -454,11 +467,18 @@ export function compareAgainstMlxLmReference(
   metrics: TrialMetrics,
   reference: MlxLmReference,
 ): string[] {
-  return metrics.generationTps < reference.generationTps * MLX_LM_DECODE_TOLERANCE_RATIO
-    ? [
-        `generation_tps below mlx-lm: mlx_lm=${reference.generationTps.toFixed(1)}, current=${metrics.generationTps.toFixed(1)}`,
-      ]
-    : [];
+  const warnings: string[] = [];
+  if (metrics.generationTps < reference.generationTps * MLX_LM_DECODE_TOLERANCE_RATIO) {
+    warnings.push(
+      `generation_tps below mlx-lm: mlx_lm=${reference.generationTps.toFixed(1)}, current=${metrics.generationTps.toFixed(1)}`,
+    );
+  }
+  if (metrics.peakMemoryGb > reference.peakMemoryGb * MLX_LM_MEMORY_WARNING_RATIO) {
+    warnings.push(
+      `peak_memory above mlx-lm: mlx_lm=${reference.peakMemoryGb.toFixed(3)}, current=${metrics.peakMemoryGb.toFixed(3)}`,
+    );
+  }
+  return warnings;
 }
 
 export function compareAgainstBaseline(target: BenchmarkTarget, metrics: TrialMetrics): string[] {

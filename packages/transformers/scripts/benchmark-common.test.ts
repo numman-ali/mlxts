@@ -54,6 +54,7 @@ describe("benchmark-common", () => {
     expect(parsed.reference).toEqual({
       captureMlxLmReference: true,
       enforceMlxLmDecodeBar: false,
+      requireMlxLmReference: false,
       mlxLmPython: undefined,
     });
   });
@@ -64,6 +65,7 @@ describe("benchmark-common", () => {
       "google/gemma-4-E2B-it",
       "--capture-mlx-lm-reference",
       "--enforce-mlx-lm-decode-bar",
+      "--require-mlx-lm-reference",
       "--mlx-lm-python",
       "/tmp/venv/bin/python",
     ]);
@@ -71,6 +73,7 @@ describe("benchmark-common", () => {
     expect(parsed.reference).toEqual({
       captureMlxLmReference: true,
       enforceMlxLmDecodeBar: true,
+      requireMlxLmReference: true,
       mlxLmPython: "/tmp/venv/bin/python",
     });
   });
@@ -83,6 +86,17 @@ describe("benchmark-common", () => {
     ]);
 
     expect(parsed.reference.captureMlxLmReference).toBe(false);
+  });
+
+  test("parseBenchmarkArgs rejects requiring and skipping mlx-lm reference together", () => {
+    expect(() =>
+      parseBenchmarkArgs([
+        "--model",
+        "mlx-community/Qwen3.6-27B-4bit",
+        "--skip-mlx-lm-reference",
+        "--require-mlx-lm-reference",
+      ]),
+    ).toThrow("cannot be combined");
   });
 
   test("parseBaselineData requires synthetic and parity sections", () => {
@@ -139,6 +153,7 @@ describe("benchmark-common", () => {
       reference: {
         captureMlxLmReference: true,
         enforceMlxLmDecodeBar: false,
+        requireMlxLmReference: false,
         mlxLmPython: undefined,
       },
     });
@@ -275,6 +290,31 @@ describe("benchmark-common", () => {
         },
       ),
     ).toEqual(["generation_tps below mlx-lm: mlx_lm=25.0, current=20.0"]);
+  });
+
+  test("compareAgainstMlxLmReference warns when current memory is above mlx-lm", () => {
+    expect(
+      compareAgainstMlxLmReference(
+        {
+          promptTps: 100,
+          generationTps: 25,
+          peakMemoryGb: 6,
+          activeMemoryStartGb: 1,
+          activeMemoryEndGb: 2,
+          activeMemoryDeltaGb: 1,
+          activeMemoryMaxGb: 2,
+          activeMemorySlopeMbPerToken: 8,
+          explicitEvalCountPerToken: 1,
+          totalTimeSeconds: 1,
+        },
+        {
+          promptTps: 120,
+          generationTps: 25,
+          peakMemoryGb: 4.5,
+          capturedAt: "2026-04-05",
+        },
+      ),
+    ).toEqual(["peak_memory above mlx-lm: mlx_lm=4.500, current=6.000"]);
   });
 
   test("compareAgainstMlxLmReference tolerates tiny decode variance", () => {

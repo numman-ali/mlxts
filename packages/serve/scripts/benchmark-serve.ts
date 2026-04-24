@@ -1,6 +1,8 @@
 #!/usr/bin/env bun
 
 import { clearMemoryCache, getMemoryStats, getPeakMemoryBytes, resetPeakMemory } from "@mlxts/core";
+import { mkdirSync } from "fs";
+import { dirname } from "path";
 import { acquireRuntimeCommandLock } from "../../../scripts/runtime-command-lock";
 import {
   loadCausalLM,
@@ -29,20 +31,57 @@ type TrialMetrics = {
   completionTokens: number;
   totalTokens: number;
   meanRequestMs: number;
+  p95RequestMs: number;
+  maxRequestMs: number;
   peakMemoryGb: number;
   activeMemoryGb: number;
   cacheMemoryGb: number;
   activeDeltaGb: number;
   admissionBatches: number;
+  admissionRows: number;
+  maxAdmissionBatchSize: number;
   staticBatches: number;
+  staticBatchRows: number;
   continuousAdmissions: number;
+  continuousAdmissionRows: number;
+  maxGenerationBatchSize: number;
   streamChunks: number;
   streamBytes: number;
   finishReasons: string[];
 };
 
+type RungReport = {
+  rung: ServeBenchmarkRung;
+  trials: TrialMetrics[];
+  averages: TrialMetrics;
+};
+
+type BenchmarkReport = {
+  createdAt: string;
+  model: string;
+  modelId: string;
+  snapshotPath: string;
+  samplingMode: ServeBenchmarkOptions["samplingMode"];
+  transportMode: ServeBenchmarkOptions["transportMode"];
+  ignoreEos: boolean;
+  maxBatchSize: number;
+  batchWindowMs: number;
+  maxConcurrentRequests: number;
+  gpuMemoryUtilization: number;
+  rungs: RungReport[];
+};
+
 function mean(values: readonly number[]): number {
   return values.reduce((total, value) => total + value, 0) / Math.max(values.length, 1);
+}
+
+function percentile(values: readonly number[], quantile: number): number {
+  if (values.length === 0) {
+    return 0;
+  }
+  const sorted = [...values].sort((left, right) => left - right);
+  const index = Math.ceil(sorted.length * quantile) - 1;
+  return sorted[Math.max(0, Math.min(index, sorted.length - 1))] ?? 0;
 }
 
 function isPresentNumber(value: number | null): value is number {
@@ -122,6 +161,23 @@ function countEvents(
   }).length;
 }
 
+function batchSizeEvents(events: readonly ServeEvent[], mode?: "static" | "continuous"): number[] {
+  return events
+    .filter((event) => event.type === "generation_batch_start")
+    .filter((event) => mode === undefined || event.mode === mode)
+    .map((event) => event.batchSize);
+}
+
+function admissionBatchSizes(events: readonly ServeEvent[]): number[] {
+  return events
+    .filter((event) => event.type === "generation_admission_batch")
+    .map((event) => event.batchSize);
+}
+
+function sum(values: readonly number[]): number {
+  return values.reduce((total, value) => total + value, 0);
+}
+
 async function runTrial(
   endpoint: string,
   modelId: string,
@@ -148,6 +204,11 @@ async function runTrial(
   const streamChunks = results.reduce((total, result) => total + result.streamChunks, 0);
   const streamBytes = results.reduce((total, result) => total + result.streamBytes, 0);
   const wallSeconds = Math.max(wallMs / 1000, 1e-9);
+  const requestDurations = results.map((result) => result.durationMs);
+  const admissionSizes = admissionBatchSizes(events);
+  const staticBatchSizes = batchSizeEvents(events, "static");
+  const continuousAdmissionSizes = batchSizeEvents(events, "continuous");
+  const generationBatchSizes = batchSizeEvents(events);
 
   return {
     wallMs,
@@ -160,14 +221,21 @@ async function runTrial(
     promptTokens,
     completionTokens,
     totalTokens,
-    meanRequestMs: mean(results.map((result) => result.durationMs)),
+    meanRequestMs: mean(requestDurations),
+    p95RequestMs: percentile(requestDurations, 0.95),
+    maxRequestMs: Math.max(...requestDurations),
     peakMemoryGb: getPeakMemoryBytes() / 1e9,
     activeMemoryGb: memoryAfter.activeBytes / 1e9,
     cacheMemoryGb: memoryAfter.cacheBytes / 1e9,
     activeDeltaGb: (memoryAfter.activeBytes - memoryBefore.activeBytes) / 1e9,
     admissionBatches: countEvents(events, "generation_admission_batch"),
+    admissionRows: sum(admissionSizes),
+    maxAdmissionBatchSize: Math.max(0, ...admissionSizes),
     staticBatches: countEvents(events, "generation_batch_start", "static"),
+    staticBatchRows: sum(staticBatchSizes),
     continuousAdmissions: countEvents(events, "generation_batch_start", "continuous"),
+    continuousAdmissionRows: sum(continuousAdmissionSizes),
+    maxGenerationBatchSize: Math.max(0, ...generationBatchSizes),
     streamChunks,
     streamBytes,
     finishReasons: results.map((result) => result.finishReason),
@@ -187,13 +255,20 @@ function averageTrialMetrics(trials: readonly TrialMetrics[]): TrialMetrics {
     completionTokens: mean(trials.map((trial) => trial.completionTokens)),
     totalTokens: mean(trials.map((trial) => trial.totalTokens)),
     meanRequestMs: mean(trials.map((trial) => trial.meanRequestMs)),
+    p95RequestMs: mean(trials.map((trial) => trial.p95RequestMs)),
+    maxRequestMs: mean(trials.map((trial) => trial.maxRequestMs)),
     peakMemoryGb: mean(trials.map((trial) => trial.peakMemoryGb)),
     activeMemoryGb: mean(trials.map((trial) => trial.activeMemoryGb)),
     cacheMemoryGb: mean(trials.map((trial) => trial.cacheMemoryGb)),
     activeDeltaGb: mean(trials.map((trial) => trial.activeDeltaGb)),
     admissionBatches: mean(trials.map((trial) => trial.admissionBatches)),
+    admissionRows: mean(trials.map((trial) => trial.admissionRows)),
+    maxAdmissionBatchSize: mean(trials.map((trial) => trial.maxAdmissionBatchSize)),
     staticBatches: mean(trials.map((trial) => trial.staticBatches)),
+    staticBatchRows: mean(trials.map((trial) => trial.staticBatchRows)),
     continuousAdmissions: mean(trials.map((trial) => trial.continuousAdmissions)),
+    continuousAdmissionRows: mean(trials.map((trial) => trial.continuousAdmissionRows)),
+    maxGenerationBatchSize: mean(trials.map((trial) => trial.maxGenerationBatchSize)),
     streamChunks: mean(trials.map((trial) => trial.streamChunks)),
     streamBytes: mean(trials.map((trial) => trial.streamBytes)),
     finishReasons: trials.flatMap((trial) => trial.finishReasons),
@@ -219,6 +294,8 @@ function printMetrics(prefix: string, metrics: TrialMetrics): void {
       `mean_prompt_to_first_token_tps=${formatNullableTps(metrics.meanPromptToFirstTokenTps)}`,
       `mean_post_ttft_completion_tps=${formatNullableTps(metrics.meanPostTtftCompletionTps)}`,
       `mean_request_ms=${metrics.meanRequestMs.toFixed(1)}`,
+      `p95_request_ms=${metrics.p95RequestMs.toFixed(1)}`,
+      `max_request_ms=${metrics.maxRequestMs.toFixed(1)}`,
       `prompt_tokens=${metrics.promptTokens.toFixed(0)}`,
       `completion_tokens=${metrics.completionTokens.toFixed(0)}`,
       `total_tokens=${metrics.totalTokens.toFixed(0)}`,
@@ -227,13 +304,27 @@ function printMetrics(prefix: string, metrics: TrialMetrics): void {
       `cache_memory=${metrics.cacheMemoryGb.toFixed(3)}`,
       `active_delta=${metrics.activeDeltaGb.toFixed(3)}`,
       `admission_batches=${metrics.admissionBatches.toFixed(0)}`,
+      `admission_rows=${metrics.admissionRows.toFixed(0)}`,
+      `max_admission_batch=${metrics.maxAdmissionBatchSize.toFixed(0)}`,
       `static_batches=${metrics.staticBatches.toFixed(0)}`,
+      `static_batch_rows=${metrics.staticBatchRows.toFixed(0)}`,
       `continuous_admissions=${metrics.continuousAdmissions.toFixed(0)}`,
+      `continuous_admission_rows=${metrics.continuousAdmissionRows.toFixed(0)}`,
+      `max_generation_batch=${metrics.maxGenerationBatchSize.toFixed(0)}`,
       `stream_chunks=${metrics.streamChunks.toFixed(0)}`,
       `stream_bytes=${metrics.streamBytes.toFixed(0)}`,
       `finish_reasons=${[...new Set(metrics.finishReasons)].join("|") || "none"}`,
     ].join(" "),
   );
+}
+
+function formatRung(rung: ServeBenchmarkRung): string {
+  return `${rung.promptTokens}x${rung.generationTokens}@${rung.concurrency}`;
+}
+
+export async function writeBenchmarkReport(path: string, report: BenchmarkReport): Promise<void> {
+  mkdirSync(dirname(path), { recursive: true });
+  await Bun.write(path, `${JSON.stringify(report, null, 2)}\n`);
 }
 
 async function benchmarkRung(
@@ -243,7 +334,7 @@ async function benchmarkRung(
   rung: ServeBenchmarkRung,
   options: ServeBenchmarkOptions,
   serveEvents: readonly ServeEvent[],
-): Promise<void> {
+): Promise<RungReport> {
   const promptTokenIds = createPromptTokenIds(rung.promptTokens, modelVocabSize);
   console.log(
     [
@@ -268,8 +359,10 @@ async function benchmarkRung(
     clearMemoryCache();
   }
 
-  printMetrics("Averages: ", averageTrialMetrics(trials));
+  const averages = averageTrialMetrics(trials);
+  printMetrics("Averages: ", averages);
   console.log("");
+  return { rung, trials, averages };
 }
 
 function maximum(values: readonly number[]): number {
@@ -279,12 +372,23 @@ function maximum(values: readonly number[]): number {
 async function main(): Promise<void> {
   using _runtimeLock = acquireRuntimeCommandLock("bench:serve");
   const options = parseServeBenchmarkArgs(Bun.argv.slice(2));
+  const rungs = buildServeBenchmarkRungs(options);
   const snapshotPath = options.localFilesOnly
     ? await resolveCachedSnapshotPath(options.model)
     : options.model;
   console.log(`Benchmarking serve completions for ${snapshotPath}`);
   console.log(
-    `prompt_tokens=${options.promptTokens.join(",")} generation_tokens=${options.generationTokens.join(",")} concurrency=${options.concurrency.join(",")} matrix=${options.matrix} transport=${options.transportMode}`,
+    [
+      `rungs=${rungs.map(formatRung).join(",")}`,
+      `matrix=${options.matrix}`,
+      `transport=${options.transportMode}`,
+      `sampling=${options.samplingMode}`,
+      `ignore_eos=${options.ignoreEos}`,
+      `max_batch_size=${options.maxBatchSize}`,
+      `batch_window_ms=${options.batchWindowMs}`,
+      `max_concurrent_requests=${options.maxConcurrentRequests}`,
+      `gpu_memory_utilization=${options.gpuMemoryUtilization}`,
+    ].join(" "),
   );
 
   const [model, tokenizer, interactionProfile] = await Promise.all([
@@ -301,10 +405,11 @@ async function main(): Promise<void> {
     interactionProfile,
     modelId: options.modelId,
     port: options.port,
-    maxGeneratedTokens: maximum(options.generationTokens),
-    maxPromptTokens: options.maxPromptTokens ?? maximum(options.promptTokens),
+    maxGeneratedTokens: maximum(rungs.map((rung) => rung.generationTokens)),
+    maxPromptTokens: options.maxPromptTokens ?? maximum(rungs.map((rung) => rung.promptTokens)),
     maxTotalTokens:
-      options.maxTotalTokens ?? maximum(options.promptTokens) + maximum(options.generationTokens),
+      options.maxTotalTokens ??
+      maximum(rungs.map((rung) => rung.promptTokens + rung.generationTokens)),
     maxBatchSize: options.maxBatchSize,
     batchWindowMs: options.batchWindowMs,
     maxConcurrentRequests: options.maxConcurrentRequests,
@@ -315,9 +420,10 @@ async function main(): Promise<void> {
   });
 
   try {
+    const reports: RungReport[] = [];
     console.log(`endpoint=${server.endpoint} model_id=${options.modelId}`);
-    for (const rung of buildServeBenchmarkRungs(options)) {
-      await benchmarkRung(
+    for (const rung of rungs) {
+      const report = await benchmarkRung(
         server.endpoint,
         options.modelId,
         loadedModel.config.vocabSize,
@@ -325,6 +431,24 @@ async function main(): Promise<void> {
         options,
         serveEvents,
       );
+      reports.push(report);
+    }
+    if (options.reportJson !== undefined) {
+      await writeBenchmarkReport(options.reportJson, {
+        createdAt: new Date().toISOString(),
+        model: options.model,
+        modelId: options.modelId,
+        snapshotPath,
+        samplingMode: options.samplingMode,
+        transportMode: options.transportMode,
+        ignoreEos: options.ignoreEos,
+        maxBatchSize: options.maxBatchSize,
+        batchWindowMs: options.batchWindowMs,
+        maxConcurrentRequests: options.maxConcurrentRequests,
+        gpuMemoryUtilization: options.gpuMemoryUtilization,
+        rungs: reports,
+      });
+      console.log(`report_json=${options.reportJson}`);
     }
   } finally {
     server.stop(true);
