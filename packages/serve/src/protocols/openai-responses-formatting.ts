@@ -44,6 +44,17 @@ function responseStatus(
   };
 }
 
+function pendingStatus(): Pick<
+  OpenAIResponseObject,
+  "completed_at" | "incomplete_details" | "status"
+> {
+  return {
+    status: "in_progress",
+    completed_at: null,
+    incomplete_details: null,
+  };
+}
+
 function outputItems(
   result: NormalizedGenerationResult,
   options: { id: string },
@@ -101,6 +112,41 @@ export function formatOpenAIResponse(
     top_p: response.topP,
     truncation: "disabled",
     usage: responseUsage(result.usage),
+    user: response.user,
+    metadata: response.metadata,
+  };
+}
+
+/** Format the initial in-progress object for an OpenAI Responses SSE stream. */
+export function formatOpenAIResponsePending(
+  response: NormalizedOpenAIResponse,
+  options: { id: string; created: number },
+): OpenAIResponseObject {
+  const status = pendingStatus();
+  return {
+    id: options.id,
+    object: "response",
+    created_at: options.created,
+    status: status.status,
+    completed_at: status.completed_at,
+    error: null,
+    incomplete_details: status.incomplete_details,
+    instructions: response.instructions,
+    max_output_tokens: response.maxOutputTokens,
+    model: response.model,
+    output: [],
+    output_text: "",
+    parallel_tool_calls: response.parallelToolCalls,
+    previous_response_id: null,
+    reasoning: { effort: null, summary: null },
+    store: false,
+    temperature: response.temperature,
+    text: { format: { type: "text" } },
+    tool_choice: response.toolChoice,
+    tools: [],
+    top_p: response.topP,
+    truncation: "disabled",
+    usage: null,
     user: response.user,
     metadata: response.metadata,
   };

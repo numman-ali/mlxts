@@ -28,7 +28,7 @@ import {
   type ServeRuntimeLimits,
   serveInfoResponse,
 } from "./server-info";
-import { openAIResponseResponse } from "./server-responses";
+import { openAIResponsesRouteResponse } from "./server-responses";
 import {
   closeStreamEvents,
   sseHeaders,
@@ -404,6 +404,7 @@ async function openAIRouteResponse(
   request: Request,
   options: ServeAppOptions,
   pathname: string,
+  startedAt: number,
 ): Promise<Response | null> {
   authorize(request, options.apiKey);
 
@@ -423,18 +424,11 @@ async function openAIRouteResponse(
   }
 
   if (request.method === "POST" && pathname === "/v1/responses") {
-    const id = options.idGenerator?.() ?? defaultResponseId();
-    const created = unixSeconds(options.now?.() ?? new Date());
-    const abortScope = linkAbortSignals(request.signal, options.abortSignal);
-    try {
-      return await openAIResponseResponse(await readJson(request), options, {
-        id,
-        created,
-        signal: abortScope.signal,
-      });
-    } finally {
-      abortScope.dispose();
-    }
+    return await openAIResponsesRouteResponse(request, options, {
+      id: options.idGenerator?.() ?? defaultResponseId(),
+      created: unixSeconds(options.now?.() ?? new Date()),
+      startedAt,
+    });
   }
 
   return null;
@@ -462,7 +456,7 @@ export function createFetchHandler(
         return response;
       }
 
-      const response = await openAIRouteResponse(request, options, url.pathname);
+      const response = await openAIRouteResponse(request, options, url.pathname, startedAt);
       if (response !== null) {
         if (isStreamingResponse(response)) {
           server?.timeout(request, 0);

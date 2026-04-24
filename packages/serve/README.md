@@ -102,13 +102,16 @@ served engine supports it, and chat streaming keeps reasoning in
 `reasoning_content` deltas instead of leaking raw `<think>` tags.
 
 `/v1/responses` starts with a deliberately narrow text-only subset of OpenAI's
-Responses API. It accepts string `input`, optional `instructions`,
-`max_output_tokens`, model-native sampling fields, `seed`, `metadata`, and
-non-persistent `store: false`; it returns a `response` object with `output`,
-`output_text`, usage, and reasoning items when the model result includes
-reasoning content. Stateful continuation, background jobs, tools, files/images,
-streaming, prompt templates, truncation, and non-text output formats are rejected
-explicitly until those semantics are implemented for real.
+Responses API. It accepts string `input` or text-only message item arrays,
+optional `instructions`, `max_output_tokens`, model-native sampling fields,
+`seed`, `metadata`, and non-persistent `store: false`; it returns a `response`
+object with `output`, `output_text`, usage, and reasoning items when the model
+result includes reasoning content. `stream: true` emits semantic Responses SSE
+events such as `response.created`, `response.output_text.delta`,
+`response.reasoning_text.delta`, and `response.completed` for text output.
+Stateful continuation, background jobs, tools, files/images, prompt templates,
+truncation, and non-text output formats are rejected explicitly until those
+semantics are implemented for real.
 
 ## Programmatic Serving
 

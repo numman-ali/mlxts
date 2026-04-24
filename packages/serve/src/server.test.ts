@@ -356,7 +356,7 @@ describe("serve fetch handler", () => {
       request("/v1/responses", {
         model: "tiny",
         instructions: "Be concise.",
-        input: "Hello",
+        input: [{ role: "user", content: [{ type: "input_text", text: "Hello" }] }],
         max_output_tokens: 4,
         temperature: 0,
       }),
@@ -402,6 +402,98 @@ describe("serve fetch handler", () => {
       protocol: "openai.responses",
       maxTokens: 4,
     });
+  });
+
+  test("streams OpenAI responses as semantic SSE events with reasoning separation", async () => {
+    const events: ServeEvent[] = [];
+    const seen: NormalizedGenerationRequest[] = [];
+    const engine: GenerationEngine = {
+      generate() {
+        throw new Error("generate should not be used");
+      },
+      async *stream(normalized) {
+        seen.push(normalized);
+        yield { type: "text", text: "<think>Reason briefly.</think>Hel" };
+        yield { type: "text", text: "lo" };
+        yield {
+          type: "done",
+          finishReason: "stop",
+          usage: { promptTokens: 2, completionTokens: 4, totalTokens: 6 },
+        };
+      },
+    };
+    const fetch = createFetchHandler({
+      engine,
+      idGenerator: () => "resp-stream",
+      now: () => new Date(123_000),
+      onEvent: (event) => events.push(event),
+    });
+
+    const response = await fetch(
+      request("/v1/responses", {
+        model: "tiny",
+        input: [{ role: "user", content: "Hello" }],
+        stream: true,
+        stream_options: { include_obfuscation: false },
+      }),
+    );
+    const text = await response.text();
+
+    expect(response.headers.get("content-type")).toContain("text/event-stream");
+    expect(seen[0]).toMatchObject({
+      id: "resp-stream",
+      model: "tiny",
+      input: { kind: "messages", messages: [{ role: "user", content: "Hello" }] },
+      stream: true,
+      protocol: "openai.responses",
+    });
+    expect(text).toContain("event: response.created");
+    expect(text).toContain("event: response.in_progress");
+    expect(text).toContain("event: response.reasoning_text.delta");
+    expect(text).toContain('"delta":"Reason briefly."');
+    expect(text).toContain("event: response.output_text.delta");
+    expect(text).toContain('"delta":"Hello"');
+    expect(text).toContain("event: response.output_text.done");
+    expect(text).toContain("event: response.completed");
+    expect(text).toContain('"output_text":"Hello"');
+    expect(text).toContain("data: [DONE]");
+    expect(
+      events.filter((event) => event.type.startsWith("generation_")).map((event) => event.type),
+    ).toEqual(["generation_start", "generation_complete"]);
+  });
+
+  test("streams OpenAI responses length stops as incomplete terminal events", async () => {
+    const engine: GenerationEngine = {
+      generate() {
+        throw new Error("generate should not be used");
+      },
+      async *stream() {
+        yield { type: "text", text: "Partial" };
+        yield {
+          type: "done",
+          finishReason: "length",
+          usage: { promptTokens: 2, completionTokens: 1, totalTokens: 3 },
+        };
+      },
+    };
+    const fetch = createFetchHandler({
+      engine,
+      idGenerator: () => "resp-length",
+      now: () => new Date(123_000),
+    });
+
+    const response = await fetch(
+      request("/v1/responses", {
+        model: "tiny",
+        input: "Hello",
+        stream: true,
+      }),
+    );
+    const text = await response.text();
+
+    expect(text).toContain("event: response.incomplete");
+    expect(text).toContain('"status":"incomplete"');
+    expect(text).toContain('"incomplete_details":{"reason":"max_output_tokens"}');
   });
 
   test("streams OpenAI chat completions as SSE chunks with reasoning separation", async () => {
@@ -480,7 +572,7 @@ describe("serve fetch handler", () => {
     const responseResponse = await fetch(
       request("/v1/responses", {
         model: "tiny",
-        input: [{ role: "user", content: "Hello" }],
+        input: [{ role: "user", content: [{ type: "input_image", image_url: "data:" }] }],
       }),
     );
     const responseBody = await responseResponse.json();
@@ -534,6 +626,52 @@ describe("serve fetch handler", () => {
       code: "model_not_found",
       status: 404,
     });
+  });
+
+  test("emits generation errors when response streaming startup fails", async () => {
+    const events: ServeEvent[] = [];
+    const fetch = createFetchHandler({
+      engine: {
+        generate() {
+          throw new Error("generate should not be called");
+        },
+        stream(normalized) {
+          throw new ServeError(`Model "${normalized.model}" could not stream.`, {
+            code: "stream_failed",
+            status: 503,
+          });
+        },
+      },
+      idGenerator: () => "resp-stream-error",
+      onEvent: (event) => events.push(event),
+    });
+
+    const response = await fetch(
+      request("/v1/responses", {
+        model: "broken-local",
+        input: "Hello",
+        stream: true,
+      }),
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(503);
+    expect(body.error.code).toBe("stream_failed");
+    expect(events.filter((event) => event.type.startsWith("generation_"))).toMatchObject([
+      {
+        type: "generation_start",
+        id: "resp-stream-error",
+        model: "broken-local",
+        protocol: "openai.responses",
+      },
+      {
+        type: "generation_error",
+        id: "resp-stream-error",
+        model: "broken-local",
+        protocol: "openai.responses",
+        code: "stream_failed",
+      },
+    ]);
   });
 
   test("returns client_cancelled when a non-streaming request aborts during generation", async () => {
@@ -774,6 +912,69 @@ describe("serve fetch handler", () => {
     expect(events.find((event) => event.type === "request_complete")).toBeUndefined();
   });
 
+  test("cancels streaming responses when the client disconnects", async () => {
+    const events: ServeEvent[] = [];
+    let streamClosed = false;
+    let seenSignal: AbortSignal | undefined;
+    const engine: GenerationEngine = {
+      generate() {
+        throw new Error("generate should not be used");
+      },
+      async *stream(normalized) {
+        seenSignal = normalized.abortSignal;
+        try {
+          yield { type: "text", text: "Hello" };
+          await new Promise((resolve) => setTimeout(resolve, 10));
+          yield {
+            type: "done",
+            finishReason: "stop",
+            usage: { promptTokens: 2, completionTokens: 1, totalTokens: 3 },
+          };
+        } finally {
+          streamClosed = true;
+        }
+      },
+    };
+    const fetch = createFetchHandler({
+      engine,
+      idGenerator: () => "resp-cancel",
+      now: () => new Date(123_000),
+      onEvent: (event) => events.push(event),
+    });
+
+    const response = await fetch(
+      request("/v1/responses", {
+        model: "tiny",
+        input: "Hello",
+        stream: true,
+      }),
+    );
+
+    expect(events.map((event) => event.type)).toEqual(["request_start", "generation_start"]);
+
+    const reader = response.body?.getReader();
+    expect(reader).toBeDefined();
+    if (reader === undefined) {
+      throw new Error("expected a response body reader");
+    }
+
+    const firstChunk = await reader.read();
+    expect(firstChunk.done).toBe(false);
+    await reader.cancel();
+    await new Promise((resolve) => setTimeout(resolve, 25));
+
+    expect(streamClosed).toBe(true);
+    expect(seenSignal?.aborted).toBe(true);
+    expect(events.find((event) => event.type === "generation_complete")).toMatchObject({
+      finishReason: "cancelled",
+    });
+    expect(events.find((event) => event.type === "request_error")).toMatchObject({
+      code: "client_cancelled",
+      status: 499,
+    });
+    expect(events.find((event) => event.type === "request_complete")).toBeUndefined();
+  });
+
   test("rejects unsupported streaming shapes and unknown routes", async () => {
     const fetch = createFetchHandler({
       engine: {
@@ -804,7 +1005,7 @@ describe("serve fetch handler", () => {
         stream: true,
       }),
     );
-    const responseStream = await fetch(
+    const missingResponseStream = await fetch(
       request("/v1/responses", {
         model: "tiny",
         input: "Hello",
@@ -819,8 +1020,8 @@ describe("serve fetch handler", () => {
     expect((await multiPrompt.json()).error.param).toBe("prompt");
     expect(missingChatStream.status).toBe(400);
     expect((await missingChatStream.json()).error.code).toBe("stream_not_supported");
-    expect(responseStream.status).toBe(400);
-    expect((await responseStream.json()).error.param).toBe("stream");
+    expect(missingResponseStream.status).toBe(400);
+    expect((await missingResponseStream.json()).error.code).toBe("stream_not_supported");
     expect(notFound.status).toBe(404);
   });
 
@@ -844,6 +1045,18 @@ describe("serve fetch handler", () => {
 
     expect(response.status).toBe(400);
     expect(body.error.code).toBe("invalid_json");
+
+    const responseBody = await fetch(
+      new Request("http://localhost/v1/responses", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: "{",
+      }),
+    );
+    const parsedResponseBody = await responseBody.json();
+
+    expect(responseBody.status).toBe(400);
+    expect(parsedResponseBody.error.code).toBe("invalid_json");
   });
 
   test("starts a Bun server with the shared fetch handler", () => {

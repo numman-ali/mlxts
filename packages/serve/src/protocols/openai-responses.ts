@@ -3,11 +3,15 @@
  * @module
  */
 
-import type { ChatMessage } from "@mlxts/transformers";
 import { isRecord, ServeError } from "../errors";
 import type { NormalizedGenerationRequest } from "../types";
+import { parseOpenAIResponseInputMessages } from "./openai-responses-input";
+import { parseOpenAIStopSequences } from "./openai-stop";
 
-export { formatOpenAIResponse } from "./openai-responses-formatting";
+export {
+  formatOpenAIResponse,
+  formatOpenAIResponsePending,
+} from "./openai-responses-formatting";
 
 export type OpenAIResponseUsage = {
   input_tokens: number;
@@ -52,7 +56,7 @@ export type OpenAIResponseObject = {
   id: string;
   object: "response";
   created_at: number;
-  status: "completed" | "incomplete";
+  status: "completed" | "in_progress" | "incomplete";
   completed_at: number | null;
   error: null;
   incomplete_details: { reason: "max_output_tokens" } | null;
@@ -85,6 +89,10 @@ export type OpenAIResponseObject = {
 
 export type NormalizedOpenAIResponse = {
   model: string;
+  stream: boolean;
+  streamOptions: {
+    includeObfuscation: boolean;
+  };
   instructions: string | null;
   maxOutputTokens: number | null;
   temperature: number | null;
@@ -182,19 +190,6 @@ function rejectTrueBoolean(
   }
 }
 
-function parseInput(record: Record<string, unknown>): string {
-  const input = record.input;
-  if (typeof input !== "string" || input.trim() === "") {
-    throw new ServeError(
-      'OpenAI responses: this endpoint currently supports string "input" only.',
-      {
-        param: "input",
-      },
-    );
-  }
-  return input;
-}
-
 function parseInstructions(record: Record<string, unknown>): string | null {
   const instructions = optionalString(record, "instructions");
   return instructions === undefined ? null : instructions;
@@ -273,6 +268,34 @@ function parseMetadata(record: Record<string, unknown>): Record<string, string> 
   return parsed;
 }
 
+function parseStreamOptions(
+  record: Record<string, unknown>,
+  stream: boolean,
+): NormalizedOpenAIResponse["streamOptions"] {
+  const value = record.stream_options;
+  if (value === undefined || value === null) {
+    return { includeObfuscation: false };
+  }
+  if (!stream) {
+    throw new ServeError('OpenAI responses: "stream_options" requires "stream": true.', {
+      param: "stream_options",
+    });
+  }
+  if (!isRecord(value)) {
+    throw new ServeError('OpenAI responses: "stream_options" must be an object or null.', {
+      param: "stream_options",
+    });
+  }
+  const includeObfuscation = optionalBoolean(value, "include_obfuscation") ?? false;
+  if (includeObfuscation) {
+    throw new ServeError(
+      'OpenAI responses: "stream_options.include_obfuscation" is not supported yet.',
+      { param: "stream_options" },
+    );
+  }
+  return { includeObfuscation };
+}
+
 function validateTextFormat(record: Record<string, unknown>): void {
   const text = record.text;
   if (text === undefined || text === null) {
@@ -322,7 +345,6 @@ function validateUnsupportedState(record: Record<string, unknown>): void {
   rejectPresent(record, "prompt_cache_retention", "Prompt cache retention is not implemented.");
   rejectPresent(record, "include", "Response includes are not implemented.");
   rejectPresent(record, "max_tool_calls", "Tool execution is not implemented.");
-  rejectPresent(record, "stream_options", "Streaming responses are not implemented.");
 }
 
 function validateNoOpFields(record: Record<string, unknown>): void {
@@ -332,12 +354,6 @@ function validateNoOpFields(record: Record<string, unknown>): void {
   validateUnsupportedState(record);
   validateTextFormat(record);
   validateModalities(record);
-  const stream = optionalBoolean(record, "stream") ?? false;
-  if (stream) {
-    throw new ServeError("OpenAI responses: streaming is not supported by this endpoint yet.", {
-      param: "stream",
-    });
-  }
   const truncation = optionalString(record, "truncation");
   if (truncation !== undefined && truncation !== "disabled") {
     throw new ServeError('OpenAI responses: only "truncation": "disabled" is supported today.', {
@@ -352,13 +368,32 @@ function validateNoOpFields(record: Record<string, unknown>): void {
   }
 }
 
-function buildMessages(input: string, instructions: string | null): ChatMessage[] {
-  const messages: ChatMessage[] = [];
-  if (instructions !== null) {
-    messages.push({ role: "system", content: instructions });
+function responseTemplateFlag(
+  record: Record<string, unknown>,
+  key: "enable_thinking" | "preserve_thinking",
+): boolean | undefined {
+  return optionalBoolean(record, key);
+}
+
+function chatTemplateOptions(record: Record<string, unknown>) {
+  const kwargs = record.chat_template_kwargs;
+  if (kwargs !== undefined && kwargs !== null && !isRecord(kwargs)) {
+    throw new ServeError('OpenAI responses: "chat_template_kwargs" must be an object or null.', {
+      param: "chat_template_kwargs",
+    });
   }
-  messages.push({ role: "user", content: input });
-  return messages;
+  const templateRecord = isRecord(kwargs) ? kwargs : {};
+  const enableThinking =
+    responseTemplateFlag(templateRecord, "enable_thinking") ??
+    responseTemplateFlag(record, "enable_thinking");
+  const preserveThinking =
+    responseTemplateFlag(templateRecord, "preserve_thinking") ??
+    responseTemplateFlag(record, "preserve_thinking");
+
+  return {
+    ...(enableThinking === undefined ? {} : { enableThinking }),
+    ...(preserveThinking === undefined ? {} : { preserveThinking }),
+  };
 }
 
 /** Normalize an OpenAI Responses JSON body into one generation request. */
@@ -372,8 +407,10 @@ export function normalizeOpenAIResponseRequest(
 
   validateNoOpFields(body);
   const model = stringField(body, "model");
-  const input = parseInput(body);
+  const stream = optionalBoolean(body, "stream") ?? false;
+  const streamOptions = parseStreamOptions(body, stream);
   const instructions = parseInstructions(body);
+  const messages = parseOpenAIResponseInputMessages(body, instructions);
   const maxTokens = parseMaxOutputTokens(body);
   const temperature = optionalNumber(
     body,
@@ -384,13 +421,17 @@ export function normalizeOpenAIResponseRequest(
   const topP = optionalNumber(body, "top_p", (value) => value > 0 && value <= 1, "0 < value <= 1");
   const topK = optionalInteger(body, "top_k", (value) => value > 0, "a positive integer");
   const seed = optionalInteger(body, "seed", (value) => value >= 0, "a non-negative integer");
+  const stop = parseOpenAIStopSequences(body, "responses");
   const metadata = parseMetadata(body);
   const user = optionalString(body, "user") ?? optionalString(body, "safety_identifier") ?? null;
   const promptCacheKey = optionalString(body, "prompt_cache_key");
   const toolChoice = parseToolChoice(body);
   const parallelToolCalls = optionalBoolean(body, "parallel_tool_calls") ?? true;
+  const templateOptions = chatTemplateOptions(body);
   return {
     model,
+    stream,
+    streamOptions,
     instructions,
     maxOutputTokens: maxTokens.maxOutputTokens,
     temperature: temperature ?? null,
@@ -402,15 +443,20 @@ export function normalizeOpenAIResponseRequest(
     request: {
       id: options.id,
       model,
-      input: { kind: "messages", messages: buildMessages(input, instructions) },
+      input: {
+        kind: "messages",
+        messages,
+        ...(Object.keys(templateOptions).length === 0 ? {} : { chatTemplate: templateOptions }),
+      },
       sampling: {
         maxTokens: maxTokens.maxTokens,
         ...(temperature === undefined ? {} : { temperature }),
         ...(topP === undefined ? {} : { topP }),
         ...(topK === undefined ? {} : { topK }),
         ...(seed === undefined ? {} : { seed }),
+        ...(stop === undefined ? {} : { stop }),
       },
-      stream: false,
+      stream,
       protocol: "openai.responses",
       metadata: {
         ...metadata,

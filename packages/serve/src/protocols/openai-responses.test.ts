@@ -24,11 +24,14 @@ describe("OpenAI Responses adapter", () => {
         text: { format: { type: "text" } },
         modalities: ["text"],
         truncation: "disabled",
+        chat_template_kwargs: { enable_thinking: false },
       },
       { id: "resp-test" },
     );
 
     expect(response.model).toBe("tiny");
+    expect(response.stream).toBe(false);
+    expect(response.streamOptions).toEqual({ includeObfuscation: false });
     expect(response.instructions).toBe("Be concise.");
     expect(response.maxOutputTokens).toBe(8);
     expect(response.temperature).toBe(0);
@@ -46,6 +49,7 @@ describe("OpenAI Responses adapter", () => {
           { role: "system", content: "Be concise." },
           { role: "user", content: "Hello" },
         ],
+        chatTemplate: { enableThinking: false },
       },
       sampling: { maxTokens: 8, temperature: 0, topP: 0.9, topK: 20, seed: 123 },
       stream: false,
@@ -80,11 +84,60 @@ describe("OpenAI Responses adapter", () => {
     });
   });
 
+  test("normalizes text-only response item arrays and stream options", () => {
+    const response = normalizeOpenAIResponseRequest(
+      {
+        model: "tiny",
+        input: [
+          { role: "developer", content: [{ type: "input_text", text: "Be direct." }] },
+          { role: "user", content: [{ type: "input_text", text: "Hello" }] },
+          { role: "assistant", content: [{ type: "output_text", text: "Hi." }] },
+          { type: "message", role: "user", content: "Continue" },
+        ],
+        stream: true,
+        stream_options: { include_obfuscation: false },
+        stop: ["END"],
+        enable_thinking: false,
+      },
+      { id: "resp-test" },
+    );
+
+    expect(response.stream).toBe(true);
+    expect(response.streamOptions).toEqual({ includeObfuscation: false });
+    expect(response.request).toMatchObject({
+      input: {
+        kind: "messages",
+        messages: [
+          { role: "system", content: "Be direct." },
+          { role: "user", content: "Hello" },
+          { role: "assistant", content: "Hi." },
+          { role: "user", content: "Continue" },
+        ],
+        chatTemplate: { enableThinking: false },
+      },
+      sampling: { maxTokens: 16, stop: ["END"] },
+      stream: true,
+    });
+  });
+
   test("rejects unsupported response shapes explicitly", () => {
     const invalidBodies: Record<string, unknown>[] = [
-      { input: [{ role: "user", content: "Hello" }] },
-      { stream: true },
+      { input: [] },
+      { input: "" },
+      { input: [42] },
+      { input: [{ role: "bad", content: "Hello" }] },
+      { input: [{ role: "user", content: [{}] }] },
+      { input: [{ role: "user", content: [42] }] },
+      { input: [{ role: "user", content: [{ type: "input_text", text: 42 }] }] },
+      { input: [{ role: "user", content: [{ type: "input_image", image_url: "data:" }] }] },
+      { input: [{ role: "user", content: [{ type: "input_file", file_data: "" }] }] },
+      { input: [{ role: "user", content: [{ type: "input_audio", input_audio: "" }] }] },
+      { input: [{ role: "user", content: { text: "Hello" } }] },
+      { input: [{ type: "function_call_output", call_id: "call", output: "ok" }] },
+      { input: [{ type: "reasoning", content: [] }] },
+      { input: [{ type: "function_call", name: "tool", arguments: "{}" }] },
       { tools: [{ type: "web_search_preview" }] },
+      { tools: "bad" },
       { store: true },
       { background: true },
       { previous_response_id: "resp-old" },
@@ -93,16 +146,24 @@ describe("OpenAI Responses adapter", () => {
       { include: ["reasoning.encrypted_content"] },
       { max_tool_calls: 1 },
       { stream_options: {} },
+      { stream: true, stream_options: "bad" },
+      { stream: true, stream_options: { include_obfuscation: true } },
       { reasoning: {} },
+      { text: "bad" },
       { text: { format: { type: "json_object" } } },
       { modalities: ["audio"] },
       { truncation: "auto" },
       { tool_choice: { type: "function" } },
       { metadata: { bad: 42 } },
+      { metadata: "bad" },
+      { instructions: 42 },
+      { stream: "yes" },
+      { chat_template_kwargs: "bad" },
       { temperature: 3 },
       { top_p: 0 },
       { top_k: 0 },
       { seed: -1 },
+      { model: "" },
     ];
 
     for (const body of invalidBodies) {
