@@ -221,6 +221,12 @@ Pass `--stream` to drive the same rungs through SSE completions with
 `stream_options.include_usage=true`; streaming runs add mean time-to-first-token,
 prompt-to-first-token throughput, post-TTFT completion throughput, SSE chunk
 count, and streamed byte count.
+For huge prompt rungs, prefer streaming: the server sends SSE keepalive comments
+and uses cooperative streaming prefill so long prefill phases do not leave the
+client connection silent until the first generated token.
+For very long buffered runs, `--request-timeout-ms` controls the benchmark
+client timeout independently of server-side admission limits; it defaults to one
+hour so long-context prefill does not get mislabeled as a model failure.
 
 Use comma lists with the default cartesian matrix for broad serving sweeps, or
 `--matrix zip` for paired prompt/output rungs. The static batch event count is

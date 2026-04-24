@@ -64,11 +64,44 @@ work as a usable text endpoint while benchmark and scheduler work continues.
   latest fix: `1024/512` emitted `64` chunks but `mean_ttft_ms=21859.9` against
   `wall_ms=21860.1`, and `1024/1024` emitted `128` chunks but
   `mean_ttft_ms=39652.2` against `wall_ms=39652.4`. The serving bridge now
-  yields a macrotask after processed stream events. A post-fix `1024/512`
-  no-warmup streaming check reports `mean_ttft_ms=4435.0`,
-  `mean_prompt_to_first_token_tps=230.889`, and
-  `mean_post_ttft_completion_tps=29.163`; rerun the multi-trial streaming ladder
-  before claiming broad streaming quality.
+  yields a macrotask after processed stream events. The post-fix multi-trial
+  streaming ladder at `1024` prompt tokens reports useful TTFT/decode splits:
+  `512` output averaged `mean_ttft_ms=5197.3`,
+  `mean_prompt_to_first_token_tps=197.403`, and
+  `mean_post_ttft_completion_tps=29.080`; `1024` output averaged
+  `mean_ttft_ms=4937.8`, `mean_prompt_to_first_token_tps=207.425`, and
+  `mean_post_ttft_completion_tps=29.006`.
+- Gemma 4 dense endpoint prompt ladder on cached `google/gemma-4-E2B-it` is
+  healthy through `32k` prompt tokens with flat active memory: `128/128`
+  averaged `81.865` end-to-end completion tok/s with `9.446 GB` peak,
+  `1024/128` `75.893` with `9.892 GB`, `10000/128` `44.885` with `10.351 GB`,
+  and `32000/128` `19.524` with `11.192 GB`.
+- Gemma 4 dense endpoint output ladder at `1024` prompt tokens is stable through
+  `10000` generated tokens: `128` output reported `76.088` completion tok/s,
+  `1000` output `80.590`, and `10000` output `77.984`, with peak memory holding
+  around `9.892 GB` and `active_delta=0.000 GB`.
+- Gemma 4 dense streaming endpoint ladder also validates the SSE flush fix:
+  `1024/512` averaged `mean_ttft_ms=215.8`,
+  `mean_prompt_to_first_token_tps=4744.886`, and
+  `mean_post_ttft_completion_tps=82.605`; `1024/1024` averaged
+  `mean_ttft_ms=217.0`, `mean_prompt_to_first_token_tps=4719.600`, and
+  `mean_post_ttft_completion_tps=81.727`, with flat active memory.
+- Serialized endpoint concurrency with `maxConcurrentRequests=1` is stable but
+  not real batching. Qwen `1024/128` at concurrency `1,2,4` completed with
+  `15.050`, `13.701`, and `14.151` aggregate completion tok/s respectively,
+  `admission_batches=1` for queued rungs, `static_batches=0`, and flat active
+  memory. Gemma 4 E2B `1024/128` at concurrency `1,2,4` completed with
+  `75.774`, `75.710`, and `75.499` aggregate completion tok/s, also with
+  `static_batches=0`.
+- Qwen endpoint long-context serving needs a streaming distinction in the
+  evidence ledger. Buffered `65536/128` requests repeatedly hit a several-minute
+  client/HTTP timeout before returning JSON, even after server-side timeout
+  controls. The streaming path was fixed with initial SSE keepalive, periodic
+  heartbeat comments, and cooperative streaming prefill that yields between
+  chunks. Post-fix `65536/128` streaming completed in `351716.2ms` with
+  `mean_ttft_ms=346501.8`, `mean_prompt_to_first_token_tps=189.136`,
+  `mean_post_ttft_completion_tps=24.356`, `peak_memory=31.406 GB`,
+  `cache_memory=4.467 GB`, and `active_delta=0.013 GB`.
 - `/v1/responses` text support now accepts string or text-only message-array
   input, supports semantic SSE streaming with text/reasoning deltas, preserves
   model-native sampling defaults, and keeps tools/state/multimodal explicitly
@@ -95,6 +128,11 @@ work as a usable text endpoint while benchmark and scheduler work continues.
   same thing as active-row continuous batching. After endpoint evidence and the
   scheduler tranche, continue Responses tool/state work, Anthropic API, and then
   Qwen/Gemma MoE plus multimodal capability.
+- The next concrete scheduler slice should be full-KV, greedy, non-streaming
+  continuous scheduling behind `GenerationEngine` for the same safe LLaMA-like
+  subset as static batching. The scheduler must own waiting/running queues and
+  admit rows between decode steps; placing it behind the existing
+  `maxConcurrentRequests=1` wrapper would reduce it back to admission coalescing.
 - Use `bun run bench:serve` for endpoint-level serving ladders. It defaults to
   cached/local-only checkpoints, sends exact token-array prompts through
   `/v1/completions`, preserves model-native sampling unless `--greedy` is set,
@@ -103,6 +141,9 @@ work as a usable text endpoint while benchmark and scheduler work continues.
   harness requests usage chunks and reports mean TTFT, stream chunk count, and
   streamed bytes. Very small generation lengths may flush as a single text chunk,
   so streaming/backpressure ladders need larger output rungs.
+- For huge Qwen prompt rungs, prefer `--stream`; buffered JSON can be a poor
+  acceptance shape because clients may wait several minutes with no bytes before
+  first token. Streaming now keeps the connection alive during chunked prefill.
 - Recommended endpoint ladder order: Qwen `128,1024,5000,10000` prompt tokens at
   `128` output tokens, Qwen output rungs `128,512,1024`, then Gemma dense
   endpoint rungs, then serialized concurrency `1,2,4`, then streaming rungs with

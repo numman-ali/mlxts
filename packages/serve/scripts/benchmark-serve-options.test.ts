@@ -27,6 +27,7 @@ describe("serve benchmark options", () => {
       maxBatchSize: 32,
       batchWindowMs: 1,
       maxConcurrentRequests: 1,
+      requestTimeoutMs: 3_600_000,
       gpuMemoryUtilization: 0.9,
     });
   });
@@ -57,6 +58,8 @@ describe("serve benchmark options", () => {
       "2",
       "--gpu-memory-utilization",
       "0.75",
+      "--request-timeout-ms",
+      "7200000",
       "--max-prompt-tokens",
       "2048",
       "--max-total-tokens",
@@ -85,6 +88,7 @@ describe("serve benchmark options", () => {
       maxBatchSize: 8,
       batchWindowMs: 2,
       maxConcurrentRequests: 2,
+      requestTimeoutMs: 7_200_000,
       gpuMemoryUtilization: 0.75,
       maxPromptTokens: 2048,
       maxTotalTokens: 4096,

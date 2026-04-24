@@ -249,6 +249,45 @@ describe("serve fetch handler", () => {
     });
   });
 
+  test("disables Bun request timeout before buffered generation starts", async () => {
+    const timeouts: number[] = [];
+    let timeoutDisabledBeforeGenerate = false;
+    const engine: GenerationEngine = {
+      generate() {
+        timeoutDisabledBeforeGenerate = timeouts.includes(0);
+        return {
+          text: "ok",
+          finishReason: "stop",
+          usage: { promptTokens: 1, completionTokens: 1, totalTokens: 2 },
+        };
+      },
+    };
+    const fetch = createFetchHandler({
+      engine,
+      idGenerator: () => "cmpl-buffered-timeout",
+      now: () => new Date(123_000),
+    });
+
+    const response = await fetch(
+      request("/v1/completions", {
+        model: "tiny",
+        prompt: "Hello",
+        max_tokens: 1,
+      }),
+      {
+        timeout(_request, seconds) {
+          timeouts.push(seconds);
+        },
+      },
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(timeouts).toEqual([0]);
+    expect(timeoutDisabledBeforeGenerate).toBe(true);
+    expect(body.choices[0].text).toBe("ok");
+  });
+
   test("uses batch generation for multi-prompt completion requests", async () => {
     const events: ServeEvent[] = [];
     const batchSizes: number[] = [];

@@ -19,6 +19,7 @@ export type ServeBenchmarkOptions = {
   maxBatchSize: number;
   batchWindowMs: number;
   maxConcurrentRequests: number;
+  requestTimeoutMs: number;
   gpuMemoryUtilization: number;
   maxPromptTokens?: number;
   maxTotalTokens?: number;
@@ -55,6 +56,7 @@ function usage(): never {
       "  --max-batch-size <n>            Admission micro-batch size, default 32",
       "  --batch-window-ms <n>           Admission micro-batch window, default 1",
       "  --gpu-memory-utilization <f>    Serving memory preflight budget, default 0.9",
+      "  --request-timeout-ms <n>        Client fetch timeout per request, default 3600000",
       "  --max-prompt-tokens <n>         Override server prompt admission limit",
       "  --max-total-tokens <n>          Override server total-token admission limit",
       "  --allow-download                Allow Hub downloads; default is cached/local only",
@@ -136,6 +138,7 @@ export function parseServeBenchmarkArgs(argv: readonly string[]): ServeBenchmark
   let maxBatchSize = 32;
   let batchWindowMs = 1;
   let maxConcurrentRequests = 1;
+  let requestTimeoutMs = 3_600_000;
   let gpuMemoryUtilization = 0.9;
   let maxPromptTokens: number | undefined;
   let maxTotalTokens: number | undefined;
@@ -195,6 +198,10 @@ export function parseServeBenchmarkArgs(argv: readonly string[]): ServeBenchmark
         gpuMemoryUtilization = readPositiveFraction(arg, argv[index + 1]);
         index += 1;
         break;
+      case "--request-timeout-ms":
+        requestTimeoutMs = readPositiveInteger(arg, argv[index + 1]);
+        index += 1;
+        break;
       case "--max-prompt-tokens":
         maxPromptTokens = readPositiveInteger(arg, argv[index + 1]);
         index += 1;
@@ -252,6 +259,7 @@ export function parseServeBenchmarkArgs(argv: readonly string[]): ServeBenchmark
     maxBatchSize,
     batchWindowMs,
     maxConcurrentRequests,
+    requestTimeoutMs,
     gpuMemoryUtilization,
     ...(maxPromptTokens === undefined ? {} : { maxPromptTokens }),
     ...(maxTotalTokens === undefined ? {} : { maxTotalTokens }),

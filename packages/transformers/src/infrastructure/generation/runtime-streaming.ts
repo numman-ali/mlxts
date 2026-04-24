@@ -25,7 +25,11 @@ import { retainPromptInputEmbeddings, retainPromptPositionIds } from "../input-e
 import { SamplerState } from "../sampling";
 import { throwIfGenerationAborted } from "./cancellation";
 import { resolveGenerationOptions } from "./defaults";
-import { type PrefilledPrompt, prefillPromptCache, validatePrefillStepSize } from "./helpers";
+import {
+  type PrefilledPrompt,
+  prefillPromptCacheCooperative,
+  validatePrefillStepSize,
+} from "./helpers";
 import {
   finishIfEos,
   maybeClearGenerationCache,
@@ -59,6 +63,10 @@ function closeGenerationScope(scope: {
   }
 }
 
+function yieldToScheduler(): Promise<void> {
+  return new Promise<void>((resolve) => setTimeout(resolve, 0));
+}
+
 async function* streamWithCache(
   model: CausalLM,
   promptTokenIds: readonly number[],
@@ -78,9 +86,9 @@ async function* streamWithCache(
   let nextToken: MxArray | null = null;
 
   try {
-    initialPrompt = withDefaultStream(scope.stream, () =>
+    initialPrompt =
       promptTokenIds.length > 1
-        ? prefillPromptCache(
+        ? await prefillPromptCacheCooperative(
             model,
             promptTokenIds,
             cache,
@@ -89,8 +97,10 @@ async function* streamWithCache(
             promptPositionIds,
             options.onPrefillProgress,
             options.abortSignal,
+            (fn) => withDefaultStream(scope.stream, fn),
+            yieldToScheduler,
           )
-        : {
+        : withDefaultStream(scope.stream, () => ({
             tokenIds: [...promptTokenIds],
             inputEmbeddings: retainPromptInputEmbeddings(
               promptTokenIds,
@@ -102,8 +112,7 @@ async function* streamWithCache(
               promptPositionIds,
               "generateTokens",
             ),
-          },
-    );
+          }));
     const activePrompt = initialPrompt;
     throwIfGenerationAborted(options.abortSignal, "generateTokens");
     currentToken = withDefaultStream(scope.stream, () =>

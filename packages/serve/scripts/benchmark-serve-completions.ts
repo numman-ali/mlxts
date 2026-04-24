@@ -54,6 +54,10 @@ function completionRequestBody(
   };
 }
 
+function requestSignal(options: ServeBenchmarkOptions): AbortSignal {
+  return AbortSignal.timeout(options.requestTimeoutMs);
+}
+
 function completionFinishReason(body: CompletionResponseBody): string {
   const choice = body.choices?.[0];
   return choice?.finish_reason ?? "unknown";
@@ -79,6 +83,7 @@ async function runBufferedCompletionRequest(
   const response = await fetch(`${endpoint}/v1/completions`, {
     method: "POST",
     headers: { "content-type": "application/json" },
+    signal: requestSignal(options),
     body: JSON.stringify(
       completionRequestBody(
         modelId,
@@ -191,6 +196,7 @@ async function runStreamingCompletionRequest(
   const response = await fetch(`${endpoint}/v1/completions`, {
     method: "POST",
     headers: { "content-type": "application/json" },
+    signal: requestSignal(options),
     body: JSON.stringify(
       completionRequestBody(
         modelId,

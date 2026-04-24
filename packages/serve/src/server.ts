@@ -76,8 +76,10 @@ function unixSeconds(date: Date): number {
   return Math.floor(date.getTime() / 1000);
 }
 
-function isStreamingResponse(response: Response): boolean {
-  return response.headers.get("content-type")?.startsWith("text/event-stream") ?? false;
+const GENERATION_ROUTE_PATTERN = /^\/v1\/(?:completions|chat\/completions|responses)$/;
+
+function routeMayRunGeneration(method: string, pathname: string): boolean {
+  return method === "POST" && GENERATION_ROUTE_PATTERN.test(pathname);
 }
 
 async function readJson(request: Request): Promise<unknown> {
@@ -456,11 +458,13 @@ export function createFetchHandler(
         return response;
       }
 
+      if (routeMayRunGeneration(request.method, url.pathname)) {
+        server?.timeout(request, 0);
+      }
       const response = await openAIRouteResponse(request, options, url.pathname, startedAt);
       if (response !== null) {
-        if (isStreamingResponse(response)) {
-          server?.timeout(request, 0);
-        } else {
+        const isStreaming = response.headers.get("content-type")?.startsWith("text/event-stream");
+        if (isStreaming !== true) {
           emitRequestComplete(options, request, response.status, startedAt);
         }
         return response;

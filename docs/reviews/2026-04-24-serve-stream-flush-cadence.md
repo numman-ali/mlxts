@@ -53,6 +53,14 @@ Focused validation:
   - `mean_prompt_to_first_token_tps=230.889`
   - `mean_post_ttft_completion_tps=29.163`
   - `stream_chunks=64`, `completion_tokens=512`, `finish_reasons=length`
+- Post-fix multi-trial Qwen streaming ladder:
+  `bun run bench:serve --model mlx-community/Qwen3.6-27B-4bit --model-id qwen-local --prompt-tokens 1024 --generation-tokens 512,1024 --concurrency 1 --trials 3 --stream --greedy --ignore-eos --max-concurrent-requests 1 --max-batch-size 8 --batch-window-ms 2 --max-prompt-tokens 1024 --max-total-tokens 2048 --gpu-memory-utilization 0.85`
+  - `1024/512`: `wall_ms=22770.0`, `mean_ttft_ms=5197.3`, `mean_prompt_to_first_token_tps=197.403`, `mean_post_ttft_completion_tps=29.080`, `stream_chunks=64`
+  - `1024/1024`: `wall_ms=40206.9`, `mean_ttft_ms=4937.8`, `mean_prompt_to_first_token_tps=207.425`, `mean_post_ttft_completion_tps=29.006`, `stream_chunks=128`
+- Post-fix Gemma 4 E2B streaming ladder:
+  `bun run bench:serve --model google/gemma-4-E2B-it --model-id gemma-local --prompt-tokens 1024 --generation-tokens 512,1024 --concurrency 1 --trials 3 --stream --greedy --ignore-eos --max-concurrent-requests 1 --max-batch-size 8 --batch-window-ms 2 --max-prompt-tokens 1024 --max-total-tokens 2048 --gpu-memory-utilization 0.85`
+  - `1024/512`: `wall_ms=6401.9`, `mean_ttft_ms=215.8`, `mean_prompt_to_first_token_tps=4744.886`, `mean_post_ttft_completion_tps=82.605`, `stream_chunks=11`
+  - `1024/1024`: `wall_ms=12734.4`, `mean_ttft_ms=217.0`, `mean_prompt_to_first_token_tps=4719.600`, `mean_post_ttft_completion_tps=81.727`, `stream_chunks=75`
 
 ## Independent Review
 
@@ -67,8 +75,8 @@ move flushing into the model runtime, and it does not claim continuous batching.
   small amount of HTTP streaming overhead per emitted text batch, but the
   transformer stream batches decode output by default, so this is not a
   per-token sleep on normal Qwen/Gemma streaming.
-- Rerun the full Qwen streaming ladder with multiple trials before claiming
-  broad streaming quality. The one-rung post-fix check proves the failure mode is
-  fixed, not that every long-output/concurrency case is done.
+- Longer-output and concurrency streaming ladders still need coverage before
+  claiming broad serving quality, but the original flush-cadence failure mode now
+  has both synthetic and multi-trial live Qwen coverage.
 - This fixes progressive byte delivery, not scheduler-level backpressure or true
   continuous batching.

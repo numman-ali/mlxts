@@ -9,6 +9,7 @@ import {
   formatOpenAIResponsePending,
   type NormalizedOpenAIResponse,
 } from "./protocols/openai-responses";
+import { withSseHeartbeat } from "./server-sse-heartbeat";
 import { createStopSequenceFilter } from "./server-stop-filter";
 import type {
   GenerationStreamEvent,
@@ -393,7 +394,9 @@ export async function writeOpenAIResponseStreamEvents(
 
   const iterator = toAsyncIterator(stream);
   while (true) {
-    const next = await readStreamEvent(iterator, options.signal);
+    const next = await withSseHeartbeat(controller, () =>
+      readStreamEvent(iterator, options.signal),
+    );
     if (next.type === "finished") {
       break;
     }

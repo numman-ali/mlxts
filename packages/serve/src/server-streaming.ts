@@ -10,6 +10,7 @@ import {
   formatOpenAICompletionUsageStreamChunk,
   type normalizeOpenAICompletionRequest,
 } from "./protocols/openai-completions";
+import { enqueueSseComment, withSseHeartbeat } from "./server-sse-heartbeat";
 import { createStopSequenceFilter } from "./server-stop-filter";
 import type { GenerationStreamEvent, GenerationUsage, NormalizedFinishReason } from "./types";
 
@@ -299,12 +300,6 @@ function markCancelled(
   return streamWasCancelled(signal) ? "cancelled" : finishReason;
 }
 
-async function nextStreamEvent(
-  iterator: AsyncIterator<GenerationStreamEvent>,
-): Promise<IteratorResult<GenerationStreamEvent>> {
-  return await iterator.next();
-}
-
 export async function closeStreamEvents(
   stream: AsyncIterable<GenerationStreamEvent> | AsyncIterator<GenerationStreamEvent>,
 ): Promise<void> {
@@ -325,7 +320,7 @@ async function readStreamEvent(
     await iterator.return?.();
     return { type: "cancelled" };
   }
-  const next = await nextStreamEvent(iterator);
+  const next = await iterator.next();
   if (next.done) {
     return { type: "finished" };
   }
@@ -437,8 +432,12 @@ export async function writeStreamEvents(
     sentTerminalChunk: false,
   };
   const iterator = toAsyncIterator(stream);
+  enqueueSseComment(controller, "mlxts-serve stream started");
+  await yieldToHttpWriter();
   while (true) {
-    const next = await readStreamEvent(iterator, options.signal);
+    const next = await withSseHeartbeat(controller, () =>
+      readStreamEvent(iterator, options.signal),
+    );
     if (next.type === "finished") {
       break;
     }
@@ -481,7 +480,9 @@ export async function writeChatStreamEvents(
 
   const iterator = toAsyncIterator(stream);
   while (true) {
-    const next = await readStreamEvent(iterator, options.signal);
+    const next = await withSseHeartbeat(controller, () =>
+      readStreamEvent(iterator, options.signal),
+    );
     if (next.type === "finished") {
       break;
     }

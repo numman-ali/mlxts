@@ -84,6 +84,7 @@ describe("server streaming helpers", () => {
     }>;
 
     expect(summary).toEqual({ finishReason: "stop" });
+    expect(text.startsWith(": mlxts-serve stream started\n\n")).toBe(true);
     expect(payloads.map((payload) => payload.choices[0]?.text).filter(Boolean)).toEqual(["He "]);
     expect(payloads.at(-1)?.choices[0]?.finish_reason).toBe("stop");
     expect(text).toContain("data: [DONE]");

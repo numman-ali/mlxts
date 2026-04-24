@@ -52,6 +52,13 @@ export type PrefilledPrompt = {
   positionIds: MxArray | null;
 };
 
+type SyncRunner = <T>(fn: () => T) => T;
+type SchedulerYield = () => Promise<void>;
+
+function runDirect<T>(fn: () => T): T {
+  return fn();
+}
+
 function chunkForwardOptions(
   cache: TransformerCache,
   inputEmbeddings: MxArray | null,
@@ -162,6 +169,102 @@ export function prefillPromptCache(
             cursor,
             promptTokenIds.length - cursor,
             "prefillPromptCache",
+          ),
+  };
+}
+
+/** Chunk long prompts while yielding between chunks for streaming servers. */
+export async function prefillPromptCacheCooperative(
+  model: CausalLM,
+  promptTokenIds: readonly number[],
+  cache: TransformerCache,
+  prefillStepSize: number,
+  inputEmbeddings?: MxArray,
+  positionIds?: MxArray,
+  onProgress?: (event: PrefillProgressEvent) => void,
+  abortSignal?: AbortSignal,
+  run: SyncRunner = runDirect,
+  yieldToScheduler?: SchedulerYield,
+): Promise<PrefilledPrompt> {
+  if (inputEmbeddings !== undefined) {
+    validatePromptInputEmbeddings(promptTokenIds, inputEmbeddings, "prefillPromptCache");
+  }
+  if (positionIds !== undefined) {
+    validatePromptPositionIds(promptTokenIds, positionIds, "prefillPromptCache");
+  }
+
+  let cursor = 0;
+  const totalPrefillTokens = Math.max(promptTokenIds.length - 1, 0);
+
+  throwIfGenerationAborted(abortSignal, "prefillPromptCache");
+  while (promptTokenIds.length - cursor > 1) {
+    throwIfGenerationAborted(abortSignal, "prefillPromptCache");
+    const remaining = promptTokenIds.length - cursor - 1;
+    const chunkSize = Math.min(prefillStepSize, remaining);
+    const chunk = promptTokenIds.slice(cursor, cursor + chunkSize);
+
+    {
+      using chunkIds = run(() => array([chunk], "int32"));
+      const chunkInputEmbeddings =
+        inputEmbeddings === undefined
+          ? null
+          : run(() =>
+              slicePromptInputEmbeddings(inputEmbeddings, cursor, chunkSize, "prefillPromptCache"),
+            );
+      const chunkPositionIds =
+        positionIds === undefined
+          ? null
+          : run(() => slicePromptPositionIds(positionIds, cursor, chunkSize, "prefillPromptCache"));
+      try {
+        run(() => {
+          using chunkLogits = model.forward(
+            chunkIds,
+            chunkForwardOptions(cache, chunkInputEmbeddings, chunkPositionIds),
+          );
+          if (!materializeCacheState(cache)) {
+            chunkLogits.eval();
+          }
+        });
+      } finally {
+        chunkInputEmbeddings?.free();
+        chunkPositionIds?.free();
+      }
+    }
+
+    cursor += chunkSize;
+    onProgress?.({
+      processedTokens: cursor,
+      totalTokens: totalPrefillTokens,
+      chunkTokens: chunkSize,
+    });
+    throwIfGenerationAborted(abortSignal, "prefillPromptCache");
+    clearMemoryCache();
+    await yieldToScheduler?.();
+  }
+
+  return {
+    tokenIds: promptTokenIds.slice(cursor),
+    inputEmbeddings:
+      inputEmbeddings === undefined
+        ? null
+        : run(() =>
+            slicePromptInputEmbeddings(
+              inputEmbeddings,
+              cursor,
+              promptTokenIds.length - cursor,
+              "prefillPromptCache",
+            ),
+          ),
+    positionIds:
+      positionIds === undefined
+        ? null
+        : run(() =>
+            slicePromptPositionIds(
+              positionIds,
+              cursor,
+              promptTokenIds.length - cursor,
+              "prefillPromptCache",
+            ),
           ),
   };
 }
