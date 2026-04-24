@@ -106,6 +106,7 @@ export function batchOptionsKey(options: BatchGenerationOptions): string {
     seed: options.seed,
     padTokenId: options.padTokenId,
     eosTokenIds: options.eosTokenIds ?? [],
+    prefillStepSize: options.prefillStepSize,
   });
 }
 

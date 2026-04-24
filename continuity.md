@@ -121,6 +121,11 @@ work as a usable text endpoint while benchmark and scheduler work continues.
   aborted rows, and is endpoint-visible through `serveLoadedModel()`. The serve
   benchmark now reports `continuous_admissions` separately from `static_batches`
   and `admission_batches`.
+- The continuous scheduler now chunk-prefills long waiting prompts behind active
+  rows by `prefillStepSize`, emits prefill progress, and only merges a row into
+  the active batch after its first sampled token is ready. This improves
+  full-KV greedy fairness; Qwen hybrid and Gemma sliding/global batching are
+  still separate cache-semantics work.
 - Tiny live LLaMA 1B endpoint probe after the scheduler tranche:
   `prompt_tokens=16`, `generation_tokens=16`, concurrency `1,2`, greedy,
   no warmup. Concurrency 1 reported `completion_tps=127.140`,

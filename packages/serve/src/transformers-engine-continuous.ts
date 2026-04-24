@@ -16,7 +16,11 @@ import {
   type PreparedGenerationRequest,
   prepareGenerationRequest,
 } from "./transformers-engine-generation";
-import { createProgressReporter, emitGenerationProgress } from "./transformers-engine-shared";
+import {
+  createPrefillProgressReporter,
+  createProgressReporter,
+  emitGenerationProgress,
+} from "./transformers-engine-shared";
 import type { NormalizedGenerationRequest, NormalizedGenerationResult } from "./types";
 
 type SchedulerEntry = {
@@ -113,6 +117,11 @@ export function createContinuousTransformersGeneration(
     const entry = schedulerFor(prepared);
     entry.modelsByRequestId.set(prepared.request.id, prepared.request.model);
     emitGenerationProgress(options, prepared.request, prepared.promptTokens, 0);
+    const onPrefillProgress = createPrefillProgressReporter(
+      options,
+      prepared.request,
+      prepared.promptTokens,
+    );
     const onToken = createProgressReporter(options, prepared.request, prepared.promptTokens);
     try {
       const result = await entry.scheduler.enqueue({
@@ -122,6 +131,7 @@ export function createContinuousTransformersGeneration(
         ...(prepared.request.abortSignal === undefined
           ? {}
           : { abortSignal: prepared.request.abortSignal }),
+        onPrefillProgress,
         onToken,
       });
       return generatedResultToServeResult(prepared, options, result);

@@ -24,6 +24,7 @@ class DeterministicBatchModel implements CausalLM {
   };
   lastForwardCache: DecoderCache | undefined;
   readonly forwardBatchSizes: number[] = [];
+  readonly forwardSequenceLengths: number[] = [];
 
   forward(inputIds: MxArray, options?: ForwardOptions): MxArray {
     this.lastForwardCache = options?.cache;
@@ -32,6 +33,7 @@ class DeterministicBatchModel implements CausalLM {
       throw new Error("DeterministicBatchModel.forward expected rank-2 token ids.");
     }
     this.forwardBatchSizes.push(batchSize);
+    this.forwardSequenceLengths.push(sequenceLength);
     options?.cache?.advance(sequenceLength);
     return array(
       Array.from({ length: batchSize }, () =>
@@ -103,6 +105,90 @@ describe("continuous batch token scheduler", () => {
     await expect(second).resolves.toEqual({ tokenIds: [2, 2], finishReason: "length" });
     expect(batches).toContain(2);
     expect(model.forwardBatchSizes).toContain(2);
+  });
+
+  test("chunks a long waiting prompt while active rows keep decoding", async () => {
+    using model = new DeterministicBatchModel();
+    const prefillProgress: string[] = [];
+    const scheduler = createContinuousBatchTokenScheduler(model, {
+      maxBatchSize: 2,
+      prefillStepSize: 2,
+      temperature: 0,
+      eosTokenIds: [],
+    });
+    let second: Promise<unknown> | undefined;
+
+    const first = scheduler.enqueue({
+      id: "first",
+      promptTokenIds: [0],
+      maxTokens: 4,
+      onToken(_tokenId, tokenIds) {
+        if (tokenIds.length === 1 && second === undefined) {
+          second = scheduler.enqueue({
+            id: "second",
+            promptTokenIds: [1, 1, 1, 1, 1, 1],
+            maxTokens: 1,
+            onPrefillProgress(event) {
+              prefillProgress.push(
+                `${event.processedTokens}/${event.totalTokens}:${event.chunkTokens}`,
+              );
+            },
+          });
+        }
+      },
+    });
+
+    await expect(first).resolves.toEqual({ tokenIds: [2, 2, 2, 2], finishReason: "length" });
+    await expect(second).resolves.toEqual({ tokenIds: [2], finishReason: "length" });
+
+    expect(prefillProgress).toEqual(["2/5:2", "4/5:2", "5/5:1"]);
+    const chunkForwards = model.forwardSequenceLengths
+      .map((sequenceLength, index) => ({ sequenceLength, index }))
+      .filter(({ sequenceLength }) => sequenceLength === 2);
+    expect(chunkForwards).toHaveLength(2);
+    expect(
+      model.forwardSequenceLengths.slice(
+        (chunkForwards[0]?.index ?? 0) + 1,
+        chunkForwards[1]?.index ?? 0,
+      ),
+    ).toContain(1);
+    expect(model.forwardSequenceLengths).not.toContain(6);
+  });
+
+  test("rejects rows aborted during partial prefill", async () => {
+    using model = new DeterministicBatchModel();
+    const controller = new AbortController();
+    const scheduler = createContinuousBatchTokenScheduler(model, {
+      maxBatchSize: 2,
+      prefillStepSize: 2,
+      temperature: 0,
+      eosTokenIds: [],
+    });
+    let second: Promise<unknown> | undefined;
+
+    const first = scheduler.enqueue({
+      id: "first",
+      promptTokenIds: [0],
+      maxTokens: 3,
+      onToken(_tokenId, tokenIds) {
+        if (tokenIds.length === 1 && second === undefined) {
+          second = scheduler.enqueue({
+            id: "second",
+            promptTokenIds: [1, 1, 1, 1, 1, 1],
+            maxTokens: 1,
+            abortSignal: controller.signal,
+            onPrefillProgress() {
+              controller.abort();
+            },
+          });
+          second.catch(() => undefined);
+        }
+      },
+    });
+
+    await expect(first).resolves.toEqual({ tokenIds: [2, 2, 2], finishReason: "length" });
+    await expect(second).rejects.toBeInstanceOf(GenerationAbortError);
+    expect(model.forwardSequenceLengths).not.toContain(6);
   });
 
   test("filters mixed length rows independently", async () => {

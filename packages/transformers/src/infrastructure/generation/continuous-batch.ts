@@ -1,29 +1,41 @@
 import {
-  argmax,
   array,
   clearMemoryCache,
-  concatenate,
   createStream,
   getRecommendedWorkingSetBytes,
   type MxArray,
   mxEval,
-  reshape,
   setWiredLimitBytes,
-  slice,
   synchronize,
-  takeAxis,
   withDefaultStream,
 } from "@mlxts/core";
 
-import type { BatchGenerationOptions, CausalLM, GenerationResult } from "../../types";
+import type {
+  BatchGenerationOptions,
+  CausalLM,
+  GenerationResult,
+  PrefillProgressEvent,
+} from "../../types";
 import { BatchKVCache } from "../cache";
 import { GenerationAbortError, throwIfGenerationAborted } from "./cancellation";
+import {
+  combineCurrentTokens,
+  integerAtLeast,
+  nextInputTensor,
+  prefillPromptChunk,
+  prefillReadyBatch,
+  rejectAbortedPrefillingRows,
+  sampleNextBatchToken,
+  tokenRows,
+  tokenTensorToIds,
+  validateContinuousBatchOptions,
+  yieldToScheduler,
+} from "./continuous-batch-helpers";
 import { resolveGenerationOptions } from "./defaults";
-import { takeLastLogits } from "./helpers";
+import { validatePrefillStepSize } from "./helpers";
 import { finishIfEos } from "./runtime";
 
 type RunExclusive = <T>(work: () => Promise<T>) => Promise<T>;
-
 export type ContinuousBatchTokenSchedulerOptions = Omit<
   BatchGenerationOptions,
   "maxTokens" | "abortSignal"
@@ -43,6 +55,7 @@ export type ContinuousBatchTokenRequest = {
   promptTokenIds: readonly number[];
   maxTokens: number;
   abortSignal?: AbortSignal;
+  onPrefillProgress?: (event: PrefillProgressEvent) => void;
   onToken?: (tokenId: number, generatedTokenIds: readonly number[]) => void;
 };
 
@@ -61,120 +74,17 @@ type ScheduledRequest = {
   finishReason: GenerationResult["finishReason"];
   abortSignal?: AbortSignal;
   onAbort?: () => void;
+  onPrefillProgress?: (event: PrefillProgressEvent) => void;
   onToken?: (tokenId: number, generatedTokenIds: readonly number[]) => void;
   resolve(result: GenerationResult): void;
   reject(error: unknown): void;
 };
 
-function integerAtLeast(value: number, name: string, minimum: number): number {
-  if (!Number.isInteger(value) || value < minimum) {
-    throw new Error(`ContinuousBatchTokenScheduler: ${name} must be >= ${minimum}.`);
-  }
-  return value;
-}
-
-function validateOptions(options: BatchGenerationOptions): void {
-  if (options.cache !== undefined) {
-    throw new Error("ContinuousBatchTokenScheduler: external caches are not supported.");
-  }
-  if (options.useCache === false) {
-    throw new Error("ContinuousBatchTokenScheduler: cache-enabled decoding is required.");
-  }
-  if ((options.temperature ?? 1.0) > 0) {
-    throw new Error("ContinuousBatchTokenScheduler: continuous batching requires temperature: 0.");
-  }
-  if ((options.repetitionPenalty ?? 1.0) !== 1.0) {
-    throw new Error("ContinuousBatchTokenScheduler: repetition penalty is not supported yet.");
-  }
-}
-
-function leftPadPrompts(
-  prompts: readonly (readonly number[])[],
-  padTokenId: number,
-): { padded: number[][]; leftPadding: number[] } {
-  const maxLength = Math.max(...prompts.map((prompt) => prompt.length));
-  const padded: number[][] = [];
-  const leftPadding: number[] = [];
-
-  for (const prompt of prompts) {
-    const padding = maxLength - prompt.length;
-    leftPadding.push(padding);
-    padded.push([...Array<number>(padding).fill(padTokenId), ...prompt]);
-  }
-
-  return { padded, leftPadding };
-}
-
-function sampleGreedyBatchTokenTensor(logits: MxArray, context: string): MxArray {
-  const batchSize = logits.shape[0];
-  if (batchSize === undefined || logits.shape.length !== 2) {
-    throw new Error(
-      `${context}: expected rank-2 logits for batch sampling, got [${logits.shape.join(", ")}].`,
-    );
-  }
-  using greedy = argmax(logits, -1);
-  return reshape(greedy, [batchSize, 1]);
-}
-
-function sampleNextBatchToken(model: CausalLM, inputIds: MxArray, cache: BatchKVCache): MxArray {
-  using logits = model.forward(inputIds, { cache });
-  using lastLogits = takeLastLogits(logits, "ContinuousBatchTokenScheduler");
-  const nextToken = sampleGreedyBatchTokenTensor(lastLogits, "ContinuousBatchTokenScheduler");
-  mxEval(nextToken);
-  return nextToken;
-}
-
-function tokenTensorToIds(tokens: MxArray): number[] {
-  const [batchSize, width] = tokens.shape;
-  if (batchSize === undefined || width !== 1 || tokens.shape.length !== 2) {
-    throw new Error(
-      `ContinuousBatchTokenScheduler: expected token tensor shape [batch, 1], got [${tokens.shape.join(", ")}].`,
-    );
-  }
-
-  const tokenIds: number[] = [];
-  for (let index = 0; index < batchSize; index += 1) {
-    using token = slice(tokens, [index, 0], [index + 1, 1]);
-    tokenIds.push(token.item());
-  }
-  return tokenIds;
-}
-
-function tokenRows(tokens: MxArray, indices: readonly number[]): MxArray {
-  using indexTensor = array([...indices], "int32");
-  return takeAxis(tokens, indexTensor, 0);
-}
-
-function nextInputTensor(tokenIds: readonly number[], keepPositions: readonly number[]): MxArray {
-  return array(
-    keepPositions.map((position) => [tokenIds[position] ?? 0]),
-    "int32",
-  );
-}
-
-function combineCurrentTokens(left: MxArray | null, right: MxArray): MxArray {
-  if (left === null) {
-    return tokenRows(
-      right,
-      Array.from({ length: right.shape[0] ?? 0 }, (_, index) => index),
-    );
-  }
-  using retainedLeft = tokenRows(
-    left,
-    Array.from({ length: left.shape[0] ?? 0 }, (_, index) => index),
-  );
-  using retainedRight = tokenRows(
-    right,
-    Array.from({ length: right.shape[0] ?? 0 }, (_, index) => index),
-  );
-  const combined = concatenate([retainedLeft, retainedRight], 0);
-  mxEval(combined);
-  return combined;
-}
-
-function yieldToScheduler(): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, 0));
-}
+type PrefillingRequest = {
+  request: ScheduledRequest;
+  cache: BatchKVCache;
+  cursor: number;
+};
 
 const defaultRunExclusive: RunExclusive = (work) => work();
 
@@ -187,7 +97,9 @@ export class ContinuousBatchTokenScheduler {
   readonly #onBatch: ((event: ContinuousBatchEvent) => void) | undefined;
   readonly #eosTokenIds: ReadonlySet<number>;
   readonly #padTokenId: number;
+  readonly #prefillStepSize: number;
   readonly #waiting: ScheduledRequest[] = [];
+  readonly #prefilling: PrefillingRequest[] = [];
   #active: ScheduledRequest[] = [];
   #cache: BatchKVCache | null = null;
   #currentToken: MxArray | null = null;
@@ -200,7 +112,7 @@ export class ContinuousBatchTokenScheduler {
       ...options,
       maxTokens: 1,
     });
-    validateOptions(resolved);
+    validateContinuousBatchOptions(resolved);
     this.#model = model;
     this.#maxBatchSize = integerAtLeast(options.maxBatchSize ?? 8, "maxBatchSize", 1);
     this.#batchWindowMs = integerAtLeast(options.batchWindowMs ?? 0, "batchWindowMs", 0);
@@ -208,6 +120,8 @@ export class ContinuousBatchTokenScheduler {
     this.#onBatch = options.onBatch;
     this.#eosTokenIds = new Set(resolved.eosTokenIds ?? []);
     this.#padTokenId = options.padTokenId ?? 0;
+    this.#prefillStepSize = options.prefillStepSize ?? 2048;
+    validatePrefillStepSize(this.#prefillStepSize, "ContinuousBatchTokenScheduler");
   }
 
   enqueue(request: ContinuousBatchTokenRequest): Promise<GenerationResult> {
@@ -234,6 +148,9 @@ export class ContinuousBatchTokenScheduler {
         generated: [],
         finishReason: "length",
         ...(request.abortSignal === undefined ? {} : { abortSignal: request.abortSignal }),
+        ...(request.onPrefillProgress === undefined
+          ? {}
+          : { onPrefillProgress: request.onPrefillProgress }),
         ...(request.onToken === undefined ? {} : { onToken: request.onToken }),
         resolve,
         reject,
@@ -253,6 +170,15 @@ export class ContinuousBatchTokenScheduler {
       const index = this.#waiting.indexOf(entry);
       if (index >= 0) {
         this.#waiting.splice(index, 1);
+        this.#cleanup(entry);
+        entry.reject(
+          new GenerationAbortError("ContinuousBatchTokenScheduler: generation was cancelled."),
+        );
+      }
+      const prefillIndex = this.#prefilling.findIndex((prefilling) => prefilling.request === entry);
+      if (prefillIndex >= 0) {
+        const [prefilling] = this.#prefilling.splice(prefillIndex, 1);
+        prefilling?.cache[Symbol.dispose]();
         this.#cleanup(entry);
         entry.reject(
           new GenerationAbortError("ContinuousBatchTokenScheduler: generation was cancelled."),
@@ -283,7 +209,7 @@ export class ContinuousBatchTokenScheduler {
 
   #start(): void {
     this.#startScheduled = false;
-    if (this.#running || this.#waiting.length === 0) {
+    if (this.#running || (this.#waiting.length === 0 && this.#prefilling.length === 0)) {
       return;
     }
     this.#running = true;
@@ -291,7 +217,7 @@ export class ContinuousBatchTokenScheduler {
       .catch((error) => this.#failAll(error))
       .finally(() => {
         this.#running = false;
-        if (this.#waiting.length > 0) {
+        if (this.#waiting.length > 0 || this.#prefilling.length > 0) {
           this.#schedule();
         }
       });
@@ -301,10 +227,12 @@ export class ContinuousBatchTokenScheduler {
     using generationStream = createStream();
     const previousWiredLimit = setWiredLimitBytes(getRecommendedWorkingSetBytes());
     try {
-      while (this.#waiting.length > 0 || this.#active.length > 0) {
+      while (this.#waiting.length > 0 || this.#prefilling.length > 0 || this.#active.length > 0) {
         withDefaultStream(generationStream, () => {
+          rejectAbortedPrefillingRows(this.#prefilling, (request) => this.#cleanup(request));
           this.#dropAbortedActiveRows();
           this.#admitWaitingRows();
+          rejectAbortedPrefillingRows(this.#prefilling, (request) => this.#cleanup(request));
           this.#dropAbortedActiveRows();
           this.#decodeOneStep();
         });
@@ -315,6 +243,9 @@ export class ContinuousBatchTokenScheduler {
       this.#currentToken = null;
       this.#cache?.[Symbol.dispose]();
       this.#cache = null;
+      for (const prefilling of this.#prefilling.splice(0)) {
+        prefilling.cache[Symbol.dispose]();
+      }
       synchronize(generationStream);
       clearMemoryCache();
       setWiredLimitBytes(previousWiredLimit);
@@ -364,20 +295,31 @@ export class ContinuousBatchTokenScheduler {
   }
 
   #admitWaitingRows(): void {
-    const capacity = this.#maxBatchSize - this.#active.length;
-    if (capacity <= 0 || this.#waiting.length === 0) {
+    const capacity = this.#maxBatchSize - this.#active.length - this.#prefilling.length;
+    if (capacity <= 0 && this.#prefilling.length === 0) {
       return;
     }
+    if (this.#active.length === 0 && this.#prefilling.length === 0) {
+      this.#admitFullRows(Math.min(capacity, this.#waiting.length));
+      return;
+    }
+    if (capacity > 0 && this.#prefilling.length === 0 && this.#waiting.length > 0) {
+      this.#startPrefillingRow();
+    }
+    this.#advancePrefillingRow();
+  }
 
-    const admitted = this.#waiting.splice(0, capacity);
+  #admitFullRows(count: number): void {
+    if (count <= 0) {
+      return;
+    }
+    const admitted = this.#waiting.splice(0, count);
     this.#active.push(...admitted);
-    const { padded, leftPadding } = leftPadPrompts(
+    const { cache: nextCache, nextToken } = prefillReadyBatch(
+      this.#model,
       admitted.map((request) => request.promptTokenIds),
       this.#padTokenId,
     );
-    const nextCache = new BatchKVCache(this.#model.layerCount, leftPadding);
-    using promptInput = array(padded, "int32");
-    const nextToken = sampleNextBatchToken(this.#model, promptInput, nextCache);
 
     if (this.#cache === null) {
       this.#cache = nextCache;
@@ -391,6 +333,73 @@ export class ContinuousBatchTokenScheduler {
       nextToken.free();
     }
 
+    this.#emitBatch();
+  }
+
+  #startPrefillingRow(): void {
+    const request = this.#waiting.shift();
+    if (request === undefined) {
+      return;
+    }
+    this.#prefilling.push({
+      request,
+      cache: new BatchKVCache(this.#model.layerCount, [0]),
+      cursor: 0,
+    });
+  }
+
+  #advancePrefillingRow(): void {
+    const prefilling = this.#prefilling[0];
+    if (prefilling === undefined) {
+      return;
+    }
+    const remainingPrefillTokens = prefilling.request.promptTokenIds.length - prefilling.cursor - 1;
+    if (remainingPrefillTokens > 0) {
+      this.#prefillOneChunk(prefilling, remainingPrefillTokens);
+      return;
+    }
+    this.#finishPrefillingRow(prefilling);
+  }
+
+  #prefillOneChunk(prefilling: PrefillingRequest, remainingPrefillTokens: number): void {
+    const progress = prefillPromptChunk(
+      this.#model,
+      prefilling.request.promptTokenIds,
+      prefilling.cache,
+      prefilling.cursor,
+      this.#prefillStepSize,
+      remainingPrefillTokens,
+    );
+    prefilling.cursor = progress.cursor;
+    prefilling.request.onPrefillProgress?.(progress.event);
+  }
+
+  #finishPrefillingRow(prefilling: PrefillingRequest): void {
+    const tail = prefilling.request.promptTokenIds.slice(prefilling.cursor);
+    using tailInput = array([tail], "int32");
+    const nextToken = sampleNextBatchToken(this.#model, tailInput, prefilling.cache);
+    const [ready] = this.#prefilling.splice(0, 1);
+    if (ready === undefined) {
+      nextToken.free();
+      return;
+    }
+    this.#mergeReadyRow(ready.request, ready.cache, nextToken);
+  }
+
+  #mergeReadyRow(request: ScheduledRequest, nextCache: BatchKVCache, nextToken: MxArray): void {
+    if (this.#cache === null) {
+      this.#cache = nextCache;
+      this.#currentToken = nextToken;
+    } else {
+      this.#cache.extend(nextCache);
+      nextCache[Symbol.dispose]();
+      const combined = combineCurrentTokens(this.#currentToken, nextToken);
+      this.#currentToken?.free();
+      this.#currentToken = combined;
+      nextToken.free();
+    }
+
+    this.#active.push(request);
     this.#emitBatch();
   }
 
@@ -447,7 +456,6 @@ export class ContinuousBatchTokenScheduler {
       this.#active = [];
       this.#cache[Symbol.dispose]();
       this.#cache = null;
-      this.#admitWaitingRows();
       return;
     }
 
@@ -459,7 +467,6 @@ export class ContinuousBatchTokenScheduler {
     const nextToken = sampleNextBatchToken(this.#model, nextInput, this.#cache);
     emittedToken.free();
     this.#currentToken = nextToken;
-    this.#admitWaitingRows();
   }
 
   #finishRequest(request: ScheduledRequest): void {
@@ -471,11 +478,18 @@ export class ContinuousBatchTokenScheduler {
   }
 
   #failAll(error: unknown): void {
-    for (const request of [...this.#waiting, ...this.#active]) {
+    for (const request of [
+      ...this.#waiting,
+      ...this.#prefilling.map((prefilling) => prefilling.request),
+      ...this.#active,
+    ]) {
       this.#cleanup(request);
       request.reject(error);
     }
     this.#waiting.length = 0;
+    for (const prefilling of this.#prefilling.splice(0)) {
+      prefilling.cache[Symbol.dispose]();
+    }
     this.#active = [];
     this.#currentToken?.free();
     this.#currentToken = null;

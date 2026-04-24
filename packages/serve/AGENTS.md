@@ -22,6 +22,10 @@ batching needs a scheduler-owned decode loop plus batch-aware cache semantics in
 `@mlxts/transformers`, especially for Qwen hybrid full-attention plus recurrent
 linear-attention cache state.
 
+For full-KV continuous batching, long waiting prompts must be chunk-prefilled
+between active decode steps rather than forwarded as one admission wall. This is
+fairness for the existing eligible subset, not a Qwen/Gemma batching claim.
+
 For serving reliability work, prefer small audited tranches: admission,
 observability, cancellation, memory preflight, scheduler/cache architecture, then
 wire-protocol expansion. Runtime-sensitive changes need a review artifact under
