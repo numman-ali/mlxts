@@ -59,6 +59,33 @@ bun run bench:generation:context --model mlx-community/Qwen3.6-27B-4bit \
   --rungs 32768 --needle-placements all --generation-tokens 24 \
   --prefill-step-size 2048 \
   --report-json .tmp/qwen36-context-32k-all-needles.json
+
+bun run bench:serve --model mlx-community/Llama-3.2-1B-Instruct-4bit \
+  --model-id llama-local --rungs 32x32@2,128x32@2 \
+  --trials 1 --no-warmup --greedy --ignore-eos \
+  --request-stagger-ms 25 \
+  --report-json .tmp/llama-serve-stagger-smoke.json \
+  --max-concurrent-requests 1 --max-batch-size 4 --batch-window-ms 1 \
+  --max-prompt-tokens 128 --max-total-tokens 160 \
+  --gpu-memory-utilization 0.85
+
+bun run bench:serve --model mlx-community/Qwen3.6-27B-4bit \
+  --model-id qwen-local --rungs 128x128@2,1024x128@2 \
+  --trials 1 --no-warmup --greedy --ignore-eos --stream \
+  --request-stagger-ms 100 \
+  --report-json .tmp/qwen36-serve-stagger-c2-stream.json \
+  --max-concurrent-requests 1 --max-batch-size 8 --batch-window-ms 2 \
+  --max-prompt-tokens 1024 --max-total-tokens 1152 \
+  --gpu-memory-utilization 0.85 --request-timeout-ms 3600000
+
+bun run bench:serve --model google/gemma-4-E2B-it \
+  --model-id gemma-local --rungs 128x128@2,1024x128@2 \
+  --trials 1 --no-warmup --greedy --ignore-eos --stream \
+  --request-stagger-ms 100 \
+  --report-json .tmp/gemma4-e2b-serve-stagger-c2-stream.json \
+  --max-concurrent-requests 1 --max-batch-size 8 --batch-window-ms 2 \
+  --max-prompt-tokens 1024 --max-total-tokens 1152 \
+  --gpu-memory-utilization 0.85 --request-timeout-ms 3600000
 ```
 
 ## Qwen Endpoint Results
@@ -122,6 +149,30 @@ LLaMA 3.2 1B continuous-batching control:
 | 16x16@1 | 118.729 | 1 | 1 | 1.102 GB |
 | 16x16@2 | 259.032 | 2 | 2 | 1.127 GB |
 | 16x16@4 | 212.584 | 4 | 4 | 1.181 GB |
+
+Staggered arrival controls:
+
+| Model | Rung | Stagger | Wall | Completion TPS | Peak | Continuous Rows | Max Generation Batch |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| LLaMA 3.2 1B 4bit | 32x32@2 | 25 ms | 0.359s | 178.126 | 1.123 GB | 3 | 2 |
+| LLaMA 3.2 1B 4bit | 128x32@2 | 25 ms | 0.283s | 226.097 | 1.230 GB | 3 | 2 |
+| Qwen 3.6 27B 4bit | 128x128@2 | 100 ms | 10.056s | 25.457 | 18.481 GB | 0 | 0 |
+| Qwen 3.6 27B 4bit | 1024x128@2 | 100 ms | 17.226s | 14.862 | 19.934 GB | 0 | 0 |
+| Gemma 4 E2B | 128x128@2 | 100 ms | 3.234s | 79.158 | 9.446 GB | 0 | 0 |
+| Gemma 4 E2B | 1024x128@2 | 100 ms | 3.373s | 75.907 | 9.892 GB | 0 | 0 |
+
+The staggered LLaMA run proves waiting-row continuous scheduling is visible when
+the model/cache contract is eligible: delayed request arrivals still merged into
+a generation batch with `max_generation_batch=2`. Qwen and Gemma correctly
+reported no generation batch rows, which is the desired honest result until
+their hybrid/sliding cache semantics are represented in the scheduler.
+
+During the Gemma stagger run, the first attempt stalled before the second rung
+printed. The cause was benchmark-side prompt preparation: completions rungs were
+building a text prompt even though the request body uses exact token-array
+prompts. The harness now skips text tokenization for completions and keeps text
+prompt synthesis only for chat/Responses protocol-health runs; the rerun
+completed both Gemma rungs immediately.
 
 Qwen queued concurrency control:
 

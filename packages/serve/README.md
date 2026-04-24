@@ -215,6 +215,8 @@ wall time, request throughput, end-to-end completion-token throughput,
 total-token throughput, mean/p95/max latency, memory, finish reasons, admission
 micro-batch rows, real static batch rows, and continuous scheduler admission
 rows.
+Completions benchmarks use deterministic token-array prompts for exact token
+counts; chat and Responses synthesize text prompts for protocol health runs.
 Use `--ignore-eos` for exact-length throughput ladders when comparing against
 in-process benchmarks that intentionally decode the full requested token count;
 normal serving behavior still honors EOS unless this extension is explicit.

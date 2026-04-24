@@ -159,6 +159,18 @@ work as a usable text endpoint while benchmark and scheduler work continues.
   arrival span. JSON reports include `requestStaggerMs` and per-rung
   `arrivalSpanMs`, so waiting-row continuous scheduler evidence is not confused
   with simultaneous admission-window coalescing.
+- Staggered endpoint smokes are recorded in
+  `docs/reviews/2026-04-24-qwen-serve-benchmark-ladder.md`. LLaMA 3.2 1B 4bit
+  with `--request-stagger-ms 25` admitted delayed rows into a real generation
+  batch (`max_generation_batch=2`, flat active memory). Qwen 3.6 27B and Gemma 4
+  E2B with `--request-stagger-ms 100` served concurrency safely but correctly
+  reported no generation batching because their cache semantics are not yet
+  scheduler-owned.
+- A Gemma stagger run exposed a harness stall before generation: completions
+  rungs were synthesizing/tokenizing text prompts even though completions sends
+  exact token-array prompts. `benchmark-serve-prompts.ts` now skips text
+  tokenization for completions and keeps it only for chat/Responses protocol
+  health runs; the Gemma rerun completed both rungs immediately.
 
 ## Next Work
 

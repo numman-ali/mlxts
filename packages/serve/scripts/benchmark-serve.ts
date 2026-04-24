@@ -19,6 +19,7 @@ import {
   type ServeBenchmarkOptions,
   type ServeBenchmarkRung,
 } from "./benchmark-serve-options";
+import { createBenchmarkPrompt } from "./benchmark-serve-prompts";
 
 type TrialMetrics = {
   wallMs: number;
@@ -137,29 +138,6 @@ async function resolveCachedSnapshotPath(modelSource: string): Promise<string> {
   throw new Error(
     `benchmark-serve: no cached snapshot for ${modelSource}. Use --allow-download if this run may download from the Hub.`,
   );
-}
-
-function createPromptTokenIds(length: number, vocabSize: number): number[] {
-  const tokenIds: number[] = [];
-  let state = 0x12345678;
-  const usableVocab = Math.max(2, vocabSize - 1);
-
-  for (let index = 0; index < length; index += 1) {
-    state = (Math.imul(state, 1664525) + 1013904223) >>> 0;
-    tokenIds.push((state % usableVocab) + 1);
-  }
-
-  return tokenIds;
-}
-
-function createPromptText(length: number, tokenizer: { encode(text: string): number[] }): string {
-  const seed =
-    "This is a deterministic serving benchmark prompt about Apple Silicon ML throughput. ";
-  let text = seed;
-  while (tokenizer.encode(text).length < length) {
-    text += seed;
-  }
-  return text;
 }
 
 function countEvents(
@@ -358,8 +336,12 @@ async function benchmarkRung(
   options: ServeBenchmarkOptions,
   serveEvents: readonly ServeEvent[],
 ): Promise<RungReport> {
-  const promptTokenIds = createPromptTokenIds(rung.promptTokens, modelVocabSize);
-  const prompt = { tokenIds: promptTokenIds, text: createPromptText(rung.promptTokens, tokenizer) };
+  const prompt = createBenchmarkPrompt(
+    rung.promptTokens,
+    modelVocabSize,
+    tokenizer,
+    options.protocolMode,
+  );
   console.log(
     [
       `rung prompt_tokens=${rung.promptTokens}`,
