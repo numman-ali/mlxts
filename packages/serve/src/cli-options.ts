@@ -4,6 +4,7 @@ import {
   DEFAULT_MODEL_SERVER_MAX_BATCH_SIZE,
   DEFAULT_MODEL_SERVER_MAX_CONCURRENT_REQUESTS,
   DEFAULT_MODEL_SERVER_MAX_GENERATED_TOKENS,
+  DEFAULT_MODEL_SERVER_MAX_PROMPT_TOKENS,
   DEFAULT_MODEL_SERVER_MAX_TOTAL_TOKENS,
   DEFAULT_MODEL_SERVER_PORT,
 } from "./model-server";
@@ -20,6 +21,7 @@ export type ServeCliOptions = {
   hostname: string;
   port: number;
   maxGeneratedTokens: number;
+  maxPromptTokens: number;
   maxTotalTokens: number;
   maxBatchSize: number;
   batchWindowMs: number;
@@ -50,6 +52,7 @@ type ParseState = {
   hostname: string;
   port: number;
   maxGeneratedTokens: number;
+  maxPromptTokens: number;
   maxTotalTokens: number;
   maxBatchSize: number;
   batchWindowMs: number;
@@ -111,6 +114,7 @@ function createParseState(): ParseState {
     hostname: DEFAULT_MODEL_SERVER_HOSTNAME,
     port: DEFAULT_MODEL_SERVER_PORT,
     maxGeneratedTokens: DEFAULT_MODEL_SERVER_MAX_GENERATED_TOKENS,
+    maxPromptTokens: DEFAULT_MODEL_SERVER_MAX_PROMPT_TOKENS,
     maxTotalTokens: DEFAULT_MODEL_SERVER_MAX_TOTAL_TOKENS,
     maxBatchSize: DEFAULT_MODEL_SERVER_MAX_BATCH_SIZE,
     batchWindowMs: DEFAULT_MODEL_SERVER_BATCH_WINDOW_MS,
@@ -150,6 +154,14 @@ function applyFlag(state: ParseState, argv: readonly string[], index: number): n
       return index + 1;
     case "--max-generated-tokens":
       state.maxGeneratedTokens = readIntegerFlag(
+        arg,
+        argv[index + 1],
+        (value) => value > 0,
+        "a positive integer",
+      );
+      return index + 1;
+    case "--max-prompt-tokens":
+      state.maxPromptTokens = readIntegerFlag(
         arg,
         argv[index + 1],
         (value) => value > 0,
@@ -279,6 +291,7 @@ function stateToOptions(state: ParseState): ServeCliParseResult {
       hostname: state.hostname,
       port: state.port,
       maxGeneratedTokens: state.maxGeneratedTokens,
+      maxPromptTokens: state.maxPromptTokens,
       maxTotalTokens: state.maxTotalTokens,
       maxBatchSize: state.maxBatchSize,
       batchWindowMs: state.batchWindowMs,
@@ -309,6 +322,7 @@ export function formatServeUsage(): string {
     `  --host <host>               Hostname to bind (default: ${DEFAULT_MODEL_SERVER_HOSTNAME})`,
     `  --port <port>               Port to bind (default: ${DEFAULT_MODEL_SERVER_PORT})`,
     `  --max-generated-tokens <n>  Reject requests above this max_tokens cap (default: ${DEFAULT_MODEL_SERVER_MAX_GENERATED_TOKENS})`,
+    `  --max-prompt-tokens <n>     Reject prompts above this tokenized prompt cap (default: ${DEFAULT_MODEL_SERVER_MAX_PROMPT_TOKENS})`,
     `  --max-total-tokens <n>      Reject prompt_tokens + max_tokens above this cap (default: ${DEFAULT_MODEL_SERVER_MAX_TOTAL_TOKENS})`,
     `  --max-batch-size <n>        Admission micro-batch size per model instance (default: ${DEFAULT_MODEL_SERVER_MAX_BATCH_SIZE})`,
     `  --batch-window-ms <n>       Wait window before flushing a micro-batch (default: ${DEFAULT_MODEL_SERVER_BATCH_WINDOW_MS})`,

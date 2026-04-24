@@ -169,6 +169,7 @@ describe("serveLoadedModel", () => {
       modelId: "tiny",
       port: 0,
       maxGeneratedTokens: 128,
+      maxPromptTokens: 192,
       maxTotalTokens: 256,
       maxBatchSize: 4,
       batchWindowMs: 2,
@@ -190,11 +191,21 @@ describe("serveLoadedModel", () => {
         model_ids: ["tiny"],
         limits: {
           max_generated_tokens: 128,
+          max_prompt_tokens: 192,
           max_total_tokens: 256,
           max_client_batch_size: 4,
           batch_window_ms: 2,
           max_concurrent_requests: 1,
         },
+        models: [
+          {
+            id: "tiny",
+            context_window: null,
+            max_prompt_tokens: 192,
+            max_total_tokens: 256,
+            effective_total_tokens: 256,
+          },
+        ],
       });
       expect(running.modelIds).toEqual(["tiny"]);
     } finally {
@@ -435,6 +446,14 @@ describe("serveLoadedModel", () => {
       serveLoadedModel({
         model,
         tokenizer,
+        modelId: "bad-prompt-limit",
+        maxPromptTokens: 0,
+      }),
+    ).toThrow("maxPromptTokens must be a positive integer.");
+    expect(() =>
+      serveLoadedModel({
+        model,
+        tokenizer,
         modelId: "bad-total-limit",
         maxTotalTokens: 0,
       }),
@@ -499,7 +518,7 @@ describe("serveLoadedModel", () => {
       },
       serveLoadedModel(options) {
         calls.push(
-          `serve:${options.modelId}:${options.apiKey}:${options.maxTotalTokens}:${options.maxBatchSize}:${options.batchWindowMs}:${options.maxConcurrentRequests}:${options.disposeModelOnStop}`,
+          `serve:${options.modelId}:${options.apiKey}:${options.maxPromptTokens}:${options.maxTotalTokens}:${options.maxBatchSize}:${options.batchWindowMs}:${options.maxConcurrentRequests}:${options.disposeModelOnStop}`,
         );
         return fakeRunningServer(options.modelId);
       },
@@ -525,7 +544,7 @@ describe("serveLoadedModel", () => {
       "model:/snapshots/qwen",
       "tokenizer:/snapshots/qwen",
       "profile:/snapshots/qwen",
-      "serve:qwen-local:secret:4096:16:3:2:true",
+      "serve:qwen-local:secret:4096:4096:16:3:2:true",
     ]);
     expect(model.disposeCount).toBe(0);
     running.stop();

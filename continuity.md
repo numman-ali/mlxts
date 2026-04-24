@@ -36,14 +36,17 @@ against `mlx-lm`, long-output stability, and long-context capability visible.
 
 ## Next Work
 
-- Do not brute-force `262144` on this laptop until serving has admission and
-  memory preflight. `131072` already peaks at `42.550 GB`.
+- Do not brute-force `262144` on this laptop until serving has real memory
+  preflight. `131072` already peaks at `42.550 GB`.
+- Serving now has prefill progress telemetry and explicit prompt-token
+  admission. Use `--max-prompt-tokens`, `--max-total-tokens`, and `/info`
+  admission metadata to make long-context tests deliberate rather than
+  accidental.
 - Remaining Qwen gap is mostly peak memory versus `mlx-lm` and small paired-run
   variance. Next investigation should profile full-attention KV representation,
   cache-buffer accounting, and wrapper/FFI overhead rather than scattering
   micro-optimizations.
-- Next serving-quality tranche should prioritize prefill/progress telemetry,
-  cancellation, long-context admission, Qwen-aware scheduler/cache support,
-  micro-batch honesty, and memory-pool safeguards. After that, resume Responses
-  API completion work, Anthropic API, and then Qwen/Gemma MoE plus multimodal
-  capability.
+- Next serving-quality tranche should prioritize memory preflight, cancellation,
+  Qwen-aware scheduler/cache support, micro-batch honesty, and memory-pool
+  safeguards. After that, resume Responses API completion work, Anthropic API,
+  and then Qwen/Gemma MoE plus multimodal capability.

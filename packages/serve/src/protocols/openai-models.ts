@@ -9,6 +9,12 @@ export type ServedModelInfo = {
   id: string;
   ownedBy?: string;
   created?: number;
+  admission?: {
+    contextWindow?: number;
+    maxPromptTokens?: number;
+    maxTotalTokens?: number;
+    effectiveTotalTokens?: number;
+  };
 };
 
 export type OpenAIModelInfo = {

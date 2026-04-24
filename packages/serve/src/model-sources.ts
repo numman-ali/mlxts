@@ -138,6 +138,7 @@ function resolveServeModelsOptions(options: ServeModelsOptions): ResolvedServeMo
     ...(options.maxGeneratedTokens === undefined
       ? {}
       : { maxGeneratedTokens: options.maxGeneratedTokens }),
+    ...(options.maxPromptTokens === undefined ? {} : { maxPromptTokens: options.maxPromptTokens }),
     ...(options.maxTotalTokens === undefined ? {} : { maxTotalTokens: options.maxTotalTokens }),
     ...(options.maxBatchSize === undefined ? {} : { maxBatchSize: options.maxBatchSize }),
     ...(options.batchWindowMs === undefined ? {} : { batchWindowMs: options.batchWindowMs }),

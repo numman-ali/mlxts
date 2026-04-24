@@ -7,6 +7,7 @@ import type { Tokenizer } from "@mlxts/tokenizers";
 import type { GenerationOptions, PrefillProgressEvent } from "@mlxts/transformers";
 import { ServeError } from "./errors";
 import { readGenerationMemoryUsage } from "./memory-telemetry";
+import { effectiveTotalTokenLimit, modelContextWindow } from "./model-context";
 import type { TransformersGenerationEngineOptions } from "./transformers-engine";
 import type { NormalizedFinishReason, NormalizedGenerationRequest } from "./types";
 
@@ -36,21 +37,33 @@ export function generationOptions(
   };
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
+function totalTokenLimit(options: TransformersGenerationEngineOptions): number | undefined {
+  return effectiveTotalTokenLimit({
+    maxTotalTokens: options.maxTotalTokens,
+    contextWindow: modelContextWindow(options.model),
+  });
 }
 
-function positiveIntegerField(record: Record<string, unknown>, key: string): number | undefined {
-  const value = record[key];
-  return Number.isInteger(value) && typeof value === "number" && value > 0 ? value : undefined;
-}
+/** Reject requests whose prompt alone exceeds the server prompt admission budget. */
+export function enforcePromptTokenLimit(
+  options: TransformersGenerationEngineOptions,
+  request: NormalizedGenerationRequest,
+  promptTokens: number,
+): void {
+  const limit = options.maxPromptTokens;
+  if (limit === undefined || promptTokens <= limit) {
+    return;
+  }
 
-function modelContextLimit(options: TransformersGenerationEngineOptions): number | undefined {
-  return (
-    positiveIntegerField(options.model.config.rawConfig, "max_position_embeddings") ??
-    (isRecord(options.model.config.rawConfig.text_config)
-      ? positiveIntegerField(options.model.config.rawConfig.text_config, "max_position_embeddings")
-      : undefined)
+  const effectiveTotal = totalTokenLimit(options);
+  const totalSuffix =
+    effectiveTotal === undefined ? "" : ` Effective total token limit is ${effectiveTotal}.`;
+  throw new ServeError(
+    `Requested prompt_tokens ${promptTokens} exceeds this server's prompt token limit of ${limit}. Requested max_tokens is ${request.sampling.maxTokens}.${totalSuffix}`,
+    {
+      code: "prompt_tokens_exceeded",
+      param: "prompt",
+    },
   );
 }
 
@@ -60,12 +73,7 @@ export function enforceTotalTokenLimit(
   request: NormalizedGenerationRequest,
   promptTokens: number,
 ): void {
-  const configuredLimit = options.maxTotalTokens;
-  const contextLimit = modelContextLimit(options);
-  const limits = [configuredLimit, contextLimit].filter(
-    (limit): limit is number => limit !== undefined,
-  );
-  const limit = limits.length === 0 ? undefined : Math.min(...limits);
+  const limit = totalTokenLimit(options);
   if (limit === undefined) {
     return;
   }

@@ -30,6 +30,7 @@ describe("serve CLI args", () => {
         hostname: "127.0.0.1",
         port: 8000,
         maxGeneratedTokens: 2048,
+        maxPromptTokens: 4096,
         maxTotalTokens: 4096,
         maxBatchSize: 32,
         batchWindowMs: 1,
@@ -51,6 +52,8 @@ describe("serve CLI args", () => {
       "8080",
       "--max-generated-tokens",
       "512",
+      "--max-prompt-tokens",
+      "1024",
       "--max-total-tokens",
       "1536",
       "--max-batch-size",
@@ -80,6 +83,7 @@ describe("serve CLI args", () => {
         hostname: "0.0.0.0",
         port: 8080,
         maxGeneratedTokens: 512,
+        maxPromptTokens: 1024,
         maxTotalTokens: 1536,
         maxBatchSize: 16,
         batchWindowMs: 4,
@@ -130,6 +134,11 @@ describe("serve CLI args", () => {
       kind: "help",
       exitCode: 1,
       message: 'Expected --max-generated-tokens to be a positive integer, got "0".',
+    });
+    expect(parseServeArgs(["model", "--max-prompt-tokens", "0"])).toMatchObject({
+      kind: "help",
+      exitCode: 1,
+      message: 'Expected --max-prompt-tokens to be a positive integer, got "0".',
     });
     expect(parseServeArgs(["model", "--max-batch-size", "0"])).toMatchObject({
       kind: "help",
@@ -240,6 +249,7 @@ describe("serve CLI args", () => {
       hostname: "0.0.0.0",
       port: 8000,
       maxGeneratedTokens: 64,
+      maxPromptTokens: 128,
       maxTotalTokens: 256,
       maxBatchSize: 8,
       batchWindowMs: 2,
@@ -250,6 +260,7 @@ describe("serve CLI args", () => {
     expect(formatServeReady("http://127.0.0.1:8000", options)).toContain("/v1/completions");
     expect(formatServeReady("http://127.0.0.1:8000", options)).toContain("Models: qwen-local");
     expect(formatServeReady("http://127.0.0.1:8000", options)).not.toContain("temperature");
+    expect(formatServeReady("http://127.0.0.1:8000", options)).toContain("Prompt-token limit: 128");
     expect(formatServeReady("http://127.0.0.1:8000", options)).toContain(
       "Micro-batching: max_batch=8 window_ms=2",
     );
@@ -460,6 +471,7 @@ describe("serve CLI args", () => {
         options.onEvent?.({ type: "request_start", method: "POST", path: "/v1/chat/completions" });
         expect(options.source).toBe("repo/model");
         expect(options.hostname).toBe("0.0.0.0");
+        expect(options.maxPromptTokens).toBe(4096);
         expect(options.maxBatchSize).toBe(32);
         expect(options.batchWindowMs).toBe(1);
         expect(options.maxConcurrentRequests).toBe(1);

@@ -255,6 +255,37 @@ describe("transformers generation engine", () => {
     }).toThrow("total token limit");
   });
 
+  test("rejects prompts over the configured prompt token budget before generation", async () => {
+    using model = new TinyModel();
+    const tokenizer = new TinyTokenizer();
+    const engine = createTransformersGenerationEngine({ model, tokenizer, maxPromptTokens: 1 });
+    const request = textRequest("too-long", { maxTokens: 1, temperature: 0 });
+
+    expect(() => {
+      void engine.generate(request);
+    }).toThrow("prompt token limit");
+
+    const generateBatch = engine.generateBatch;
+    if (generateBatch === undefined) {
+      throw new Error("Expected transformers engine to expose generateBatch.");
+    }
+    expect(() => {
+      void generateBatch([request]);
+    }).toThrow("prompt token limit");
+
+    await expect(
+      (async () => {
+        const stream = await engine.stream?.({ ...request, stream: true });
+        if (stream === undefined) {
+          throw new Error("Expected transformers engine to expose stream.");
+        }
+        for await (const _event of stream) {
+          // Exhaust the stream so admission errors surface.
+        }
+      })(),
+    ).rejects.toThrow("prompt token limit");
+  });
+
   test("adapts token prompts without re-encoding them as text", async () => {
     using model = new TinyModel();
     const tokenizer = new TinyTokenizer();

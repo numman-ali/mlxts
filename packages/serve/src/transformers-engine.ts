@@ -19,6 +19,7 @@ import {
   compileMessagePrompt,
   createPrefillProgressReporter,
   emitGenerationProgress,
+  enforcePromptTokenLimit,
   enforceTotalTokenLimit,
   generationOptions,
   promptHasOpenThinking,
@@ -37,6 +38,7 @@ export type TransformersGenerationEngineOptions = {
   model: CausalLM;
   tokenizer: Tokenizer;
   interactionProfile?: InteractionProfile;
+  maxPromptTokens?: number;
   maxTotalTokens?: number;
   onEvent?: (event: ServeEvent) => void;
 };
@@ -206,6 +208,7 @@ export function createTransformersGenerationEngine(
     async *stream(request) {
       const prompt = compileMessagePrompt(request, options);
       const promptTokens = promptTokenCount(request, options, prompt);
+      enforcePromptTokenLimit(options, request, promptTokens);
       enforceTotalTokenLimit(options, request, promptTokens);
       emitGenerationProgress(options, request, promptTokens, 0);
       const onPrefillProgress = createPrefillProgressReporter(options, request, promptTokens);

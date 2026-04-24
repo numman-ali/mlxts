@@ -14,10 +14,19 @@ import type { GenerationEngine } from "./types";
 
 export type ServeRuntimeLimits = {
   maxGeneratedTokens?: number;
+  maxPromptTokens?: number;
   maxTotalTokens?: number;
   maxBatchSize?: number;
   batchWindowMs?: number;
   maxConcurrentRequests?: number;
+};
+
+export type ServeInfoModel = {
+  id: string;
+  context_window: number | null;
+  max_prompt_tokens: number | null;
+  max_total_tokens: number | null;
+  effective_total_tokens: number | null;
 };
 
 export type ServeInfoResponse = {
@@ -27,9 +36,11 @@ export type ServeInfoResponse = {
   model_id: string | null;
   model_ids: string[];
   model_count: number;
+  models: ServeInfoModel[];
   endpoints: string[];
   limits: {
     max_generated_tokens: number | null;
+    max_prompt_tokens: number | null;
     max_total_tokens: number | null;
     max_client_batch_size: number | null;
     batch_window_ms: number | null;
@@ -65,6 +76,16 @@ function numberOrNull(value: number | undefined): number | null {
   return value ?? null;
 }
 
+function formatServeInfoModel(model: ServedModelInfo, limits: ServeRuntimeLimits): ServeInfoModel {
+  return {
+    id: model.id,
+    context_window: numberOrNull(model.admission?.contextWindow),
+    max_prompt_tokens: numberOrNull(model.admission?.maxPromptTokens ?? limits.maxPromptTokens),
+    max_total_tokens: numberOrNull(model.admission?.maxTotalTokens ?? limits.maxTotalTokens),
+    effective_total_tokens: numberOrNull(model.admission?.effectiveTotalTokens),
+  };
+}
+
 function servedModelById(models: readonly ServedModelInfo[], id: string): ServedModelInfo {
   const model = models.find((entry) => entry.id === id);
   if (model === undefined) {
@@ -89,9 +110,11 @@ export function formatServeInfoResponse(options: ServeInfoOptions): ServeInfoRes
     model_id: modelIds[0] ?? null,
     model_ids: modelIds,
     model_count: modelIds.length,
+    models: models.map((model) => formatServeInfoModel(model, limits)),
     endpoints: [...SERVE_ENDPOINTS],
     limits: {
       max_generated_tokens: numberOrNull(limits.maxGeneratedTokens),
+      max_prompt_tokens: numberOrNull(limits.maxPromptTokens),
       max_total_tokens: numberOrNull(limits.maxTotalTokens),
       max_client_batch_size: numberOrNull(limits.maxBatchSize),
       batch_window_ms: numberOrNull(limits.batchWindowMs),

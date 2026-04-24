@@ -48,6 +48,7 @@ describe("serve fetch handler", () => {
       models: [{ id: "tiny" }, { id: "qwen-local" }],
       limits: {
         maxGeneratedTokens: 2048,
+        maxPromptTokens: 4096,
         maxTotalTokens: 4096,
         maxBatchSize: 32,
         batchWindowMs: 1,
@@ -69,11 +70,28 @@ describe("serve fetch handler", () => {
       model_count: 2,
       limits: {
         max_generated_tokens: 2048,
+        max_prompt_tokens: 4096,
         max_total_tokens: 4096,
         max_client_batch_size: 32,
         batch_window_ms: 1,
         max_concurrent_requests: 1,
       },
+      models: [
+        {
+          id: "tiny",
+          context_window: null,
+          max_prompt_tokens: 4096,
+          max_total_tokens: 4096,
+          effective_total_tokens: null,
+        },
+        {
+          id: "qwen-local",
+          context_window: null,
+          max_prompt_tokens: 4096,
+          max_total_tokens: 4096,
+          effective_total_tokens: null,
+        },
+      ],
       capabilities: {
         completions: true,
         chat_completions: true,

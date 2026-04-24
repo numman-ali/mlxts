@@ -20,6 +20,7 @@ import {
   createPrefillProgressReporter,
   createProgressReporter,
   emitGenerationProgress,
+  enforcePromptTokenLimit,
   enforceTotalTokenLimit,
   finishReason,
   generationOptions,
@@ -113,6 +114,7 @@ function prepareGenerationRequest(
       ? options.tokenizer.encode(request.input.text, { addSpecialTokens: true })
       : promptTokenIds(request, prompt);
   const promptTokens = promptTokenCount(request, options, prompt);
+  enforcePromptTokenLimit(options, request, promptTokens);
   enforceTotalTokenLimit(options, request, promptTokens);
   return {
     request,

@@ -46,17 +46,22 @@ curl -s http://127.0.0.1:8000/v1/completions \
 Use `--api-key <key>` when binding outside localhost; it protects `/info` and
 all `/v1/*` routes while leaving `/health` open for process checks.
 `--max-generated-tokens <n>` rejects unsafe generation lengths before they reach
-the model, and `--max-batch-size <n>` plus `--batch-window-ms <n>` control the
-built-in admission micro-batching queue for concurrent requests against one
-model instance. `--max-concurrent-requests <n>` bounds the number of in-flight
-model jobs; the default is `1` so one loaded Gemma/Qwen runtime is owned by one
+the model. `--max-prompt-tokens <n>` separately caps tokenized prompt/prefill
+size, and `--max-total-tokens <n>` caps `prompt_tokens + max_tokens` against
+the lower of the server setting and checkpoint-declared context window.
+`--max-batch-size <n>` plus `--batch-window-ms <n>` control the built-in
+admission micro-batching queue for concurrent requests against one model
+instance. `--max-concurrent-requests <n>` bounds the number of in-flight model
+jobs; the default is `1` so one loaded Gemma/Qwen runtime is owned by one
 generation at a time.
 
 `GET /info` is a lightweight operator endpoint for confirming the served model
-ids, enabled wire routes, configured request limits, and whether the current
-engine exposes streaming or batch generation. It does not expose local paths,
-cache locations, access tokens, queue internals, or claims of continuous
-batching.
+ids, enabled wire routes, configured request limits, per-model admission
+metadata, and whether the current engine exposes streaming or batch generation.
+The context metadata is an admission view, not a memory guarantee: long Qwen
+contexts still need operator-set prompt/total limits that fit the machine. It
+does not expose local paths, cache locations, access tokens, queue internals, or
+claims of continuous batching.
 
 Generation start, admission micro-batch, static batch start, completion, and
 errors are logged by default so native generation failures leave a useful last
@@ -109,6 +114,8 @@ const server = await serveModel({
   modelId: "qwen-local",
   port: 8000,
   maxGeneratedTokens: 2048,
+  maxPromptTokens: 4096,
+  maxTotalTokens: 4096,
   maxBatchSize: 16,
   batchWindowMs: 2,
   maxConcurrentRequests: 1,

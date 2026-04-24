@@ -16,6 +16,7 @@ import {
 } from "@mlxts/transformers";
 import { createMicroBatchingGenerationEngine } from "./batching-engine";
 import { createConcurrencyLimitGenerationEngine } from "./concurrency-engine";
+import { modelAdmissionMetadata } from "./model-context";
 import { createModelRouterGenerationEngine } from "./model-router";
 import { createRequestLimitGenerationEngine } from "./request-limits";
 import { startServeServer } from "./server";
@@ -25,6 +26,7 @@ import type { ServeEvent } from "./types";
 export const DEFAULT_MODEL_SERVER_HOSTNAME = "127.0.0.1";
 export const DEFAULT_MODEL_SERVER_PORT = 8000;
 export const DEFAULT_MODEL_SERVER_MAX_GENERATED_TOKENS = 2048;
+export const DEFAULT_MODEL_SERVER_MAX_PROMPT_TOKENS = 4096;
 export const DEFAULT_MODEL_SERVER_MAX_TOTAL_TOKENS = 4096;
 export const DEFAULT_MODEL_SERVER_MAX_BATCH_SIZE = 32;
 export const DEFAULT_MODEL_SERVER_BATCH_WINDOW_MS = 1;
@@ -33,6 +35,7 @@ export type ModelServerRuntimeOptions = {
   hostname?: string;
   port?: number;
   maxGeneratedTokens?: number;
+  maxPromptTokens?: number;
   maxTotalTokens?: number;
   maxBatchSize?: number;
   batchWindowMs?: number;
@@ -87,21 +90,25 @@ export type ServeModelRuntime = {
   serveLoadedModel: typeof serveLoadedModel;
 };
 
-type ResolvedLoadedModelOptions = {
-  model: CausalLM;
-  tokenizer: Tokenizer;
-  interactionProfile?: InteractionProfile;
-  modelId: string;
+type ResolvedRuntimeOptions = {
   hostname: string;
   port: number;
   maxGeneratedTokens: number;
+  maxPromptTokens: number;
   maxTotalTokens: number;
   maxBatchSize: number;
   batchWindowMs: number;
   maxConcurrentRequests: number;
   apiKey?: string;
-  disposeModelOnStop: boolean;
   onEvent?: (event: ServeEvent) => void;
+};
+
+type ResolvedLoadedModelOptions = ResolvedRuntimeOptions & {
+  model: CausalLM;
+  tokenizer: Tokenizer;
+  interactionProfile?: InteractionProfile;
+  modelId: string;
+  disposeModelOnStop: boolean;
 };
 
 type ResolvedLoadedModelEntry = {
@@ -111,37 +118,19 @@ type ResolvedLoadedModelEntry = {
   modelId: string;
 };
 
-type ResolvedLoadedModelsOptions = {
+type ResolvedLoadedModelsOptions = ResolvedRuntimeOptions & {
   models: readonly ResolvedLoadedModelEntry[];
-  hostname: string;
-  port: number;
-  maxGeneratedTokens: number;
-  maxTotalTokens: number;
-  maxBatchSize: number;
-  batchWindowMs: number;
-  maxConcurrentRequests: number;
-  apiKey?: string;
   disposeModelsOnStop: boolean;
-  onEvent?: (event: ServeEvent) => void;
 };
 
-type ResolvedServeModelOptions = {
+type ResolvedServeModelOptions = ResolvedRuntimeOptions & {
   source: string;
   modelId: string;
-  hostname: string;
-  port: number;
-  maxGeneratedTokens: number;
-  maxTotalTokens: number;
-  maxBatchSize: number;
-  batchWindowMs: number;
-  maxConcurrentRequests: number;
   revision?: string;
   accessToken?: string;
   cacheDir?: string;
-  apiKey?: string;
   localFilesOnly: boolean;
   onProgress?: (event: PretrainedLoadProgressEvent) => void;
-  onEvent?: (event: ServeEvent) => void;
 };
 
 function requireNonEmpty(name: string, value: string): string {
@@ -165,19 +154,17 @@ function requireNonNegativeInteger(name: string, value: number): number {
   return value;
 }
 
-function resolveLoadedOptions(options: ServeLoadedModelOptions): ResolvedLoadedModelOptions {
+function resolveRuntimeOptions(options: ModelServerRuntimeOptions): ResolvedRuntimeOptions {
   return {
-    model: options.model,
-    tokenizer: options.tokenizer,
-    ...(options.interactionProfile === undefined
-      ? {}
-      : { interactionProfile: options.interactionProfile }),
-    modelId: requireNonEmpty("modelId", options.modelId),
     hostname: options.hostname ?? DEFAULT_MODEL_SERVER_HOSTNAME,
     port: requireNonNegativeInteger("port", options.port ?? DEFAULT_MODEL_SERVER_PORT),
     maxGeneratedTokens: requirePositiveInteger(
       "maxGeneratedTokens",
       options.maxGeneratedTokens ?? DEFAULT_MODEL_SERVER_MAX_GENERATED_TOKENS,
+    ),
+    maxPromptTokens: requirePositiveInteger(
+      "maxPromptTokens",
+      options.maxPromptTokens ?? DEFAULT_MODEL_SERVER_MAX_PROMPT_TOKENS,
     ),
     maxTotalTokens: requirePositiveInteger(
       "maxTotalTokens",
@@ -196,8 +183,20 @@ function resolveLoadedOptions(options: ServeLoadedModelOptions): ResolvedLoadedM
       options.maxConcurrentRequests ?? DEFAULT_MODEL_SERVER_MAX_CONCURRENT_REQUESTS,
     ),
     ...(options.apiKey === undefined ? {} : { apiKey: options.apiKey }),
-    disposeModelOnStop: options.disposeModelOnStop ?? false,
     ...(options.onEvent === undefined ? {} : { onEvent: options.onEvent }),
+  };
+}
+
+function resolveLoadedOptions(options: ServeLoadedModelOptions): ResolvedLoadedModelOptions {
+  return {
+    ...resolveRuntimeOptions(options),
+    model: options.model,
+    tokenizer: options.tokenizer,
+    ...(options.interactionProfile === undefined
+      ? {}
+      : { interactionProfile: options.interactionProfile }),
+    modelId: requireNonEmpty("modelId", options.modelId),
+    disposeModelOnStop: options.disposeModelOnStop ?? false,
   };
 }
 
@@ -237,68 +236,22 @@ function resolveLoadedModelsOptions(
   options: ServeLoadedModelsOptions,
 ): ResolvedLoadedModelsOptions {
   return {
+    ...resolveRuntimeOptions(options),
     models: requireLoadedModels(options.models),
-    hostname: options.hostname ?? DEFAULT_MODEL_SERVER_HOSTNAME,
-    port: requireNonNegativeInteger("port", options.port ?? DEFAULT_MODEL_SERVER_PORT),
-    maxGeneratedTokens: requirePositiveInteger(
-      "maxGeneratedTokens",
-      options.maxGeneratedTokens ?? DEFAULT_MODEL_SERVER_MAX_GENERATED_TOKENS,
-    ),
-    maxTotalTokens: requirePositiveInteger(
-      "maxTotalTokens",
-      options.maxTotalTokens ?? DEFAULT_MODEL_SERVER_MAX_TOTAL_TOKENS,
-    ),
-    maxBatchSize: requirePositiveInteger(
-      "maxBatchSize",
-      options.maxBatchSize ?? DEFAULT_MODEL_SERVER_MAX_BATCH_SIZE,
-    ),
-    batchWindowMs: requireNonNegativeInteger(
-      "batchWindowMs",
-      options.batchWindowMs ?? DEFAULT_MODEL_SERVER_BATCH_WINDOW_MS,
-    ),
-    maxConcurrentRequests: requirePositiveInteger(
-      "maxConcurrentRequests",
-      options.maxConcurrentRequests ?? DEFAULT_MODEL_SERVER_MAX_CONCURRENT_REQUESTS,
-    ),
-    ...(options.apiKey === undefined ? {} : { apiKey: options.apiKey }),
     disposeModelsOnStop: options.disposeModelsOnStop ?? false,
-    ...(options.onEvent === undefined ? {} : { onEvent: options.onEvent }),
   };
 }
 
 function resolveServeOptions(options: ServeModelOptions): ResolvedServeModelOptions {
   return {
+    ...resolveRuntimeOptions(options),
     source: requireNonEmpty("source", options.source),
     modelId: requireNonEmpty("modelId", options.modelId ?? options.source),
-    hostname: options.hostname ?? DEFAULT_MODEL_SERVER_HOSTNAME,
-    port: requireNonNegativeInteger("port", options.port ?? DEFAULT_MODEL_SERVER_PORT),
-    maxGeneratedTokens: requirePositiveInteger(
-      "maxGeneratedTokens",
-      options.maxGeneratedTokens ?? DEFAULT_MODEL_SERVER_MAX_GENERATED_TOKENS,
-    ),
-    maxTotalTokens: requirePositiveInteger(
-      "maxTotalTokens",
-      options.maxTotalTokens ?? DEFAULT_MODEL_SERVER_MAX_TOTAL_TOKENS,
-    ),
-    maxBatchSize: requirePositiveInteger(
-      "maxBatchSize",
-      options.maxBatchSize ?? DEFAULT_MODEL_SERVER_MAX_BATCH_SIZE,
-    ),
-    batchWindowMs: requireNonNegativeInteger(
-      "batchWindowMs",
-      options.batchWindowMs ?? DEFAULT_MODEL_SERVER_BATCH_WINDOW_MS,
-    ),
-    maxConcurrentRequests: requirePositiveInteger(
-      "maxConcurrentRequests",
-      options.maxConcurrentRequests ?? DEFAULT_MODEL_SERVER_MAX_CONCURRENT_REQUESTS,
-    ),
     ...(options.revision === undefined ? {} : { revision: options.revision }),
     ...(options.accessToken === undefined ? {} : { accessToken: options.accessToken }),
     ...(options.cacheDir === undefined ? {} : { cacheDir: options.cacheDir }),
-    ...(options.apiKey === undefined ? {} : { apiKey: options.apiKey }),
     localFilesOnly: options.localFilesOnly ?? false,
     ...(options.onProgress === undefined ? {} : { onProgress: options.onProgress }),
-    ...(options.onEvent === undefined ? {} : { onEvent: options.onEvent }),
   };
 }
 
@@ -325,6 +278,7 @@ function createLoadedModelEngine(
       engine: createTransformersGenerationEngine({
         model: model.model,
         tokenizer: model.tokenizer,
+        maxPromptTokens: options.maxPromptTokens,
         maxTotalTokens: options.maxTotalTokens,
         ...(model.interactionProfile === undefined
           ? {}
@@ -399,9 +353,16 @@ export function serveLoadedModels(options: ServeLoadedModelsOptions): RunningMod
     hostname: resolved.hostname,
     port: resolved.port,
     engine,
-    models: resolved.models.map((model) => ({ id: model.modelId })),
+    models: resolved.models.map((model) => ({
+      id: model.modelId,
+      admission: modelAdmissionMetadata(model.model, {
+        maxPromptTokens: resolved.maxPromptTokens,
+        maxTotalTokens: resolved.maxTotalTokens,
+      }),
+    })),
     limits: {
       maxGeneratedTokens: resolved.maxGeneratedTokens,
+      maxPromptTokens: resolved.maxPromptTokens,
       maxTotalTokens: resolved.maxTotalTokens,
       maxBatchSize: resolved.maxBatchSize,
       batchWindowMs: resolved.batchWindowMs,
@@ -432,6 +393,7 @@ export function serveLoadedModel(options: ServeLoadedModelOptions): RunningModel
     hostname: resolved.hostname,
     port: resolved.port,
     maxGeneratedTokens: resolved.maxGeneratedTokens,
+    maxPromptTokens: resolved.maxPromptTokens,
     maxTotalTokens: resolved.maxTotalTokens,
     maxBatchSize: resolved.maxBatchSize,
     batchWindowMs: resolved.batchWindowMs,
@@ -472,6 +434,7 @@ export async function serveModelWithRuntime(
       hostname: resolved.hostname,
       port: resolved.port,
       maxGeneratedTokens: resolved.maxGeneratedTokens,
+      maxPromptTokens: resolved.maxPromptTokens,
       maxTotalTokens: resolved.maxTotalTokens,
       maxBatchSize: resolved.maxBatchSize,
       batchWindowMs: resolved.batchWindowMs,
