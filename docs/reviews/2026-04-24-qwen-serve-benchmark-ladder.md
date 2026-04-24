@@ -24,6 +24,22 @@ bun run bench:serve --model mlx-community/Qwen3.6-27B-4bit --model-id qwen-local
   --max-prompt-tokens 1024 --max-total-tokens 3072 \
   --gpu-memory-utilization 0.85 --request-timeout-ms 3600000
 
+bun run bench:serve --model mlx-community/Qwen3.6-27B-4bit \
+  --model-id qwen-local --rungs 1024x10000@1 \
+  --trials 1 --no-warmup --greedy --ignore-eos --stream \
+  --report-json .tmp/qwen36-serve-output-10k-stream.json \
+  --max-concurrent-requests 1 --max-batch-size 8 --batch-window-ms 2 \
+  --max-prompt-tokens 1024 --max-total-tokens 11024 \
+  --gpu-memory-utilization 0.85 --request-timeout-ms 3600000
+
+bun run bench:serve --model mlx-community/Qwen3.6-27B-4bit \
+  --model-id qwen-local --rungs 1024x20000@1 \
+  --trials 1 --no-warmup --greedy --ignore-eos --stream \
+  --report-json .tmp/qwen36-serve-output-20k-stream.json \
+  --max-concurrent-requests 1 --max-batch-size 8 --batch-window-ms 2 \
+  --max-prompt-tokens 1024 --max-total-tokens 21024 \
+  --gpu-memory-utilization 0.85 --request-timeout-ms 3600000
+
 bun run bench:serve --model mlx-community/Qwen3.6-27B-4bit --model-id qwen-local \
   --rungs 32768x128@1,65536x128@1 \
   --trials 1 --greedy --ignore-eos --stream \
@@ -98,6 +114,8 @@ bun run bench:serve --model google/gemma-4-E2B-it \
 | 10000x128@1 | 47.5s | 43.3s | 30.845 tok/s | 21.969 GB | 0.000 GB | length |
 | 1024x1024@1 | 40.1s | 4.5s | 28.709 tok/s | 19.934 GB | 0.000 GB | length |
 | 1024x2048@1 | 76.3s | 4.9s | 28.661 tok/s | 19.934 GB | 0.000 GB | length |
+| 1024x10000@1 | 372.4s | 4.7s | 27.194 tok/s | 19.934 GB | 0.013 GB | length |
+| 1024x20000@1 | 752.0s | 4.8s | 26.765 tok/s | 19.934 GB | 0.013 GB | length |
 | 32768x128@1 | 158.2s | 153.7s | 27.664 tok/s | 25.993 GB | 0.000 GB | length |
 | 65536x128@1 | 351.4s | 346.1s | 24.105 tok/s | 31.406 GB | 0.000 GB | length |
 | 131072x128@1 | 865.0s | 858.5s | 19.624 tok/s | 42.543 GB | 0.000 GB | length |
@@ -105,6 +123,11 @@ bun run bench:serve --model google/gemma-4-E2B-it \
 The serving path is stable through 128k context on this 64 GB machine. The
 honest gap is long-prefill usability: 128k completes, but the TTFT is around
 14.3 minutes, and post-TTFT decode falls below the shorter-context range.
+The output-length path is stable through 20k generated tokens over the endpoint:
+`1024x10000@1` streamed `1250` chunks and `1024x20000@1` streamed `2500`
+chunks, both with exact `length` finishes and only `0.013 GB` active-memory
+delta. Cache memory grew from `0.893 GB` at 10k output to `1.547 GB` at 20k
+output, which is expected growth rather than an active-memory leak.
 
 ## Long-Context Retrieval
 

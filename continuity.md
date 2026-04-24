@@ -166,6 +166,12 @@ work as a usable text endpoint while benchmark and scheduler work continues.
   E2B with `--request-stagger-ms 100` served concurrency safely but correctly
   reported no generation batching because their cache semantics are not yet
   scheduler-owned.
+- Qwen long-output serving is now proven through `1024x10000@1` and
+  `1024x20000@1` over `/v1/completions` streaming. The 10k run completed at
+  `26.850 tok/s`, `19.934 GB` peak, `0.893 GB` cache, and `0.013 GB` active
+  delta. The 20k run completed at `26.597 tok/s`, `19.934 GB` peak, `1.547 GB`
+  cache, and the same `0.013 GB` active delta. Both finished by exact length and
+  streamed thousands of chunks without timeout or crash.
 - A Gemma stagger run exposed a harness stall before generation: completions
   rungs were synthesizing/tokenizing text prompts even though completions sends
   exact token-array prompts. `benchmark-serve-prompts.ts` now skips text
