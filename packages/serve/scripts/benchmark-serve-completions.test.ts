@@ -42,6 +42,8 @@ describe("serve benchmark completion requests", () => {
 
       expect(metrics).toMatchObject({
         ttftMs: null,
+        promptToFirstTokenTps: null,
+        postTtftCompletionTps: null,
         promptTokens: 2,
         completionTokens: 3,
         totalTokens: 5,
@@ -114,6 +116,8 @@ describe("serve benchmark completion requests", () => {
         streamChunks: 2,
       });
       expect(metrics.ttftMs).not.toBeNull();
+      expect(metrics.promptToFirstTokenTps).not.toBeNull();
+      expect(metrics.postTtftCompletionTps).not.toBeNull();
       expect(metrics.streamBytes).toBeGreaterThan(0);
     } finally {
       server.stop(true);

@@ -21,7 +21,10 @@ type TrialMetrics = {
   wallMs: number;
   requestTps: number;
   completionTps: number;
+  totalTps: number;
   meanTtftMs: number | null;
+  meanPromptToFirstTokenTps: number | null;
+  meanPostTtftCompletionTps: number | null;
   promptTokens: number;
   completionTokens: number;
   totalTokens: number;
@@ -140,7 +143,10 @@ async function runTrial(
     wallMs,
     requestTps: rung.concurrency / wallSeconds,
     completionTps: completionTokens / wallSeconds,
+    totalTps: totalTokens / wallSeconds,
     meanTtftMs: meanPresent(results.map((result) => result.ttftMs)),
+    meanPromptToFirstTokenTps: meanPresent(results.map((result) => result.promptToFirstTokenTps)),
+    meanPostTtftCompletionTps: meanPresent(results.map((result) => result.postTtftCompletionTps)),
     promptTokens,
     completionTokens,
     totalTokens,
@@ -162,7 +168,10 @@ function averageTrialMetrics(trials: readonly TrialMetrics[]): TrialMetrics {
     wallMs: mean(trials.map((trial) => trial.wallMs)),
     requestTps: mean(trials.map((trial) => trial.requestTps)),
     completionTps: mean(trials.map((trial) => trial.completionTps)),
+    totalTps: mean(trials.map((trial) => trial.totalTps)),
     meanTtftMs: meanPresent(trials.map((trial) => trial.meanTtftMs)),
+    meanPromptToFirstTokenTps: meanPresent(trials.map((trial) => trial.meanPromptToFirstTokenTps)),
+    meanPostTtftCompletionTps: meanPresent(trials.map((trial) => trial.meanPostTtftCompletionTps)),
     promptTokens: mean(trials.map((trial) => trial.promptTokens)),
     completionTokens: mean(trials.map((trial) => trial.completionTokens)),
     totalTokens: mean(trials.map((trial) => trial.totalTokens)),
@@ -183,13 +192,20 @@ function formatNullableMs(value: number | null): string {
   return value === null ? "n/a" : value.toFixed(1);
 }
 
+function formatNullableTps(value: number | null): string {
+  return value === null ? "n/a" : value.toFixed(3);
+}
+
 function printMetrics(prefix: string, metrics: TrialMetrics): void {
   console.log(
     [
       `${prefix}wall_ms=${metrics.wallMs.toFixed(1)}`,
       `request_tps=${metrics.requestTps.toFixed(3)}`,
       `completion_tps=${metrics.completionTps.toFixed(3)}`,
+      `total_tps=${metrics.totalTps.toFixed(3)}`,
       `mean_ttft_ms=${formatNullableMs(metrics.meanTtftMs)}`,
+      `mean_prompt_to_first_token_tps=${formatNullableTps(metrics.meanPromptToFirstTokenTps)}`,
+      `mean_post_ttft_completion_tps=${formatNullableTps(metrics.meanPostTtftCompletionTps)}`,
       `mean_request_ms=${metrics.meanRequestMs.toFixed(1)}`,
       `prompt_tokens=${metrics.promptTokens.toFixed(0)}`,
       `completion_tokens=${metrics.completionTokens.toFixed(0)}`,

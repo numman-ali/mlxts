@@ -211,14 +211,16 @@ download time in endpoint numbers; pass `--allow-download` only when that is
 intentional. Omitted sampling fields preserve model-native
 `generation_config.json`; `--greedy` is explicit for deterministic throughput
 runs. It sends exact token-array prompts through `/v1/completions` and reports
-wall time, request throughput, completion-token throughput, mean latency, memory,
-finish reasons, admission micro-batch events, and real static batch events.
+wall time, request throughput, end-to-end completion-token throughput,
+total-token throughput, mean latency, memory, finish reasons, admission
+micro-batch events, and real static batch events.
 Use `--ignore-eos` for exact-length throughput ladders when comparing against
 in-process benchmarks that intentionally decode the full requested token count;
 normal serving behavior still honors EOS unless this extension is explicit.
 Pass `--stream` to drive the same rungs through SSE completions with
 `stream_options.include_usage=true`; streaming runs add mean time-to-first-token,
-SSE chunk count, and streamed byte count.
+prompt-to-first-token throughput, post-TTFT completion throughput, SSE chunk
+count, and streamed byte count.
 
 Use comma lists with the default cartesian matrix for broad serving sweeps, or
 `--matrix zip` for paired prompt/output rungs. The static batch event count is

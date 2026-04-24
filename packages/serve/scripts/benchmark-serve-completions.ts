@@ -24,6 +24,8 @@ type CompletionResponseBody = {
 export type RequestMetrics = {
   durationMs: number;
   ttftMs: number | null;
+  promptToFirstTokenTps: number | null;
+  postTtftCompletionTps: number | null;
   promptTokens: number;
   completionTokens: number;
   totalTokens: number;
@@ -99,6 +101,8 @@ async function runBufferedCompletionRequest(
   return {
     durationMs,
     ttftMs: null,
+    promptToFirstTokenTps: null,
+    postTtftCompletionTps: null,
     promptTokens: usage.prompt_tokens,
     completionTokens: usage.completion_tokens,
     totalTokens: usage.total_tokens,
@@ -237,9 +241,19 @@ async function runStreamingCompletionRequest(
   });
 
   const durationMs = performance.now() - started;
+  const ttftMs = metrics.ttftMs;
+  const promptToFirstTokenTps =
+    ttftMs === null || ttftMs <= 0 ? null : metrics.usage.prompt_tokens / (ttftMs / 1000);
+  const postTtftCompletionTps =
+    ttftMs === null || durationMs <= ttftMs || metrics.usage.completion_tokens <= 1
+      ? null
+      : (metrics.usage.completion_tokens - 1) / ((durationMs - ttftMs) / 1000);
+
   return {
     durationMs,
-    ttftMs: metrics.ttftMs,
+    ttftMs,
+    promptToFirstTokenTps,
+    postTtftCompletionTps,
     promptTokens: metrics.usage.prompt_tokens,
     completionTokens: metrics.usage.completion_tokens,
     totalTokens: metrics.usage.total_tokens,
