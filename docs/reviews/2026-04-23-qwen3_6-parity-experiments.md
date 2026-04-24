@@ -194,12 +194,23 @@ silently reusing stale weights.
   `bun run bench:generation:parity --model mlx-community/Qwen3.6-27B-4bit --prompt-tokens 128 --generation-tokens 10000 --trials 1 --memory-sample-interval 512 --skip-mlx-lm-reference`
   - `generation_tps=27.867`, `peak_memory=18.870 GB`
   - `active_delta=0.655 GB`, `active_slope_mb_per_token=0.07`
+  `bun run bench:generation:parity --model mlx-community/Qwen3.6-27B-4bit --prompt-tokens 128 --generation-tokens 20000 --trials 1 --memory-sample-interval 1024 --skip-mlx-lm-reference`
+  - `generation_tps=27.076`, `peak_memory=19.569 GB`
+  - `active_delta=1.309 GB`, `active_slope_mb_per_token=0.07`
 - Long-context retrieval:
   `bun run bench:generation:context --model mlx-community/Qwen3.6-27B-4bit --rungs 32768 --generation-tokens 64 --prefill-step-size 2048`
   - `prompt_tokens=32771`, `prefill_tps=214.231`, `peak_after_decode=25.995 GB`
   - `active_decode_slope_mb_per_token=0.00`
   - first generated answer line was the benchmark marker; exact-match
     normalization was updated to grade this fixed-length decode pattern.
+  `bun run bench:generation:context --model mlx-community/Qwen3.6-27B-4bit --rungs 65536 --generation-tokens 64 --prefill-step-size 2048`
+  - `prompt_tokens=65546`, `prefill_tps=187.497`, `decode_tps=19.522`
+  - `peak_after_decode=31.410 GB`, `active_decode_slope_mb_per_token=0.00`
+  - `exact_match=true`, `contains_secret=true`
+  `bun run bench:generation:context --model mlx-community/Qwen3.6-27B-4bit --rungs 131072 --generation-tokens 64 --prefill-step-size 2048`
+  - `prompt_tokens=131078`, `prefill_tps=150.523`, `decode_tps=16.019`
+  - `peak_after_decode=42.550 GB`, `active_decode_slope_mb_per_token=0.00`
+  - `exact_match=true`, `contains_secret=true`
 
 ## Independent Review
 
@@ -225,10 +236,12 @@ because cache buffers and JS/FFI-owned wrapper state remain different. Further
 work should profile full-attention KV representation, cache-buffer accounting,
 and lower FFI wrapper overhead before chasing micro-ops.
 
-The 32k long-context run passed memory shape and marker retrieval, but 64k,
-128k, and 262k rungs remain to be staged when machine time permits. The
-benchmark script now reads nested `text_config.max_position_embeddings`, so it
-knows Qwen advertises `262144` context tokens.
+The 32k, 64k, and 128k long-context runs passed marker retrieval with zero
+active decode slope. The 128k rung peaked at `42.550 GB`, so 262k remains an
+advertised-model-capability target but should be gated behind serving admission
+and memory preflight before local live testing. The benchmark script now reads
+nested `text_config.max_position_embeddings`, so it knows Qwen advertises
+`262144` context tokens.
 
 ## Experiment Log
 
@@ -514,3 +527,44 @@ knows Qwen advertises `262144` context tokens.
 - Conclusion:
   the 32k rung is usable as a capability check. Higher rungs remain future
   staged work, not a new harness requirement.
+
+### Experiment 11: Extend the staged capability ladder to real long-context and long-output rungs
+
+- Status: `kept`
+- Hypothesis:
+  The short paired parity rungs are not enough to claim Qwen 3.6 serving
+  quality. The same implementation must also survive long-context retrieval and
+  long-output decode without active memory slope or marker-retrieval failures.
+- Success criteria:
+  - 64k and 128k retrieval rungs find the marker
+  - decode active memory slope remains effectively zero after long-context
+    prefill
+  - a 20k generated-token decode stays near the earlier 10k active slope
+  - 262k is not brute-forced if 128k peak memory shows the need for admission
+    controls first
+- Rollback rule:
+  if long-context or long-output runs show renewed active-memory growth, return
+  to the relevant cache/recurrent-state stage before adding serving API breadth.
+
+#### Outcome
+
+- Result:
+  kept
+- Measurement:
+  `bench:generation:context --rungs 65536 --generation-tokens 64` completed
+  with `peak_after_decode=31.410 GB`, `decode_tps=19.522`,
+  `active_decode_slope_mb_per_token=0.00`, and `exact_match=true`.
+
+  `bench:generation:context --rungs 131072 --generation-tokens 64` completed
+  with `peak_after_decode=42.550 GB`, `decode_tps=16.019`,
+  `active_decode_slope_mb_per_token=0.00`, and `exact_match=true`.
+
+  `bench:generation:parity --prompt-tokens 128 --generation-tokens 20000
+  --skip-mlx-lm-reference` completed with `generation_tps=27.076`,
+  `peak_memory=19.569 GB`, `active_delta=1.309 GB`,
+  `active_slope_mb_per_token=0.07`, and `evals_per_token=1.00`.
+- Conclusion:
+  the old long-decode crash class is contained for 20k generated tokens, and
+  Qwen 3.6 retrieves correctly through 128k local context. The next serving
+  tranche should focus on request admission, progress telemetry, cancellation,
+  and Qwen-aware scheduler/cache work before attempting 262k live local tests.

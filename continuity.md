@@ -29,17 +29,21 @@ against `mlx-lm`, long-output stability, and long-context capability visible.
 - `10000/128` paired: `mlx-lm generation_tps=27.154`, `mlxts generation_tps=26.959`.
 - `1024/1024` paired: `mlx-lm generation_tps=28.448`, `mlxts generation_tps=28.352`.
 - `128/10000` local: `generation_tps=27.867`, `active_slope_mb_per_token=0.07`, no crash.
+- `128/20000` local: `generation_tps=27.076`, `peak_memory=19.569 GB`, `active_slope_mb_per_token=0.07`, no crash.
 - `32768` long-context local: `peak_after_decode=25.995 GB`, `active_decode_slope_mb_per_token=0.00`, marker was the first generated line after disabling thinking.
+- `65536` long-context local: `peak_after_decode=31.410 GB`, `decode_tps=19.522`, `active_decode_slope_mb_per_token=0.00`, exact marker match.
+- `131072` long-context local: `peak_after_decode=42.550 GB`, `decode_tps=16.019`, `active_decode_slope_mb_per_token=0.00`, exact marker match.
 
 ## Next Work
 
-- Run higher context rungs when machine time permits: `65536`, `131072`, then
-  `262144` if memory/thermals allow.
-- Consider a `20k` generated-token local stress only after the repo is committed;
-  `10k` already indicates the old crash class is gone.
+- Do not brute-force `262144` on this laptop until serving has admission and
+  memory preflight. `131072` already peaks at `42.550 GB`.
 - Remaining Qwen gap is mostly peak memory versus `mlx-lm` and small paired-run
   variance. Next investigation should profile full-attention KV representation,
   cache-buffer accounting, and wrapper/FFI overhead rather than scattering
   micro-optimizations.
-- After Qwen serving quality is committed, resume Responses API completion work,
-  Anthropic API, and then Qwen/Gemma MoE plus multimodal capability.
+- Next serving-quality tranche should prioritize prefill/progress telemetry,
+  cancellation, long-context admission, Qwen-aware scheduler/cache support,
+  micro-batch honesty, and memory-pool safeguards. After that, resume Responses
+  API completion work, Anthropic API, and then Qwen/Gemma MoE plus multimodal
+  capability.
