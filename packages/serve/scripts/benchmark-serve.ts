@@ -9,42 +9,19 @@ import {
 } from "../../transformers/src";
 import { serveLoadedModel } from "../src/model-server";
 import type { ServeEvent } from "../src/types";
+import { runCompletionRequest } from "./benchmark-serve-completions";
 import {
   buildServeBenchmarkRungs,
   parseServeBenchmarkArgs,
-  type SamplingMode,
   type ServeBenchmarkOptions,
   type ServeBenchmarkRung,
 } from "./benchmark-serve-options";
-
-type CompletionUsage = {
-  prompt_tokens?: number;
-  completion_tokens?: number;
-  total_tokens?: number;
-};
-
-type CompletionChoice = {
-  text?: string;
-  finish_reason?: string | null;
-};
-
-type CompletionResponseBody = {
-  choices?: CompletionChoice[];
-  usage?: CompletionUsage | null;
-};
-
-type RequestMetrics = {
-  durationMs: number;
-  promptTokens: number;
-  completionTokens: number;
-  totalTokens: number;
-  finishReason: string;
-};
 
 type TrialMetrics = {
   wallMs: number;
   requestTps: number;
   completionTps: number;
+  meanTtftMs: number | null;
   promptTokens: number;
   completionTokens: number;
   totalTokens: number;
@@ -55,11 +32,22 @@ type TrialMetrics = {
   activeDeltaGb: number;
   admissionBatches: number;
   staticBatches: number;
+  streamChunks: number;
+  streamBytes: number;
   finishReasons: string[];
 };
 
 function mean(values: readonly number[]): number {
   return values.reduce((total, value) => total + value, 0) / Math.max(values.length, 1);
+}
+
+function isPresentNumber(value: number | null): value is number {
+  return value !== null;
+}
+
+function meanPresent(values: ReadonlyArray<number | null>): number | null {
+  const present = values.filter(isPresentNumber);
+  return present.length === 0 ? null : mean(present);
 }
 
 function directoryExists(path: string): boolean {
@@ -117,66 +105,6 @@ function createPromptTokenIds(length: number, vocabSize: number): number[] {
   return tokenIds;
 }
 
-function completionRequestBody(
-  modelId: string,
-  promptTokenIds: readonly number[],
-  generationTokens: number,
-  samplingMode: SamplingMode,
-) {
-  return {
-    model: modelId,
-    prompt: [...promptTokenIds],
-    max_tokens: generationTokens,
-    ...(samplingMode === "greedy" ? { temperature: 0 } : {}),
-  };
-}
-
-function completionFinishReason(body: CompletionResponseBody): string {
-  const choice = body.choices?.[0];
-  return choice?.finish_reason ?? "unknown";
-}
-
-function completionUsage(body: CompletionResponseBody): Required<CompletionUsage> {
-  const usage = body.usage ?? {};
-  return {
-    prompt_tokens: usage.prompt_tokens ?? 0,
-    completion_tokens: usage.completion_tokens ?? 0,
-    total_tokens: usage.total_tokens ?? 0,
-  };
-}
-
-async function runCompletionRequest(
-  endpoint: string,
-  modelId: string,
-  promptTokenIds: readonly number[],
-  rung: ServeBenchmarkRung,
-  samplingMode: SamplingMode,
-): Promise<RequestMetrics> {
-  const started = performance.now();
-  const response = await fetch(`${endpoint}/v1/completions`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify(
-      completionRequestBody(modelId, promptTokenIds, rung.generationTokens, samplingMode),
-    ),
-  });
-  const durationMs = performance.now() - started;
-  const body = (await response.json()) as CompletionResponseBody;
-  if (!response.ok) {
-    throw new Error(
-      `benchmark-serve: request failed (${response.status}): ${JSON.stringify(body)}`,
-    );
-  }
-  const usage = completionUsage(body);
-  return {
-    durationMs,
-    promptTokens: usage.prompt_tokens,
-    completionTokens: usage.completion_tokens,
-    totalTokens: usage.total_tokens,
-    finishReason: completionFinishReason(body),
-  };
-}
-
 function countEvents(events: readonly ServeEvent[], type: ServeEvent["type"]): number {
   return events.filter((event) => event.type === type).length;
 }
@@ -195,7 +123,7 @@ async function runTrial(
   const eventStart = serveEvents.length;
   const started = performance.now();
   const requests = Array.from({ length: rung.concurrency }, () =>
-    runCompletionRequest(endpoint, modelId, promptTokenIds, rung, options.samplingMode),
+    runCompletionRequest(endpoint, modelId, promptTokenIds, rung, options),
   );
   const results = await Promise.all(requests);
   const wallMs = performance.now() - started;
@@ -204,12 +132,15 @@ async function runTrial(
   const completionTokens = results.reduce((total, result) => total + result.completionTokens, 0);
   const promptTokens = results.reduce((total, result) => total + result.promptTokens, 0);
   const totalTokens = results.reduce((total, result) => total + result.totalTokens, 0);
+  const streamChunks = results.reduce((total, result) => total + result.streamChunks, 0);
+  const streamBytes = results.reduce((total, result) => total + result.streamBytes, 0);
   const wallSeconds = Math.max(wallMs / 1000, 1e-9);
 
   return {
     wallMs,
     requestTps: rung.concurrency / wallSeconds,
     completionTps: completionTokens / wallSeconds,
+    meanTtftMs: meanPresent(results.map((result) => result.ttftMs)),
     promptTokens,
     completionTokens,
     totalTokens,
@@ -220,6 +151,8 @@ async function runTrial(
     activeDeltaGb: (memoryAfter.activeBytes - memoryBefore.activeBytes) / 1e9,
     admissionBatches: countEvents(events, "generation_admission_batch"),
     staticBatches: countEvents(events, "generation_batch_start"),
+    streamChunks,
+    streamBytes,
     finishReasons: results.map((result) => result.finishReason),
   };
 }
@@ -229,6 +162,7 @@ function averageTrialMetrics(trials: readonly TrialMetrics[]): TrialMetrics {
     wallMs: mean(trials.map((trial) => trial.wallMs)),
     requestTps: mean(trials.map((trial) => trial.requestTps)),
     completionTps: mean(trials.map((trial) => trial.completionTps)),
+    meanTtftMs: meanPresent(trials.map((trial) => trial.meanTtftMs)),
     promptTokens: mean(trials.map((trial) => trial.promptTokens)),
     completionTokens: mean(trials.map((trial) => trial.completionTokens)),
     totalTokens: mean(trials.map((trial) => trial.totalTokens)),
@@ -239,8 +173,14 @@ function averageTrialMetrics(trials: readonly TrialMetrics[]): TrialMetrics {
     activeDeltaGb: mean(trials.map((trial) => trial.activeDeltaGb)),
     admissionBatches: mean(trials.map((trial) => trial.admissionBatches)),
     staticBatches: mean(trials.map((trial) => trial.staticBatches)),
+    streamChunks: mean(trials.map((trial) => trial.streamChunks)),
+    streamBytes: mean(trials.map((trial) => trial.streamBytes)),
     finishReasons: trials.flatMap((trial) => trial.finishReasons),
   };
+}
+
+function formatNullableMs(value: number | null): string {
+  return value === null ? "n/a" : value.toFixed(1);
 }
 
 function printMetrics(prefix: string, metrics: TrialMetrics): void {
@@ -249,6 +189,7 @@ function printMetrics(prefix: string, metrics: TrialMetrics): void {
       `${prefix}wall_ms=${metrics.wallMs.toFixed(1)}`,
       `request_tps=${metrics.requestTps.toFixed(3)}`,
       `completion_tps=${metrics.completionTps.toFixed(3)}`,
+      `mean_ttft_ms=${formatNullableMs(metrics.meanTtftMs)}`,
       `mean_request_ms=${metrics.meanRequestMs.toFixed(1)}`,
       `prompt_tokens=${metrics.promptTokens.toFixed(0)}`,
       `completion_tokens=${metrics.completionTokens.toFixed(0)}`,
@@ -259,6 +200,8 @@ function printMetrics(prefix: string, metrics: TrialMetrics): void {
       `active_delta=${metrics.activeDeltaGb.toFixed(3)}`,
       `admission_batches=${metrics.admissionBatches.toFixed(0)}`,
       `static_batches=${metrics.staticBatches.toFixed(0)}`,
+      `stream_chunks=${metrics.streamChunks.toFixed(0)}`,
+      `stream_bytes=${metrics.streamBytes.toFixed(0)}`,
       `finish_reasons=${[...new Set(metrics.finishReasons)].join("|") || "none"}`,
     ].join(" "),
   );
@@ -279,11 +222,12 @@ async function benchmarkRung(
       `generation_tokens=${rung.generationTokens}`,
       `concurrency=${rung.concurrency}`,
       `sampling=${options.samplingMode}`,
+      `transport=${options.transportMode}`,
     ].join(" "),
   );
 
   if (options.warmup) {
-    await runCompletionRequest(endpoint, modelId, promptTokenIds, rung, options.samplingMode);
+    await runCompletionRequest(endpoint, modelId, promptTokenIds, rung, options);
     clearMemoryCache();
   }
 
@@ -311,7 +255,7 @@ async function main(): Promise<void> {
     : options.model;
   console.log(`Benchmarking serve completions for ${snapshotPath}`);
   console.log(
-    `prompt_tokens=${options.promptTokens.join(",")} generation_tokens=${options.generationTokens.join(",")} concurrency=${options.concurrency.join(",")} matrix=${options.matrix}`,
+    `prompt_tokens=${options.promptTokens.join(",")} generation_tokens=${options.generationTokens.join(",")} concurrency=${options.concurrency.join(",")} matrix=${options.matrix} transport=${options.transportMode}`,
   );
 
   const [model, tokenizer, interactionProfile] = await Promise.all([

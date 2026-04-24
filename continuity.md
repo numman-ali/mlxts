@@ -38,6 +38,11 @@ against `mlx-lm`, long-output stability, and long-context capability visible.
   `1,2`, greedy, no warmup. The concurrency-2 rung reported
   `admission_batches=1` and `static_batches=1`, proving the new endpoint
   benchmark can separate admission coalescing from real static batch execution.
+- Tiny live SSE serve endpoint probe on the same cached Llama model passed with
+  `--stream`: prompt `16`, generation `4`, concurrency `1`, greedy, no warmup.
+  It reported `mean_ttft_ms=51.1`, `stream_chunks=1`, `stream_bytes=676`, and
+  full usage (`prompt_tokens=16`, `completion_tokens=4`), proving the benchmark
+  can measure real `/v1/completions` streaming rather than only buffered HTTP.
 
 ## Next Work
 
@@ -61,4 +66,7 @@ against `mlx-lm`, long-output stability, and long-context capability visible.
   cached/local-only checkpoints, sends exact token-array prompts through
   `/v1/completions`, preserves model-native sampling unless `--greedy` is set,
   and reports request/completion throughput, memory, finish reasons, admission
-  batch events, and real static batch events.
+  batch events, and real static batch events. Add `--stream` for SSE runs; the
+  harness requests usage chunks and reports mean TTFT, stream chunk count, and
+  streamed bytes. Very small generation lengths may flush as a single text chunk,
+  so streaming/backpressure ladders need larger output rungs.

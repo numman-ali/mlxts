@@ -1,5 +1,6 @@
 export type MatrixMode = "cartesian" | "zip";
 export type SamplingMode = "model-defaults" | "greedy";
+export type TransportMode = "non-streaming" | "streaming";
 
 export type ServeBenchmarkOptions = {
   model: string;
@@ -11,6 +12,7 @@ export type ServeBenchmarkOptions = {
   warmup: boolean;
   matrix: MatrixMode;
   samplingMode: SamplingMode;
+  transportMode: TransportMode;
   localFilesOnly: boolean;
   port: number;
   maxBatchSize: number;
@@ -44,6 +46,7 @@ function usage(): never {
       "  --concurrency <list>            Comma-separated parallel request counts, default 1",
       "  --matrix <cartesian|zip>        Pair prompt/output rungs, default cartesian",
       "  --trials <n>                    Trials per rung, default 1",
+      "  --stream                        Measure SSE streaming and time-to-first-token",
       "  --greedy                        Send temperature=0 for deterministic throughput",
       "  --no-warmup                     Skip the one-request warmup for each prompt/output pair",
       "  --max-concurrent-requests <n>   Server-side in-flight generation limit, default 1",
@@ -124,6 +127,7 @@ export function parseServeBenchmarkArgs(argv: readonly string[]): ServeBenchmark
   let warmup = true;
   let matrix: MatrixMode = "cartesian";
   let samplingMode: SamplingMode = "model-defaults";
+  let transportMode: TransportMode = "non-streaming";
   let localFilesOnly = true;
   let port = 0;
   let maxBatchSize = 32;
@@ -199,6 +203,9 @@ export function parseServeBenchmarkArgs(argv: readonly string[]): ServeBenchmark
       case "--greedy":
         samplingMode = "greedy";
         break;
+      case "--stream":
+        transportMode = "streaming";
+        break;
       case "--no-warmup":
         warmup = false;
         break;
@@ -232,6 +239,7 @@ export function parseServeBenchmarkArgs(argv: readonly string[]): ServeBenchmark
     warmup,
     matrix,
     samplingMode,
+    transportMode,
     localFilesOnly,
     port,
     maxBatchSize,

@@ -210,6 +210,9 @@ intentional. Omitted sampling fields preserve model-native
 runs. It sends exact token-array prompts through `/v1/completions` and reports
 wall time, request throughput, completion-token throughput, mean latency, memory,
 finish reasons, admission micro-batch events, and real static batch events.
+Pass `--stream` to drive the same rungs through SSE completions with
+`stream_options.include_usage=true`; streaming runs add mean time-to-first-token,
+SSE chunk count, and streamed byte count.
 
 Use comma lists with the default cartesian matrix for broad serving sweeps, or
 `--matrix zip` for paired prompt/output rungs. The static batch event count is

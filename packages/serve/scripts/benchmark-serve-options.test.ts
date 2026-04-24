@@ -20,6 +20,7 @@ describe("serve benchmark options", () => {
       warmup: true,
       matrix: "cartesian",
       samplingMode: "model-defaults",
+      transportMode: "non-streaming",
       localFilesOnly: true,
       port: 0,
       maxBatchSize: 32,
@@ -60,6 +61,7 @@ describe("serve benchmark options", () => {
       "--max-total-tokens",
       "4096",
       "--greedy",
+      "--stream",
       "--no-warmup",
       "--allow-download",
     ]);
@@ -74,6 +76,7 @@ describe("serve benchmark options", () => {
       warmup: false,
       matrix: "zip",
       samplingMode: "greedy",
+      transportMode: "streaming",
       localFilesOnly: false,
       port: 8081,
       maxBatchSize: 8,
