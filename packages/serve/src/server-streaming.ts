@@ -1,8 +1,3 @@
-/**
- * SSE streaming helpers for the Bun serving shell.
- * @module
- */
-
 import {
   createOpenAIChatCompletionReasoningStream,
   createOpenAIChatCompletionToolCallStream,
@@ -42,6 +37,8 @@ function enqueueSseJson(
 ): void {
   controller.enqueue(encodeSse(`data: ${JSON.stringify(payload)}\n\n`));
 }
+
+const yieldToHttpWriter = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
 
 type CompletionStreamState = {
   stopFilter: ReturnType<typeof createStopSequenceFilter>;
@@ -448,7 +445,16 @@ export async function writeStreamEvents(
     if (next.type === "cancelled") {
       break;
     }
-    if (handleCompletionStreamEvent(controller, state, batch, request, options, next.event)) {
+    const shouldStop = handleCompletionStreamEvent(
+      controller,
+      state,
+      batch,
+      request,
+      options,
+      next.event,
+    );
+    await yieldToHttpWriter();
+    if (shouldStop) {
       break;
     }
   }
@@ -482,7 +488,9 @@ export async function writeChatStreamEvents(
     if (next.type === "cancelled") {
       break;
     }
-    if (handleChatStreamEvent(controller, state, chat, options, next.event)) {
+    const shouldStop = handleChatStreamEvent(controller, state, chat, options, next.event);
+    await yieldToHttpWriter();
+    if (shouldStop) {
       break;
     }
   }

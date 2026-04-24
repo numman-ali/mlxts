@@ -68,7 +68,7 @@ function responseStreamBody(
   let cancelled = false;
   return new ReadableStream<Uint8Array>({
     start(controller) {
-      return writeOpenAIResponseStreamEvents(controller, iterator, response, {
+      void writeOpenAIResponseStreamEvents(controller, iterator, response, {
         id: control.id,
         created: control.created,
         signal: control.signal,

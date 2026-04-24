@@ -51,6 +51,24 @@ work as a usable text endpoint while benchmark and scheduler work continues.
   `peak_memory=18.481 GB`. The previously misleading `1024/128` rung now
   generated all `128` tokens instead of stopping at EOS after 4 tokens:
   `completion_tps=15.116`, `peak_memory=19.934 GB`, `active_delta=0.000 GB`.
+- Qwen endpoint prompt ladder with exact-length greedy completions is stable and
+  prefill-dominated as expected: `128/128` averaged `25.697` end-to-end
+  completion tok/s, `1024/128` `14.162`, `5000/128` `5.031`, and `10000/128`
+  `2.698`, with `active_delta=0.000 GB` on all rungs. These are not raw decode
+  numbers; they include full prefill wall time.
+- Qwen endpoint output ladder at `1024` prompt tokens shows the expected
+  amortization toward decode speed: `128` output averaged `14.835` end-to-end
+  completion tok/s, `512` output `22.797`, and `1024` output `25.540`, with flat
+  active memory.
+- Qwen streaming endpoint ladder exposed a real flush-cadence bug before the
+  latest fix: `1024/512` emitted `64` chunks but `mean_ttft_ms=21859.9` against
+  `wall_ms=21860.1`, and `1024/1024` emitted `128` chunks but
+  `mean_ttft_ms=39652.2` against `wall_ms=39652.4`. The serving bridge now
+  yields a macrotask after processed stream events. A post-fix `1024/512`
+  no-warmup streaming check reports `mean_ttft_ms=4435.0`,
+  `mean_prompt_to_first_token_tps=230.889`, and
+  `mean_post_ttft_completion_tps=29.163`; rerun the multi-trial streaming ladder
+  before claiming broad streaming quality.
 - `/v1/responses` text support now accepts string or text-only message-array
   input, supports semantic SSE streaming with text/reasoning deltas, preserves
   model-native sampling defaults, and keeps tools/state/multimodal explicitly

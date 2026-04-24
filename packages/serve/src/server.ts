@@ -238,7 +238,7 @@ async function completionResponse(request: Request, options: ServeAppOptions): P
     return new Response(
       new ReadableStream<Uint8Array>({
         start(controller) {
-          return writeStreamEvents(controller, iterator, batch, normalized, {
+          void writeStreamEvents(controller, iterator, batch, normalized, {
             id,
             created,
             signal: streamAbort.signal,
@@ -333,7 +333,7 @@ async function chatCompletionResponse(
     return new Response(
       new ReadableStream<Uint8Array>({
         start(controller) {
-          return writeChatStreamEvents(controller, iterator, chat, {
+          void writeChatStreamEvents(controller, iterator, chat, {
             id,
             created,
             signal: streamAbort.signal,

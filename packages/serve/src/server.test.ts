@@ -12,6 +12,10 @@ function request(path: string, body: unknown): Request {
   });
 }
 
+function endpointFor(server: ReturnType<typeof Bun.serve>): string {
+  return `http://${server.hostname}:${server.port}`;
+}
+
 describe("serve fetch handler", () => {
   test("responds to health checks", async () => {
     const fetch = createFetchHandler({
@@ -496,6 +500,60 @@ describe("serve fetch handler", () => {
     expect(text).toContain('"incomplete_details":{"reason":"max_output_tokens"}');
   });
 
+  test("flushes Responses stream chunks before a microtask-heavy generator drains", async () => {
+    let drained = false;
+    const engine: GenerationEngine = {
+      generate() {
+        return { text: "", finishReason: "stop" };
+      },
+      async *stream() {
+        for (let index = 0; index < 50; index += 1) {
+          await Promise.resolve();
+          yield { type: "text", text: `${index} ` };
+        }
+        drained = true;
+        yield {
+          type: "done",
+          finishReason: "stop",
+          usage: { promptTokens: 1, completionTokens: 50, totalTokens: 51 },
+        };
+      },
+    };
+    const server = Bun.serve({
+      port: 0,
+      fetch: createFetchHandler({ engine }),
+    });
+
+    try {
+      const response = await fetch(`${endpointFor(server)}/v1/responses`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          model: "tiny",
+          input: "Hello",
+          stream: true,
+        }),
+      });
+      const reader = response.body?.getReader();
+      expect(reader).toBeDefined();
+      if (reader === undefined) {
+        throw new Error("expected a response body reader");
+      }
+
+      const firstChunk = await Promise.race([
+        reader.read(),
+        new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error("timed out waiting for streamed bytes")), 1000),
+        ),
+      ]);
+      expect(firstChunk.done).toBe(false);
+      expect(drained).toBe(false);
+      await reader.cancel();
+    } finally {
+      server.stop(true);
+    }
+  });
+
   test("streams OpenAI chat completions as SSE chunks with reasoning separation", async () => {
     const engine: GenerationEngine = {
       generate() {
@@ -804,6 +862,60 @@ describe("serve fetch handler", () => {
     expect(
       events.filter((event) => event.type.startsWith("generation_")).map((event) => event.type),
     ).toEqual(["generation_start", "generation_complete"]);
+  });
+
+  test("flushes completion stream chunks before a microtask-heavy generator drains", async () => {
+    let drained = false;
+    const engine: GenerationEngine = {
+      generate() {
+        return { text: "", finishReason: "stop" };
+      },
+      async *stream() {
+        for (let index = 0; index < 50; index += 1) {
+          await Promise.resolve();
+          yield { type: "text", text: `${index} ` };
+        }
+        drained = true;
+        yield {
+          type: "done",
+          finishReason: "stop",
+          usage: { promptTokens: 1, completionTokens: 50, totalTokens: 51 },
+        };
+      },
+    };
+    const server = Bun.serve({
+      port: 0,
+      fetch: createFetchHandler({ engine }),
+    });
+
+    try {
+      const response = await fetch(`${endpointFor(server)}/v1/completions`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          model: "tiny",
+          prompt: "Hello",
+          stream: true,
+        }),
+      });
+      const reader = response.body?.getReader();
+      expect(reader).toBeDefined();
+      if (reader === undefined) {
+        throw new Error("expected a response body reader");
+      }
+
+      const firstChunk = await Promise.race([
+        reader.read(),
+        new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error("timed out waiting for streamed bytes")), 1000),
+        ),
+      ]);
+      expect(firstChunk.done).toBe(false);
+      expect(drained).toBe(false);
+      await reader.cancel();
+    } finally {
+      server.stop(true);
+    }
   });
 
   test("keeps streaming requests alive with Bun timeout override and completes them after the body ends", async () => {

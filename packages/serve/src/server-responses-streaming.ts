@@ -54,6 +54,10 @@ function enqueueSseEvent(
   controller.enqueue(encodeSse(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`));
 }
 
+async function yieldToHttpWriter(): Promise<void> {
+  await new Promise<void>((resolve) => setTimeout(resolve, 0));
+}
+
 function emitResponseEvent(
   controller: ReadableStreamDefaultController<Uint8Array>,
   state: ResponseStreamState,
@@ -396,7 +400,9 @@ export async function writeOpenAIResponseStreamEvents(
     if (next.type === "cancelled") {
       break;
     }
-    if (handleStreamEvent(controller, state, options, next.event)) {
+    const shouldStop = handleStreamEvent(controller, state, options, next.event);
+    await yieldToHttpWriter();
+    if (shouldStop) {
       break;
     }
   }
