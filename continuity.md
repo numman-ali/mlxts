@@ -55,6 +55,8 @@ work as a usable text endpoint while benchmark and scheduler work continues.
 - `32768` long-context local: `peak_after_decode=25.995 GB`, `active_decode_slope_mb_per_token=0.00`, marker was the first generated line after disabling thinking.
 - `65536` long-context local: `peak_after_decode=31.410 GB`, `decode_tps=19.522`, `active_decode_slope_mb_per_token=0.00`, exact marker match.
 - `131072` long-context local: `peak_after_decode=42.550 GB`, `decode_tps=16.019`, `active_decode_slope_mb_per_token=0.00`, exact marker match.
+- `32768` all-needle long-context local: early, middle, and late markers all exact-matched with prompt tokens `32774`, marker center fractions `0.101`, `0.500`, and `0.999`, peak `25.995 GB`, and flat active decode memory slope. Report:
+  `.tmp/qwen36-context-32k-all-needles.json`.
 - Tiny live serve endpoint probe on cached `mlx-community/Llama-3.2-1B-Instruct-4bit`
   passed through `/v1/completions`: prompt `16`, generation `4`, concurrency
   `1,2`, greedy, no warmup. The concurrency-2 rung reported

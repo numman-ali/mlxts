@@ -54,6 +54,11 @@ bun run bench:generation:parity --model mlx-community/Qwen3.6-27B-4bit \
   --prompt-tokens 1024 --generation-tokens 1024 --trials 1 \
   --memory-sample-interval 64 --require-mlx-lm-reference \
   --mlx-lm-python .tmp/venvs/mlx-lm-bench/bin/python
+
+bun run bench:generation:context --model mlx-community/Qwen3.6-27B-4bit \
+  --rungs 32768 --needle-placements all --generation-tokens 24 \
+  --prefill-step-size 2048 \
+  --report-json .tmp/qwen36-context-32k-all-needles.json
 ```
 
 ## Qwen Endpoint Results
@@ -73,6 +78,20 @@ bun run bench:generation:parity --model mlx-community/Qwen3.6-27B-4bit \
 The serving path is stable through 128k context on this 64 GB machine. The
 honest gap is long-prefill usability: 128k completes, but the TTFT is around
 14.3 minutes, and post-TTFT decode falls below the shorter-context range.
+
+## Long-Context Retrieval
+
+| Rung | Needle | Prompt Tokens | Needle Center | Prefill | Decode | Peak | Exact |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | --- |
+| 32768 | early | 32774 | 0.101 | 158.5s | 22.444 tok/s | 25.995 GB | yes |
+| 32768 | middle | 32774 | 0.500 | 156.9s | 22.608 tok/s | 25.995 GB | yes |
+| 32768 | late | 32774 | 0.999 | 156.8s | 22.850 tok/s | 25.995 GB | yes |
+
+The 32k all-needle retrieval run exact-matched early, middle, and late markers
+with flat active decode memory slope. This proves the new ladder can catch
+position-sensitive failures, but it does not replace the older 64k/128k
+late-needle capability evidence; those rungs still need all-needle runs before
+claiming broad full-window recall.
 
 ## Paired MLX-LM Parity
 
@@ -127,7 +146,6 @@ eligible.
   batching from queued concurrency.
 - Protocol benchmarks now exist through `bench:serve --protocol chat|responses`;
   tool-quality benchmarks are still separate work.
-- Long-context retrieval now supports early/middle/late needle placement through
-  `bench:generation:context --needle-placements all --report-json <path>`.
-  Run that ladder before making broad recall claims beyond the prior late-needle
-  Qwen evidence.
+- Long-context retrieval now supports early/middle/late needle placement and has
+  one 32k all-needle Qwen proof. Run 64k/128k all-needle ladders before making
+  broad recall claims beyond the prior late-needle Qwen evidence.
