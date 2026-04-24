@@ -44,6 +44,7 @@
     "typecheck": "tsc --noEmit",
     "test": "bun test",
     "test:coverage": "bun test --coverage",
+    "bench": "bun run scripts/benchmark-serve.ts",
     "build": "bun run ../../scripts/build-package.ts --entry src/index.ts --entry src/cli.ts"
   }
 }

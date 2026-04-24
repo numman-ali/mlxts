@@ -186,6 +186,37 @@ console.log(server.modelIds);
 Call `server.stop()` or dispose the returned server when the process should
 release the endpoint and model resources.
 
+## Benchmarking
+
+Use the package-owned endpoint benchmark when the thing being tested is serving
+quality rather than raw in-process model decode:
+
+```bash
+bun run bench:serve --model mlx-community/Qwen3.6-27B-4bit \
+  --model-id qwen-local \
+  --prompt-tokens 128,1024 \
+  --generation-tokens 128,512 \
+  --concurrency 1,4 \
+  --greedy \
+  --max-concurrent-requests 1 \
+  --max-batch-size 8 \
+  --batch-window-ms 2
+```
+
+The benchmark is cached/local-only by default so overnight ladders do not hide
+download time in endpoint numbers; pass `--allow-download` only when that is
+intentional. Omitted sampling fields preserve model-native
+`generation_config.json`; `--greedy` is explicit for deterministic throughput
+runs. It sends exact token-array prompts through `/v1/completions` and reports
+wall time, request throughput, completion-token throughput, mean latency, memory,
+finish reasons, admission micro-batch events, and real static batch events.
+
+Use comma lists with the default cartesian matrix for broad serving sweeps, or
+`--matrix zip` for paired prompt/output rungs. The static batch event count is
+important: Qwen and Gemma4 currently exercise the single-request path even when
+requests are admitted together, so endpoint benchmark output should be used to
+separate real batch execution from admission coalescing.
+
 ## Engine Primitives
 
 The package starts with the OpenAI completions, chat completions, and narrow

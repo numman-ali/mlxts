@@ -33,6 +33,11 @@ against `mlx-lm`, long-output stability, and long-context capability visible.
 - `32768` long-context local: `peak_after_decode=25.995 GB`, `active_decode_slope_mb_per_token=0.00`, marker was the first generated line after disabling thinking.
 - `65536` long-context local: `peak_after_decode=31.410 GB`, `decode_tps=19.522`, `active_decode_slope_mb_per_token=0.00`, exact marker match.
 - `131072` long-context local: `peak_after_decode=42.550 GB`, `decode_tps=16.019`, `active_decode_slope_mb_per_token=0.00`, exact marker match.
+- Tiny live serve endpoint probe on cached `mlx-community/Llama-3.2-1B-Instruct-4bit`
+  passed through `/v1/completions`: prompt `16`, generation `4`, concurrency
+  `1,2`, greedy, no warmup. The concurrency-2 rung reported
+  `admission_batches=1` and `static_batches=1`, proving the new endpoint
+  benchmark can separate admission coalescing from real static batch execution.
 
 ## Next Work
 
@@ -52,3 +57,8 @@ against `mlx-lm`, long-output stability, and long-context capability visible.
   backpressure, Qwen-aware scheduler/cache support, per-row batch cancellation,
   and memory-pool safeguards. After that, resume Responses API completion work,
   Anthropic API, and then Qwen/Gemma MoE plus multimodal capability.
+- Use `bun run bench:serve` for endpoint-level serving ladders. It defaults to
+  cached/local-only checkpoints, sends exact token-array prompts through
+  `/v1/completions`, preserves model-native sampling unless `--greedy` is set,
+  and reports request/completion throughput, memory, finish reasons, admission
+  batch events, and real static batch events.
