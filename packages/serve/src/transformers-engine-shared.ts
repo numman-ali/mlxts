@@ -7,9 +7,17 @@ import type { Tokenizer } from "@mlxts/tokenizers";
 import type { GenerationOptions, PrefillProgressEvent } from "@mlxts/transformers";
 import { ServeError } from "./errors";
 import { readGenerationMemoryUsage } from "./memory-telemetry";
-import { effectiveTotalTokenLimit, modelContextWindow } from "./model-context";
+import {
+  effectiveTotalTokenLimit,
+  estimateGenerationMemory,
+  modelContextWindow,
+} from "./model-context";
 import type { TransformersGenerationEngineOptions } from "./transformers-engine";
-import type { NormalizedFinishReason, NormalizedGenerationRequest } from "./types";
+import type {
+  GenerationMemoryUsage,
+  NormalizedFinishReason,
+  NormalizedGenerationRequest,
+} from "./types";
 
 export type CompiledPrompt = {
   text: string;
@@ -19,6 +27,7 @@ export type CompiledPrompt = {
 export const THINK_OPEN = "<think>";
 const THINK_CLOSE = "</think>";
 const PROGRESS_TOKEN_INTERVAL = 64;
+const DEFAULT_PREFILL_STEP_SIZE = 2048;
 
 /** Convert a normalized serving request into transformer generation options. */
 export function generationOptions(
@@ -90,6 +99,66 @@ export function enforceTotalTokenLimit(
       param: "max_tokens",
     },
   );
+}
+
+function formatBytes(bytes: number): string {
+  if (bytes >= 1e9) {
+    return `${(bytes / 1e9).toFixed(1)} GB`;
+  }
+  if (bytes >= 1e6) {
+    return `${(bytes / 1e6).toFixed(1)} MB`;
+  }
+  if (bytes >= 1e3) {
+    return `${(bytes / 1e3).toFixed(1)} KB`;
+  }
+  return `${bytes} B`;
+}
+
+/** Reject requests whose estimated cache/prefill memory exceeds the configured MLX budget. */
+export function enforceGenerationMemoryBudgetForTokens(
+  options: TransformersGenerationEngineOptions,
+  promptTokens: number,
+  maxTokens: number,
+  memory: GenerationMemoryUsage | undefined = readGenerationMemoryUsage(),
+  batchSize = 1,
+): void {
+  if (options.gpuMemoryUtilization === undefined || memory === undefined) {
+    return;
+  }
+
+  const estimate = estimateGenerationMemory(options.model, {
+    promptTokens,
+    totalTokens: promptTokens + maxTokens,
+    prefillStepSize: DEFAULT_PREFILL_STEP_SIZE,
+    batchSize,
+  });
+  if (estimate === undefined) {
+    return;
+  }
+
+  const budgetBytes = Math.floor(memory.limitBytes * options.gpuMemoryUtilization);
+  const projectedBytes = memory.activeBytes + estimate.totalBytes;
+  if (projectedBytes <= budgetBytes) {
+    return;
+  }
+
+  throw new ServeError(
+    `Estimated request memory ${formatBytes(estimate.totalBytes)} plus active MLX memory ${formatBytes(memory.activeBytes)} exceeds the configured GPU memory budget ${formatBytes(budgetBytes)} (${Math.round(options.gpuMemoryUtilization * 100)}%). prompt_tokens=${promptTokens}, max_tokens=${maxTokens}, batch_size=${batchSize}.`,
+    {
+      code: "memory_budget_exceeded",
+      param: "prompt",
+    },
+  );
+}
+
+/** Reject a single request whose estimated cache/prefill memory exceeds the configured budget. */
+export function enforceGenerationMemoryBudget(
+  options: TransformersGenerationEngineOptions,
+  request: NormalizedGenerationRequest,
+  promptTokens: number,
+  memory?: GenerationMemoryUsage | undefined,
+): void {
+  enforceGenerationMemoryBudgetForTokens(options, promptTokens, request.sampling.maxTokens, memory);
 }
 
 /** Emit a generation progress event with current MLX memory telemetry when available. */

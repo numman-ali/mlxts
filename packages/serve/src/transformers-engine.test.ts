@@ -10,6 +10,7 @@ import {
   KVCache,
 } from "@mlxts/transformers";
 import { createTransformersGenerationEngine } from "./transformers-engine";
+import { enforceGenerationMemoryBudget } from "./transformers-engine-shared";
 import type { GenerationStreamEvent, NormalizedGenerationRequest, ServeEvent } from "./types";
 
 class TinyTokenizer implements Tokenizer {
@@ -284,6 +285,36 @@ describe("transformers generation engine", () => {
         }
       })(),
     ).rejects.toThrow("prompt token limit");
+  });
+
+  test("rejects requests over the configured MLX memory budget before generation", () => {
+    using model = new TinyModel({
+      rawConfig: {
+        num_hidden_layers: 1,
+        num_attention_heads: 1,
+        num_key_value_heads: 1,
+        hidden_size: 100,
+        head_dim: 100,
+      },
+    });
+    const tokenizer = new TinyTokenizer();
+
+    expect(() =>
+      enforceGenerationMemoryBudget(
+        { model, tokenizer, gpuMemoryUtilization: 0.5 },
+        textRequest("memory-heavy", { maxTokens: 2, temperature: 0 }),
+        2,
+        { activeBytes: 100, cacheBytes: 0, peakBytes: 0, limitBytes: 2000 },
+      ),
+    ).toThrow("memory budget");
+    expect(() =>
+      enforceGenerationMemoryBudget(
+        { model, tokenizer },
+        textRequest("memory-unchecked", { maxTokens: 2, temperature: 0 }),
+        2,
+        { activeBytes: 100, cacheBytes: 0, peakBytes: 0, limitBytes: 2000 },
+      ),
+    ).not.toThrow();
   });
 
   test("adapts token prompts without re-encoding them as text", async () => {

@@ -14,6 +14,8 @@ export {
 export { ServeError } from "./errors";
 export {
   effectiveTotalTokenLimit,
+  estimateGenerationMemory,
+  type GenerationMemoryEstimate,
   type ModelAdmissionMetadata,
   modelAdmissionMetadata,
   modelContextWindow,
@@ -24,6 +26,7 @@ export {
 } from "./model-router";
 export {
   DEFAULT_MODEL_SERVER_BATCH_WINDOW_MS,
+  DEFAULT_MODEL_SERVER_GPU_MEMORY_UTILIZATION,
   DEFAULT_MODEL_SERVER_HOSTNAME,
   DEFAULT_MODEL_SERVER_MAX_BATCH_SIZE,
   DEFAULT_MODEL_SERVER_MAX_CONCURRENT_REQUESTS,

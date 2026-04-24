@@ -31,6 +31,7 @@ export const DEFAULT_MODEL_SERVER_MAX_TOTAL_TOKENS = 4096;
 export const DEFAULT_MODEL_SERVER_MAX_BATCH_SIZE = 32;
 export const DEFAULT_MODEL_SERVER_BATCH_WINDOW_MS = 1;
 export const DEFAULT_MODEL_SERVER_MAX_CONCURRENT_REQUESTS = 1;
+export const DEFAULT_MODEL_SERVER_GPU_MEMORY_UTILIZATION = 0.9;
 export type ModelServerRuntimeOptions = {
   hostname?: string;
   port?: number;
@@ -40,6 +41,7 @@ export type ModelServerRuntimeOptions = {
   maxBatchSize?: number;
   batchWindowMs?: number;
   maxConcurrentRequests?: number;
+  gpuMemoryUtilization?: number;
   apiKey?: string;
   onEvent?: (event: ServeEvent) => void;
 };
@@ -99,6 +101,7 @@ type ResolvedRuntimeOptions = {
   maxBatchSize: number;
   batchWindowMs: number;
   maxConcurrentRequests: number;
+  gpuMemoryUtilization: number;
   apiKey?: string;
   onEvent?: (event: ServeEvent) => void;
 };
@@ -154,6 +157,13 @@ function requireNonNegativeInteger(name: string, value: number): number {
   return value;
 }
 
+function requirePositiveFraction(name: string, value: number): number {
+  if (!Number.isFinite(value) || value <= 0 || value > 1) {
+    throw new Error(`${name} must be a number greater than 0 and less than or equal to 1.`);
+  }
+  return value;
+}
+
 function resolveRuntimeOptions(options: ModelServerRuntimeOptions): ResolvedRuntimeOptions {
   return {
     hostname: options.hostname ?? DEFAULT_MODEL_SERVER_HOSTNAME,
@@ -181,6 +191,10 @@ function resolveRuntimeOptions(options: ModelServerRuntimeOptions): ResolvedRunt
     maxConcurrentRequests: requirePositiveInteger(
       "maxConcurrentRequests",
       options.maxConcurrentRequests ?? DEFAULT_MODEL_SERVER_MAX_CONCURRENT_REQUESTS,
+    ),
+    gpuMemoryUtilization: requirePositiveFraction(
+      "gpuMemoryUtilization",
+      options.gpuMemoryUtilization ?? DEFAULT_MODEL_SERVER_GPU_MEMORY_UTILIZATION,
     ),
     ...(options.apiKey === undefined ? {} : { apiKey: options.apiKey }),
     ...(options.onEvent === undefined ? {} : { onEvent: options.onEvent }),
@@ -280,6 +294,7 @@ function createLoadedModelEngine(
         tokenizer: model.tokenizer,
         maxPromptTokens: options.maxPromptTokens,
         maxTotalTokens: options.maxTotalTokens,
+        gpuMemoryUtilization: options.gpuMemoryUtilization,
         ...(model.interactionProfile === undefined
           ? {}
           : { interactionProfile: model.interactionProfile }),
@@ -367,6 +382,7 @@ export function serveLoadedModels(options: ServeLoadedModelsOptions): RunningMod
       maxBatchSize: resolved.maxBatchSize,
       batchWindowMs: resolved.batchWindowMs,
       maxConcurrentRequests: resolved.maxConcurrentRequests,
+      gpuMemoryUtilization: resolved.gpuMemoryUtilization,
     },
     ...(resolved.apiKey === undefined ? {} : { apiKey: resolved.apiKey }),
     ...(resolved.onEvent === undefined ? {} : { onEvent: resolved.onEvent }),
@@ -398,6 +414,7 @@ export function serveLoadedModel(options: ServeLoadedModelOptions): RunningModel
     maxBatchSize: resolved.maxBatchSize,
     batchWindowMs: resolved.batchWindowMs,
     maxConcurrentRequests: resolved.maxConcurrentRequests,
+    gpuMemoryUtilization: resolved.gpuMemoryUtilization,
     ...(resolved.apiKey === undefined ? {} : { apiKey: resolved.apiKey }),
     disposeModelsOnStop: resolved.disposeModelOnStop,
     ...(resolved.onEvent === undefined ? {} : { onEvent: resolved.onEvent }),
@@ -439,6 +456,7 @@ export async function serveModelWithRuntime(
       maxBatchSize: resolved.maxBatchSize,
       batchWindowMs: resolved.batchWindowMs,
       maxConcurrentRequests: resolved.maxConcurrentRequests,
+      gpuMemoryUtilization: resolved.gpuMemoryUtilization,
       ...(resolved.apiKey === undefined ? {} : { apiKey: resolved.apiKey }),
       ...(resolved.onEvent === undefined ? {} : { onEvent: resolved.onEvent }),
       disposeModelOnStop: true,

@@ -20,6 +20,8 @@ import {
   createPrefillProgressReporter,
   createProgressReporter,
   emitGenerationProgress,
+  enforceGenerationMemoryBudget,
+  enforceGenerationMemoryBudgetForTokens,
   enforcePromptTokenLimit,
   enforceTotalTokenLimit,
   finishReason,
@@ -116,6 +118,7 @@ function prepareGenerationRequest(
   const promptTokens = promptTokenCount(request, options, prompt);
   enforcePromptTokenLimit(options, request, promptTokens);
   enforceTotalTokenLimit(options, request, promptTokens);
+  enforceGenerationMemoryBudget(options, request, promptTokens);
   return {
     request,
     prompt,
@@ -323,6 +326,22 @@ function runBatchGroup(
   options: TransformersGenerationEngineOptions,
   results: (NormalizedGenerationResult | undefined)[],
 ): void {
+  const maxPromptTokens = Math.max(
+    ...group.map((index) => preparedAt(preparedRequests, index).promptTokens),
+  );
+  const maxTotalTokens = Math.max(
+    ...group.map((index) => {
+      const prepared = preparedAt(preparedRequests, index);
+      return prepared.promptTokens + prepared.request.sampling.maxTokens;
+    }),
+  );
+  enforceGenerationMemoryBudgetForTokens(
+    options,
+    maxPromptTokens,
+    Math.max(0, maxTotalTokens - maxPromptTokens),
+    undefined,
+    group.length,
+  );
   emitBatchStart(preparedRequests, group, options);
   assignBatchResults(
     preparedRequests,

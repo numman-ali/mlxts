@@ -11,6 +11,12 @@ errors, CLI output, and `/info` so long-context failures explain which budget wa
 hit. Treat `/info` context metadata as configured admission truth, not a promise
 that every advertised model window fits local memory.
 
+Memory preflight should stay best-effort and honest. Estimate cache and prefill
+memory from family config geometry, compare it with current MLX active memory
+and the configured utilization budget, and skip rather than fake certainty when
+the model config is not understood. A preflight pass is not a throughput
+scheduler guarantee.
+
 Do not call admission micro-batching continuous batching. True continuous
 batching needs a scheduler-owned decode loop plus batch-aware cache semantics in
 `@mlxts/transformers`, especially for Qwen hybrid full-attention plus recurrent

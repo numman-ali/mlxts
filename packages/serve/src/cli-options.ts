@@ -1,5 +1,6 @@
 import {
   DEFAULT_MODEL_SERVER_BATCH_WINDOW_MS,
+  DEFAULT_MODEL_SERVER_GPU_MEMORY_UTILIZATION,
   DEFAULT_MODEL_SERVER_HOSTNAME,
   DEFAULT_MODEL_SERVER_MAX_BATCH_SIZE,
   DEFAULT_MODEL_SERVER_MAX_CONCURRENT_REQUESTS,
@@ -26,6 +27,7 @@ export type ServeCliOptions = {
   maxBatchSize: number;
   batchWindowMs: number;
   maxConcurrentRequests: number;
+  gpuMemoryUtilization: number;
   revision?: string;
   accessToken?: string;
   cacheDir?: string;
@@ -57,6 +59,7 @@ type ParseState = {
   maxBatchSize: number;
   batchWindowMs: number;
   maxConcurrentRequests: number;
+  gpuMemoryUtilization: number;
   revision?: string;
   accessToken?: string;
   cacheDir?: string;
@@ -81,6 +84,20 @@ function readIntegerFlag(
   const raw = readStringFlag(flag, value);
   const parsed = Number(raw);
   if (!Number.isInteger(parsed) || !isValid(parsed)) {
+    throw new Error(`Expected ${flag} to be ${description}, got "${raw}".`);
+  }
+  return parsed;
+}
+
+function readNumberFlag(
+  flag: string,
+  value: string | undefined,
+  isValid: (value: number) => boolean,
+  description: string,
+): number {
+  const raw = readStringFlag(flag, value);
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed) || !isValid(parsed)) {
     throw new Error(`Expected ${flag} to be ${description}, got "${raw}".`);
   }
   return parsed;
@@ -119,6 +136,7 @@ function createParseState(): ParseState {
     maxBatchSize: DEFAULT_MODEL_SERVER_MAX_BATCH_SIZE,
     batchWindowMs: DEFAULT_MODEL_SERVER_BATCH_WINDOW_MS,
     maxConcurrentRequests: DEFAULT_MODEL_SERVER_MAX_CONCURRENT_REQUESTS,
+    gpuMemoryUtilization: DEFAULT_MODEL_SERVER_GPU_MEMORY_UTILIZATION,
     localFilesOnly: false,
     verbose: false,
   };
@@ -198,6 +216,14 @@ function applyFlag(state: ParseState, argv: readonly string[], index: number): n
         argv[index + 1],
         (value) => value > 0,
         "a positive integer",
+      );
+      return index + 1;
+    case "--gpu-memory-utilization":
+      state.gpuMemoryUtilization = readNumberFlag(
+        arg,
+        argv[index + 1],
+        (value) => value > 0 && value <= 1,
+        "a number greater than 0 and less than or equal to 1",
       );
       return index + 1;
     case "--revision":
@@ -296,6 +322,7 @@ function stateToOptions(state: ParseState): ServeCliParseResult {
       maxBatchSize: state.maxBatchSize,
       batchWindowMs: state.batchWindowMs,
       maxConcurrentRequests: state.maxConcurrentRequests,
+      gpuMemoryUtilization: state.gpuMemoryUtilization,
       ...(state.revision === undefined ? {} : { revision: state.revision }),
       ...(state.accessToken === undefined ? {} : { accessToken: state.accessToken }),
       ...(state.cacheDir === undefined ? {} : { cacheDir: state.cacheDir }),
@@ -327,6 +354,7 @@ export function formatServeUsage(): string {
     `  --max-batch-size <n>        Admission micro-batch size per model instance (default: ${DEFAULT_MODEL_SERVER_MAX_BATCH_SIZE})`,
     `  --batch-window-ms <n>       Wait window before flushing a micro-batch (default: ${DEFAULT_MODEL_SERVER_BATCH_WINDOW_MS})`,
     `  --max-concurrent-requests <n>  Max in-flight jobs per served model (default: ${DEFAULT_MODEL_SERVER_MAX_CONCURRENT_REQUESTS})`,
+    `  --gpu-memory-utilization <f>   Reject estimated requests above this fraction of MLX memory limit (default: ${DEFAULT_MODEL_SERVER_GPU_MEMORY_UTILIZATION})`,
     "  --revision <ref>            Hugging Face revision when source is a repo id",
     "  --access-token <token>      Hugging Face access token for private or gated repos",
     "  --cache-dir <path>          Hugging Face cache directory",

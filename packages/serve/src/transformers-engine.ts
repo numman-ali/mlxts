@@ -19,6 +19,7 @@ import {
   compileMessagePrompt,
   createPrefillProgressReporter,
   emitGenerationProgress,
+  enforceGenerationMemoryBudget,
   enforcePromptTokenLimit,
   enforceTotalTokenLimit,
   generationOptions,
@@ -40,6 +41,7 @@ export type TransformersGenerationEngineOptions = {
   interactionProfile?: InteractionProfile;
   maxPromptTokens?: number;
   maxTotalTokens?: number;
+  gpuMemoryUtilization?: number;
   onEvent?: (event: ServeEvent) => void;
 };
 
@@ -210,6 +212,7 @@ export function createTransformersGenerationEngine(
       const promptTokens = promptTokenCount(request, options, prompt);
       enforcePromptTokenLimit(options, request, promptTokens);
       enforceTotalTokenLimit(options, request, promptTokens);
+      enforceGenerationMemoryBudget(options, request, promptTokens);
       emitGenerationProgress(options, request, promptTokens, 0);
       const onPrefillProgress = createPrefillProgressReporter(options, request, promptTokens);
       const decodeInterval = streamDecodeInterval(request.sampling.stop);

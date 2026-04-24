@@ -53,6 +53,7 @@ describe("serve fetch handler", () => {
         maxBatchSize: 32,
         batchWindowMs: 1,
         maxConcurrentRequests: 1,
+        gpuMemoryUtilization: 0.9,
       },
     });
 
@@ -75,6 +76,7 @@ describe("serve fetch handler", () => {
         max_client_batch_size: 32,
         batch_window_ms: 1,
         max_concurrent_requests: 1,
+        gpu_memory_utilization: 0.9,
       },
       models: [
         {

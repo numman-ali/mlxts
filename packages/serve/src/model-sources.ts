@@ -145,6 +145,9 @@ function resolveServeModelsOptions(options: ServeModelsOptions): ResolvedServeMo
     ...(options.maxConcurrentRequests === undefined
       ? {}
       : { maxConcurrentRequests: options.maxConcurrentRequests }),
+    ...(options.gpuMemoryUtilization === undefined
+      ? {}
+      : { gpuMemoryUtilization: options.gpuMemoryUtilization }),
     ...(options.apiKey === undefined ? {} : { apiKey: options.apiKey }),
     ...(options.onEvent === undefined ? {} : { onEvent: options.onEvent }),
   };

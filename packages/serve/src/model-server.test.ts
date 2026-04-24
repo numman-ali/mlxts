@@ -174,6 +174,7 @@ describe("serveLoadedModel", () => {
       maxBatchSize: 4,
       batchWindowMs: 2,
       maxConcurrentRequests: 1,
+      gpuMemoryUtilization: 0.75,
       disposeModelOnStop: true,
     });
 
@@ -196,6 +197,7 @@ describe("serveLoadedModel", () => {
           max_client_batch_size: 4,
           batch_window_ms: 2,
           max_concurrent_requests: 1,
+          gpu_memory_utilization: 0.75,
         },
         models: [
           {
@@ -490,6 +492,14 @@ describe("serveLoadedModel", () => {
         maxConcurrentRequests: 0,
       }),
     ).toThrow("maxConcurrentRequests must be a positive integer.");
+    expect(() =>
+      serveLoadedModel({
+        model,
+        tokenizer,
+        modelId: "bad-memory-budget",
+        gpuMemoryUtilization: 1.5,
+      }),
+    ).toThrow("gpuMemoryUtilization must be a number greater than 0");
   });
 
   test("validates public serveModel options before resolving sources", async () => {
@@ -518,7 +528,7 @@ describe("serveLoadedModel", () => {
       },
       serveLoadedModel(options) {
         calls.push(
-          `serve:${options.modelId}:${options.apiKey}:${options.maxPromptTokens}:${options.maxTotalTokens}:${options.maxBatchSize}:${options.batchWindowMs}:${options.maxConcurrentRequests}:${options.disposeModelOnStop}`,
+          `serve:${options.modelId}:${options.apiKey}:${options.maxPromptTokens}:${options.maxTotalTokens}:${options.maxBatchSize}:${options.batchWindowMs}:${options.maxConcurrentRequests}:${options.gpuMemoryUtilization}:${options.disposeModelOnStop}`,
         );
         return fakeRunningServer(options.modelId);
       },
@@ -534,6 +544,7 @@ describe("serveLoadedModel", () => {
         maxBatchSize: 16,
         batchWindowMs: 3,
         maxConcurrentRequests: 2,
+        gpuMemoryUtilization: 0.8,
       },
       runtime,
     );
@@ -544,7 +555,7 @@ describe("serveLoadedModel", () => {
       "model:/snapshots/qwen",
       "tokenizer:/snapshots/qwen",
       "profile:/snapshots/qwen",
-      "serve:qwen-local:secret:4096:4096:16:3:2:true",
+      "serve:qwen-local:secret:4096:4096:16:3:2:0.8:true",
     ]);
     expect(model.disposeCount).toBe(0);
     running.stop();

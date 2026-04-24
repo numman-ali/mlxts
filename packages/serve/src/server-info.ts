@@ -19,6 +19,7 @@ export type ServeRuntimeLimits = {
   maxBatchSize?: number;
   batchWindowMs?: number;
   maxConcurrentRequests?: number;
+  gpuMemoryUtilization?: number;
 };
 
 export type ServeInfoModel = {
@@ -45,6 +46,7 @@ export type ServeInfoResponse = {
     max_client_batch_size: number | null;
     batch_window_ms: number | null;
     max_concurrent_requests: number | null;
+    gpu_memory_utilization: number | null;
   };
   capabilities: {
     completions: true;
@@ -119,6 +121,7 @@ export function formatServeInfoResponse(options: ServeInfoOptions): ServeInfoRes
       max_client_batch_size: numberOrNull(limits.maxBatchSize),
       batch_window_ms: numberOrNull(limits.batchWindowMs),
       max_concurrent_requests: numberOrNull(limits.maxConcurrentRequests),
+      gpu_memory_utilization: numberOrNull(limits.gpuMemoryUtilization),
     },
     capabilities: {
       completions: true,

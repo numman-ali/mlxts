@@ -35,6 +35,7 @@ describe("serve CLI args", () => {
         maxBatchSize: 32,
         batchWindowMs: 1,
         maxConcurrentRequests: 1,
+        gpuMemoryUtilization: 0.9,
         localFilesOnly: false,
         verbose: false,
       },
@@ -62,6 +63,8 @@ describe("serve CLI args", () => {
       "4",
       "--max-concurrent-requests",
       "2",
+      "--gpu-memory-utilization",
+      "0.75",
       "--revision",
       "main",
       "--access-token",
@@ -88,6 +91,7 @@ describe("serve CLI args", () => {
         maxBatchSize: 16,
         batchWindowMs: 4,
         maxConcurrentRequests: 2,
+        gpuMemoryUtilization: 0.75,
         revision: "main",
         accessToken: "hf_secret",
         cacheDir: ".cache/hf",
@@ -154,6 +158,12 @@ describe("serve CLI args", () => {
       kind: "help",
       exitCode: 1,
       message: 'Expected --max-concurrent-requests to be a positive integer, got "0".',
+    });
+    expect(parseServeArgs(["model", "--gpu-memory-utilization", "1.5"])).toMatchObject({
+      kind: "help",
+      exitCode: 1,
+      message:
+        'Expected --gpu-memory-utilization to be a number greater than 0 and less than or equal to 1, got "1.5".',
     });
     expect(parseServeArgs(["model", "--model-id"])).toMatchObject({
       kind: "help",
@@ -254,6 +264,7 @@ describe("serve CLI args", () => {
       maxBatchSize: 8,
       batchWindowMs: 2,
       maxConcurrentRequests: 1,
+      gpuMemoryUtilization: 0.75,
       localFilesOnly: false,
       verbose: false,
     };
@@ -267,6 +278,7 @@ describe("serve CLI args", () => {
     expect(formatServeReady("http://127.0.0.1:8000", options)).toContain(
       "Admission concurrency: max_in_flight=1",
     );
+    expect(formatServeReady("http://127.0.0.1:8000", options)).toContain("GPU memory budget: 75%");
     expect(publicBindWarning(options)).toContain("exposes the endpoint");
     expect(publicBindWarning({ ...options, apiKey: "secret" })).toBeNull();
     expect(
@@ -475,6 +487,7 @@ describe("serve CLI args", () => {
         expect(options.maxBatchSize).toBe(32);
         expect(options.batchWindowMs).toBe(1);
         expect(options.maxConcurrentRequests).toBe(1);
+        expect(options.gpuMemoryUtilization).toBe(0.9);
         return running;
       },
       log(message) {
