@@ -14,8 +14,6 @@ import {
   type PretrainedLoadProgressEvent,
   resolvePretrainedSource,
 } from "@mlxts/transformers";
-import { createMicroBatchingGenerationEngine } from "./batching-engine";
-import { createConcurrencyLimitGenerationEngine } from "./concurrency-engine";
 import { modelAdmissionMetadata } from "./model-context";
 import { createModelRouterGenerationEngine } from "./model-router";
 import { createRequestLimitGenerationEngine } from "./request-limits";
@@ -287,23 +285,18 @@ function createLoadedModelEngine(
   model: ResolvedLoadedModelEntry,
   options: ResolvedLoadedModelsOptions,
 ) {
-  const modelEngine = createMicroBatchingGenerationEngine({
-    engine: createConcurrencyLimitGenerationEngine({
-      engine: createTransformersGenerationEngine({
-        model: model.model,
-        tokenizer: model.tokenizer,
-        maxPromptTokens: options.maxPromptTokens,
-        maxTotalTokens: options.maxTotalTokens,
-        gpuMemoryUtilization: options.gpuMemoryUtilization,
-        ...(model.interactionProfile === undefined
-          ? {}
-          : { interactionProfile: model.interactionProfile }),
-        ...(options.onEvent === undefined ? {} : { onEvent: options.onEvent }),
-      }),
-      maxConcurrentRequests: options.maxConcurrentRequests,
-    }),
+  const modelEngine = createTransformersGenerationEngine({
+    model: model.model,
+    tokenizer: model.tokenizer,
+    maxPromptTokens: options.maxPromptTokens,
+    maxTotalTokens: options.maxTotalTokens,
     maxBatchSize: options.maxBatchSize,
     batchWindowMs: options.batchWindowMs,
+    maxConcurrentRequests: options.maxConcurrentRequests,
+    gpuMemoryUtilization: options.gpuMemoryUtilization,
+    ...(model.interactionProfile === undefined
+      ? {}
+      : { interactionProfile: model.interactionProfile }),
     ...(options.onEvent === undefined ? {} : { onEvent: options.onEvent }),
   });
   return createRequestLimitGenerationEngine({

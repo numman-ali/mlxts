@@ -86,13 +86,25 @@ work as a usable text endpoint while benchmark and scheduler work continues.
   `mean_post_ttft_completion_tps=82.605`; `1024/1024` averaged
   `mean_ttft_ms=217.0`, `mean_prompt_to_first_token_tps=4719.600`, and
   `mean_post_ttft_completion_tps=81.727`, with flat active memory.
-- Serialized endpoint concurrency with `maxConcurrentRequests=1` is stable but
+- Serialized endpoint concurrency with `maxConcurrentRequests=1` was stable but
   not real batching. Qwen `1024/128` at concurrency `1,2,4` completed with
   `15.050`, `13.701`, and `14.151` aggregate completion tok/s respectively,
   `admission_batches=1` for queued rungs, `static_batches=0`, and flat active
   memory. Gemma 4 E2B `1024/128` at concurrency `1,2,4` completed with
   `75.774`, `75.710`, and `75.499` aggregate completion tok/s, also with
   `static_batches=0`.
+- The first real continuous batching tranche is implemented for the full-KV
+  greedy safe subset. `ContinuousBatchTokenScheduler` owns waiting/active rows,
+  can admit rows between decode steps, filters mixed-length rows, removes active
+  aborted rows, and is endpoint-visible through `serveLoadedModel()`. The serve
+  benchmark now reports `continuous_admissions` separately from `static_batches`
+  and `admission_batches`.
+- Tiny live LLaMA 1B endpoint probe after the scheduler tranche:
+  `prompt_tokens=16`, `generation_tokens=16`, concurrency `1,2`, greedy,
+  no warmup. Concurrency 1 reported `completion_tps=127.140`,
+  `continuous_admissions=1`, `static_batches=0`, `admission_batches=0`;
+  concurrency 2 reported `completion_tps=261.027`, `continuous_admissions=1`,
+  `static_batches=0`, `admission_batches=0`, with flat active memory.
 - Qwen endpoint long-context serving needs a streaming distinction in the
   evidence ledger. Buffered `65536/128` requests repeatedly hit a several-minute
   client/HTTP timeout before returning JSON, even after server-side timeout
@@ -122,17 +134,14 @@ work as a usable text endpoint while benchmark and scheduler work continues.
   variance. Next investigation should profile full-attention KV representation,
   cache-buffer accounting, and wrapper/FFI overhead rather than scattering
   micro-optimizations.
-- Next serving-quality tranche should run staged endpoint ladders, then
-  prioritize scheduler-owned continuous batching for the full-KV safe subset
-  before claiming high-concurrency serving. Admission micro-batching is not the
-  same thing as active-row continuous batching. After endpoint evidence and the
-  scheduler tranche, continue Responses tool/state work, Anthropic API, and then
-  Qwen/Gemma MoE plus multimodal capability.
-- The next concrete scheduler slice should be full-KV, greedy, non-streaming
-  continuous scheduling behind `GenerationEngine` for the same safe LLaMA-like
-  subset as static batching. The scheduler must own waiting/running queues and
-  admit rows between decode steps; placing it behind the existing
-  `maxConcurrentRequests=1` wrapper would reduce it back to admission coalescing.
+- Next serving-quality tranche should run staged endpoint ladders with the new
+  `continuous_admissions` metric visible, then compare LLaMA-like full-KV
+  concurrency against the old static/admission behavior. Admission micro-batching
+  is no longer the claim for loaded-model serving; the scheduler-owned path is.
+- The next scheduler slices are cache-semantics work, not HTTP wrappers: chunked
+  prefill fairness, streaming collectors, sampled batch decode, then Qwen hybrid
+  recurrent/full-attention caches and Gemma sliding/global caches. Keep each
+  tranche benchmarked separately before claiming broad serving concurrency.
 - Use `bun run bench:serve` for endpoint-level serving ladders. It defaults to
   cached/local-only checkpoints, sends exact token-array prompts through
   `/v1/completions`, preserves model-native sampling unless `--greedy` is set,

@@ -213,7 +213,8 @@ intentional. Omitted sampling fields preserve model-native
 runs. It sends exact token-array prompts through `/v1/completions` and reports
 wall time, request throughput, end-to-end completion-token throughput,
 total-token throughput, mean latency, memory, finish reasons, admission
-micro-batch events, and real static batch events.
+micro-batch events, real static batch events, and continuous scheduler admission
+events.
 Use `--ignore-eos` for exact-length throughput ladders when comparing against
 in-process benchmarks that intentionally decode the full requested token count;
 normal serving behavior still honors EOS unless this extension is explicit.
@@ -309,23 +310,22 @@ startServeServer({
 `/v1/*` routes require `Authorization: Bearer <key>`; `/health` stays open for
 local process checks.
 
-`createMicroBatchingGenerationEngine()` coalesces nearby non-streaming requests
-into `generateBatch()` calls when the underlying engine supports them. This is
-admission micro-batching, not full continuous token-level batching; production
-continuous batching should live inside a batch-aware generation engine behind
-the same contract.
+`createTransformersGenerationEngine()` now owns the first real continuous
+batching path for loaded-model serving: non-streaming greedy requests against
+full-cache LLaMA-like models can join an active decode loop between token steps.
+It emits `generation_batch_start` events with `mode: "continuous"` so benchmark
+output can separate this from admission coalescing and static batch calls.
 
-`createTransformersGenerationEngine()` supports a narrow native static batch
-path today: non-streaming greedy requests against full-cache LLaMA-like models
-with compatible sampling options, including per-request `max_tokens`. Other
-model families or sampled/default sampled requests remain correct by falling
-back to single generation instead of pretending the serving layer can batch cache
-shapes it does not own yet.
+The continuous path is intentionally narrow. Qwen hybrid caches, Gemma
+sliding/global caches, streaming, sampled generation, prefix cache, paged cache,
+and multimodal batching still fall back to the single-model lane until their
+cache semantics are represented properly.
 
-`createConcurrencyLimitGenerationEngine()` is the companion admission guard for
-single-model serving. It bounds the number of active model jobs across
-`generate()`, `generateBatch()`, and `stream()` so a local runtime is not asked
-to run overlapping decode loops accidentally.
+`createMicroBatchingGenerationEngine()` and
+`createConcurrencyLimitGenerationEngine()` remain available as lower-level
+composition tools, but the first-class loaded-model server uses the
+transformer-owned scheduler so eligible requests are not accidentally serialized
+before they can join the active batch.
 
 See `examples/serve-completions/` for a deterministic four-agent concurrency
 harness. Real model serving is a package API and CLI, not an example entrypoint.

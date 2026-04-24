@@ -139,7 +139,7 @@ export type ServeEvent =
     }
   | {
       type: "generation_batch_start";
-      mode: "static";
+      mode: "static" | "continuous";
       model: string;
       ids: readonly string[];
       batchSize: number;

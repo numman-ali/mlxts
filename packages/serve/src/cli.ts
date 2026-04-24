@@ -83,8 +83,8 @@ export function formatServeReady(endpoint: string, options: ServeCliOptions): st
     `Prompt-token limit: ${options.maxPromptTokens}`,
     `Total-token limit: ${options.maxTotalTokens}`,
     `GPU memory budget: ${Math.round(options.gpuMemoryUtilization * 100)}%`,
-    `Micro-batching: max_batch=${options.maxBatchSize} window_ms=${options.batchWindowMs}`,
-    `Admission concurrency: max_in_flight=${options.maxConcurrentRequests}`,
+    `Batch scheduler: max_batch=${options.maxBatchSize} window_ms=${options.batchWindowMs}`,
+    `Model execution lanes: max_in_flight=${options.maxConcurrentRequests}`,
     "",
     "Try:",
     [

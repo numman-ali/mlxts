@@ -6,6 +6,10 @@
 import type { MxArray } from "@mlxts/core";
 import type { Tokenizer } from "@mlxts/tokenizers";
 import { generateBatchTokensInternal } from "./infrastructure/generation/batch";
+import {
+  ContinuousBatchTokenScheduler,
+  type ContinuousBatchTokenSchedulerOptions,
+} from "./infrastructure/generation/continuous-batch";
 import { resolveGenerationOptions } from "./infrastructure/generation/defaults";
 import {
   generatePreparedTokensInternal,
@@ -31,6 +35,11 @@ import type {
 } from "./types";
 
 export { GenerationAbortError } from "./infrastructure/generation/cancellation";
+export type {
+  ContinuousBatchEvent,
+  ContinuousBatchTokenRequest,
+  ContinuousBatchTokenSchedulerOptions,
+} from "./infrastructure/generation/continuous-batch";
 
 /** Create the default prompt cache for a decoder model. */
 export function makePromptCache(model: CausalLM): TransformerCache {
@@ -113,6 +122,14 @@ export function generateBatchTokens(
   onEvent?: (event: BatchTokenGenerationEvent) => void,
 ): GenerationResult[] {
   return generateBatchTokensInternal(model, promptTokenIdsBatch, options, onEvent);
+}
+
+/** Create a scheduler-owned continuous greedy batch decoder for full-cache models. */
+export function createContinuousBatchTokenScheduler(
+  model: CausalLM,
+  options: ContinuousBatchTokenSchedulerOptions,
+): ContinuousBatchTokenScheduler {
+  return new ContinuousBatchTokenScheduler(model, options);
 }
 
 /** Stream generated token IDs from a prompt as an async iterable. */

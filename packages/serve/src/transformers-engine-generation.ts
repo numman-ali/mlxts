@@ -35,7 +35,7 @@ import type { NormalizedGenerationRequest, NormalizedGenerationResult } from "./
 
 const STATIC_BATCH_MODEL_TYPES = new Set(["gemma", "llama", "mistral", "mistral3", "phi3"]);
 
-type PreparedGenerationRequest = {
+export type PreparedGenerationRequest = {
   request: NormalizedGenerationRequest;
   prompt: CompiledPrompt | null;
   promptTokens: number;
@@ -69,7 +69,7 @@ function effectiveRepetitionPenalty(options: TransformersGenerationEngineOptions
   return options.model.config.generationDefaults?.repetitionPenalty ?? 1.0;
 }
 
-function canUseStaticBatchGeneration(
+export function canUseStaticBatchGeneration(
   request: NormalizedGenerationRequest,
   options: TransformersGenerationEngineOptions,
 ): boolean {
@@ -98,7 +98,7 @@ function batchGenerationOptions(
   };
 }
 
-function batchOptionsKey(options: BatchGenerationOptions): string {
+export function batchOptionsKey(options: BatchGenerationOptions): string {
   return JSON.stringify({
     temperature: options.temperature,
     topP: options.topP,
@@ -109,7 +109,7 @@ function batchOptionsKey(options: BatchGenerationOptions): string {
   });
 }
 
-function prepareGenerationRequest(
+export function prepareGenerationRequest(
   request: NormalizedGenerationRequest,
   options: TransformersGenerationEngineOptions,
 ): PreparedGenerationRequest {
@@ -131,7 +131,7 @@ function prepareGenerationRequest(
   };
 }
 
-function generatedResultToServeResult(
+export function generatedResultToServeResult(
   prepared: PreparedGenerationRequest,
   options: TransformersGenerationEngineOptions,
   result: GenerationResult,
@@ -176,7 +176,7 @@ function tokenEventsForPreparedRequest(
   );
 }
 
-async function generateSinglePreparedRequest(
+export async function generateSinglePreparedRequest(
   prepared: PreparedGenerationRequest,
   options: TransformersGenerationEngineOptions,
 ): Promise<NormalizedGenerationResult> {

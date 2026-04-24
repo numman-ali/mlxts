@@ -35,6 +35,7 @@ type TrialMetrics = {
   activeDeltaGb: number;
   admissionBatches: number;
   staticBatches: number;
+  continuousAdmissions: number;
   streamChunks: number;
   streamBytes: number;
   finishReasons: string[];
@@ -108,8 +109,17 @@ function createPromptTokenIds(length: number, vocabSize: number): number[] {
   return tokenIds;
 }
 
-function countEvents(events: readonly ServeEvent[], type: ServeEvent["type"]): number {
-  return events.filter((event) => event.type === type).length;
+function countEvents(
+  events: readonly ServeEvent[],
+  type: ServeEvent["type"],
+  mode?: "static" | "continuous",
+): number {
+  return events.filter((event) => {
+    if (event.type !== type) {
+      return false;
+    }
+    return mode === undefined || ("mode" in event && event.mode === mode);
+  }).length;
 }
 
 async function runTrial(
@@ -156,7 +166,8 @@ async function runTrial(
     cacheMemoryGb: memoryAfter.cacheBytes / 1e9,
     activeDeltaGb: (memoryAfter.activeBytes - memoryBefore.activeBytes) / 1e9,
     admissionBatches: countEvents(events, "generation_admission_batch"),
-    staticBatches: countEvents(events, "generation_batch_start"),
+    staticBatches: countEvents(events, "generation_batch_start", "static"),
+    continuousAdmissions: countEvents(events, "generation_batch_start", "continuous"),
     streamChunks,
     streamBytes,
     finishReasons: results.map((result) => result.finishReason),
@@ -182,6 +193,7 @@ function averageTrialMetrics(trials: readonly TrialMetrics[]): TrialMetrics {
     activeDeltaGb: mean(trials.map((trial) => trial.activeDeltaGb)),
     admissionBatches: mean(trials.map((trial) => trial.admissionBatches)),
     staticBatches: mean(trials.map((trial) => trial.staticBatches)),
+    continuousAdmissions: mean(trials.map((trial) => trial.continuousAdmissions)),
     streamChunks: mean(trials.map((trial) => trial.streamChunks)),
     streamBytes: mean(trials.map((trial) => trial.streamBytes)),
     finishReasons: trials.flatMap((trial) => trial.finishReasons),
@@ -216,6 +228,7 @@ function printMetrics(prefix: string, metrics: TrialMetrics): void {
       `active_delta=${metrics.activeDeltaGb.toFixed(3)}`,
       `admission_batches=${metrics.admissionBatches.toFixed(0)}`,
       `static_batches=${metrics.staticBatches.toFixed(0)}`,
+      `continuous_admissions=${metrics.continuousAdmissions.toFixed(0)}`,
       `stream_chunks=${metrics.streamChunks.toFixed(0)}`,
       `stream_bytes=${metrics.streamBytes.toFixed(0)}`,
       `finish_reasons=${[...new Set(metrics.finishReasons)].join("|") || "none"}`,

@@ -273,10 +273,10 @@ describe("serve CLI args", () => {
     expect(formatServeReady("http://127.0.0.1:8000", options)).not.toContain("temperature");
     expect(formatServeReady("http://127.0.0.1:8000", options)).toContain("Prompt-token limit: 128");
     expect(formatServeReady("http://127.0.0.1:8000", options)).toContain(
-      "Micro-batching: max_batch=8 window_ms=2",
+      "Batch scheduler: max_batch=8 window_ms=2",
     );
     expect(formatServeReady("http://127.0.0.1:8000", options)).toContain(
-      "Admission concurrency: max_in_flight=1",
+      "Model execution lanes: max_in_flight=1",
     );
     expect(formatServeReady("http://127.0.0.1:8000", options)).toContain("GPU memory budget: 75%");
     expect(publicBindWarning(options)).toContain("exposes the endpoint");

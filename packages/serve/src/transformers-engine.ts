@@ -11,9 +11,12 @@ import {
   type InteractionProfile,
   type TokenGenerationEvent,
 } from "@mlxts/transformers";
+import { ModelExecutionLane } from "./model-execution-lane";
+import { createContinuousTransformersGeneration } from "./transformers-engine-continuous";
 import {
+  generateSinglePreparedRequest,
   generateTransformersBatch,
-  generateTransformersRequest,
+  prepareGenerationRequest,
 } from "./transformers-engine-generation";
 import {
   compileMessagePrompt,
@@ -32,6 +35,7 @@ import type {
   GenerationEngine,
   GenerationStreamEvent,
   NormalizedGenerationRequest,
+  NormalizedGenerationResult,
   ServeEvent,
 } from "./types";
 
@@ -41,6 +45,9 @@ export type TransformersGenerationEngineOptions = {
   interactionProfile?: InteractionProfile;
   maxPromptTokens?: number;
   maxTotalTokens?: number;
+  maxBatchSize?: number;
+  batchWindowMs?: number;
+  maxConcurrentRequests?: number;
   gpuMemoryUtilization?: number;
   onEvent?: (event: ServeEvent) => void;
 };
@@ -200,47 +207,72 @@ function handleStreamingDoneEvent(
 export function createTransformersGenerationEngine(
   options: TransformersGenerationEngineOptions,
 ): GenerationEngine {
+  const lane = new ModelExecutionLane(options.maxConcurrentRequests ?? 1);
+  const continuous = createContinuousTransformersGeneration(options, lane);
+
+  function generate(
+    request: NormalizedGenerationRequest,
+  ): NormalizedGenerationResult | Promise<NormalizedGenerationResult> {
+    const scheduled = continuous.generate(request);
+    if (scheduled !== null) {
+      return scheduled;
+    }
+    const prepared = prepareGenerationRequest(request, options);
+    return lane.run(() => generateSinglePreparedRequest(prepared, options), request.abortSignal);
+  }
+
   return {
-    generate(request) {
-      return generateTransformersRequest(request, options);
-    },
+    generate,
     generateBatch(requests) {
+      if ((options.maxBatchSize ?? 1) > 1) {
+        return Promise.all(requests.map((request) => generate(request)));
+      }
       return generateTransformersBatch(requests, options);
     },
     async *stream(request) {
-      const prompt = compileMessagePrompt(request, options);
-      const promptTokens = promptTokenCount(request, options, prompt);
-      enforcePromptTokenLimit(options, request, promptTokens);
-      enforceTotalTokenLimit(options, request, promptTokens);
-      enforceGenerationMemoryBudget(options, request, promptTokens);
-      emitGenerationProgress(options, request, promptTokens, 0);
-      const onPrefillProgress = createPrefillProgressReporter(options, request, promptTokens);
-      const decodeInterval = streamDecodeInterval(request.sampling.stop);
-      const tokenEvents = streamTokenEventsForRequest(request, options, prompt, onPrefillProgress);
-      const state = createStreamingDecodeState(prompt);
+      const release = await lane.acquire(request.abortSignal);
+      try {
+        const prompt = compileMessagePrompt(request, options);
+        const promptTokens = promptTokenCount(request, options, prompt);
+        enforcePromptTokenLimit(options, request, promptTokens);
+        enforceTotalTokenLimit(options, request, promptTokens);
+        enforceGenerationMemoryBudget(options, request, promptTokens);
+        emitGenerationProgress(options, request, promptTokens, 0);
+        const onPrefillProgress = createPrefillProgressReporter(options, request, promptTokens);
+        const decodeInterval = streamDecodeInterval(request.sampling.stop);
+        const tokenEvents = streamTokenEventsForRequest(
+          request,
+          options,
+          prompt,
+          onPrefillProgress,
+        );
+        const state = createStreamingDecodeState(prompt);
 
-      for await (const event of tokenEvents) {
-        if (event.type === "token") {
-          const text = handleStreamingTokenEvent(
-            request,
-            options,
-            promptTokens,
-            decodeInterval,
-            state,
-            event,
-          );
-          if (text !== undefined) {
-            yield { type: "text", text };
+        for await (const event of tokenEvents) {
+          if (event.type === "token") {
+            const text = handleStreamingTokenEvent(
+              request,
+              options,
+              promptTokens,
+              decodeInterval,
+              state,
+              event,
+            );
+            if (text !== undefined) {
+              yield { type: "text", text };
+            }
+            continue;
           }
-          continue;
-        }
 
-        const finished = handleStreamingDoneEvent(options, promptTokens, state, event);
-        if (finished.text !== undefined) {
-          yield { type: "text", text: finished.text };
+          const finished = handleStreamingDoneEvent(options, promptTokens, state, event);
+          if (finished.text !== undefined) {
+            yield { type: "text", text: finished.text };
+          }
+          yield finished.done;
+          return;
         }
-        yield finished.done;
-        return;
+      } finally {
+        release();
       }
     },
   };

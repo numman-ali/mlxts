@@ -245,7 +245,7 @@ describe("serveLoadedModel", () => {
     expect(model.disposeCount).toBe(1);
   });
 
-  test("coalesces concurrent non-streaming completions into the transformer batch path", async () => {
+  test("schedules concurrent non-streaming completions through continuous batching", async () => {
     const model = new GeneratingModel();
     const events: ServeEvent[] = [];
     const running = serveLoadedModel({
@@ -263,7 +263,7 @@ describe("serveLoadedModel", () => {
       const body = JSON.stringify({
         model: "tiny",
         prompt: "hi",
-        max_tokens: 2,
+        max_tokens: 16,
         temperature: 0,
       });
       const [first, second] = await Promise.all([
@@ -281,17 +281,13 @@ describe("serveLoadedModel", () => {
 
       expect(first.status).toBe(200);
       expect(second.status).toBe(200);
-      expect(await first.json()).toMatchObject({ choices: [{ text: "cc" }] });
-      expect(await second.json()).toMatchObject({ choices: [{ text: "cc" }] });
+      expect(await first.json()).toMatchObject({ choices: [{ text: "c".repeat(16) }] });
+      expect(await second.json()).toMatchObject({ choices: [{ text: "c".repeat(16) }] });
       expect(model.batchForwardCount).toBeGreaterThan(0);
-      expect(events.find((event) => event.type === "generation_admission_batch")).toMatchObject({
-        mode: "micro",
-        engineMode: "batch",
-        model: "tiny",
-        batchSize: 2,
-      });
-      expect(events.find((event) => event.type === "generation_batch_start")).toMatchObject({
-        mode: "static",
+      expect(
+        events.find((event) => event.type === "generation_batch_start" && event.batchSize === 2),
+      ).toMatchObject({
+        mode: "continuous",
         model: "tiny",
         batchSize: 2,
       });
@@ -300,7 +296,7 @@ describe("serveLoadedModel", () => {
     }
   });
 
-  test("coalesces concurrent completions with mixed max_tokens", async () => {
+  test("schedules concurrent completions with mixed max_tokens", async () => {
     const model = new GeneratingModel();
     const running = serveLoadedModel({
       model,
@@ -324,12 +320,12 @@ describe("serveLoadedModel", () => {
             temperature: 0,
           }),
         });
-      const [short, long] = await Promise.all([request(1), request(2)]);
+      const [short, long] = await Promise.all([request(8), request(16)]);
 
       expect(short.status).toBe(200);
       expect(long.status).toBe(200);
-      expect(await short.json()).toMatchObject({ choices: [{ text: "c" }] });
-      expect(await long.json()).toMatchObject({ choices: [{ text: "cc" }] });
+      expect(await short.json()).toMatchObject({ choices: [{ text: "c".repeat(8) }] });
+      expect(await long.json()).toMatchObject({ choices: [{ text: "c".repeat(16) }] });
       expect(model.batchForwardCount).toBeGreaterThan(0);
     } finally {
       running.stop();

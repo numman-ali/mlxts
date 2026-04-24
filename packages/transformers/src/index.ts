@@ -25,6 +25,10 @@ export {
   smartResizeQwen3_5Image,
 } from "./families/qwen3_5/preprocessing";
 export {
+  type ContinuousBatchEvent,
+  type ContinuousBatchTokenRequest,
+  type ContinuousBatchTokenSchedulerOptions,
+  createContinuousBatchTokenScheduler,
   GenerationAbortError,
   generateBatchTokens,
   generatePreparedTokenEvents,
