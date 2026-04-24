@@ -63,6 +63,7 @@ type BenchmarkReport = {
   snapshotPath: string;
   samplingMode: ServeBenchmarkOptions["samplingMode"];
   transportMode: ServeBenchmarkOptions["transportMode"];
+  protocolMode: ServeBenchmarkOptions["protocolMode"];
   ignoreEos: boolean;
   maxBatchSize: number;
   batchWindowMs: number;
@@ -148,6 +149,16 @@ function createPromptTokenIds(length: number, vocabSize: number): number[] {
   return tokenIds;
 }
 
+function createPromptText(length: number, tokenizer: { encode(text: string): number[] }): string {
+  const seed =
+    "This is a deterministic serving benchmark prompt about Apple Silicon ML throughput. ";
+  let text = seed;
+  while (tokenizer.encode(text).length < length) {
+    text += seed;
+  }
+  return text;
+}
+
 function countEvents(
   events: readonly ServeEvent[],
   type: ServeEvent["type"],
@@ -181,7 +192,7 @@ function sum(values: readonly number[]): number {
 async function runTrial(
   endpoint: string,
   modelId: string,
-  promptTokenIds: readonly number[],
+  prompt: { tokenIds: readonly number[]; text: string },
   rung: ServeBenchmarkRung,
   options: ServeBenchmarkOptions,
   serveEvents: readonly ServeEvent[],
@@ -192,7 +203,7 @@ async function runTrial(
   const eventStart = serveEvents.length;
   const started = performance.now();
   const requests = Array.from({ length: rung.concurrency }, () =>
-    runCompletionRequest(endpoint, modelId, promptTokenIds, rung, options),
+    runCompletionRequest(endpoint, modelId, prompt, rung, options),
   );
   const results = await Promise.all(requests);
   const wallMs = performance.now() - started;
@@ -331,11 +342,13 @@ async function benchmarkRung(
   endpoint: string,
   modelId: string,
   modelVocabSize: number,
+  tokenizer: { encode(text: string): number[] },
   rung: ServeBenchmarkRung,
   options: ServeBenchmarkOptions,
   serveEvents: readonly ServeEvent[],
 ): Promise<RungReport> {
   const promptTokenIds = createPromptTokenIds(rung.promptTokens, modelVocabSize);
+  const prompt = { tokenIds: promptTokenIds, text: createPromptText(rung.promptTokens, tokenizer) };
   console.log(
     [
       `rung prompt_tokens=${rung.promptTokens}`,
@@ -343,17 +356,18 @@ async function benchmarkRung(
       `concurrency=${rung.concurrency}`,
       `sampling=${options.samplingMode}`,
       `transport=${options.transportMode}`,
+      `protocol=${options.protocolMode}`,
     ].join(" "),
   );
 
   if (options.warmup) {
-    await runCompletionRequest(endpoint, modelId, promptTokenIds, rung, options);
+    await runCompletionRequest(endpoint, modelId, prompt, rung, options);
     clearMemoryCache();
   }
 
   const trials: TrialMetrics[] = [];
   for (let index = 0; index < options.trials; index += 1) {
-    const metrics = await runTrial(endpoint, modelId, promptTokenIds, rung, options, serveEvents);
+    const metrics = await runTrial(endpoint, modelId, prompt, rung, options, serveEvents);
     trials.push(metrics);
     printMetrics(`Trial ${index + 1}:  `, metrics);
     clearMemoryCache();
@@ -382,6 +396,7 @@ async function main(): Promise<void> {
       `rungs=${rungs.map(formatRung).join(",")}`,
       `matrix=${options.matrix}`,
       `transport=${options.transportMode}`,
+      `protocol=${options.protocolMode}`,
       `sampling=${options.samplingMode}`,
       `ignore_eos=${options.ignoreEos}`,
       `max_batch_size=${options.maxBatchSize}`,
@@ -427,6 +442,7 @@ async function main(): Promise<void> {
         server.endpoint,
         options.modelId,
         loadedModel.config.vocabSize,
+        tokenizer,
         rung,
         options,
         serveEvents,
@@ -441,6 +457,7 @@ async function main(): Promise<void> {
         snapshotPath,
         samplingMode: options.samplingMode,
         transportMode: options.transportMode,
+        protocolMode: options.protocolMode,
         ignoreEos: options.ignoreEos,
         maxBatchSize: options.maxBatchSize,
         batchWindowMs: options.batchWindowMs,

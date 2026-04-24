@@ -1,6 +1,7 @@
 export type MatrixMode = "cartesian" | "zip";
 export type SamplingMode = "model-defaults" | "greedy";
 export type TransportMode = "non-streaming" | "streaming";
+export type ProtocolMode = "completions" | "chat" | "responses";
 
 export type ServeBenchmarkOptions = {
   model: string;
@@ -15,6 +16,7 @@ export type ServeBenchmarkOptions = {
   matrix: MatrixMode;
   samplingMode: SamplingMode;
   transportMode: TransportMode;
+  protocolMode: ProtocolMode;
   ignoreEos: boolean;
   localFilesOnly: boolean;
   port: number;
@@ -52,6 +54,7 @@ function usage(): never {
       "  --matrix <cartesian|zip>        Pair prompt/output rungs, default cartesian",
       "  --trials <n>                    Trials per rung, default 1",
       "  --report-json <path>            Write a structured JSON report at the end",
+      "  --protocol <name>               completions, chat, or responses; default completions",
       "  --stream                        Measure SSE streaming and time-to-first-token",
       "  --ignore-eos                    Request exact max_tokens for throughput ladders",
       "  --greedy                        Send temperature=0 for deterministic throughput",
@@ -162,6 +165,7 @@ type ParseState = {
   matrix: MatrixMode;
   samplingMode: SamplingMode;
   transportMode: TransportMode;
+  protocolMode: ProtocolMode;
   ignoreEos: boolean;
   localFilesOnly: boolean;
   port: number;
@@ -184,6 +188,7 @@ function defaultParseState(): ParseState {
     matrix: "cartesian",
     samplingMode: "model-defaults",
     transportMode: "non-streaming",
+    protocolMode: "completions",
     ignoreEos: false,
     localFilesOnly: true,
     port: 0,
@@ -193,6 +198,18 @@ function defaultParseState(): ParseState {
     requestTimeoutMs: 3_600_000,
     gpuMemoryUtilization: 0.9,
   };
+}
+
+function parseProtocolMode(value: string | undefined): ProtocolMode {
+  const requiredValue = readRequiredValue("--protocol", value);
+  if (
+    requiredValue === "completions" ||
+    requiredValue === "chat" ||
+    requiredValue === "responses"
+  ) {
+    return requiredValue;
+  }
+  throw new Error('benchmark-serve: --protocol must be "completions", "chat", or "responses".');
 }
 
 function readBenchmarkValueArg(state: ParseState, arg: string, value: string | undefined): boolean {
@@ -223,6 +240,9 @@ function readBenchmarkValueArg(state: ParseState, arg: string, value: string | u
       return true;
     case "--matrix":
       state.matrix = parseMatrixMode(value);
+      return true;
+    case "--protocol":
+      state.protocolMode = parseProtocolMode(value);
       return true;
     default:
       return false;
@@ -318,6 +338,10 @@ export function parseServeBenchmarkArgs(argv: readonly string[]): ServeBenchmark
     usage();
   }
 
+  if (state.protocolMode === "responses" && state.ignoreEos) {
+    throw new Error("benchmark-serve: --ignore-eos is not supported with --protocol responses.");
+  }
+
   return {
     model: state.model,
     modelId: state.modelId ?? defaultModelId(state.model),
@@ -331,6 +355,7 @@ export function parseServeBenchmarkArgs(argv: readonly string[]): ServeBenchmark
     matrix: state.matrix,
     samplingMode: state.samplingMode,
     transportMode: state.transportMode,
+    protocolMode: state.protocolMode,
     ignoreEos: state.ignoreEos,
     localFilesOnly: state.localFilesOnly,
     port: state.port,

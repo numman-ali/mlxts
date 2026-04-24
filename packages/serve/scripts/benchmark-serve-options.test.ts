@@ -22,6 +22,7 @@ describe("serve benchmark options", () => {
       matrix: "cartesian",
       samplingMode: "model-defaults",
       transportMode: "non-streaming",
+      protocolMode: "completions",
       ignoreEos: false,
       localFilesOnly: true,
       port: 0,
@@ -51,6 +52,8 @@ describe("serve benchmark options", () => {
       "3",
       "--report-json",
       ".tmp/serve-report.json",
+      "--protocol",
+      "chat",
       "--matrix",
       "zip",
       "--port",
@@ -92,6 +95,7 @@ describe("serve benchmark options", () => {
       matrix: "zip",
       samplingMode: "greedy",
       transportMode: "streaming",
+      protocolMode: "chat",
       ignoreEos: true,
       localFilesOnly: false,
       port: 8081,
@@ -173,6 +177,12 @@ describe("serve benchmark options", () => {
     expect(() => parseServeBenchmarkArgs(["model", "--matrix", "diagonal"])).toThrow(
       '--matrix must be "cartesian" or "zip"',
     );
+    expect(() => parseServeBenchmarkArgs(["model", "--protocol", "anthropic"])).toThrow(
+      '--protocol must be "completions", "chat", or "responses"',
+    );
+    expect(() =>
+      parseServeBenchmarkArgs(["model", "--protocol", "responses", "--ignore-eos"]),
+    ).toThrow("--ignore-eos is not supported with --protocol responses");
     expect(() => parsePositiveIntegerList("--concurrency", "1,0")).toThrow(
       "--concurrency expects a positive integer",
     );

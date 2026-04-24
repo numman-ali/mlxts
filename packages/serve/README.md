@@ -237,8 +237,13 @@ The batch row counters are important: Qwen and Gemma4 currently exercise the
 single-request path even when requests are admitted together, so endpoint
 benchmark output should be used to separate real batch execution from admission
 coalescing. This harness measures completions serving over token-array prompts;
-chat, Responses, tools, and prompt-template quality need their own protocol
-benchmarks rather than being inferred from these exact-token runs.
+use `--protocol chat` or `--protocol responses` when the thing under test is the
+wire adapter and chat-template path. Completions remains the exact-token
+throughput mode; chat and Responses use deterministic text prompts and should be
+reported as protocol health, not exact token-array parity. `--ignore-eos` is
+rejected with `--protocol responses` because the current Responses benchmark
+does not expose that nonstandard serving extension. Tool quality still needs its
+own benchmark.
 
 ## Engine Primitives
 

@@ -17,6 +17,7 @@ describe("serve benchmark reports", () => {
         snapshotPath: "/tmp/model",
         samplingMode: "greedy",
         transportMode: "non-streaming",
+        protocolMode: "completions",
         ignoreEos: true,
         maxBatchSize: 8,
         batchWindowMs: 2,

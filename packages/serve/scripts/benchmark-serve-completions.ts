@@ -21,6 +21,34 @@ type CompletionResponseBody = {
   usage?: CompletionUsage | null;
 };
 
+type ChatResponseBody = {
+  choices?: Array<{
+    message?: { content?: string | null; reasoning_content?: string };
+    delta?: { content?: string; reasoning_content?: string };
+    finish_reason?: string | null;
+  }>;
+  usage?: CompletionUsage | null;
+};
+
+type ResponseApiUsage = {
+  input_tokens?: number;
+  output_tokens?: number;
+  total_tokens?: number;
+};
+
+type ResponseApiBody = {
+  status?: string;
+  incomplete_details?: { reason?: string } | null;
+  usage?: ResponseApiUsage | null;
+  output_text?: string;
+  response?: ResponseApiBody;
+};
+
+export type BenchmarkPrompt = {
+  tokenIds: readonly number[];
+  text: string;
+};
+
 export type RequestMetrics = {
   durationMs: number;
   ttftMs: number | null;
@@ -36,7 +64,7 @@ export type RequestMetrics = {
 
 function completionRequestBody(
   modelId: string,
-  promptTokenIds: readonly number[],
+  prompt: BenchmarkPrompt,
   generationTokens: number,
   samplingMode: SamplingMode,
   transportMode: TransportMode,
@@ -44,7 +72,7 @@ function completionRequestBody(
 ) {
   return {
     model: modelId,
-    prompt: [...promptTokenIds],
+    prompt: [...prompt.tokenIds],
     max_tokens: generationTokens,
     ...(transportMode === "streaming"
       ? { stream: true, stream_options: { include_usage: true } }
@@ -54,16 +82,103 @@ function completionRequestBody(
   };
 }
 
+function chatRequestBody(
+  modelId: string,
+  prompt: BenchmarkPrompt,
+  generationTokens: number,
+  samplingMode: SamplingMode,
+  transportMode: TransportMode,
+  ignoreEos: boolean,
+) {
+  return {
+    model: modelId,
+    messages: [{ role: "user", content: prompt.text }],
+    max_tokens: generationTokens,
+    ...(transportMode === "streaming"
+      ? { stream: true, stream_options: { include_usage: true } }
+      : {}),
+    ...(ignoreEos ? { ignore_eos: true } : {}),
+    ...(samplingMode === "greedy" ? { temperature: 0 } : {}),
+  };
+}
+
+function responsesRequestBody(
+  modelId: string,
+  prompt: BenchmarkPrompt,
+  generationTokens: number,
+  samplingMode: SamplingMode,
+  transportMode: TransportMode,
+) {
+  return {
+    model: modelId,
+    input: [{ role: "user", content: prompt.text }],
+    max_output_tokens: generationTokens,
+    ...(transportMode === "streaming"
+      ? { stream: true, stream_options: { include_obfuscation: false } }
+      : {}),
+    ...(samplingMode === "greedy" ? { temperature: 0 } : {}),
+  };
+}
+
+function requestPath(options: ServeBenchmarkOptions): string {
+  switch (options.protocolMode) {
+    case "completions":
+      return "/v1/completions";
+    case "chat":
+      return "/v1/chat/completions";
+    case "responses":
+      return "/v1/responses";
+  }
+}
+
+function requestBody(
+  modelId: string,
+  prompt: BenchmarkPrompt,
+  rung: ServeBenchmarkRung,
+  options: ServeBenchmarkOptions,
+) {
+  switch (options.protocolMode) {
+    case "completions":
+      return completionRequestBody(
+        modelId,
+        prompt,
+        rung.generationTokens,
+        options.samplingMode,
+        options.transportMode,
+        options.ignoreEos,
+      );
+    case "chat":
+      return chatRequestBody(
+        modelId,
+        prompt,
+        rung.generationTokens,
+        options.samplingMode,
+        options.transportMode,
+        options.ignoreEos,
+      );
+    case "responses":
+      return responsesRequestBody(
+        modelId,
+        prompt,
+        rung.generationTokens,
+        options.samplingMode,
+        options.transportMode,
+      );
+  }
+}
+
 function requestSignal(options: ServeBenchmarkOptions): AbortSignal {
   return AbortSignal.timeout(options.requestTimeoutMs);
 }
 
-function completionFinishReason(body: CompletionResponseBody): string {
+function completionFinishReason(body: {
+  choices?: Array<{ finish_reason?: string | null }>;
+}): string {
   const choice = body.choices?.[0];
   return choice?.finish_reason ?? "unknown";
 }
 
-function completionUsage(body: CompletionResponseBody): Required<CompletionUsage> {
+function completionUsage(body: { usage?: CompletionUsage | null }): Required<CompletionUsage> {
   const usage = body.usage ?? {};
   return {
     prompt_tokens: usage.prompt_tokens ?? 0,
@@ -72,37 +187,67 @@ function completionUsage(body: CompletionResponseBody): Required<CompletionUsage
   };
 }
 
+function responsesUsage(body: ResponseApiBody): Required<CompletionUsage> {
+  const usage = body.usage ?? {};
+  return {
+    prompt_tokens: usage.input_tokens ?? 0,
+    completion_tokens: usage.output_tokens ?? 0,
+    total_tokens: usage.total_tokens ?? 0,
+  };
+}
+
+function isResponseApiBody(
+  body: CompletionResponseBody | ChatResponseBody | ResponseApiBody,
+): body is ResponseApiBody {
+  return "output_text" in body || "response" in body || "status" in body;
+}
+
+function responseApiFinishReason(body: ResponseApiBody): string {
+  if (body.status === "incomplete" && body.incomplete_details?.reason === "max_output_tokens") {
+    return "length";
+  }
+  if (body.status === "completed") {
+    return "stop";
+  }
+  return body.status ?? "unknown";
+}
+
+function responseUsage(body: CompletionResponseBody | ChatResponseBody | ResponseApiBody) {
+  return isResponseApiBody(body) ? responsesUsage(body) : completionUsage(body);
+}
+
+function responseFinishReason(body: CompletionResponseBody | ChatResponseBody | ResponseApiBody) {
+  if (isResponseApiBody(body)) {
+    return responseApiFinishReason(body);
+  }
+  return completionFinishReason(body);
+}
+
 async function runBufferedCompletionRequest(
   endpoint: string,
   modelId: string,
-  promptTokenIds: readonly number[],
+  prompt: BenchmarkPrompt,
   rung: ServeBenchmarkRung,
   options: ServeBenchmarkOptions,
 ): Promise<RequestMetrics> {
   const started = performance.now();
-  const response = await fetch(`${endpoint}/v1/completions`, {
+  const response = await fetch(`${endpoint}${requestPath(options)}`, {
     method: "POST",
     headers: { "content-type": "application/json" },
     signal: requestSignal(options),
-    body: JSON.stringify(
-      completionRequestBody(
-        modelId,
-        promptTokenIds,
-        rung.generationTokens,
-        options.samplingMode,
-        options.transportMode,
-        options.ignoreEos,
-      ),
-    ),
+    body: JSON.stringify(requestBody(modelId, prompt, rung, options)),
   });
-  const body = (await response.json()) as CompletionResponseBody;
+  const body = (await response.json()) as
+    | CompletionResponseBody
+    | ChatResponseBody
+    | ResponseApiBody;
   const durationMs = performance.now() - started;
   if (!response.ok) {
     throw new Error(
       `benchmark-serve: request failed (${response.status}): ${JSON.stringify(body)}`,
     );
   }
-  const usage = completionUsage(body);
+  const usage = responseUsage(body);
   return {
     durationMs,
     ttftMs: null,
@@ -111,7 +256,7 @@ async function runBufferedCompletionRequest(
     promptTokens: usage.prompt_tokens,
     completionTokens: usage.completion_tokens,
     totalTokens: usage.total_tokens,
-    finishReason: completionFinishReason(body),
+    finishReason: responseFinishReason(body),
     streamChunks: 0,
     streamBytes: 0,
   };
@@ -154,7 +299,7 @@ function initialStreamingCompletionMetrics(): StreamingCompletionMetrics {
 
 function updateStreamingCompletionMetrics(
   metrics: StreamingCompletionMetrics,
-  body: CompletionResponseBody,
+  body: CompletionResponseBody | ChatResponseBody,
   started: number,
 ): void {
   if (body.usage !== undefined && body.usage !== null) {
@@ -168,48 +313,96 @@ function updateStreamingCompletionMetrics(
   if (choice.finish_reason !== undefined && choice.finish_reason !== null) {
     metrics.finishReason = choice.finish_reason;
   }
-  if (choice.text !== undefined && choice.text !== "") {
+  let text: string | undefined;
+  if ("text" in choice) {
+    text = choice.text;
+  } else if ("delta" in choice) {
+    text = choice.delta?.content ?? choice.delta?.reasoning_content;
+  }
+  if (text !== undefined && text !== "") {
     metrics.streamChunks += 1;
     metrics.ttftMs ??= performance.now() - started;
   }
 }
 
-function handleCompletionSsePayload(
+function updateStreamingResponseMetrics(
+  metrics: StreamingCompletionMetrics,
+  body: ResponseApiBody,
+  event: string | null,
+  started: number,
+): void {
+  const response = body.response ?? body;
+  if (response.usage !== undefined && response.usage !== null) {
+    metrics.usage = responsesUsage(response);
+  }
+  if (event === "response.completed" || event === "response.incomplete") {
+    metrics.finishReason = responseApiFinishReason(response);
+  }
+  const delta = body.output_text ?? (body as { delta?: unknown }).delta;
+  if (
+    (event === "response.output_text.delta" || event === "response.reasoning_text.delta") &&
+    typeof delta === "string" &&
+    delta !== ""
+  ) {
+    metrics.streamChunks += 1;
+    metrics.ttftMs ??= performance.now() - started;
+  }
+}
+
+function sseEventName(frame: string): string | null {
+  const eventLine = frame.split(/\r?\n/).find((line) => line.startsWith("event:"));
+  return eventLine === undefined ? null : eventLine.slice("event:".length).trimStart();
+}
+
+function validateStreamingMetrics(metrics: StreamingCompletionMetrics): void {
+  if (metrics.usage.total_tokens <= 0) {
+    throw new Error("benchmark-serve: streaming request ended without usage.");
+  }
+  if (metrics.finishReason === "unknown") {
+    throw new Error("benchmark-serve: streaming request ended without a finish reason.");
+  }
+}
+
+function handleSsePayload(
   payload: string,
   metrics: StreamingCompletionMetrics,
   started: number,
+  options: ServeBenchmarkOptions,
+  event: string | null,
 ): void {
   if (payload === "" || payload === "[DONE]") {
     return;
   }
-  updateStreamingCompletionMetrics(metrics, JSON.parse(payload) as CompletionResponseBody, started);
+  if (options.protocolMode === "responses") {
+    updateStreamingResponseMetrics(metrics, JSON.parse(payload) as ResponseApiBody, event, started);
+    return;
+  }
+  updateStreamingCompletionMetrics(
+    metrics,
+    JSON.parse(payload) as CompletionResponseBody | ChatResponseBody,
+    started,
+  );
 }
 
 async function runStreamingCompletionRequest(
   endpoint: string,
   modelId: string,
-  promptTokenIds: readonly number[],
+  prompt: BenchmarkPrompt,
   rung: ServeBenchmarkRung,
   options: ServeBenchmarkOptions,
 ): Promise<RequestMetrics> {
   const started = performance.now();
-  const response = await fetch(`${endpoint}/v1/completions`, {
+  const response = await fetch(`${endpoint}${requestPath(options)}`, {
     method: "POST",
     headers: { "content-type": "application/json" },
     signal: requestSignal(options),
-    body: JSON.stringify(
-      completionRequestBody(
-        modelId,
-        promptTokenIds,
-        rung.generationTokens,
-        options.samplingMode,
-        options.transportMode,
-        options.ignoreEos,
-      ),
-    ),
+    body: JSON.stringify(requestBody(modelId, prompt, rung, options)),
   });
   if (!response.ok) {
-    const body = (await response.json()) as CompletionResponseBody;
+    const body = (await response.json()) as
+      | CompletionResponseBody
+      | ChatResponseBody
+      | ResponseApiBody;
     throw new Error(
       `benchmark-serve: request failed (${response.status}): ${JSON.stringify(body)}`,
     );
@@ -232,8 +425,9 @@ async function runStreamingCompletionRequest(
     streamBytes += read.value.byteLength;
     buffer += decoder.decode(read.value, { stream: true });
     const consumed = consumeSseFrames(buffer, (frame) => {
+      const event = sseEventName(frame);
       for (const payload of sseDataPayloads(frame)) {
-        handleCompletionSsePayload(payload, metrics, started);
+        handleSsePayload(payload, metrics, started, options, event);
       }
     });
     buffer = consumed.remainder;
@@ -241,8 +435,9 @@ async function runStreamingCompletionRequest(
 
   buffer += decoder.decode();
   consumeSseFrames(`${buffer}\n\n`, (frame) => {
+    const event = sseEventName(frame);
     for (const payload of sseDataPayloads(frame)) {
-      handleCompletionSsePayload(payload, metrics, started);
+      handleSsePayload(payload, metrics, started, options, event);
     }
   });
 
@@ -254,6 +449,8 @@ async function runStreamingCompletionRequest(
     ttftMs === null || durationMs <= ttftMs || metrics.usage.completion_tokens <= 1
       ? null
       : (metrics.usage.completion_tokens - 1) / ((durationMs - ttftMs) / 1000);
+
+  validateStreamingMetrics(metrics);
 
   return {
     durationMs,
@@ -272,11 +469,11 @@ async function runStreamingCompletionRequest(
 export async function runCompletionRequest(
   endpoint: string,
   modelId: string,
-  promptTokenIds: readonly number[],
+  prompt: BenchmarkPrompt,
   rung: ServeBenchmarkRung,
   options: ServeBenchmarkOptions,
 ): Promise<RequestMetrics> {
   return options.transportMode === "streaming"
-    ? await runStreamingCompletionRequest(endpoint, modelId, promptTokenIds, rung, options)
-    : await runBufferedCompletionRequest(endpoint, modelId, promptTokenIds, rung, options);
+    ? await runStreamingCompletionRequest(endpoint, modelId, prompt, rung, options)
+    : await runBufferedCompletionRequest(endpoint, modelId, prompt, rung, options);
 }

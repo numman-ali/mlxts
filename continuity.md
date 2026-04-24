@@ -139,6 +139,13 @@ work as a usable text endpoint while benchmark and scheduler work continues.
   model-native sampling defaults, and keeps tools/state/multimodal explicitly
   rejected. Focused tests and typecheck pass; see
   `docs/reviews/2026-04-24-serve-responses-text-streaming.md`.
+- `bench:serve` now has protocol modes. `--protocol completions` remains the
+  exact token-array throughput path; `--protocol chat` and
+  `--protocol responses` exercise the real wire adapters with deterministic text
+  prompts. Live LLaMA 3.2 1B smokes passed for streaming chat and streaming
+  Responses after the harness learned to fail streams that end without usage or
+  a finish reason. See
+  `docs/reviews/2026-04-24-serve-protocol-benchmarking.md`.
 
 ## Next Work
 
