@@ -3,7 +3,7 @@
  * @module
  */
 
-import { ServeError } from "./errors";
+import { toServeError } from "./errors";
 import { readGenerationMemoryUsage } from "./memory-telemetry";
 import type { NormalizedGenerationRequest, NormalizedGenerationResult, ServeEvent } from "./types";
 
@@ -54,14 +54,8 @@ export function serveErrorDetails(error: unknown): {
   code: string;
   status: number;
 } {
-  if (error instanceof ServeError) {
-    return { message: error.message, code: error.code, status: error.status };
-  }
-  return {
-    message: error instanceof Error ? error.message : String(error),
-    code: "internal_error",
-    status: 500,
-  };
+  const serveError = toServeError(error);
+  return { message: serveError.message, code: serveError.code, status: serveError.status };
 }
 
 export function emitGenerationStart(

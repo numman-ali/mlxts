@@ -37,6 +37,8 @@ export type GenerationOptions = SamplerOptions & {
   cache?: TransformerCache;
   addSpecialTokens?: boolean;
   prefillStepSize?: number;
+  /** Cooperative cancellation signal checked between prefill chunks and decode steps. */
+  abortSignal?: AbortSignal;
   /** Called after each cached prompt-prefill chunk completes. */
   onPrefillProgress?: (event: PrefillProgressEvent) => void;
 };
@@ -48,7 +50,7 @@ export type BatchGenerationOptions = Omit<GenerationOptions, "maxTokens" | "onPr
 
 export type GenerationDefaults = Omit<
   GenerationOptions,
-  "addSpecialTokens" | "maxTokens" | "cache" | "onPrefillProgress"
+  "addSpecialTokens" | "maxTokens" | "cache" | "onPrefillProgress" | "abortSignal"
 >;
 
 export type GenerationResult = {

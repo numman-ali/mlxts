@@ -42,6 +42,7 @@ export function generationOptions(
     ...(request.sampling.topP === undefined ? {} : { topP: request.sampling.topP }),
     ...(request.sampling.topK === undefined ? {} : { topK: request.sampling.topK }),
     ...(request.sampling.seed === undefined ? {} : { seed: request.sampling.seed }),
+    ...(request.abortSignal === undefined ? {} : { abortSignal: request.abortSignal }),
     ...(onPrefillProgress === undefined ? {} : { onPrefillProgress }),
   };
 }

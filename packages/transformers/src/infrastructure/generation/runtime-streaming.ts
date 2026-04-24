@@ -23,6 +23,7 @@ import type {
 } from "../../types";
 import { retainPromptInputEmbeddings, retainPromptPositionIds } from "../input-embeddings";
 import { SamplerState } from "../sampling";
+import { throwIfGenerationAborted } from "./cancellation";
 import { resolveGenerationOptions } from "./defaults";
 import { type PrefilledPrompt, prefillPromptCache, validatePrefillStepSize } from "./helpers";
 import {
@@ -87,6 +88,7 @@ async function* streamWithCache(
             promptInputEmbeddings,
             promptPositionIds,
             options.onPrefillProgress,
+            options.abortSignal,
           )
         : {
             tokenIds: [...promptTokenIds],
@@ -103,6 +105,7 @@ async function* streamWithCache(
           },
     );
     const activePrompt = initialPrompt;
+    throwIfGenerationAborted(options.abortSignal, "generateTokens");
     currentToken = withDefaultStream(scope.stream, () =>
       predictNextTokenWithState(
         model,
@@ -120,6 +123,7 @@ async function* streamWithCache(
     });
 
     for (let index = 0; index < options.maxTokens; index += 1) {
+      throwIfGenerationAborted(options.abortSignal, "generateTokens");
       const activeToken = takeCurrentToken(currentToken);
       if (index + 1 < options.maxTokens) {
         nextToken = withDefaultStream(scope.stream, () =>
@@ -130,6 +134,7 @@ async function* streamWithCache(
       const tokenId = withDefaultStream(scope.stream, () => activeToken.item());
       generated.push(tokenId);
       yield { type: "token", tokenId, completionTokens: generated.length };
+      throwIfGenerationAborted(options.abortSignal, "generateTokens");
 
       const eosFinishReason = finishIfEos(eosTokenIds, tokenId);
       if (eosFinishReason !== null) {
@@ -187,6 +192,7 @@ async function* streamWithoutCache(
   let currentToken: MxArray | null = null;
 
   try {
+    throwIfGenerationAborted(options.abortSignal, "generateTokens");
     currentToken = withDefaultStream(scope.stream, () =>
       predictNextTokenWithState(
         model,
@@ -199,10 +205,12 @@ async function* streamWithoutCache(
       ),
     );
     for (let index = 0; index < options.maxTokens; index += 1) {
+      throwIfGenerationAborted(options.abortSignal, "generateTokens");
       const activeToken = takeCurrentToken(currentToken);
       const tokenId = withDefaultStream(scope.stream, () => activeToken.item());
       generated.push(tokenId);
       yield { type: "token", tokenId, completionTokens: generated.length };
+      throwIfGenerationAborted(options.abortSignal, "generateTokens");
       runningPrompt.push(tokenId);
 
       const eosFinishReason = finishIfEos(eosTokenIds, tokenId);

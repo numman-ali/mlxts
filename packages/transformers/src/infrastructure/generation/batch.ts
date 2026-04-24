@@ -12,6 +12,7 @@ import type {
   GenerationResult,
 } from "../../types";
 import { BatchKVCache } from "../cache";
+import { throwIfGenerationAborted } from "./cancellation";
 import { resolveGenerationOptions } from "./defaults";
 import { takeLastLogits } from "./helpers";
 import { finishIfEos, runGenerationScope } from "./runtime";
@@ -261,6 +262,7 @@ function runGreedyBatchDecode(
   eosTokenIds: ReadonlySet<number>,
   results: GenerationResult[],
   onEvent: ((event: BatchTokenGenerationEvent) => void) | undefined,
+  abortSignal: AbortSignal | undefined,
 ): void {
   let activeOriginalIndices = [...initialActiveOriginalIndices];
   let currentToken: MxArray | null = initialToken;
@@ -268,6 +270,7 @@ function runGreedyBatchDecode(
 
   try {
     for (let step = 0; step < maxDecodeSteps; step += 1) {
+      throwIfGenerationAborted(abortSignal, "generateBatchTokens");
       const tokenIds = tokenTensorToIds(currentToken);
       const { keepPositions, nextActiveOriginalIndices } = recordGeneratedBatchTokens(
         activeOriginalIndices,
@@ -277,6 +280,7 @@ function runGreedyBatchDecode(
         results,
         onEvent,
       );
+      throwIfGenerationAborted(abortSignal, "generateBatchTokens");
 
       currentToken.free();
       currentToken = null;
@@ -333,9 +337,11 @@ export function generateBatchTokensInternal(
   );
 
   return runGenerationScope(() => {
+    throwIfGenerationAborted(resolvedOptions.abortSignal, "generateBatchTokens");
     using cache = new BatchKVCache(model.layerCount, leftPadding);
     using promptInput = array(padded, "int32");
     const initialToken = sampleNextBatchToken(model, promptInput, cache);
+    throwIfGenerationAborted(resolvedOptions.abortSignal, "generateBatchTokens");
     runGreedyBatchDecode(
       model,
       cache,
@@ -345,6 +351,7 @@ export function generateBatchTokensInternal(
       eosTokenIds,
       results,
       onEvent,
+      resolvedOptions.abortSignal,
     );
     return results;
   });

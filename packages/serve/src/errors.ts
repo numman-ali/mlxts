@@ -3,6 +3,8 @@
  * @module
  */
 
+import { GenerationAbortError } from "@mlxts/transformers";
+
 export class ServeError extends Error {
   readonly status: number;
   readonly code: string;
@@ -30,14 +32,28 @@ export function jsonResponse(body: unknown, status = 200): Response {
   });
 }
 
+/** Convert thrown values into the serving error envelope used by HTTP and events. */
+export function toServeError(error: unknown): ServeError {
+  if (error instanceof ServeError) {
+    return error;
+  }
+  if (
+    error instanceof GenerationAbortError ||
+    (error instanceof Error && error.name === "AbortError")
+  ) {
+    return new ServeError("Client disconnected before generation completed.", {
+      status: 499,
+      code: "client_cancelled",
+    });
+  }
+  return new ServeError(error instanceof Error ? error.message : String(error), {
+    status: 500,
+    code: "internal_error",
+  });
+}
+
 export function openAIErrorResponse(error: unknown): Response {
-  const serveError =
-    error instanceof ServeError
-      ? error
-      : new ServeError(error instanceof Error ? error.message : String(error), {
-          status: 500,
-          code: "internal_error",
-        });
+  const serveError = toServeError(error);
 
   return jsonResponse(
     {

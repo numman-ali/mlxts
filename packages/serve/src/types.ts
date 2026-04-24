@@ -46,6 +46,7 @@ export type NormalizedGenerationRequest = {
   sampling: GenerationSamplingOptions;
   stream: boolean;
   protocol: GenerationProtocol;
+  abortSignal?: AbortSignal;
   metadata?: Record<string, unknown>;
 };
 

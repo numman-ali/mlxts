@@ -25,6 +25,7 @@ export {
   smartResizeQwen3_5Image,
 } from "./families/qwen3_5/preprocessing";
 export {
+  GenerationAbortError,
   generateBatchTokens,
   generatePreparedTokenEvents,
   generatePreparedTokens,

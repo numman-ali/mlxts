@@ -232,6 +232,7 @@ describe("serve fetch handler", () => {
       sampling: { maxTokens: 4, temperature: 0 },
       protocol: "openai.completions",
     });
+    expect(seen[0]?.abortSignal).toBeDefined();
     expect(body.choices[0].text).toBe("echo:Hello");
     expect(body.usage).toEqual({ prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 });
     expect(
@@ -325,6 +326,7 @@ describe("serve fetch handler", () => {
       sampling: { maxTokens: 4, temperature: 0 },
       protocol: "openai.chat_completions",
     });
+    expect(seen[0]?.abortSignal).toBeDefined();
     expect(body.choices[0].message.content).toBe("chat:messages");
     expect(body.usage).toEqual({ prompt_tokens: 4, completion_tokens: 2, total_tokens: 6 });
   });
@@ -375,6 +377,7 @@ describe("serve fetch handler", () => {
       sampling: { maxTokens: 4, temperature: 0 },
       protocol: "openai.responses",
     });
+    expect(seen[0]?.abortSignal).toBeDefined();
     expect(body.object).toBe("response");
     expect(body.output_text).toBe("response:messages");
     expect(body.output[0]).toMatchObject({
@@ -533,6 +536,64 @@ describe("serve fetch handler", () => {
     });
   });
 
+  test("returns client_cancelled when a non-streaming request aborts during generation", async () => {
+    const events: ServeEvent[] = [];
+    const controller = new AbortController();
+    let enteredGeneration!: () => void;
+    const entered = new Promise<void>((resolve) => {
+      enteredGeneration = resolve;
+    });
+    const fetch = createFetchHandler({
+      engine: {
+        generate(normalized) {
+          enteredGeneration();
+          return new Promise<never>((_resolve, reject) => {
+            if (normalized.abortSignal?.aborted) {
+              const error = new Error("aborted");
+              error.name = "AbortError";
+              reject(error);
+              return;
+            }
+            normalized.abortSignal?.addEventListener(
+              "abort",
+              () => {
+                const error = new Error("aborted");
+                error.name = "AbortError";
+                reject(error);
+              },
+              { once: true },
+            );
+          });
+        },
+      },
+      idGenerator: () => "cmpl-cancel",
+      onEvent: (event) => events.push(event),
+    });
+
+    const responsePromise = fetch(
+      new Request("http://localhost/v1/completions", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ model: "tiny", prompt: "Hello" }),
+        signal: controller.signal,
+      }),
+    );
+    await entered;
+    controller.abort();
+    const response = await responsePromise;
+    const body = await response.json();
+
+    expect(response.status).toBe(499);
+    expect(body.error.code).toBe("client_cancelled");
+    expect(events.find((event) => event.type === "generation_error")).toMatchObject({
+      code: "client_cancelled",
+    });
+    expect(events.find((event) => event.type === "request_error")).toMatchObject({
+      code: "client_cancelled",
+      status: 499,
+    });
+  });
+
   test("returns OpenAI-shaped server errors for malformed batch engine results", async () => {
     const events: ServeEvent[] = [];
     const fetch = createFetchHandler({
@@ -653,11 +714,13 @@ describe("serve fetch handler", () => {
   test("cancels streaming chat responses when the client disconnects", async () => {
     const events: ServeEvent[] = [];
     let streamClosed = false;
+    let seenSignal: AbortSignal | undefined;
     const engine: GenerationEngine = {
       generate() {
         throw new Error("generate should not be used");
       },
-      async *stream() {
+      async *stream(normalized) {
+        seenSignal = normalized.abortSignal;
         try {
           yield { type: "text", text: "Hello" };
           await new Promise((resolve) => setTimeout(resolve, 10));
@@ -700,6 +763,7 @@ describe("serve fetch handler", () => {
     await new Promise((resolve) => setTimeout(resolve, 25));
 
     expect(streamClosed).toBe(true);
+    expect(seenSignal?.aborted).toBe(true);
     expect(events.find((event) => event.type === "generation_complete")).toMatchObject({
       finishReason: "cancelled",
     });

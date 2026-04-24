@@ -324,6 +324,10 @@ async function readStreamEvent(
   iterator: AsyncIterator<GenerationStreamEvent>,
   signal: AbortSignal | undefined,
 ): Promise<StreamReadResult> {
+  if (streamWasCancelled(signal)) {
+    await iterator.return?.();
+    return { type: "cancelled" };
+  }
   const next = await nextStreamEvent(iterator);
   if (next.done) {
     return { type: "finished" };

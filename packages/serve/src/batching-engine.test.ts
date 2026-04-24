@@ -143,6 +143,32 @@ describe("micro-batching generation engine", () => {
     expect(batchIds).toEqual([["timer"]]);
   });
 
+  test("rejects pending requests aborted before the micro-batch flush", async () => {
+    const controller = new AbortController();
+    const seen: string[] = [];
+    const inner: GenerationEngine = {
+      generateBatch(requests) {
+        seen.push(...requests.map((request) => request.id));
+        return requests.map((request) => ({ text: request.id, finishReason: "stop" }));
+      },
+      generate(request) {
+        seen.push(request.id);
+        return { text: request.id, finishReason: "stop" };
+      },
+    };
+    const engine = createMicroBatchingGenerationEngine({
+      engine: inner,
+      batchWindowMs: 10,
+    });
+
+    const result = engine.generate({ ...textRequest("cancelled"), abortSignal: controller.signal });
+    controller.abort();
+
+    await expect(result).rejects.toThrow("cancelled");
+    await Bun.sleep(15);
+    expect(seen).toEqual([]);
+  });
+
   test("rejects incomplete batch result slots", async () => {
     const engine = createMicroBatchingGenerationEngine({
       engine: {

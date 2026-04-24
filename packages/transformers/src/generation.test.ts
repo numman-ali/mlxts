@@ -3,6 +3,7 @@ import { describe, expect, test } from "bun:test";
 import { array, type MxArray, type ParameterTree } from "@mlxts/core";
 import type { Tokenizer } from "@mlxts/tokenizers";
 import {
+  GenerationAbortError,
   generateBatchTokens,
   generatePreparedTokenEvents,
   generateStep,
@@ -284,6 +285,51 @@ describe("generation", () => {
       { type: "token", tokenId: 2, completionTokens: 3 },
       { type: "done", tokenIds: [2, 2, 2], finishReason: "length" },
     ]);
+  });
+
+  test("generateTokenEvents aborts cooperatively between decode tokens", async () => {
+    using model = new DeterministicGenerationModel();
+    const controller = new AbortController();
+    const iterator = generateTokenEvents(model, [0], {
+      maxTokens: 3,
+      temperature: 0,
+      eosTokenIds: [],
+      abortSignal: controller.signal,
+    })[Symbol.asyncIterator]();
+
+    expect(await iterator.next()).toEqual({
+      done: false,
+      value: { type: "token", tokenId: 2, completionTokens: 1 },
+    });
+    controller.abort();
+
+    await expect(iterator.next()).rejects.toBeInstanceOf(GenerationAbortError);
+  });
+
+  test("generateTokenEvents aborts cooperatively between prefill chunks", async () => {
+    using model = new DeterministicGenerationModel();
+    const controller = new AbortController();
+    const events: PrefillProgressEvent[] = [];
+
+    await expect(
+      (async () => {
+        for await (const _event of generateTokenEvents(model, [0, 1, 2, 0, 1], {
+          maxTokens: 1,
+          temperature: 0,
+          eosTokenIds: [],
+          prefillStepSize: 2,
+          abortSignal: controller.signal,
+          onPrefillProgress(event) {
+            events.push(event);
+            controller.abort();
+          },
+        })) {
+          // Exhaust stream until cancellation surfaces.
+        }
+      })(),
+    ).rejects.toBeInstanceOf(GenerationAbortError);
+
+    expect(events).toEqual([{ processedTokens: 2, totalTokens: 4, chunkTokens: 2 }]);
   });
 
   test("generateTokenEvents validates prompt and token limits", () => {

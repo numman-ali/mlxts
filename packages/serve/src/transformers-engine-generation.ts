@@ -8,10 +8,11 @@ import {
   type CausalLM,
   type GenerationResult,
   generateBatchTokens,
-  generateTextStream,
-  generateTokens,
+  generatePreparedTokenEvents,
+  generateTokenEvents,
 } from "@mlxts/transformers";
 import { ServeError } from "./errors";
+import { type LinkedAbortSignal, linkAbortSignals } from "./server-abort";
 import type { TransformersGenerationEngineOptions } from "./transformers-engine";
 import {
   applyStopSequences,
@@ -128,25 +129,6 @@ function prepareGenerationRequest(
   };
 }
 
-function generateTokenPrompt(
-  request: NormalizedGenerationRequest,
-  options: TransformersGenerationEngineOptions,
-  prompt: { tokenIds: readonly number[] } | null,
-  onPrefillProgress: ReturnType<typeof createPrefillProgressReporter>,
-  onToken?: (tokenId: number, generatedTokenIds: readonly number[]) => void,
-) {
-  const generated = generateTokens(
-    options.model,
-    promptTokenIds(request, prompt),
-    generationOptions(request, onPrefillProgress),
-    onToken,
-  );
-  return {
-    ...generated,
-    text: options.tokenizer.decode(generated.tokenIds, { skipSpecialTokens: true }),
-  };
-}
-
 function generatedResultToServeResult(
   prepared: PreparedGenerationRequest,
   options: TransformersGenerationEngineOptions,
@@ -171,10 +153,31 @@ function generatedResultToServeResult(
   };
 }
 
-function generateSinglePreparedRequest(
+function tokenEventsForPreparedRequest(
   prepared: PreparedGenerationRequest,
   options: TransformersGenerationEngineOptions,
-): NormalizedGenerationResult {
+  onPrefillProgress: ReturnType<typeof createPrefillProgressReporter>,
+) {
+  if (prepared.request.input.kind === "text") {
+    return generateTokenEvents(options.model, prepared.tokenIds, {
+      ...generationOptions(prepared.request, onPrefillProgress),
+      ...(options.tokenizer.eosTokenIds.length === 0
+        ? {}
+        : { eosTokenIds: [...options.tokenizer.eosTokenIds] }),
+    });
+  }
+
+  return generatePreparedTokenEvents(
+    options.model,
+    { tokenIds: promptTokenIds(prepared.request, prepared.prompt) },
+    generationOptions(prepared.request, onPrefillProgress),
+  );
+}
+
+async function generateSinglePreparedRequest(
+  prepared: PreparedGenerationRequest,
+  options: TransformersGenerationEngineOptions,
+): Promise<NormalizedGenerationResult> {
   const onToken = createProgressReporter(options, prepared.request, prepared.promptTokens);
   const onPrefillProgress = createPrefillProgressReporter(
     options,
@@ -182,17 +185,21 @@ function generateSinglePreparedRequest(
     prepared.promptTokens,
   );
   emitGenerationProgress(options, prepared.request, prepared.promptTokens, 0);
-  const result =
-    prepared.request.input.kind === "text"
-      ? generateTextStream(
-          options.model,
-          options.tokenizer,
-          prepared.request.input.text,
-          generationOptions(prepared.request, onPrefillProgress),
-          () => undefined,
-          onToken,
-        )
-      : generateTokenPrompt(prepared.request, options, prepared.prompt, onPrefillProgress, onToken);
+  const tokenIds: number[] = [];
+  let finishReason: GenerationResult["finishReason"] = "length";
+
+  for await (const event of tokenEventsForPreparedRequest(prepared, options, onPrefillProgress)) {
+    if (event.type === "token") {
+      tokenIds.push(event.tokenId);
+      onToken(event.tokenId, tokenIds);
+      continue;
+    }
+    tokenIds.length = 0;
+    tokenIds.push(...event.tokenIds);
+    finishReason = event.finishReason;
+  }
+
+  const result: GenerationResult = { tokenIds, finishReason };
   return generatedResultToServeResult(prepared, options, result);
 }
 
@@ -223,16 +230,16 @@ function addBatchGroup(groups: Map<string, number[]>, key: string, index: number
   group.push(index);
 }
 
-function routePreparedRequests(
+async function routePreparedRequests(
   preparedRequests: readonly PreparedGenerationRequest[],
   options: TransformersGenerationEngineOptions,
   results: (NormalizedGenerationResult | undefined)[],
-): Map<string, number[]> {
+): Promise<Map<string, number[]>> {
   const groups = new Map<string, number[]>();
   for (let index = 0; index < preparedRequests.length; index += 1) {
     const prepared = preparedAt(preparedRequests, index);
     if (!canUseStaticBatchGeneration(prepared.request, options)) {
-      results[index] = generateSinglePreparedRequest(prepared, options);
+      results[index] = await generateSinglePreparedRequest(prepared, options);
       continue;
     }
     addBatchGroup(groups, batchOptionsKey(prepared.batchOptions), index);
@@ -254,14 +261,31 @@ function batchGroupMaxTokens(
   return group.map((index) => preparedAt(preparedRequests, index).request.sampling.maxTokens);
 }
 
+function batchGroupAbortSignalScope(
+  preparedRequests: readonly PreparedGenerationRequest[],
+  group: readonly number[],
+): LinkedAbortSignal | undefined {
+  const signals: AbortSignal[] = [];
+  for (const index of group) {
+    const signal = preparedAt(preparedRequests, index).request.abortSignal;
+    if (signal === undefined) {
+      continue;
+    }
+    signals.push(signal);
+  }
+  return signals.length === 0 ? undefined : linkAbortSignals(...signals);
+}
+
 function batchGroupOptions(
   preparedRequests: readonly PreparedGenerationRequest[],
   group: readonly number[],
+  abortSignal: AbortSignal | undefined,
 ): BatchGenerationOptions {
   const first = preparedAt(preparedRequests, firstGroupIndex(group));
   return {
     ...first.batchOptions,
     maxTokens: batchGroupMaxTokens(preparedRequests, group),
+    ...(abortSignal === undefined ? {} : { abortSignal }),
   };
 }
 
@@ -343,32 +367,40 @@ function runBatchGroup(
     group.length,
   );
   emitBatchStart(preparedRequests, group, options);
-  assignBatchResults(
-    preparedRequests,
-    group,
-    generateBatchTokens(
-      options.model,
-      batchGroupPrompts(preparedRequests, group),
-      batchGroupOptions(preparedRequests, group),
-    ),
-    options,
-    results,
-  );
+  const abortScope = batchGroupAbortSignalScope(preparedRequests, group);
+  try {
+    assignBatchResults(
+      preparedRequests,
+      group,
+      generateBatchTokens(
+        options.model,
+        batchGroupPrompts(preparedRequests, group),
+        batchGroupOptions(preparedRequests, group, abortScope?.signal),
+      ),
+      options,
+      results,
+    );
+  } finally {
+    abortScope?.dispose();
+  }
 }
 
-function runBatchGroups(
+async function runBatchGroups(
   preparedRequests: readonly PreparedGenerationRequest[],
   groups: Iterable<readonly number[]>,
   options: TransformersGenerationEngineOptions,
   results: (NormalizedGenerationResult | undefined)[],
-): void {
+): Promise<void> {
   for (const group of groups) {
     if (group.length === 1) {
       const index = group[0];
       if (index === undefined) {
         throw invalidBatchResult();
       }
-      results[index] = generateSinglePreparedRequest(preparedAt(preparedRequests, index), options);
+      results[index] = await generateSinglePreparedRequest(
+        preparedAt(preparedRequests, index),
+        options,
+      );
       continue;
     }
     runBatchGroup(preparedRequests, group, options, results);
@@ -388,15 +420,15 @@ function completedBatchResults(
   return completed;
 }
 
-function generateBatchForPreparedRequests(
+async function generateBatchForPreparedRequests(
   preparedRequests: readonly PreparedGenerationRequest[],
   options: TransformersGenerationEngineOptions,
-): NormalizedGenerationResult[] {
+): Promise<NormalizedGenerationResult[]> {
   const results: (NormalizedGenerationResult | undefined)[] = Array.from({
     length: preparedRequests.length,
   });
-  const groups = routePreparedRequests(preparedRequests, options, results);
-  runBatchGroups(preparedRequests, groups.values(), options, results);
+  const groups = await routePreparedRequests(preparedRequests, options, results);
+  await runBatchGroups(preparedRequests, groups.values(), options, results);
   return completedBatchResults(results);
 }
 
@@ -404,7 +436,7 @@ function generateBatchForPreparedRequests(
 export function generateTransformersRequest(
   request: NormalizedGenerationRequest,
   options: TransformersGenerationEngineOptions,
-): NormalizedGenerationResult {
+): Promise<NormalizedGenerationResult> {
   return generateSinglePreparedRequest(prepareGenerationRequest(request, options), options);
 }
 
@@ -412,7 +444,7 @@ export function generateTransformersRequest(
 export function generateTransformersBatch(
   requests: readonly NormalizedGenerationRequest[],
   options: TransformersGenerationEngineOptions,
-): NormalizedGenerationResult[] {
+): Promise<NormalizedGenerationResult[]> {
   return generateBatchForPreparedRequests(
     requests.map((request) => prepareGenerationRequest(request, options)),
     options,

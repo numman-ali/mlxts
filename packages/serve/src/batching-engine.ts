@@ -22,6 +22,7 @@ type PendingGeneration = {
   request: NormalizedGenerationRequest;
   resolve(result: NormalizedGenerationResult): void;
   reject(error: unknown): void;
+  onAbort?: () => void;
 };
 
 function positiveInteger(value: number, name: string): number {
@@ -71,6 +72,20 @@ function batchModel(requests: readonly NormalizedGenerationRequest[]): string {
   return requests.every((request) => request.model === first) ? first : "mixed";
 }
 
+function cancellationError(): ServeError {
+  return new ServeError("Request was cancelled before generation started.", {
+    code: "client_cancelled",
+    status: 499,
+  });
+}
+
+function cleanupPending(entry: PendingGeneration): void {
+  if (entry.onAbort !== undefined) {
+    entry.request.abortSignal?.removeEventListener("abort", entry.onAbort);
+    delete entry.onAbort;
+  }
+}
+
 function emitAdmissionBatch(
   options: MicroBatchingGenerationEngineOptions,
   batch: readonly PendingGeneration[],
@@ -109,13 +124,26 @@ export function createMicroBatchingGenerationEngine(
   let flushInFlight = false;
 
   async function settleBatch(batch: readonly PendingGeneration[]): Promise<void> {
-    emitAdmissionBatch(options, batch);
+    const active: PendingGeneration[] = [];
+    for (const entry of batch) {
+      cleanupPending(entry);
+      if (entry.request.abortSignal?.aborted) {
+        entry.reject(cancellationError());
+      } else {
+        active.push(entry);
+      }
+    }
+    if (active.length === 0) {
+      return;
+    }
+
+    emitAdmissionBatch(options, active);
     try {
       const results = await runBatch(
         options.engine,
-        batch.map((entry) => entry.request),
+        active.map((entry) => entry.request),
       );
-      for (const [index, entry] of batch.entries()) {
+      for (const [index, entry] of active.entries()) {
         const result = results[index];
         if (result === undefined) {
           entry.reject(
@@ -178,8 +206,23 @@ export function createMicroBatchingGenerationEngine(
   }
 
   function enqueue(request: NormalizedGenerationRequest): Promise<NormalizedGenerationResult> {
+    if (request.abortSignal?.aborted) {
+      return Promise.reject(cancellationError());
+    }
     return new Promise((resolve, reject) => {
-      pending.push({ request, resolve, reject });
+      const entry: PendingGeneration = { request, resolve, reject };
+      if (request.abortSignal !== undefined) {
+        entry.onAbort = () => {
+          const index = pending.indexOf(entry);
+          if (index >= 0) {
+            pending.splice(index, 1);
+          }
+          cleanupPending(entry);
+          reject(cancellationError());
+        };
+        request.abortSignal.addEventListener("abort", entry.onAbort, { once: true });
+      }
+      pending.push(entry);
       if (pending.length >= maxBatchSize && !flushInFlight) {
         startFlush();
         return;

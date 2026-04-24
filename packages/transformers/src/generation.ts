@@ -30,6 +30,8 @@ import type {
   TransformerCache,
 } from "./types";
 
+export { GenerationAbortError } from "./infrastructure/generation/cancellation";
+
 /** Create the default prompt cache for a decoder model. */
 export function makePromptCache(model: CausalLM): TransformerCache {
   return model.createCache();

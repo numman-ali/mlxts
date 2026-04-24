@@ -122,6 +122,36 @@ describe("concurrency limit generation engine", () => {
     expect(result.text).toBe("queued");
   });
 
+  test("rejects queued requests when their abort signal fires before a permit opens", async () => {
+    const events: string[] = [];
+    let releaseFirst!: () => void;
+    const firstMayFinish = new Promise<void>((resolve) => {
+      releaseFirst = resolve;
+    });
+    const engine = createConcurrencyLimitGenerationEngine({
+      maxConcurrentRequests: 1,
+      engine: {
+        async generate(normalized) {
+          events.push(`start:${normalized.id}`);
+          if (normalized.id === "first") {
+            await firstMayFinish;
+          }
+          return { text: normalized.id, finishReason: "stop" };
+        },
+      },
+    });
+    const controller = new AbortController();
+
+    const first = engine.generate(request("first"));
+    const queued = engine.generate({ ...request("queued"), abortSignal: controller.signal });
+    controller.abort();
+    releaseFirst();
+
+    await expect(queued).rejects.toThrow("cancelled");
+    await expect(first).resolves.toMatchObject({ text: "first" });
+    expect(events).toEqual(["start:first"]);
+  });
+
   test("rejects invalid maxConcurrentRequests values", () => {
     expect(() =>
       createConcurrencyLimitGenerationEngine({

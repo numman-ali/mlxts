@@ -17,6 +17,16 @@ export type ConcurrencyLimitGenerationEngineOptions = {
 };
 
 type Release = () => void;
+type Waiter = {
+  resolve(release: Release): void;
+  reject(error: unknown): void;
+  signal?: AbortSignal;
+  onAbort?: () => void;
+};
+type AbortSignalScope = {
+  signal?: AbortSignal;
+  dispose(): void;
+};
 
 function positiveInteger(value: number, name: string): number {
   if (!Number.isInteger(value) || value <= 0) {
@@ -39,6 +49,64 @@ function runBatch(
   return Promise.all(requests.map((request) => engine.generate(request)));
 }
 
+function cancellationError(): ServeError {
+  return new ServeError("Request was cancelled before generation started.", {
+    code: "client_cancelled",
+    status: 499,
+  });
+}
+
+function combinedAbortSignalScope(
+  requests: readonly NormalizedGenerationRequest[],
+): AbortSignalScope {
+  const signals = requests
+    .map((request) => request.abortSignal)
+    .filter((signal): signal is AbortSignal => signal !== undefined);
+  const firstSignal = signals[0];
+  if (firstSignal === undefined) {
+    return {
+      dispose() {},
+    };
+  }
+  if (signals.length === 1) {
+    return {
+      signal: firstSignal,
+      dispose() {},
+    };
+  }
+
+  const controller = new AbortController();
+  const cleanups: Array<() => void> = [];
+  for (const signal of signals) {
+    if (signal.aborted) {
+      controller.abort(signal.reason);
+      break;
+    }
+    const onAbort = () => controller.abort(signal.reason);
+    signal.addEventListener("abort", onAbort, { once: true });
+    cleanups.push(() => signal.removeEventListener("abort", onAbort));
+  }
+  return {
+    signal: controller.signal,
+    dispose() {
+      for (const cleanup of cleanups) {
+        cleanup();
+      }
+    },
+  };
+}
+
+async function withAbortSignalScope<T>(
+  scope: AbortSignalScope,
+  work: (signal: AbortSignal | undefined) => Promise<T>,
+): Promise<T> {
+  try {
+    return await work(scope.signal);
+  } finally {
+    scope.dispose();
+  }
+}
+
 /**
  * Serialize generation work through a bounded in-flight gate.
  *
@@ -53,30 +121,68 @@ export function createConcurrencyLimitGenerationEngine(
     options.maxConcurrentRequests ?? 1,
     "maxConcurrentRequests",
   );
-  const waiters: Array<(release: Release) => void> = [];
+  const waiters: Waiter[] = [];
   let inFlight = 0;
 
-  function release(): void {
-    inFlight -= 1;
-    const next = waiters.shift();
-    if (next !== undefined) {
-      inFlight += 1;
-      next(release);
+  function removeWaiter(waiter: Waiter): void {
+    const index = waiters.indexOf(waiter);
+    if (index >= 0) {
+      waiters.splice(index, 1);
     }
   }
 
-  function acquire(): Promise<Release> {
+  function cleanupWaiter(waiter: Waiter): void {
+    if (waiter.signal !== undefined && waiter.onAbort !== undefined) {
+      waiter.signal.removeEventListener("abort", waiter.onAbort);
+    }
+  }
+
+  function release(): void {
+    inFlight -= 1;
+    while (waiters.length > 0) {
+      const next = waiters.shift();
+      if (next === undefined) {
+        return;
+      }
+      cleanupWaiter(next);
+      if (next.signal?.aborted) {
+        next.reject(cancellationError());
+        continue;
+      }
+      inFlight += 1;
+      next.resolve(release);
+      return;
+    }
+  }
+
+  function acquire(signal: AbortSignal | undefined): Promise<Release> {
+    if (signal?.aborted) {
+      return Promise.reject(cancellationError());
+    }
     if (inFlight < maxConcurrentRequests) {
       inFlight += 1;
       return Promise.resolve(release);
     }
-    return new Promise((resolve) => {
-      waiters.push(resolve);
+    return new Promise((resolve, reject) => {
+      const waiter: Waiter = { resolve, reject };
+      if (signal !== undefined) {
+        waiter.signal = signal;
+        waiter.onAbort = () => {
+          removeWaiter(waiter);
+          cleanupWaiter(waiter);
+          reject(cancellationError());
+        };
+        signal.addEventListener("abort", waiter.onAbort, { once: true });
+      }
+      waiters.push(waiter);
     });
   }
 
-  async function withPermit<T>(work: () => Promise<T> | T): Promise<T> {
-    const permit = await acquire();
+  async function withPermit<T>(
+    signal: AbortSignal | undefined,
+    work: () => Promise<T> | T,
+  ): Promise<T> {
+    const permit = await acquire(signal);
     try {
       return await work();
     } finally {
@@ -86,17 +192,19 @@ export function createConcurrencyLimitGenerationEngine(
 
   const limited: GenerationEngine = {
     generate(request) {
-      return withPermit(() => options.engine.generate(request));
+      return withPermit(request.abortSignal, () => options.engine.generate(request));
     },
     generateBatch(requests) {
-      return withPermit(() => runBatch(options.engine, requests));
+      return withAbortSignalScope(combinedAbortSignalScope(requests), (signal) =>
+        withPermit(signal, () => runBatch(options.engine, requests)),
+      );
     },
   };
 
   const stream = options.engine.stream;
   if (stream !== undefined) {
     limited.stream = async (request) => {
-      const permit = await acquire();
+      const permit = await acquire(request.abortSignal);
       let source: AsyncIterable<GenerationStreamEvent>;
       try {
         source = await stream(request);

@@ -12,6 +12,7 @@ import {
   validatePromptInputEmbeddings,
   validatePromptPositionIds,
 } from "../input-embeddings";
+import { throwIfGenerationAborted } from "./cancellation";
 
 /** Convert prompt tokens into the `[batch, sequence]` input tensor shape. */
 export function inputTensor(tokenIds: readonly number[] | MxArray): MxArray {
@@ -91,6 +92,7 @@ export function prefillPromptCache(
   inputEmbeddings?: MxArray,
   positionIds?: MxArray,
   onProgress?: (event: PrefillProgressEvent) => void,
+  abortSignal?: AbortSignal,
 ): PrefilledPrompt {
   if (inputEmbeddings !== undefined) {
     validatePromptInputEmbeddings(promptTokenIds, inputEmbeddings, "prefillPromptCache");
@@ -102,7 +104,9 @@ export function prefillPromptCache(
   let cursor = 0;
   const totalPrefillTokens = Math.max(promptTokenIds.length - 1, 0);
 
+  throwIfGenerationAborted(abortSignal, "prefillPromptCache");
   while (promptTokenIds.length - cursor > 1) {
+    throwIfGenerationAborted(abortSignal, "prefillPromptCache");
     const remaining = promptTokenIds.length - cursor - 1;
     const chunkSize = Math.min(prefillStepSize, remaining);
     const chunk = promptTokenIds.slice(cursor, cursor + chunkSize);
@@ -135,6 +139,7 @@ export function prefillPromptCache(
       totalTokens: totalPrefillTokens,
       chunkTokens: chunkSize,
     });
+    throwIfGenerationAborted(abortSignal, "prefillPromptCache");
     clearMemoryCache();
   }
 

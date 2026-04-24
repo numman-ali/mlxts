@@ -24,6 +24,7 @@ import type {
 } from "../../types";
 import { retainPromptInputEmbeddings, retainPromptPositionIds } from "../input-embeddings";
 import { SamplerState } from "../sampling";
+import { throwIfGenerationAborted } from "./cancellation";
 import { resolveGenerationOptions } from "./defaults";
 import {
   inputTensor,
@@ -156,6 +157,7 @@ export function generateWithCache(
           promptInputEmbeddings,
           promptPositionIds,
           options.onPrefillProgress,
+          options.abortSignal,
         )
       : {
           tokenIds: [...promptTokenIds],
@@ -171,6 +173,7 @@ export function generateWithCache(
   let nextToken: MxArray | null = null;
 
   try {
+    throwIfGenerationAborted(options.abortSignal, "generateTokens");
     currentToken = predictNextTokenWithState(
       model,
       initialPrompt.tokenIds,
@@ -183,6 +186,7 @@ export function generateWithCache(
     mxAsyncEval(currentToken);
 
     for (let index = 0; index < options.maxTokens; index += 1) {
+      throwIfGenerationAborted(options.abortSignal, "generateTokens");
       const activeToken = takeCurrentToken(currentToken);
       if (index + 1 < options.maxTokens) {
         nextToken = scheduleAsyncCachedToken(model, activeToken, cache, samplerState, options);
@@ -191,6 +195,7 @@ export function generateWithCache(
       const tokenId = activeToken.item();
       generated.push(tokenId);
       onToken?.(tokenId, generated);
+      throwIfGenerationAborted(options.abortSignal, "generateTokens");
 
       const eosFinishReason = finishIfEos(eosTokenIds, tokenId);
       if (eosFinishReason !== null) {
@@ -246,6 +251,7 @@ export function generateWithoutCache(
   let currentToken: MxArray | null = null;
 
   try {
+    throwIfGenerationAborted(options.abortSignal, "generateTokens");
     currentToken = predictNextTokenWithState(
       model,
       runningPrompt,
@@ -256,10 +262,12 @@ export function generateWithoutCache(
       initialPositionIds ?? undefined,
     );
     for (let index = 0; index < options.maxTokens; index += 1) {
+      throwIfGenerationAborted(options.abortSignal, "generateTokens");
       const activeToken = takeCurrentToken(currentToken);
       const tokenId = activeToken.item();
       generated.push(tokenId);
       onToken?.(tokenId, generated);
+      throwIfGenerationAborted(options.abortSignal, "generateTokens");
       runningPrompt.push(tokenId);
 
       const eosFinishReason = finishIfEos(eosTokenIds, tokenId);

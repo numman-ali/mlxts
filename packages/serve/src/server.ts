@@ -13,6 +13,7 @@ import {
   normalizeOpenAICompletionRequest,
 } from "./protocols/openai-completions";
 import type { ServedModelInfo } from "./protocols/openai-models";
+import { linkAbortSignals, withAbortSignal } from "./server-abort";
 import {
   emitGenerationComplete,
   emitGenerationError,
@@ -46,6 +47,7 @@ export type ServeAppOptions = {
   models?: readonly ServedModelInfo[];
   limits?: ServeRuntimeLimits;
   apiKey?: string;
+  abortSignal?: AbortSignal;
   idGenerator?: () => string;
   now?: () => Date;
   onEvent?: (event: ServeEvent) => void;
@@ -213,22 +215,24 @@ async function completionResponse(request: Request, options: ServeAppOptions): P
       });
     }
 
-    const normalized = batch.requests[0];
-    if (normalized === undefined) {
+    const normalizedBase = batch.requests[0];
+    if (normalizedBase === undefined) {
       throw new ServeError("OpenAI completions: streaming requires one prompt.", {
         param: "prompt",
       });
     }
+    const streamAbort = linkAbortSignals(request.signal, options.abortSignal);
+    const normalized = withAbortSignal(normalizedBase, streamAbort.signal);
     const startedAt = performance.now();
     emitGenerationStart(options, normalized);
     let stream: AsyncIterable<GenerationStreamEvent>;
     try {
       stream = await options.engine.stream(normalized);
     } catch (error) {
+      streamAbort.dispose();
       emitGenerationError(options, normalized, error, performance.now() - startedAt);
       throw error;
     }
-    const streamAbort = new AbortController();
     const iterator = stream[Symbol.asyncIterator]();
     let cancelled = false;
     return new Response(
@@ -240,6 +244,7 @@ async function completionResponse(request: Request, options: ServeAppOptions): P
             signal: streamAbort.signal,
           }).then(
             (summary) => {
+              streamAbort.dispose();
               const result: NormalizedGenerationResult = {
                 text: "",
                 finishReason: summary.finishReason,
@@ -265,6 +270,7 @@ async function completionResponse(request: Request, options: ServeAppOptions): P
               }
             },
             (error: unknown) => {
+              streamAbort.dispose();
               emitGenerationError(options, normalized, error, performance.now() - startedAt);
               emitRequestError(options, request, serveErrorDetails(error), startedAt);
               if (!cancelled) {
@@ -283,8 +289,16 @@ async function completionResponse(request: Request, options: ServeAppOptions): P
     );
   }
 
-  const results = await generateBatch(options, batch.requests);
-  return jsonResponse(formatOpenAICompletionResponse(batch, results, { id, created }));
+  const abortScope = linkAbortSignals(request.signal, options.abortSignal);
+  try {
+    const results = await generateBatch(
+      options,
+      batch.requests.map((normalized) => withAbortSignal(normalized, abortScope.signal)),
+    );
+    return jsonResponse(formatOpenAICompletionResponse(batch, results, { id, created }));
+  } finally {
+    abortScope.dispose();
+  }
 }
 
 async function chatCompletionResponse(
@@ -302,16 +316,18 @@ async function chatCompletionResponse(
       });
     }
 
+    const streamAbort = linkAbortSignals(request.signal, options.abortSignal);
+    const chatRequest = withAbortSignal(chat.request, streamAbort.signal);
     const startedAt = performance.now();
-    emitGenerationStart(options, chat.request);
+    emitGenerationStart(options, chatRequest);
     let stream: AsyncIterable<GenerationStreamEvent>;
     try {
-      stream = await options.engine.stream(chat.request);
+      stream = await options.engine.stream(chatRequest);
     } catch (error) {
-      emitGenerationError(options, chat.request, error, performance.now() - startedAt);
+      streamAbort.dispose();
+      emitGenerationError(options, chatRequest, error, performance.now() - startedAt);
       throw error;
     }
-    const streamAbort = new AbortController();
     const iterator = stream[Symbol.asyncIterator]();
     let cancelled = false;
     return new Response(
@@ -323,12 +339,13 @@ async function chatCompletionResponse(
             signal: streamAbort.signal,
           }).then(
             (summary) => {
+              streamAbort.dispose();
               const result: NormalizedGenerationResult = {
                 text: "",
                 finishReason: summary.finishReason,
                 ...(summary.usage === undefined ? {} : { usage: summary.usage }),
               };
-              emitGenerationComplete(options, chat.request, result, performance.now() - startedAt);
+              emitGenerationComplete(options, chatRequest, result, performance.now() - startedAt);
               if (summary.finishReason === "cancelled") {
                 emitRequestError(
                   options,
@@ -348,7 +365,8 @@ async function chatCompletionResponse(
               }
             },
             (error: unknown) => {
-              emitGenerationError(options, chat.request, error, performance.now() - startedAt);
+              streamAbort.dispose();
+              emitGenerationError(options, chatRequest, error, performance.now() - startedAt);
               emitRequestError(options, request, serveErrorDetails(error), startedAt);
               if (!cancelled) {
                 controller.error(error);
@@ -366,15 +384,19 @@ async function chatCompletionResponse(
     );
   }
 
+  const abortScope = linkAbortSignals(request.signal, options.abortSignal);
+  const chatRequest = withAbortSignal(chat.request, abortScope.signal);
   const startedAt = performance.now();
-  emitGenerationStart(options, chat.request);
+  emitGenerationStart(options, chatRequest);
   try {
-    const result = await options.engine.generate(chat.request);
-    emitGenerationComplete(options, chat.request, result, performance.now() - startedAt);
+    const result = await options.engine.generate(chatRequest);
+    emitGenerationComplete(options, chatRequest, result, performance.now() - startedAt);
     return jsonResponse(formatOpenAIChatCompletionResponse(chat, result, { id, created }));
   } catch (error) {
-    emitGenerationError(options, chat.request, error, performance.now() - startedAt);
+    emitGenerationError(options, chatRequest, error, performance.now() - startedAt);
     throw error;
+  } finally {
+    abortScope.dispose();
   }
 }
 
@@ -403,7 +425,16 @@ async function openAIRouteResponse(
   if (request.method === "POST" && pathname === "/v1/responses") {
     const id = options.idGenerator?.() ?? defaultResponseId();
     const created = unixSeconds(options.now?.() ?? new Date());
-    return await openAIResponseResponse(await readJson(request), options, { id, created });
+    const abortScope = linkAbortSignals(request.signal, options.abortSignal);
+    try {
+      return await openAIResponseResponse(await readJson(request), options, {
+        id,
+        created,
+        signal: abortScope.signal,
+      });
+    } finally {
+      abortScope.dispose();
+    }
   }
 
   return null;

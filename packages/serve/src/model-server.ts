@@ -325,6 +325,7 @@ function createLoadedModelEngines(
 function runningModelServer(
   server: ReturnType<typeof Bun.serve>,
   resolved: ResolvedLoadedModelsOptions,
+  abortController: AbortController,
 ): RunningModelServer {
   const modelIds = resolved.models.map((model) => model.modelId);
   const primaryModelId = modelIds[0];
@@ -338,6 +339,7 @@ function runningModelServer(
       return;
     }
     stopped = true;
+    abortController.abort();
     server.stop(closeActiveConnections);
     if (resolved.disposeModelsOnStop) {
       for (const model of resolved.models) {
@@ -361,6 +363,7 @@ function runningModelServer(
 /** Serve multiple already-loaded models and tokenizers through one OpenAI-compatible API. */
 export function serveLoadedModels(options: ServeLoadedModelsOptions): RunningModelServer {
   const resolved = resolveLoadedModelsOptions(options);
+  const abortController = new AbortController();
   const engine = createModelRouterGenerationEngine({
     engines: createLoadedModelEngines(resolved),
   });
@@ -384,12 +387,13 @@ export function serveLoadedModels(options: ServeLoadedModelsOptions): RunningMod
       maxConcurrentRequests: resolved.maxConcurrentRequests,
       gpuMemoryUtilization: resolved.gpuMemoryUtilization,
     },
+    abortSignal: abortController.signal,
     ...(resolved.apiKey === undefined ? {} : { apiKey: resolved.apiKey }),
     ...(resolved.onEvent === undefined ? {} : { onEvent: resolved.onEvent }),
   };
   const server = startServeServer(serverOptions);
 
-  return runningModelServer(server, resolved);
+  return runningModelServer(server, resolved, abortController);
 }
 
 /** Serve an already-loaded model and tokenizer through the OpenAI-compatible API. */
