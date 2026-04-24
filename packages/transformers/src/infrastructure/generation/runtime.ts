@@ -155,6 +155,7 @@ export function generateWithCache(
           prefillStepSize,
           promptInputEmbeddings,
           promptPositionIds,
+          options.onPrefillProgress,
         )
       : {
           tokenIds: [...promptTokenIds],

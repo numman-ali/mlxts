@@ -124,6 +124,18 @@ export type ServeEvent =
       memory?: GenerationMemoryUsage;
     }
   | {
+      type: "generation_prefill_progress";
+      id: string;
+      protocol: GenerationProtocol;
+      model: string;
+      promptTokens: number;
+      processedPrefillTokens: number;
+      totalPrefillTokens: number;
+      chunkTokens: number;
+      maxTokens: number;
+      memory?: GenerationMemoryUsage;
+    }
+  | {
       type: "generation_batch_start";
       mode: "static";
       model: string;

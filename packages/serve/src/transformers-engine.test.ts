@@ -171,12 +171,18 @@ describe("transformers generation engine", () => {
     using model = new TinyModel();
     const tokenizer = new TinyTokenizer();
     const events: string[] = [];
+    const prefillEvents: string[] = [];
     const engine = createTransformersGenerationEngine({
       model,
       tokenizer,
       onEvent(event) {
         if (event.type === "generation_progress") {
           events.push(`${event.promptTokens}:${event.completionTokens}/${event.maxTokens}`);
+        }
+        if (event.type === "generation_prefill_progress") {
+          prefillEvents.push(
+            `${event.processedPrefillTokens}/${event.totalPrefillTokens}:${event.chunkTokens}`,
+          );
         }
       },
     });
@@ -194,6 +200,7 @@ describe("transformers generation engine", () => {
     expect(result.finishReason).toBe("length");
     expect(result.usage).toEqual({ promptTokens: 2, completionTokens: 3, totalTokens: 5 });
     expect(events).toEqual(["2:0/3", "2:3/3"]);
+    expect(prefillEvents).toEqual(["1/1:1"]);
   });
 
   test("applies text stop sequences above token-level EOS handling", async () => {

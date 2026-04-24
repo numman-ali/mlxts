@@ -17,6 +17,7 @@ import {
   applyStopSequences,
   type CompiledPrompt,
   compileMessagePrompt,
+  createPrefillProgressReporter,
   createProgressReporter,
   emitGenerationProgress,
   enforceTotalTokenLimit,
@@ -126,12 +127,13 @@ function generateTokenPrompt(
   request: NormalizedGenerationRequest,
   options: TransformersGenerationEngineOptions,
   prompt: { tokenIds: readonly number[] } | null,
+  onPrefillProgress: ReturnType<typeof createPrefillProgressReporter>,
   onToken?: (tokenId: number, generatedTokenIds: readonly number[]) => void,
 ) {
   const generated = generateTokens(
     options.model,
     promptTokenIds(request, prompt),
-    generationOptions(request),
+    generationOptions(request, onPrefillProgress),
     onToken,
   );
   return {
@@ -169,6 +171,11 @@ function generateSinglePreparedRequest(
   options: TransformersGenerationEngineOptions,
 ): NormalizedGenerationResult {
   const onToken = createProgressReporter(options, prepared.request, prepared.promptTokens);
+  const onPrefillProgress = createPrefillProgressReporter(
+    options,
+    prepared.request,
+    prepared.promptTokens,
+  );
   emitGenerationProgress(options, prepared.request, prepared.promptTokens, 0);
   const result =
     prepared.request.input.kind === "text"
@@ -176,11 +183,11 @@ function generateSinglePreparedRequest(
           options.model,
           options.tokenizer,
           prepared.request.input.text,
-          generationOptions(prepared.request),
+          generationOptions(prepared.request, onPrefillProgress),
           () => undefined,
           onToken,
         )
-      : generateTokenPrompt(prepared.request, options, prepared.prompt, onToken);
+      : generateTokenPrompt(prepared.request, options, prepared.prompt, onPrefillProgress, onToken);
   return generatedResultToServeResult(prepared, options, result);
 }
 

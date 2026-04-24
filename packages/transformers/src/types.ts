@@ -37,21 +37,30 @@ export type GenerationOptions = SamplerOptions & {
   cache?: TransformerCache;
   addSpecialTokens?: boolean;
   prefillStepSize?: number;
+  /** Called after each cached prompt-prefill chunk completes. */
+  onPrefillProgress?: (event: PrefillProgressEvent) => void;
 };
 
-export type BatchGenerationOptions = Omit<GenerationOptions, "maxTokens"> & {
+export type BatchGenerationOptions = Omit<GenerationOptions, "maxTokens" | "onPrefillProgress"> & {
   maxTokens: number | readonly number[];
   padTokenId?: number;
 };
 
 export type GenerationDefaults = Omit<
   GenerationOptions,
-  "addSpecialTokens" | "maxTokens" | "cache"
+  "addSpecialTokens" | "maxTokens" | "cache" | "onPrefillProgress"
 >;
 
 export type GenerationResult = {
   tokenIds: number[];
   finishReason: "length" | "eos";
+};
+
+/** Progress emitted while chunking a prompt into the model cache before decode. */
+export type PrefillProgressEvent = {
+  processedTokens: number;
+  totalTokens: number;
+  chunkTokens: number;
 };
 
 export type TokenGenerationEvent =

@@ -4,7 +4,7 @@
  */
 
 import { array, clearMemoryCache, MxArray, mxEval, slice, squeeze } from "@mlxts/core";
-import type { CausalLM, ForwardOptions, TransformerCache } from "../../types";
+import type { CausalLM, ForwardOptions, PrefillProgressEvent, TransformerCache } from "../../types";
 import { cacheStateArrays } from "../cache";
 import {
   slicePromptInputEmbeddings,
@@ -90,6 +90,7 @@ export function prefillPromptCache(
   prefillStepSize: number,
   inputEmbeddings?: MxArray,
   positionIds?: MxArray,
+  onProgress?: (event: PrefillProgressEvent) => void,
 ): PrefilledPrompt {
   if (inputEmbeddings !== undefined) {
     validatePromptInputEmbeddings(promptTokenIds, inputEmbeddings, "prefillPromptCache");
@@ -99,6 +100,7 @@ export function prefillPromptCache(
   }
 
   let cursor = 0;
+  const totalPrefillTokens = Math.max(promptTokenIds.length - 1, 0);
 
   while (promptTokenIds.length - cursor > 1) {
     const remaining = promptTokenIds.length - cursor - 1;
@@ -128,6 +130,11 @@ export function prefillPromptCache(
     }
 
     cursor += chunkSize;
+    onProgress?.({
+      processedTokens: cursor,
+      totalTokens: totalPrefillTokens,
+      chunkTokens: chunkSize,
+    });
     clearMemoryCache();
   }
 

@@ -4,7 +4,7 @@
  */
 
 import type { Tokenizer } from "@mlxts/tokenizers";
-import type { GenerationOptions } from "@mlxts/transformers";
+import type { GenerationOptions, PrefillProgressEvent } from "@mlxts/transformers";
 import { ServeError } from "./errors";
 import { readGenerationMemoryUsage } from "./memory-telemetry";
 import type { TransformersGenerationEngineOptions } from "./transformers-engine";
@@ -20,7 +20,10 @@ const THINK_CLOSE = "</think>";
 const PROGRESS_TOKEN_INTERVAL = 64;
 
 /** Convert a normalized serving request into transformer generation options. */
-export function generationOptions(request: NormalizedGenerationRequest): GenerationOptions {
+export function generationOptions(
+  request: NormalizedGenerationRequest,
+  onPrefillProgress?: (event: PrefillProgressEvent) => void,
+): GenerationOptions {
   return {
     maxTokens: request.sampling.maxTokens,
     ...(request.sampling.temperature === undefined
@@ -29,6 +32,7 @@ export function generationOptions(request: NormalizedGenerationRequest): Generat
     ...(request.sampling.topP === undefined ? {} : { topP: request.sampling.topP }),
     ...(request.sampling.topK === undefined ? {} : { topK: request.sampling.topK }),
     ...(request.sampling.seed === undefined ? {} : { seed: request.sampling.seed }),
+    ...(onPrefillProgress === undefined ? {} : { onPrefillProgress }),
   };
 }
 
@@ -87,8 +91,11 @@ export function emitGenerationProgress(
   promptTokens: number,
   completionTokens: number,
 ): void {
+  if (options.onEvent === undefined) {
+    return;
+  }
   const memory = readGenerationMemoryUsage();
-  options.onEvent?.({
+  options.onEvent({
     type: "generation_progress",
     id: request.id,
     protocol: request.protocol,
@@ -98,6 +105,42 @@ export function emitGenerationProgress(
     maxTokens: request.sampling.maxTokens,
     ...(memory === undefined ? {} : { memory }),
   });
+}
+
+/** Emit prompt-prefill progress for long-context requests before first-token decode. */
+export function emitGenerationPrefillProgress(
+  options: TransformersGenerationEngineOptions,
+  request: NormalizedGenerationRequest,
+  promptTokens: number,
+  progress: PrefillProgressEvent,
+): void {
+  if (options.onEvent === undefined) {
+    return;
+  }
+  const memory = readGenerationMemoryUsage();
+  options.onEvent({
+    type: "generation_prefill_progress",
+    id: request.id,
+    protocol: request.protocol,
+    model: request.model,
+    promptTokens,
+    processedPrefillTokens: progress.processedTokens,
+    totalPrefillTokens: progress.totalTokens,
+    chunkTokens: progress.chunkTokens,
+    maxTokens: request.sampling.maxTokens,
+    ...(memory === undefined ? {} : { memory }),
+  });
+}
+
+/** Create the chunk-level progress callback used during cached prompt prefill. */
+export function createPrefillProgressReporter(
+  options: TransformersGenerationEngineOptions,
+  request: NormalizedGenerationRequest,
+  promptTokens: number,
+): (event: PrefillProgressEvent) => void {
+  return (event) => {
+    emitGenerationPrefillProgress(options, request, promptTokens, event);
+  };
 }
 
 /** Create the token-level progress callback used by synchronous generation helpers. */

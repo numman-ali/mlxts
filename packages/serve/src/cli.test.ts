@@ -300,6 +300,27 @@ describe("serve CLI args", () => {
     );
     expect(
       formatServeEvent({
+        type: "generation_prefill_progress",
+        id: "cmpl-test",
+        protocol: "openai.chat_completions",
+        model: "qwen-local",
+        promptTokens: 4096,
+        processedPrefillTokens: 2048,
+        totalPrefillTokens: 4095,
+        chunkTokens: 2048,
+        maxTokens: 128,
+        memory: {
+          activeBytes: 1_000_000,
+          cacheBytes: 2_000_000,
+          peakBytes: 3_000_000,
+          limitBytes: 4_000_000,
+        },
+      }),
+    ).toBe(
+      "[generation] cmpl-test prefill prompt_tokens=4096 prefill_tokens=2048/4095 chunk_tokens=2048 active=1.0 MB cache=2.0 MB peak=3.0 MB",
+    );
+    expect(
+      formatServeEvent({
         type: "generation_batch_start",
         mode: "static",
         model: "qwen-local",

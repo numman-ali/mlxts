@@ -17,6 +17,7 @@ import {
 } from "./transformers-engine-generation";
 import {
   compileMessagePrompt,
+  createPrefillProgressReporter,
   emitGenerationProgress,
   enforceTotalTokenLimit,
   generationOptions,
@@ -88,13 +89,14 @@ function streamTokenEventsForRequest(
   request: NormalizedGenerationRequest,
   options: TransformersGenerationEngineOptions,
   prompt: { tokenIds: readonly number[] } | null,
+  onPrefillProgress: Parameters<typeof generationOptions>[1],
 ) {
   if (request.input.kind === "text") {
     return generateTokenEvents(
       options.model,
       options.tokenizer.encode(request.input.text, { addSpecialTokens: true }),
       {
-        ...generationOptions(request),
+        ...generationOptions(request, onPrefillProgress),
         ...(options.tokenizer.eosTokenIds.length === 0
           ? {}
           : { eosTokenIds: [...options.tokenizer.eosTokenIds] }),
@@ -105,7 +107,7 @@ function streamTokenEventsForRequest(
   return generatePreparedTokenEvents(
     options.model,
     { tokenIds: promptTokenIds(request, prompt) },
-    generationOptions(request),
+    generationOptions(request, onPrefillProgress),
   );
 }
 
@@ -206,8 +208,9 @@ export function createTransformersGenerationEngine(
       const promptTokens = promptTokenCount(request, options, prompt);
       enforceTotalTokenLimit(options, request, promptTokens);
       emitGenerationProgress(options, request, promptTokens, 0);
+      const onPrefillProgress = createPrefillProgressReporter(options, request, promptTokens);
       const decodeInterval = streamDecodeInterval(request.sampling.stop);
-      const tokenEvents = streamTokenEventsForRequest(request, options, prompt);
+      const tokenEvents = streamTokenEventsForRequest(request, options, prompt, onPrefillProgress);
       const state = createStreamingDecodeState(prompt);
 
       for await (const event of tokenEvents) {

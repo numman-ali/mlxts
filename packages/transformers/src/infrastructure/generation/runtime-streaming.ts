@@ -24,7 +24,7 @@ import type {
 import { retainPromptInputEmbeddings, retainPromptPositionIds } from "../input-embeddings";
 import { SamplerState } from "../sampling";
 import { resolveGenerationOptions } from "./defaults";
-import { prefillPromptCache, validatePrefillStepSize } from "./helpers";
+import { type PrefilledPrompt, prefillPromptCache, validatePrefillStepSize } from "./helpers";
 import {
   finishIfEos,
   maybeClearGenerationCache,
@@ -70,41 +70,48 @@ async function* streamWithCache(
 ): AsyncIterable<TokenGenerationEvent> {
   const scope = createGenerationScope();
   const samplerState = new SamplerState(promptTokenIds, options);
-  const initialPrompt = withDefaultStream(scope.stream, () =>
-    promptTokenIds.length > 1
-      ? prefillPromptCache(
-          model,
-          promptTokenIds,
-          cache,
-          prefillStepSize,
-          promptInputEmbeddings,
-          promptPositionIds,
-        )
-      : {
-          tokenIds: [...promptTokenIds],
-          inputEmbeddings: retainPromptInputEmbeddings(
-            promptTokenIds,
-            promptInputEmbeddings,
-            "generateTokens",
-          ),
-          positionIds: retainPromptPositionIds(promptTokenIds, promptPositionIds, "generateTokens"),
-        },
-  );
   const generated: number[] = [];
   let finishReason: GenerationResult["finishReason"] = "length";
+  let initialPrompt: PrefilledPrompt | null = null;
   let currentToken: MxArray | null = null;
   let nextToken: MxArray | null = null;
 
   try {
+    initialPrompt = withDefaultStream(scope.stream, () =>
+      promptTokenIds.length > 1
+        ? prefillPromptCache(
+            model,
+            promptTokenIds,
+            cache,
+            prefillStepSize,
+            promptInputEmbeddings,
+            promptPositionIds,
+            options.onPrefillProgress,
+          )
+        : {
+            tokenIds: [...promptTokenIds],
+            inputEmbeddings: retainPromptInputEmbeddings(
+              promptTokenIds,
+              promptInputEmbeddings,
+              "generateTokens",
+            ),
+            positionIds: retainPromptPositionIds(
+              promptTokenIds,
+              promptPositionIds,
+              "generateTokens",
+            ),
+          },
+    );
+    const activePrompt = initialPrompt;
     currentToken = withDefaultStream(scope.stream, () =>
       predictNextTokenWithState(
         model,
-        initialPrompt.tokenIds,
+        activePrompt.tokenIds,
         cache,
         samplerState,
         options,
-        initialPrompt.inputEmbeddings ?? undefined,
-        initialPrompt.positionIds ?? undefined,
+        activePrompt.inputEmbeddings ?? undefined,
+        activePrompt.positionIds ?? undefined,
       ),
     );
     const initialToken = takeCurrentToken(currentToken);
@@ -146,8 +153,8 @@ async function* streamWithCache(
     yield { type: "done", tokenIds: [...generated], finishReason };
   } finally {
     samplerState[Symbol.dispose]();
-    initialPrompt.inputEmbeddings?.free();
-    initialPrompt.positionIds?.free();
+    initialPrompt?.inputEmbeddings?.free();
+    initialPrompt?.positionIds?.free();
     currentToken?.free();
     nextToken?.free();
     closeGenerationScope(scope);

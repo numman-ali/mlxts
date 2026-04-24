@@ -132,6 +132,8 @@ export function formatServeEvent(event: ServeEvent): string {
       return `[generation] ${event.id} ${event.protocol} model=${event.model} input=${event.inputKind} max_tokens=${event.maxTokens} started`;
     case "generation_progress":
       return `[generation] ${event.id} progress prompt_tokens=${event.promptTokens} completion_tokens=${event.completionTokens}/${event.maxTokens}${formatMemoryUsage(event.memory)}`;
+    case "generation_prefill_progress":
+      return `[generation] ${event.id} prefill prompt_tokens=${event.promptTokens} prefill_tokens=${event.processedPrefillTokens}/${event.totalPrefillTokens} chunk_tokens=${event.chunkTokens}${formatMemoryUsage(event.memory)}`;
     case "generation_batch_start":
       return `[batch] ${event.mode} model=${event.model} size=${event.batchSize} max_tokens=${event.maxTokens} per_request=${event.maxTokensByRequest.join(",")} ids=${event.ids.join(",")} started`;
     case "generation_admission_batch":
@@ -147,6 +149,7 @@ export function shouldLogServeEvent(event: ServeEvent, verbose: boolean): boolea
   switch (event.type) {
     case "generation_start":
     case "generation_progress":
+    case "generation_prefill_progress":
     case "generation_batch_start":
     case "generation_admission_batch":
     case "generation_complete":

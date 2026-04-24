@@ -78,6 +78,7 @@ export type {
   LoadCausalLMOptions,
   LoadPretrainedTokenizerOptions,
   LoadSourceOptions,
+  PrefillProgressEvent,
   PretrainedLoadProgressEvent,
   SamplerOptions,
   SupportedModelFamily,

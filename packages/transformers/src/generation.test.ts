@@ -18,6 +18,7 @@ import type {
   CausalLM,
   DecoderCache,
   ForwardOptions,
+  PrefillProgressEvent,
   TokenGenerationEvent,
   TransformerCache,
 } from "./types";
@@ -189,6 +190,27 @@ describe("generation", () => {
 
     expect(result.tokenIds).toHaveLength(3);
     expect(counts).toEqual([1, 2, 3]);
+  });
+
+  test("generation helpers expose prompt prefill progress for chunked prompts", () => {
+    using model = new DeterministicGenerationModel();
+    const progress: PrefillProgressEvent[] = [];
+
+    const result = generateTokens(model, [0, 1, 2, 0, 1], {
+      maxTokens: 1,
+      temperature: 0,
+      eosTokenIds: [],
+      prefillStepSize: 2,
+      onPrefillProgress(event) {
+        progress.push(event);
+      },
+    });
+
+    expect(result.tokenIds).toEqual([2]);
+    expect(progress).toEqual([
+      { processedTokens: 2, totalTokens: 4, chunkTokens: 2 },
+      { processedTokens: 4, totalTokens: 4, chunkTokens: 2 },
+    ]);
   });
 
   test("generateBatchTokens supports per-row lengths and token events", () => {
