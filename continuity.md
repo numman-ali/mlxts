@@ -27,6 +27,26 @@ work as a usable text endpoint while benchmark and scheduler work continues.
 
 ## Latest Evidence
 
+- Fresh post-harness serving evidence is recorded in
+  `docs/reviews/2026-04-24-qwen-serve-benchmark-ladder.md`. Qwen 3.6 endpoint
+  serving now has JSON-backed ladders for `128/128`, `1024/512`, `5000/128`,
+  `10000/128`, `1024/1024`, `1024/2048`, `32768/128`, `65536/128`, and
+  `131072/128`.
+- Qwen 3.6 can serve `131072/128` streaming without crashing on the 64 GB local
+  machine: `wall_ms=865021.6`, `mean_ttft_ms=858549.9`,
+  `mean_post_ttft_completion_tps=19.624`, `peak_memory=42.543 GB`,
+  `active_delta=0.000 GB`, `finish_reasons=length`. This is capable, but not
+  yet product-grade TTFT.
+- Fresh required-reference parity: `1024/128` was `mlx-lm=29.135 tok/s`,
+  `mlxts=29.236 tok/s`; `10000/128` was `mlx-lm=27.332`, `mlxts=27.241`;
+  `1024/1024` was `mlx-lm=28.965`, `mlxts=28.537`. Decode parity is strong;
+  the remaining clear gap is peak memory versus `mlx-lm`, especially at 1k
+  context.
+- Gemma 4 E2B endpoint control passed through `5000/128` with flat active
+  memory and post-TTFT decode around `82-88 tok/s`. LLaMA 3.2 1B continuous
+  batching control showed `continuous_admission_rows=4` and
+  `max_generation_batch=4` at `16x16@4`, while Qwen queued concurrency stayed
+  serialized with zero real batch rows as expected.
 - `1024/128` paired: `mlx-lm generation_tps=28.899`, `mlxts generation_tps=28.999`.
 - `10000/128` paired: `mlx-lm generation_tps=27.154`, `mlxts generation_tps=26.959`.
 - `1024/1024` paired: `mlx-lm generation_tps=28.448`, `mlxts generation_tps=28.352`.
