@@ -86,7 +86,9 @@ function batchGenerationOptions(
   options: TransformersGenerationEngineOptions,
 ): BatchGenerationOptions {
   const eosTokenIds =
-    request.input.kind === "text" && options.tokenizer.eosTokenIds.length > 0
+    request.sampling.ignoreEos !== true &&
+    request.input.kind === "text" &&
+    options.tokenizer.eosTokenIds.length > 0
       ? [...options.tokenizer.eosTokenIds]
       : undefined;
   return {
@@ -161,7 +163,7 @@ function tokenEventsForPreparedRequest(
   if (prepared.request.input.kind === "text") {
     return generateTokenEvents(options.model, prepared.tokenIds, {
       ...generationOptions(prepared.request, onPrefillProgress),
-      ...(options.tokenizer.eosTokenIds.length === 0
+      ...(prepared.request.sampling.ignoreEos === true || options.tokenizer.eosTokenIds.length === 0
         ? {}
         : { eosTokenIds: [...options.tokenizer.eosTokenIds] }),
     });

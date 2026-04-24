@@ -40,6 +40,10 @@ class TinyTokenizer implements Tokenizer {
   }
 }
 
+class EosTokenizer extends TinyTokenizer {
+  override readonly eosTokenIds: number[] = [2];
+}
+
 class SpecialTokenTokenizer extends TinyTokenizer {
   override readonly bosTokenId: number | undefined = 3;
 
@@ -220,6 +224,51 @@ describe("transformers generation engine", () => {
 
     expect(result.text).toBe("");
     expect(result.finishReason).toBe("stop");
+  });
+
+  test("can ignore EOS explicitly for exact-length throughput runs", async () => {
+    using model = new TinyModel();
+    const tokenizer = new EosTokenizer();
+    const engine = createTransformersGenerationEngine({ model, tokenizer });
+
+    const stopped = await engine.generate(
+      textRequest("honors-eos", { maxTokens: 3, temperature: 0 }),
+    );
+    const ignored = await engine.generate(
+      textRequest("ignores-eos", { maxTokens: 3, temperature: 0, ignoreEos: true }),
+    );
+
+    expect(stopped.tokenIds).toEqual([2]);
+    expect(stopped.finishReason).toBe("eos");
+    expect(ignored.tokenIds).toEqual([2, 2, 2]);
+    expect(ignored.finishReason).toBe("length");
+  });
+
+  test("can ignore EOS explicitly on streaming requests", async () => {
+    using model = new TinyModel();
+    const tokenizer = new EosTokenizer();
+    const engine = createTransformersGenerationEngine({ model, tokenizer });
+    const stream = await engine.stream?.({
+      ...textRequest("stream-ignore-eos", { maxTokens: 3, temperature: 0, ignoreEos: true }),
+      stream: true,
+    });
+    if (stream === undefined) {
+      throw new Error("Expected transformers engine to expose stream.");
+    }
+
+    const events: GenerationStreamEvent[] = [];
+    for await (const event of stream) {
+      events.push(event);
+    }
+
+    expect(events).toEqual([
+      { type: "text", text: "ccc" },
+      {
+        type: "done",
+        finishReason: "length",
+        usage: { promptTokens: 2, completionTokens: 3, totalTokens: 5 },
+      },
+    ]);
   });
 
   test("counts text prompt tokens with the special tokens used for generation", async () => {
@@ -428,6 +477,34 @@ describe("transformers generation engine", () => {
     ]);
 
     expect(results.map((result) => result.text)).toEqual(["c", "cc"]);
+    expect(model.batchForwardCount).toBeGreaterThan(0);
+  });
+
+  test("can ignore EOS explicitly on static batch generation", async () => {
+    using model = batchEligibleModel();
+    const tokenizer = new EosTokenizer();
+    const engine = createTransformersGenerationEngine({ model, tokenizer });
+    const generateBatch = engine.generateBatch;
+    if (generateBatch === undefined) {
+      throw new Error("Expected transformers engine to expose generateBatch.");
+    }
+
+    const stopped = await generateBatch([
+      textRequest("honors-eos-1", { maxTokens: 3, temperature: 0 }),
+      textRequest("honors-eos-2", { maxTokens: 3, temperature: 0 }),
+    ]);
+    const ignored = await generateBatch([
+      textRequest("ignores-eos-1", { maxTokens: 3, temperature: 0, ignoreEos: true }),
+      textRequest("ignores-eos-2", { maxTokens: 3, temperature: 0, ignoreEos: true }),
+    ]);
+
+    expect(stopped.map((result) => result.tokenIds)).toEqual([[2], [2]]);
+    expect(stopped.map((result) => result.finishReason)).toEqual(["eos", "eos"]);
+    expect(ignored.map((result) => result.tokenIds)).toEqual([
+      [2, 2, 2],
+      [2, 2, 2],
+    ]);
+    expect(ignored.map((result) => result.finishReason)).toEqual(["length", "length"]);
     expect(model.batchForwardCount).toBeGreaterThan(0);
   });
 

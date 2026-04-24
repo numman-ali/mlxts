@@ -31,6 +31,7 @@ export type GenerationSamplingOptions = {
   topK?: number;
   seed?: number;
   stop?: readonly string[];
+  ignoreEos?: boolean;
 };
 
 export type GenerationProtocol =

@@ -210,6 +210,9 @@ intentional. Omitted sampling fields preserve model-native
 runs. It sends exact token-array prompts through `/v1/completions` and reports
 wall time, request throughput, completion-token throughput, mean latency, memory,
 finish reasons, admission micro-batch events, and real static batch events.
+Use `--ignore-eos` for exact-length throughput ladders when comparing against
+in-process benchmarks that intentionally decode the full requested token count;
+normal serving behavior still honors EOS unless this extension is explicit.
 Pass `--stream` to drive the same rungs through SSE completions with
 `stream_options.include_usage=true`; streaming runs add mean time-to-first-token,
 SSE chunk count, and streamed byte count.

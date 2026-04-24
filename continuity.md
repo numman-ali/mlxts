@@ -43,6 +43,12 @@ against `mlx-lm`, long-output stability, and long-context capability visible.
   It reported `mean_ttft_ms=51.1`, `stream_chunks=1`, `stream_bytes=676`, and
   full usage (`prompt_tokens=16`, `completion_tokens=4`), proving the benchmark
   can measure real `/v1/completions` streaming rather than only buffered HTTP.
+- Live Qwen serve endpoint exact-length probe passed with `--ignore-eos`: prompt
+  `128`, generation `128`, concurrency `1`, greedy, no warmup reported
+  `completion_tps=25.373`, `completion_tokens=128`, `finish_reasons=length`,
+  `peak_memory=18.481 GB`. The previously misleading `1024/128` rung now
+  generated all `128` tokens instead of stopping at EOS after 4 tokens:
+  `completion_tps=15.116`, `peak_memory=19.934 GB`, `active_delta=0.000 GB`.
 
 ## Next Work
 
@@ -70,3 +76,7 @@ against `mlx-lm`, long-output stability, and long-context capability visible.
   harness requests usage chunks and reports mean TTFT, stream chunk count, and
   streamed bytes. Very small generation lengths may flush as a single text chunk,
   so streaming/backpressure ladders need larger output rungs.
+- Use `--ignore-eos` only for exact-length throughput/parity ladders. Normal
+  serving should still honor EOS, but Qwen/Gemma parity claims need a way to
+  request the full output rung when the benchmark is measuring decode speed
+  rather than chat stopping behavior.

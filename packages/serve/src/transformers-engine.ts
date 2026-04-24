@@ -101,7 +101,7 @@ function streamTokenEventsForRequest(
       options.tokenizer.encode(request.input.text, { addSpecialTokens: true }),
       {
         ...generationOptions(request, onPrefillProgress),
-        ...(options.tokenizer.eosTokenIds.length === 0
+        ...(request.sampling.ignoreEos === true || options.tokenizer.eosTokenIds.length === 0
           ? {}
           : { eosTokenIds: [...options.tokenizer.eosTokenIds] }),
       },

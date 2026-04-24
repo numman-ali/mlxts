@@ -38,6 +38,7 @@ function completionRequestBody(
   generationTokens: number,
   samplingMode: SamplingMode,
   transportMode: TransportMode,
+  ignoreEos: boolean,
 ) {
   return {
     model: modelId,
@@ -46,6 +47,7 @@ function completionRequestBody(
     ...(transportMode === "streaming"
       ? { stream: true, stream_options: { include_usage: true } }
       : {}),
+    ...(ignoreEos ? { ignore_eos: true } : {}),
     ...(samplingMode === "greedy" ? { temperature: 0 } : {}),
   };
 }
@@ -82,6 +84,7 @@ async function runBufferedCompletionRequest(
         rung.generationTokens,
         options.samplingMode,
         options.transportMode,
+        options.ignoreEos,
       ),
     ),
   });
@@ -191,6 +194,7 @@ async function runStreamingCompletionRequest(
         rung.generationTokens,
         options.samplingMode,
         options.transportMode,
+        options.ignoreEos,
       ),
     ),
   });

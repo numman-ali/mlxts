@@ -23,6 +23,7 @@ describe("serve benchmark completion requests", () => {
         const body = (await request.json()) as Record<string, unknown>;
         expect(body.stream).toBeUndefined();
         expect(body.temperature).toBe(0);
+        expect(body.ignore_eos).toBe(true);
         return Response.json({
           choices: [{ text: "ok", finish_reason: "length" }],
           usage: { prompt_tokens: 2, completion_tokens: 3, total_tokens: 5 },
@@ -36,7 +37,7 @@ describe("serve benchmark completion requests", () => {
         "tiny",
         [1, 2],
         { promptTokens: 2, generationTokens: 3, concurrency: 1 },
-        options(),
+        options(["--ignore-eos"]),
       );
 
       expect(metrics).toMatchObject({

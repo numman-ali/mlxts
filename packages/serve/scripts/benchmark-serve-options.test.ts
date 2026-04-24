@@ -21,6 +21,7 @@ describe("serve benchmark options", () => {
       matrix: "cartesian",
       samplingMode: "model-defaults",
       transportMode: "non-streaming",
+      ignoreEos: false,
       localFilesOnly: true,
       port: 0,
       maxBatchSize: 32,
@@ -62,6 +63,7 @@ describe("serve benchmark options", () => {
       "4096",
       "--greedy",
       "--stream",
+      "--ignore-eos",
       "--no-warmup",
       "--allow-download",
     ]);
@@ -77,6 +79,7 @@ describe("serve benchmark options", () => {
       matrix: "zip",
       samplingMode: "greedy",
       transportMode: "streaming",
+      ignoreEos: true,
       localFilesOnly: false,
       port: 8081,
       maxBatchSize: 8,

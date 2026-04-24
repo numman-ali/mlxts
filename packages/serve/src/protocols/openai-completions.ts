@@ -46,6 +46,16 @@ export type NormalizedCompletionBatch = {
 
 const DEFAULT_COMPLETION_MAX_TOKENS = 16;
 
+type CompletionSamplingFields = {
+  maxTokens: number;
+  temperature?: number;
+  topP?: number;
+  topK?: number;
+  ignoreEos?: boolean;
+  seed?: number;
+  stop?: readonly string[];
+};
+
 function stringField(record: Record<string, unknown>, key: string): string {
   const value = record[key];
   if (typeof value !== "string" || value.trim() === "") {
@@ -245,6 +255,33 @@ function validateNoOpCompletionFields(record: Record<string, unknown>): void {
   rejectSuffix(record);
 }
 
+function completionSampling(
+  fields: CompletionSamplingFields,
+): NormalizedGenerationRequest["sampling"] {
+  const sampling: NormalizedGenerationRequest["sampling"] = {
+    maxTokens: fields.maxTokens,
+  };
+  if (fields.temperature !== undefined) {
+    sampling.temperature = fields.temperature;
+  }
+  if (fields.topP !== undefined) {
+    sampling.topP = fields.topP;
+  }
+  if (fields.topK !== undefined) {
+    sampling.topK = fields.topK;
+  }
+  if (fields.ignoreEos !== undefined) {
+    sampling.ignoreEos = fields.ignoreEos;
+  }
+  if (fields.seed !== undefined) {
+    sampling.seed = fields.seed;
+  }
+  if (fields.stop !== undefined) {
+    sampling.stop = fields.stop;
+  }
+  return sampling;
+}
+
 function finishReason(reason: NormalizedFinishReason): OpenAICompletionChoice["finish_reason"] {
   if (reason === "length") {
     return "length";
@@ -352,10 +389,20 @@ export function normalizeOpenAICompletionRequest(
   const topP = optionalNumber(body, "top_p", (value) => value > 0 && value <= 1, "0 < value <= 1");
   const topK = optionalInteger(body, "top_k", (value) => value > 0, "a positive integer");
   const stream = optionalBoolean(body, "stream") ?? false;
+  const ignoreEos = optionalBoolean(body, "ignore_eos");
   const seed = optionalInteger(body, "seed", (value) => value >= 0, "a non-negative integer");
   const stop = parseOpenAIStopSequences(body, "completions");
   const user = optionalString(body, "user");
   const parsedStreamOptions = streamOptions(body, stream);
+  const samplingFields: CompletionSamplingFields = {
+    maxTokens,
+    ...(temperature === undefined ? {} : { temperature }),
+    ...(topP === undefined ? {} : { topP }),
+    ...(topK === undefined ? {} : { topK }),
+    ...(ignoreEos === undefined ? {} : { ignoreEos }),
+    ...(seed === undefined ? {} : { seed }),
+    ...(stop === undefined ? {} : { stop }),
+  };
 
   return {
     model,
@@ -365,14 +412,7 @@ export function normalizeOpenAICompletionRequest(
       id: inputs.length === 1 ? options.id : `${options.id}-${index}`,
       model,
       input,
-      sampling: {
-        maxTokens,
-        ...(temperature === undefined ? {} : { temperature }),
-        ...(topP === undefined ? {} : { topP }),
-        ...(topK === undefined ? {} : { topK }),
-        ...(seed === undefined ? {} : { seed }),
-        ...(stop === undefined ? {} : { stop }),
-      },
+      sampling: completionSampling(samplingFields),
       stream,
       protocol: "openai.completions",
       metadata: {

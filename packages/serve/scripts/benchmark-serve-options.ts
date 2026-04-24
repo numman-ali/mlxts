@@ -13,6 +13,7 @@ export type ServeBenchmarkOptions = {
   matrix: MatrixMode;
   samplingMode: SamplingMode;
   transportMode: TransportMode;
+  ignoreEos: boolean;
   localFilesOnly: boolean;
   port: number;
   maxBatchSize: number;
@@ -47,6 +48,7 @@ function usage(): never {
       "  --matrix <cartesian|zip>        Pair prompt/output rungs, default cartesian",
       "  --trials <n>                    Trials per rung, default 1",
       "  --stream                        Measure SSE streaming and time-to-first-token",
+      "  --ignore-eos                    Request exact max_tokens for throughput ladders",
       "  --greedy                        Send temperature=0 for deterministic throughput",
       "  --no-warmup                     Skip the one-request warmup for each prompt/output pair",
       "  --max-concurrent-requests <n>   Server-side in-flight generation limit, default 1",
@@ -128,6 +130,7 @@ export function parseServeBenchmarkArgs(argv: readonly string[]): ServeBenchmark
   let matrix: MatrixMode = "cartesian";
   let samplingMode: SamplingMode = "model-defaults";
   let transportMode: TransportMode = "non-streaming";
+  let ignoreEos = false;
   let localFilesOnly = true;
   let port = 0;
   let maxBatchSize = 32;
@@ -206,6 +209,9 @@ export function parseServeBenchmarkArgs(argv: readonly string[]): ServeBenchmark
       case "--stream":
         transportMode = "streaming";
         break;
+      case "--ignore-eos":
+        ignoreEos = true;
+        break;
       case "--no-warmup":
         warmup = false;
         break;
@@ -240,6 +246,7 @@ export function parseServeBenchmarkArgs(argv: readonly string[]): ServeBenchmark
     matrix,
     samplingMode,
     transportMode,
+    ignoreEos,
     localFilesOnly,
     port,
     maxBatchSize,

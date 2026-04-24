@@ -380,6 +380,7 @@ export function normalizeOpenAIChatCompletionRequest(
   );
   const topP = optionalNumber(body, "top_p", (value) => value > 0 && value <= 1, "0 < value <= 1");
   const topK = optionalInteger(body, "top_k", (value) => value > 0, "a positive integer");
+  const ignoreEos = optionalBoolean(body, "ignore_eos");
   const seed = optionalInteger(body, "seed", (value) => value >= 0, "a non-negative integer");
   const stop = parseOpenAIStopSequences(body, "chat completions");
   const user = optionalString(body, "user");
@@ -402,6 +403,7 @@ export function normalizeOpenAIChatCompletionRequest(
         ...(temperature === undefined ? {} : { temperature }),
         ...(topP === undefined ? {} : { topP }),
         ...(topK === undefined ? {} : { topK }),
+        ...(ignoreEos === undefined ? {} : { ignoreEos }),
         ...(seed === undefined ? {} : { seed }),
         ...(stop === undefined ? {} : { stop }),
       },

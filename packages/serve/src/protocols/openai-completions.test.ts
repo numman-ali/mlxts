@@ -27,6 +27,7 @@ describe("OpenAI completions adapter", () => {
         temperature: 0,
         top_k: 20,
         top_p: 0.9,
+        ignore_eos: true,
         stop: ["</s>"],
       },
       { id: "cmpl-test" },
@@ -42,6 +43,7 @@ describe("OpenAI completions adapter", () => {
       sampling: { maxTokens: 8, temperature: 0, topK: 20, topP: 0.9, stop: ["</s>"] },
       protocol: "openai.completions",
     });
+    expect(batch.requests[0]?.sampling.ignoreEos).toBe(true);
     expect(batch.requests[1]?.input).toEqual({ kind: "text", text: "World" });
 
     const tokenBatch = normalizeOpenAICompletionRequest(
