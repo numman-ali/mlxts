@@ -2,7 +2,11 @@ import { describe, expect, test } from "bun:test";
 import { array, full, type MxArray, retainArray, zeros } from "@mlxts/core";
 import { Module } from "@mlxts/nn";
 
-import { generateBatchTokens, generateTokens } from "../../generation";
+import {
+  createContinuousBatchTokenScheduler,
+  generateBatchTokens,
+  generateTokens,
+} from "../../generation";
 import type { TransformerCache } from "../../types";
 import { Gemma4TextCausalLM, Gemma4TextModel } from "./model";
 import type { Gemma4SharedKeyValues, Gemma4TextConfig } from "./types";
@@ -101,6 +105,54 @@ describe("Gemma4TextModel", () => {
     const batched = generateBatchTokens(model, prompts, options);
 
     expect(batched).toEqual(separate);
+  });
+
+  test("continuous greedy batch generation admits staggered shared-KV rows", async () => {
+    using model = new Gemma4TextCausalLM(
+      gemma4Config({
+        numHiddenLayers: 3,
+        layerTypes: ["sliding_attention", "full_attention", "sliding_attention"],
+        hiddenSizePerLayerInput: 0,
+        numKvSharedLayers: 1,
+        slidingWindow: 2,
+      }),
+    );
+    const firstPrompt = [1, 2, 3, 4];
+    const secondPrompt = [5, 6];
+    const firstSeparate = generateTokens(model, firstPrompt, {
+      maxTokens: 3,
+      temperature: 0,
+      eosTokenIds: [],
+    });
+    const secondSeparate = generateTokens(model, secondPrompt, {
+      maxTokens: 2,
+      temperature: 0,
+      eosTokenIds: [],
+    });
+    const scheduler = createContinuousBatchTokenScheduler(model, {
+      maxBatchSize: 2,
+      temperature: 0,
+      eosTokenIds: [],
+    });
+    let second: Promise<unknown> | undefined;
+
+    const first = scheduler.enqueue({
+      id: "first",
+      promptTokenIds: firstPrompt,
+      maxTokens: 3,
+      onToken(_tokenId, tokenIds) {
+        if (tokenIds.length === 1 && second === undefined) {
+          second = scheduler.enqueue({
+            id: "second",
+            promptTokenIds: secondPrompt,
+            maxTokens: 2,
+          });
+        }
+      },
+    });
+
+    await expect(first).resolves.toEqual(firstSeparate);
+    await expect(second).resolves.toEqual(secondSeparate);
   });
 
   test("scales per-layer token embeddings by sqrt(hiddenSizePerLayerInput)", () => {

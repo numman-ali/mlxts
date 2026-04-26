@@ -142,4 +142,54 @@ describe("Qwen3_5TextBatchCache", () => {
     expect(cache.linearState(0).convState?.toList()).toEqual([[[6, 7]]]);
     expect(cache.linearState(0).recurrentState?.toList()).toEqual([[[[9]]]]);
   });
+
+  test("extends full-attention and linear-attention batch state", () => {
+    using left = new Qwen3_5TextBatchCache(["linear_attention", "full_attention"], [0]);
+    using leftKeys = array([[[[1], [2]]]], "float32");
+    using leftValues = array([[[[10], [20]]]], "float32");
+    using leftConvState = array([[[3, 4]]], "float32");
+    using leftRecurrentState = array([[[[5]]]], "float32");
+    using leftView = left.updateAndFetch(1, leftKeys, leftValues).keys;
+    left.updateLinearState(0, leftConvState, leftRecurrentState);
+    mxEval(leftView);
+    left.advance(2);
+
+    using right = new Qwen3_5TextBatchCache(["linear_attention", "full_attention"], [0]);
+    using rightKeys = array([[[[7]]]], "float32");
+    using rightValues = array([[[[70]]]], "float32");
+    using rightConvState = array([[[8, 9]]], "float32");
+    using rightRecurrentState = array([[[[11]]]], "float32");
+    using rightView = right.updateAndFetch(1, rightKeys, rightValues).keys;
+    right.updateLinearState(0, rightConvState, rightRecurrentState);
+    mxEval(rightView);
+    right.advance(1);
+
+    left.extend(right);
+
+    expect(left.batchSize).toBe(2);
+    expect(left.leftPadding).toEqual([0, 1]);
+    expect(left.offsets).toEqual([2, 1]);
+    expect(left.linearState(0).convState?.toList()).toEqual([[[3, 4]], [[8, 9]]]);
+    expect(left.linearState(0).recurrentState?.toList()).toEqual([[[[5]]], [[[11]]]]);
+
+    const extracted = left.extract(1);
+    try {
+      const arrays = extracted.arrays();
+      try {
+        mxEval(...arrays);
+        expect(arrays.map((value) => value.toList())).toEqual([
+          [[[8, 9]]],
+          [[[[11]]]],
+          [[[[7]]]],
+          [[[[70]]]],
+        ]);
+      } finally {
+        for (const value of arrays) {
+          value.free();
+        }
+      }
+    } finally {
+      extracted[Symbol.dispose]();
+    }
+  });
 });

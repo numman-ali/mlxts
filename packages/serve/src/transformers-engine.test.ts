@@ -791,7 +791,52 @@ describe("transformers generation engine", () => {
     });
   });
 
-  test("coalesces concurrent Gemma layer-pattern requests through static batching only", async () => {
+  test("coalesces concurrent Qwen requests through static batching only", async () => {
+    using model = new TinyModel({ family: "qwen", modelType: "qwen3_5_text" });
+    const tokenizer = new TinyTokenizer();
+    const events: ServeEvent[] = [];
+    const engine = createTransformersGenerationEngine({
+      model,
+      tokenizer,
+      maxBatchSize: 2,
+      batchWindowMs: 1,
+      onEvent(event) {
+        events.push(event);
+      },
+    });
+
+    const results = await Promise.all([
+      engine.generate(textRequest("qwen-one")),
+      engine.generate(textRequest("qwen-two")),
+    ]);
+
+    expect(results.map((result) => result.text)).toEqual(["cc", "cc"]);
+    expect(model.batchForwardCount).toBeGreaterThan(0);
+    expect(events.some((event) => event.type === "generation_scheduler_phase")).toBe(false);
+    expect(events).toContainEqual({
+      type: "generation_route_decision",
+      id: "qwen-one",
+      protocol: "openai.completions",
+      model: "tiny",
+      route: "static",
+      eligible: true,
+      reason: "eligible",
+      modelType: "qwen3_5_text",
+      maxBatchSize: 2,
+      stream: false,
+    });
+    expect(events).toContainEqual({
+      type: "generation_batch_start",
+      mode: "static",
+      model: "tiny",
+      ids: ["qwen-one", "qwen-two"],
+      batchSize: 2,
+      maxTokens: 2,
+      maxTokensByRequest: [2, 2],
+    });
+  });
+
+  test("routes concurrent Gemma layer-pattern requests through continuous batching", async () => {
     using model = new TinyModel({
       family: "gemma",
       modelType: "gemma4_text",
@@ -817,28 +862,29 @@ describe("transformers generation engine", () => {
 
     expect(results.map((result) => result.text)).toEqual(["cc", "cc"]);
     expect(model.batchForwardCount).toBeGreaterThan(0);
-    expect(events.some((event) => event.type === "generation_scheduler_phase")).toBe(false);
+    expect(
+      events.some(
+        (event) =>
+          event.type === "generation_scheduler_phase" &&
+          event.phase === "admitted" &&
+          event.batchSize === 2,
+      ),
+    ).toBe(true);
     expect(events).toContainEqual({
       type: "generation_route_decision",
       id: "gemma-one",
       protocol: "openai.completions",
       model: "tiny",
-      route: "static",
+      route: "continuous",
       eligible: true,
       reason: "eligible",
       modelType: "gemma4_text",
       maxBatchSize: 2,
       stream: false,
     });
-    expect(events).toContainEqual({
-      type: "generation_batch_start",
-      mode: "static",
-      model: "tiny",
-      ids: ["gemma-one", "gemma-two"],
-      batchSize: 2,
-      maxTokens: 2,
-      maxTokensByRequest: [2, 2],
-    });
+    expect(
+      events.some((event) => event.type === "generation_batch_start" && event.mode === "static"),
+    ).toBe(false);
   });
 
   test("keeps streaming Gemma layer-pattern requests out of continuous batching", async () => {
@@ -875,7 +921,7 @@ describe("transformers generation engine", () => {
       model: "tiny",
       route: "single",
       eligible: false,
-      reason: "sliding_window_cache",
+      reason: "streaming",
       modelType: "gemma4_text",
       maxBatchSize: 2,
       stream: true,

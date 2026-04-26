@@ -10,8 +10,13 @@ import {
   takeAxis,
 } from "@mlxts/core";
 
-import type { BatchGenerationOptions, CausalLM, PrefillProgressEvent } from "../../types";
-import { BatchKVCache } from "../cache";
+import type {
+  BatchGenerationOptions,
+  CausalLM,
+  PrefillProgressEvent,
+  TransformerBatchCache,
+} from "../../types";
+import { createBatchCacheForModel } from "./batch-cache-factory";
 import { GenerationAbortError } from "./cancellation";
 import { takeLastLogits } from "./helpers";
 
@@ -22,7 +27,7 @@ type AbortablePrefillRequest = {
 
 type AbortablePrefillRow<Request extends AbortablePrefillRequest> = {
   request: Request;
-  cache: BatchKVCache;
+  cache: TransformerBatchCache;
 };
 
 export function integerAtLeast(value: number, name: string, minimum: number): number {
@@ -69,6 +74,24 @@ export function rejectAbortedPrefillingRows<Request extends AbortablePrefillRequ
   }
 }
 
+export function disposePrefillingCaches(
+  prefilling: readonly { cache: TransformerBatchCache }[],
+): void {
+  for (const row of prefilling) {
+    row.cache[Symbol.dispose]();
+  }
+}
+
+export function shouldChunkInitialRows(
+  waiting: readonly { promptTokenIds: readonly number[] }[],
+  count: number,
+  prefillStepSize: number,
+): boolean {
+  return waiting
+    .slice(0, count)
+    .some((request) => request.promptTokenIds.length - 1 > prefillStepSize);
+}
+
 function leftPadPrompts(
   prompts: readonly (readonly number[])[],
   padTokenId: number,
@@ -90,9 +113,9 @@ export function prefillReadyBatch(
   model: CausalLM,
   prompts: readonly (readonly number[])[],
   padTokenId: number,
-): { cache: BatchKVCache; nextToken: MxArray } {
+): { cache: TransformerBatchCache; nextToken: MxArray } {
   const { padded, leftPadding } = leftPadPrompts(prompts, padTokenId);
-  const cache = new BatchKVCache(model.layerCount, leftPadding);
+  const cache = createBatchCacheForModel(model, leftPadding, "ContinuousBatchTokenScheduler");
   using promptInput = array(padded, "int32");
   const nextToken = sampleNextBatchToken(model, promptInput, cache);
   return { cache, nextToken };
@@ -112,7 +135,7 @@ function sampleGreedyBatchTokenTensor(logits: MxArray, context: string): MxArray
 export function sampleNextBatchToken(
   model: CausalLM,
   inputIds: MxArray,
-  cache: BatchKVCache,
+  cache: TransformerBatchCache,
 ): MxArray {
   using logits = model.forward(inputIds, { cache });
   using lastLogits = takeLastLogits(logits, "ContinuousBatchTokenScheduler");
@@ -121,7 +144,7 @@ export function sampleNextBatchToken(
   return nextToken;
 }
 
-function materializeBatchCacheState(cache: BatchKVCache): boolean {
+function materializeBatchCacheState(cache: TransformerBatchCache): boolean {
   const stateArrays = cache.arrays();
   try {
     if (stateArrays.length === 0) {
@@ -139,7 +162,7 @@ function materializeBatchCacheState(cache: BatchKVCache): boolean {
 export function prefillPromptChunk(
   model: CausalLM,
   promptTokenIds: readonly number[],
-  cache: BatchKVCache,
+  cache: TransformerBatchCache,
   cursor: number,
   prefillStepSize: number,
   remainingPrefillTokens: number,

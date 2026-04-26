@@ -7,9 +7,89 @@ import type {
   CausalLM,
   DecoderCache,
   ForwardOptions,
+  TransformerBatchCache,
   TransformerCache,
 } from "../../types";
-import { KVCache } from "../cache";
+import { BatchKVCache, KVCache } from "../cache";
+
+class TrackingBatchCache implements TransformerBatchCache {
+  readonly inner: BatchKVCache;
+  extendCount = 0;
+  filterCount = 0;
+
+  constructor(leftPadding: readonly number[]) {
+    this.inner = new BatchKVCache(1, leftPadding);
+  }
+
+  get layerCount(): number {
+    return this.inner.layerCount;
+  }
+
+  get batchSize(): number {
+    return this.inner.batchSize;
+  }
+
+  get length(): number {
+    return this.inner.length;
+  }
+
+  get leftPadding(): readonly number[] {
+    return this.inner.leftPadding;
+  }
+
+  get offsets(): readonly number[] {
+    return this.inner.offsets;
+  }
+
+  updateAndFetch(layerIndex: number, keys: MxArray, values: MxArray) {
+    return this.inner.updateAndFetch(layerIndex, keys, values);
+  }
+
+  advance(sequenceLength: number): void {
+    this.inner.advance(sequenceLength);
+  }
+
+  filter(batchIndices: readonly number[]): void {
+    this.filterCount += 1;
+    this.inner.filter(batchIndices);
+  }
+
+  extend(other: TransformerBatchCache): void {
+    if (!(other instanceof TrackingBatchCache)) {
+      throw new Error("TrackingBatchCache.extend expected another tracking cache.");
+    }
+    this.extendCount += 1 + other.extendCount;
+    this.inner.extend(other.inner);
+  }
+
+  extract(batchIndex: number): TransformerCache {
+    return this.inner.extract(batchIndex);
+  }
+
+  offsetTensor(): MxArray {
+    return this.inner.offsetTensor();
+  }
+
+  leftPaddingTensor(): MxArray {
+    return this.inner.leftPaddingTensor();
+  }
+
+  isEmpty(): boolean {
+    return this.inner.isEmpty();
+  }
+
+  isTrimmable(): boolean {
+    return this.inner.isTrimmable();
+  }
+
+  arrays(): MxArray[] {
+    return this.inner.arrays();
+  }
+
+  [Symbol.dispose](): void {
+    this.inner[Symbol.dispose]();
+  }
+}
 
 class DeterministicBatchModel implements CausalLM {
   readonly family = "gemma";
@@ -76,6 +156,16 @@ class DeterministicBatchModel implements CausalLM {
   [Symbol.dispose](): void {}
 }
 
+class ModelOwnedBatchCacheModel extends DeterministicBatchModel {
+  readonly createdBatchCaches: TrackingBatchCache[] = [];
+
+  createBatchCache(leftPadding: readonly number[]): TransformerBatchCache {
+    const cache = new TrackingBatchCache(leftPadding);
+    this.createdBatchCaches.push(cache);
+    return cache;
+  }
+}
+
 describe("continuous batch token scheduler", () => {
   test("admits a row after decode has started", async () => {
     using model = new DeterministicBatchModel();
@@ -113,6 +203,32 @@ describe("continuous batch token scheduler", () => {
     expect(phases).toContain("first_token");
     expect(phases).toContain("finished");
     expect(model.forwardBatchSizes).toContain(2);
+  });
+
+  test("uses model-owned batch caches for staggered row admission", async () => {
+    using model = new ModelOwnedBatchCacheModel();
+    const scheduler = createContinuousBatchTokenScheduler(model, {
+      maxBatchSize: 2,
+      temperature: 0,
+      eosTokenIds: [],
+    });
+    let second: Promise<unknown> | undefined;
+
+    const first = scheduler.enqueue({
+      id: "first",
+      promptTokenIds: [0],
+      maxTokens: 3,
+      onToken(_tokenId, tokenIds) {
+        if (tokenIds.length === 1 && second === undefined) {
+          second = scheduler.enqueue({ id: "second", promptTokenIds: [1], maxTokens: 2 });
+        }
+      },
+    });
+
+    await expect(first).resolves.toEqual({ tokenIds: [2, 2, 2], finishReason: "length" });
+    await expect(second).resolves.toEqual({ tokenIds: [2, 2], finishReason: "length" });
+    expect(model.createdBatchCaches.length).toBeGreaterThan(1);
+    expect(model.createdBatchCaches.some((cache) => cache.extendCount > 0)).toBe(true);
   });
 
   test("chunks a long waiting prompt while active rows keep decoding", async () => {

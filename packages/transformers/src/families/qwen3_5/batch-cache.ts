@@ -6,6 +6,8 @@
 import {
   arange,
   array,
+  concatenate,
+  type DType,
   expandDims,
   greaterEqual,
   type MxArray,
@@ -95,6 +97,65 @@ function sliceBatch(value: MxArray | null, batchIndex: number): MxArray | null {
   return slice(value, [batchIndex, ...Array(value.shape.length - 1).fill(0)], stop);
 }
 
+type LinearStateTensorSpec = {
+  trailingShape: number[];
+  dtype: DType;
+};
+
+function linearStateTensorSpec(value: MxArray): LinearStateTensorSpec {
+  const [batchSize, ...trailingShape] = value.shape;
+  if (batchSize === undefined || trailingShape.some((dimension) => dimension === undefined)) {
+    throw new Error("Qwen3_5TextBatchCache.extend: expected concrete linear state shapes.");
+  }
+  return { trailingShape, dtype: value.dtype };
+}
+
+function compatibleLinearStateSpec(
+  left: MxArray | null,
+  right: MxArray | null,
+  name: string,
+): LinearStateTensorSpec | null {
+  if (left === null && right === null) {
+    return null;
+  }
+  if (left === null || right === null) {
+    throw new Error(`Qwen3_5TextBatchCache.extend: ${name} must be initialized on both caches.`);
+  }
+  const spec = linearStateTensorSpec(left);
+  const rightSpec = linearStateTensorSpec(right);
+  if (
+    spec.dtype !== rightSpec.dtype ||
+    spec.trailingShape.length !== rightSpec.trailingShape.length ||
+    spec.trailingShape.some((dimension, index) => dimension !== rightSpec.trailingShape[index])
+  ) {
+    throw new Error(`Qwen3_5TextBatchCache.extend: ${name} shapes and dtypes must match.`);
+  }
+  return spec;
+}
+
+function extendOptionalLinearArray(
+  left: MxArray | null,
+  right: MxArray | null,
+  name: string,
+): MxArray | null {
+  const spec = compatibleLinearStateSpec(left, right, name);
+  if (spec === null) {
+    return null;
+  }
+  if (left === null || right === null) {
+    throw new Error(`Qwen3_5TextBatchCache.extend: ${name} must be initialized on both caches.`);
+  }
+  using leftTensor = retainArray(left);
+  using rightTensor = retainArray(right);
+  return concatenate([leftTensor, rightTensor], 0);
+}
+
+function disposePreparedLinearStates(states: readonly Qwen3_5LinearLayerState[]): void {
+  for (const state of states) {
+    disposeLinearState(state);
+  }
+}
+
 /** Batch cache for Qwen's mixed full-attention and linear-attention text layers. */
 export class Qwen3_5TextBatchCache implements TransformerBatchCache {
   readonly #layerTypes: Qwen3_5LayerType[];
@@ -168,8 +229,39 @@ export class Qwen3_5TextBatchCache implements TransformerBatchCache {
     }
   }
 
-  extend(_other: TransformerBatchCache): void {
-    throw new Error("Qwen3_5TextBatchCache.extend: continuous extension is not supported yet.");
+  extend(other: TransformerBatchCache): void {
+    if (!(other instanceof Qwen3_5TextBatchCache)) {
+      throw new Error("Qwen3_5TextBatchCache.extend: expected another Qwen batch cache.");
+    }
+    if (other.layerCount !== this.layerCount) {
+      throw new Error("Qwen3_5TextBatchCache.extend: layer counts must match.");
+    }
+    if (!this.hasSameLayerTypes(other)) {
+      throw new Error("Qwen3_5TextBatchCache.extend: layer types must match.");
+    }
+    this.assertDecodeReadyForExtension(other);
+
+    const nextLinearStates = this.prepareExtendedLinearStates(other);
+    try {
+      this.#fullAttentionCache.extend(other.#fullAttentionCache);
+    } catch (error) {
+      disposePreparedLinearStates(nextLinearStates);
+      throw error;
+    }
+
+    for (let index = 0; index < this.#linearStates.length; index += 1) {
+      const state = this.#linearStates[index];
+      const nextState = nextLinearStates[index];
+      if (state === undefined || nextState === undefined) {
+        continue;
+      }
+      disposeLinearState(state);
+      state.convState = nextState.convState;
+      state.recurrentState = nextState.recurrentState;
+      nextState.convState = null;
+      nextState.recurrentState = null;
+    }
+    this.#linearLeftPadding = [...this.#linearLeftPadding, ...other.#linearLeftPadding];
   }
 
   extract(batchIndex: number): TransformerCache {
@@ -317,6 +409,48 @@ export class Qwen3_5TextBatchCache implements TransformerBatchCache {
       throw new Error(
         `Qwen3_5TextBatchCache.${operation}: layer ${layerIndex} is ${String(layerType)}; linear state only exists on linear_attention layers.`,
       );
+    }
+  }
+
+  private hasSameLayerTypes(other: Qwen3_5TextBatchCache): boolean {
+    return this.#layerTypes.every((layerType, index) => layerType === other.#layerTypes[index]);
+  }
+
+  private prepareExtendedLinearStates(other: Qwen3_5TextBatchCache): Qwen3_5LinearLayerState[] {
+    const prepared: Qwen3_5LinearLayerState[] = [];
+    try {
+      for (let index = 0; index < this.#linearStates.length; index += 1) {
+        const left = this.#linearStates[index];
+        const right = other.#linearStates[index];
+        if (left === undefined || right === undefined) {
+          throw new Error("Qwen3_5TextBatchCache.extend: missing linear state.");
+        }
+        prepared.push({
+          convState: extendOptionalLinearArray(
+            left.convState,
+            right.convState,
+            `layer ${index} convState`,
+          ),
+          recurrentState: extendOptionalLinearArray(
+            left.recurrentState,
+            right.recurrentState,
+            `layer ${index} recurrentState`,
+          ),
+        });
+      }
+      return prepared;
+    } catch (error) {
+      disposePreparedLinearStates(prepared);
+      throw error;
+    }
+  }
+
+  private assertDecodeReadyForExtension(other: Qwen3_5TextBatchCache): void {
+    if (!this.#linearLeftPadding.every((padding) => padding === 0)) {
+      throw new Error("Qwen3_5TextBatchCache.extend: target linear padding must be exhausted.");
+    }
+    if (!other.#linearLeftPadding.every((padding) => padding === 0)) {
+      throw new Error("Qwen3_5TextBatchCache.extend: source linear padding must be exhausted.");
     }
   }
 }

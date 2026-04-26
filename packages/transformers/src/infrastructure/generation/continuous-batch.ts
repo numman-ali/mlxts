@@ -10,18 +10,20 @@ import {
   withDefaultStream,
 } from "@mlxts/core";
 
-import type { CausalLM, GenerationResult } from "../../types";
-import { BatchKVCache } from "../cache";
+import type { CausalLM, GenerationResult, TransformerBatchCache } from "../../types";
+import { createBatchCacheForModel } from "./batch-cache-factory";
 import { GenerationAbortError, throwIfGenerationAborted } from "./cancellation";
 import type { ContinuousBatchQueueSnapshot } from "./continuous-batch-events";
 import {
   combineCurrentTokens,
+  disposePrefillingCaches,
   integerAtLeast,
   nextInputTensor,
   prefillPromptChunk,
   prefillReadyBatch,
   rejectAbortedPrefillingRows,
   sampleNextBatchToken,
+  shouldChunkInitialRows,
   tokenRows,
   tokenTensorToIds,
   validateContinuousBatchOptions,
@@ -49,7 +51,7 @@ export type {
   ContinuousBatchTokenSchedulerOptions,
 } from "./continuous-batch-types";
 
-/** Scheduler-owned continuous greedy decode loop for full-cache batchable models. */
+/** Scheduler-owned continuous greedy decode loop for batch-cache-capable models. */
 export class ContinuousBatchTokenScheduler {
   readonly #model: CausalLM;
   readonly #maxBatchSize: number;
@@ -62,7 +64,7 @@ export class ContinuousBatchTokenScheduler {
   readonly #waiting: ScheduledRequest[] = [];
   readonly #prefilling: PrefillingRequest[] = [];
   #active: ScheduledRequest[] = [];
-  #cache: BatchKVCache | null = null;
+  #cache: TransformerBatchCache | null = null;
   #currentToken: MxArray | null = null;
   #running = false;
   #startScheduled = false;
@@ -210,9 +212,7 @@ export class ContinuousBatchTokenScheduler {
       this.#currentToken = null;
       this.#cache?.[Symbol.dispose]();
       this.#cache = null;
-      for (const prefilling of this.#prefilling.splice(0)) {
-        prefilling.cache[Symbol.dispose]();
-      }
+      disposePrefillingCaches(this.#prefilling.splice(0));
       synchronize(generationStream);
       clearMemoryCache();
       setWiredLimitBytes(previousWiredLimit);
@@ -269,7 +269,7 @@ export class ContinuousBatchTokenScheduler {
     }
     if (this.#active.length === 0 && this.#prefilling.length === 0) {
       const count = Math.min(capacity, this.#waiting.length);
-      if (this.#shouldChunkInitialRows(count)) {
+      if (shouldChunkInitialRows(this.#waiting, count, this.#prefillStepSize)) {
         for (let index = 0; index < count; index += 1) {
           this.#startPrefillingRow();
         }
@@ -283,12 +283,6 @@ export class ContinuousBatchTokenScheduler {
       this.#startPrefillingRow();
     }
     this.#advancePrefillingRow();
-  }
-
-  #shouldChunkInitialRows(count: number): boolean {
-    return this.#waiting
-      .slice(0, count)
-      .some((request) => request.promptTokenIds.length - 1 > this.#prefillStepSize);
   }
 
   #admitFullRows(count: number): void {
@@ -325,7 +319,7 @@ export class ContinuousBatchTokenScheduler {
     }
     this.#prefilling.push({
       request,
-      cache: new BatchKVCache(this.#model.layerCount, [0]),
+      cache: createBatchCacheForModel(this.#model, [0], "ContinuousBatchTokenScheduler"),
       cursor: 0,
     });
     this.#telemetry.prefillStart(request, this.#snapshot());
@@ -385,7 +379,11 @@ export class ContinuousBatchTokenScheduler {
     this.#mergeReadyRow(ready.request, ready.cache, nextToken);
   }
 
-  #mergeReadyRow(request: ScheduledRequest, nextCache: BatchKVCache, nextToken: MxArray): void {
+  #mergeReadyRow(
+    request: ScheduledRequest,
+    nextCache: TransformerBatchCache,
+    nextToken: MxArray,
+  ): void {
     if (this.#cache === null) {
       this.#cache = nextCache;
       this.#currentToken = nextToken;
@@ -487,9 +485,7 @@ export class ContinuousBatchTokenScheduler {
       request.reject(error);
     }
     this.#waiting.length = 0;
-    for (const prefilling of this.#prefilling.splice(0)) {
-      prefilling.cache[Symbol.dispose]();
-    }
+    disposePrefillingCaches(this.#prefilling.splice(0));
     this.#active = [];
     this.#currentToken?.free();
     this.#currentToken = null;

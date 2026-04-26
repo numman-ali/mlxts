@@ -1,5 +1,9 @@
-import type { BatchGenerationOptions, GenerationResult, PrefillProgressEvent } from "../../types";
-import type { BatchKVCache } from "../cache";
+import type {
+  BatchGenerationOptions,
+  GenerationResult,
+  PrefillProgressEvent,
+  TransformerBatchCache,
+} from "../../types";
 import type {
   ContinuousBatchEvent,
   ContinuousBatchSchedulerEvent,
@@ -27,7 +31,7 @@ export type ScheduledRequest = {
 
 export type PrefillingRequest = {
   request: ScheduledRequest;
-  cache: BatchKVCache;
+  cache: TransformerBatchCache;
   cursor: number;
 };
 

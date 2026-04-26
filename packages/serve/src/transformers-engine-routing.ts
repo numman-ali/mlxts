@@ -86,10 +86,17 @@ export function continuousBatchIneligibilityReason(
   request: NormalizedGenerationRequest,
   options: TransformersGenerationEngineOptions,
 ): GenerationRouteDecisionReason {
-  if (configHasSlidingWindow(options.model)) {
+  const hasLayerPatternBatchCache = hasGemmaLayerPatternBatchCache(options.model);
+  if (hasLayerPatternBatchCache && request.stream) {
+    return "streaming";
+  }
+  if (configHasSlidingWindow(options.model) && !hasLayerPatternBatchCache) {
     return "sliding_window_cache";
   }
-  if (!CONTINUOUS_BATCH_MODEL_TYPES.has(options.model.config.modelType)) {
+  if (
+    !CONTINUOUS_BATCH_MODEL_TYPES.has(options.model.config.modelType) &&
+    !hasLayerPatternBatchCache
+  ) {
     return "unsupported_model_type";
   }
   if (effectiveTemperature(request, options) !== 0) {
