@@ -74,6 +74,18 @@ export type NormalizedGenerationResult = {
   usage?: GenerationUsage;
 };
 
+export type GenerationRoute = "single" | "static" | "continuous";
+
+export type GenerationRouteDecisionReason =
+  | "eligible"
+  | "streaming"
+  | "max_batch_size"
+  | "single_request_group"
+  | "unsupported_model_type"
+  | "sliding_window_cache"
+  | "sampled_generation"
+  | "repetition_penalty";
+
 export type GenerationStreamEvent =
   | {
       type: "text";
@@ -114,6 +126,18 @@ export type ServeEvent =
       model: string;
       inputKind: GenerationInput["kind"];
       maxTokens: number;
+    }
+  | {
+      type: "generation_route_decision";
+      id: string;
+      protocol: GenerationProtocol;
+      model: string;
+      route: GenerationRoute;
+      eligible: boolean;
+      reason: GenerationRouteDecisionReason;
+      modelType: string;
+      maxBatchSize: number;
+      stream: boolean;
     }
   | {
       type: "generation_progress";

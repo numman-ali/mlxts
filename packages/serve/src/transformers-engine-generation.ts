@@ -5,7 +5,6 @@
 
 import {
   type BatchGenerationOptions,
-  type CausalLM,
   type GenerationResult,
   generateBatchTokens,
   generatePreparedTokenEvents,
@@ -14,6 +13,10 @@ import {
 import { ServeError } from "./errors";
 import { type LinkedAbortSignal, linkAbortSignals } from "./server-abort";
 import type { TransformersGenerationEngineOptions } from "./transformers-engine";
+import {
+  emitGenerationRouteDecision,
+  staticBatchIneligibilityReason,
+} from "./transformers-engine-routing";
 import {
   applyStopSequences,
   type CompiledPrompt,
@@ -33,8 +36,6 @@ import {
 } from "./transformers-engine-shared";
 import type { NormalizedGenerationRequest, NormalizedGenerationResult } from "./types";
 
-const STATIC_BATCH_MODEL_TYPES = new Set(["gemma", "llama", "mistral", "mistral3", "phi3"]);
-
 export type PreparedGenerationRequest = {
   request: NormalizedGenerationRequest;
   prompt: CompiledPrompt | null;
@@ -42,44 +43,6 @@ export type PreparedGenerationRequest = {
   tokenIds: readonly number[];
   batchOptions: BatchGenerationOptions;
 };
-
-function configHasSlidingWindow(model: CausalLM): boolean {
-  const config = model.config;
-  if (!("slidingWindow" in config)) {
-    return false;
-  }
-  const value = config.slidingWindow;
-  return typeof value === "number" && Number.isFinite(value) && value > 0;
-}
-
-function supportsStaticBatchGeneration(model: CausalLM): boolean {
-  return STATIC_BATCH_MODEL_TYPES.has(model.config.modelType) && !configHasSlidingWindow(model);
-}
-
-function effectiveTemperature(
-  request: NormalizedGenerationRequest,
-  options: TransformersGenerationEngineOptions,
-): number {
-  return (
-    request.sampling.temperature ?? options.model.config.generationDefaults?.temperature ?? 1.0
-  );
-}
-
-function effectiveRepetitionPenalty(options: TransformersGenerationEngineOptions): number {
-  return options.model.config.generationDefaults?.repetitionPenalty ?? 1.0;
-}
-
-export function canUseStaticBatchGeneration(
-  request: NormalizedGenerationRequest,
-  options: TransformersGenerationEngineOptions,
-): boolean {
-  return (
-    !request.stream &&
-    supportsStaticBatchGeneration(options.model) &&
-    effectiveTemperature(request, options) === 0 &&
-    effectiveRepetitionPenalty(options) === 1.0
-  );
-}
 
 function batchGenerationOptions(
   request: NormalizedGenerationRequest,
@@ -241,7 +204,9 @@ async function routePreparedRequests(
   const groups = new Map<string, number[]>();
   for (let index = 0; index < preparedRequests.length; index += 1) {
     const prepared = preparedAt(preparedRequests, index);
-    if (!canUseStaticBatchGeneration(prepared.request, options)) {
+    const reason = staticBatchIneligibilityReason(prepared.request, options);
+    if (reason !== "eligible") {
+      emitGenerationRouteDecision(options, prepared.request, "single", false, reason);
       results[index] = await generateSinglePreparedRequest(prepared, options);
       continue;
     }
@@ -400,11 +365,20 @@ async function runBatchGroups(
       if (index === undefined) {
         throw invalidBatchResult();
       }
-      results[index] = await generateSinglePreparedRequest(
-        preparedAt(preparedRequests, index),
+      const prepared = preparedAt(preparedRequests, index);
+      emitGenerationRouteDecision(
         options,
+        prepared.request,
+        "single",
+        false,
+        "single_request_group",
       );
+      results[index] = await generateSinglePreparedRequest(prepared, options);
       continue;
+    }
+    for (const index of group) {
+      const prepared = preparedAt(preparedRequests, index);
+      emitGenerationRouteDecision(options, prepared.request, "static", true, "eligible");
     }
     runBatchGroup(preparedRequests, group, options, results);
   }

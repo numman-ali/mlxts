@@ -11,11 +11,15 @@ import type { ModelExecutionLane } from "./model-execution-lane";
 import type { TransformersGenerationEngineOptions } from "./transformers-engine";
 import {
   batchOptionsKey,
-  canUseStaticBatchGeneration,
   generatedResultToServeResult,
   type PreparedGenerationRequest,
   prepareGenerationRequest,
 } from "./transformers-engine-generation";
+import {
+  canUseStaticBatchGeneration,
+  emitGenerationRouteDecision,
+  routeDecisionForRequest,
+} from "./transformers-engine-routing";
 import {
   createPrefillProgressReporter,
   createProgressReporter,
@@ -142,9 +146,18 @@ export function createContinuousTransformersGeneration(
 
   return {
     generate(request) {
+      const decision = routeDecisionForRequest(request, options);
       if (!canUseContinuousBatchGeneration(request, options)) {
+        emitGenerationRouteDecision(
+          options,
+          request,
+          decision.route,
+          decision.eligible,
+          decision.reason,
+        );
         return null;
       }
+      emitGenerationRouteDecision(options, request, "continuous", true, "eligible");
       return generateContinuous(prepareGenerationRequest(request, options));
     },
   };

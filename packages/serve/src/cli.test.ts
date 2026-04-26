@@ -323,6 +323,22 @@ describe("serve CLI args", () => {
     );
     expect(
       formatServeEvent({
+        type: "generation_route_decision",
+        id: "cmpl-test",
+        protocol: "openai.chat_completions",
+        model: "qwen-local",
+        route: "single",
+        eligible: false,
+        reason: "unsupported_model_type",
+        modelType: "qwen3_5_text",
+        maxBatchSize: 32,
+        stream: false,
+      }),
+    ).toBe(
+      "[route] cmpl-test model=qwen-local route=single eligible=no reason=unsupported_model_type model_type=qwen3_5_text max_batch_size=32",
+    );
+    expect(
+      formatServeEvent({
         type: "generation_prefill_progress",
         id: "cmpl-test",
         protocol: "openai.chat_completions",
@@ -412,6 +428,23 @@ describe("serve CLI args", () => {
           batchSize: 2,
           maxTokens: 64,
           maxTokensByRequest: [64, 64],
+        },
+        false,
+      ),
+    ).toBe(true);
+    expect(
+      shouldLogServeEvent(
+        {
+          type: "generation_route_decision",
+          id: "cmpl-test",
+          protocol: "openai.chat_completions",
+          model: "qwen-local",
+          route: "single",
+          eligible: false,
+          reason: "unsupported_model_type",
+          modelType: "qwen3_5_text",
+          maxBatchSize: 32,
+          stream: false,
         },
         false,
       ),

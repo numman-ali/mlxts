@@ -291,6 +291,18 @@ describe("serveLoadedModel", () => {
         model: "tiny",
         batchSize: 2,
       });
+      expect(events.filter((event) => event.type === "generation_route_decision")).toContainEqual({
+        type: "generation_route_decision",
+        id: expect.any(String),
+        protocol: "openai.completions",
+        model: "tiny",
+        route: "continuous",
+        eligible: true,
+        reason: "eligible",
+        modelType: "llama",
+        maxBatchSize: 2,
+        stream: false,
+      });
     } finally {
       running.stop();
     }

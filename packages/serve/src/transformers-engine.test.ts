@@ -53,13 +53,17 @@ class SpecialTokenTokenizer extends TinyTokenizer {
   }
 }
 
+type TinyModelConfig = Partial<BaseModelConfig> & {
+  slidingWindow?: number;
+};
+
 class TinyModel implements CausalLM {
   readonly family: BaseModelConfig["family"];
   readonly layerCount = 1;
   readonly config: BaseModelConfig;
   readonly forwardBatchSizes: number[] = [];
 
-  constructor(config: Partial<BaseModelConfig> = {}) {
+  constructor(config: TinyModelConfig = {}) {
     const family = config.family ?? "gemma";
     this.family = family;
     this.config = {
@@ -72,6 +76,7 @@ class TinyModel implements CausalLM {
       ...(config.generationDefaults === undefined
         ? {}
         : { generationDefaults: config.generationDefaults }),
+      ...(config.slidingWindow === undefined ? {} : { slidingWindow: config.slidingWindow }),
     };
   }
 
@@ -167,7 +172,7 @@ function textRequest(
   };
 }
 
-function batchEligibleModel(config: Partial<BaseModelConfig> = {}): TinyModel {
+function batchEligibleModel(config: TinyModelConfig = {}): TinyModel {
   return new TinyModel({ family: "llama", modelType: "llama", ...config });
 }
 
@@ -430,6 +435,18 @@ describe("transformers generation engine", () => {
       { promptTokens: 2, completionTokens: 2, totalTokens: 4 },
     ]);
     expect(events).toContainEqual({
+      type: "generation_route_decision",
+      id: "one",
+      protocol: "openai.completions",
+      model: "tiny",
+      route: "static",
+      eligible: true,
+      reason: "eligible",
+      modelType: "llama",
+      maxBatchSize: 1,
+      stream: false,
+    });
+    expect(events).toContainEqual({
       type: "generation_batch_start",
       mode: "static",
       model: "tiny",
@@ -439,6 +456,67 @@ describe("transformers generation engine", () => {
       maxTokensByRequest: [2, 2],
     });
     expect(model.batchForwardCount).toBeGreaterThan(0);
+  });
+
+  test("reports Qwen and Gemma cache variants as single-route fallbacks", async () => {
+    using qwenModel = new TinyModel({ family: "qwen", modelType: "qwen3_5_text" });
+    using gemmaSlidingModel = new TinyModel({
+      family: "gemma",
+      modelType: "gemma4_text",
+      slidingWindow: 16,
+    });
+    const tokenizer = new TinyTokenizer();
+    const qwenEvents: ServeEvent[] = [];
+    const gemmaEvents: ServeEvent[] = [];
+    const qwenEngine = createTransformersGenerationEngine({
+      model: qwenModel,
+      tokenizer,
+      onEvent(event) {
+        qwenEvents.push(event);
+      },
+    });
+    const gemmaEngine = createTransformersGenerationEngine({
+      model: gemmaSlidingModel,
+      tokenizer,
+      onEvent(event) {
+        gemmaEvents.push(event);
+      },
+    });
+    const qwenBatch = qwenEngine.generateBatch;
+    const gemmaBatch = gemmaEngine.generateBatch;
+    if (qwenBatch === undefined || gemmaBatch === undefined) {
+      throw new Error("Expected transformers engine to expose generateBatch.");
+    }
+
+    await qwenBatch([textRequest("qwen-one"), textRequest("qwen-two")]);
+    await gemmaBatch([textRequest("gemma-one"), textRequest("gemma-two")]);
+
+    expect(qwenModel.batchForwardCount).toBe(0);
+    expect(gemmaSlidingModel.batchForwardCount).toBe(0);
+    expect(qwenEvents).toContainEqual({
+      type: "generation_route_decision",
+      id: "qwen-one",
+      protocol: "openai.completions",
+      model: "tiny",
+      route: "single",
+      eligible: false,
+      reason: "unsupported_model_type",
+      modelType: "qwen3_5_text",
+      maxBatchSize: 1,
+      stream: false,
+    });
+    expect(gemmaEvents).toContainEqual({
+      type: "generation_route_decision",
+      id: "gemma-one",
+      protocol: "openai.completions",
+      model: "tiny",
+      route: "single",
+      eligible: false,
+      reason: "sliding_window_cache",
+      modelType: "gemma4_text",
+      maxBatchSize: 1,
+      stream: false,
+    });
   });
 
   test("keeps per-row stop handling on static batch results", async () => {

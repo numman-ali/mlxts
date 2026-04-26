@@ -18,6 +18,7 @@ import {
   generateTransformersBatch,
   prepareGenerationRequest,
 } from "./transformers-engine-generation";
+import { emitGenerationRouteDecision } from "./transformers-engine-routing";
 import {
   compileMessagePrompt,
   createPrefillProgressReporter,
@@ -232,6 +233,7 @@ export function createTransformersGenerationEngine(
     async *stream(request) {
       const release = await lane.acquire(request.abortSignal);
       try {
+        emitGenerationRouteDecision(options, request, "single", false, "streaming");
         const prompt = compileMessagePrompt(request, options);
         const promptTokens = promptTokenCount(request, options, prompt);
         enforcePromptTokenLimit(options, request, promptTokens);

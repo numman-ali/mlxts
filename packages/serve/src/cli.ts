@@ -132,6 +132,8 @@ export function formatServeEvent(event: ServeEvent): string {
       return `[error] ${event.method} ${event.path} -> ${event.status} ${event.code}: ${event.message} in ${formatDuration(event.durationMs)}`;
     case "generation_start":
       return `[generation] ${event.id} ${event.protocol} model=${event.model} input=${event.inputKind} max_tokens=${event.maxTokens} started`;
+    case "generation_route_decision":
+      return `[route] ${event.id} model=${event.model} route=${event.route} eligible=${event.eligible ? "yes" : "no"} reason=${event.reason} model_type=${event.modelType} max_batch_size=${event.maxBatchSize}`;
     case "generation_progress":
       return `[generation] ${event.id} progress prompt_tokens=${event.promptTokens} completion_tokens=${event.completionTokens}/${event.maxTokens}${formatMemoryUsage(event.memory)}`;
     case "generation_prefill_progress":
@@ -150,6 +152,7 @@ export function formatServeEvent(event: ServeEvent): string {
 export function shouldLogServeEvent(event: ServeEvent, verbose: boolean): boolean {
   switch (event.type) {
     case "generation_start":
+    case "generation_route_decision":
     case "generation_progress":
     case "generation_prefill_progress":
     case "generation_batch_start":

@@ -21,6 +21,25 @@ import {
 } from "./benchmark-serve-options";
 import { createBenchmarkPrompt } from "./benchmark-serve-prompts";
 
+type RouteDecisionReport = {
+  id: string;
+  model: string;
+  protocol: string;
+  route: string;
+  eligible: boolean;
+  reason: string;
+  modelType: string;
+  maxBatchSize: number;
+  stream: boolean;
+};
+
+type RouteDecisionSummary = {
+  key: string;
+  route: string;
+  reason: string;
+  count: number;
+};
+
 type TrialMetrics = {
   wallMs: number;
   requestTps: number;
@@ -50,6 +69,8 @@ type TrialMetrics = {
   streamChunks: number;
   streamBytes: number;
   finishReasons: string[];
+  routeDecisions: RouteDecisionReport[];
+  routeSummary: RouteDecisionSummary[];
 };
 
 type RungReport = {
@@ -166,6 +187,43 @@ function admissionBatchSizes(events: readonly ServeEvent[]): number[] {
     .map((event) => event.batchSize);
 }
 
+function routeDecisionReports(events: readonly ServeEvent[]): RouteDecisionReport[] {
+  return events
+    .filter((event) => event.type === "generation_route_decision")
+    .map((event) => ({
+      id: event.id,
+      model: event.model,
+      protocol: event.protocol,
+      route: event.route,
+      eligible: event.eligible,
+      reason: event.reason,
+      modelType: event.modelType,
+      maxBatchSize: event.maxBatchSize,
+      stream: event.stream,
+    }));
+}
+
+function summarizeRouteDecisions(
+  decisions: readonly RouteDecisionReport[],
+): RouteDecisionSummary[] {
+  const counts = new Map<string, RouteDecisionSummary>();
+  for (const decision of decisions) {
+    const key = `${decision.route}:${decision.reason}`;
+    const existing = counts.get(key);
+    if (existing === undefined) {
+      counts.set(key, {
+        key,
+        route: decision.route,
+        reason: decision.reason,
+        count: 1,
+      });
+      continue;
+    }
+    existing.count += 1;
+  }
+  return [...counts.values()].sort((left, right) => left.key.localeCompare(right.key));
+}
+
 function sum(values: readonly number[]): number {
   return values.reduce((total, value) => total + value, 0);
 }
@@ -209,6 +267,7 @@ async function runTrial(
   const staticBatchSizes = batchSizeEvents(events, "static");
   const continuousAdmissionSizes = batchSizeEvents(events, "continuous");
   const generationBatchSizes = batchSizeEvents(events);
+  const routeDecisions = routeDecisionReports(events);
 
   return {
     wallMs,
@@ -239,6 +298,8 @@ async function runTrial(
     streamChunks,
     streamBytes,
     finishReasons: results.map((result) => result.finishReason),
+    routeDecisions,
+    routeSummary: summarizeRouteDecisions(routeDecisions),
   };
 }
 
@@ -272,6 +333,8 @@ function averageTrialMetrics(trials: readonly TrialMetrics[]): TrialMetrics {
     streamChunks: mean(trials.map((trial) => trial.streamChunks)),
     streamBytes: mean(trials.map((trial) => trial.streamBytes)),
     finishReasons: trials.flatMap((trial) => trial.finishReasons),
+    routeDecisions: trials.flatMap((trial) => trial.routeDecisions),
+    routeSummary: summarizeRouteDecisions(trials.flatMap((trial) => trial.routeDecisions)),
   };
 }
 
@@ -281,6 +344,10 @@ function formatNullableMs(value: number | null): string {
 
 function formatNullableTps(value: number | null): string {
   return value === null ? "n/a" : value.toFixed(3);
+}
+
+function formatRouteSummary(summary: readonly RouteDecisionSummary[]): string {
+  return summary.map((entry) => `${entry.key}=${entry.count}`).join("|") || "none";
 }
 
 function printMetrics(prefix: string, metrics: TrialMetrics): void {
@@ -314,6 +381,7 @@ function printMetrics(prefix: string, metrics: TrialMetrics): void {
       `stream_chunks=${metrics.streamChunks.toFixed(0)}`,
       `stream_bytes=${metrics.streamBytes.toFixed(0)}`,
       `finish_reasons=${[...new Set(metrics.finishReasons)].join("|") || "none"}`,
+      `routes=${formatRouteSummary(metrics.routeSummary)}`,
     ].join(" "),
   );
 }
