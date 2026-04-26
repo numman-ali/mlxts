@@ -18,6 +18,7 @@ import {
 } from "../../infrastructure/cache/view";
 import {
   type AttentionMask,
+  canOmitLeftPaddedAttentionMask,
   createCausalMask,
   createLeftPaddedAttentionMask,
 } from "../../infrastructure/masks";
@@ -304,6 +305,14 @@ export class Gemma4TextAttention extends Module {
     }
     const visiblePastLength = Math.max(0, totalKeyLength - sequenceLength);
     if (isManagedLayerPatternBatchKVCache(cache)) {
+      const leftPaddingValues = cache.leftPaddingValuesForLayer(
+        this.#layerIndex,
+        totalKeyLength,
+        sequenceLength,
+      );
+      if (canOmitLeftPaddedAttentionMask(sequenceLength, leftPaddingValues)) {
+        return null;
+      }
       using leftPadding = cache.leftPaddingTensorForLayer(
         this.#layerIndex,
         totalKeyLength,

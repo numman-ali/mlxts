@@ -3,6 +3,7 @@ import { describe, expect, test } from "bun:test";
 import { array, MxArray } from "@mlxts/core";
 
 import {
+  canOmitLeftPaddedAttentionMask,
   createCausalMask,
   createFastAttentionMask,
   createLeftPaddedAttentionMask,
@@ -130,6 +131,12 @@ describe("causal masks", () => {
 
     expect(mask.shape).toEqual([2, 1, 1, 5]);
     expect(mask.toList()).toEqual([[[[0, 1, 1, 1, 1]]], [[[0, 0, 0, 1, 1]]]]);
+  });
+
+  test("can omit left-padded masks for unpadded single-token batch decode", () => {
+    expect(canOmitLeftPaddedAttentionMask(1, [0, 0])).toBe(true);
+    expect(canOmitLeftPaddedAttentionMask(1, [0, 2])).toBe(false);
+    expect(canOmitLeftPaddedAttentionMask(2, [0, 0])).toBe(false);
   });
 
   test("creates left-padded sliding masks after stale positions are trimmed", () => {

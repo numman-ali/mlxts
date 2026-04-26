@@ -23,6 +23,19 @@ import {
 
 export type AttentionMask = MxArray | "causal" | null;
 
+export function canOmitLeftPaddedAttentionMask(
+  queryLength: number,
+  leftPaddingValues: readonly number[],
+): boolean {
+  return queryLength === 1 && leftPaddingValues.every((padding) => padding === 0);
+}
+
+function validateMaskLength(name: string, value: number, context: string): void {
+  if (!Number.isInteger(value) || value < 0) {
+    throw new Error(`${context}: ${name} must be a non-negative integer, got ${value}.`);
+  }
+}
+
 function trimmedSlidingTotalKeyLength(
   queryLength: number,
   pastLength: number,
@@ -168,6 +181,9 @@ export function createLeftPaddedAttentionMask(
   leftPadding: MxArray,
   windowSize?: number,
 ): MxArray {
+  validateMaskLength("queryLength", queryLength, "createLeftPaddedAttentionMask");
+  validateMaskLength("totalKeyLength", totalKeyLength, "createLeftPaddedAttentionMask");
+  validateMaskLength("pastLength", pastLength, "createLeftPaddedAttentionMask");
   if (queryLength <= 0 || totalKeyLength <= 0) {
     throw new Error(
       `createLeftPaddedAttentionMask: queryLength and totalKeyLength must be positive, got ${queryLength} and ${totalKeyLength}`,

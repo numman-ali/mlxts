@@ -134,6 +134,7 @@ export type BenchmarkReport = {
   ignoreEos: boolean;
   maxBatchSize: number;
   batchWindowMs: number;
+  streamDecodeInterval: number;
   requestStaggerMs: number;
   maxConcurrentRequests: number;
   gpuMemoryUtilization: number;
@@ -731,6 +732,7 @@ async function main(): Promise<void> {
       `ignore_eos=${options.ignoreEos}`,
       `max_batch_size=${options.maxBatchSize}`,
       `batch_window_ms=${options.batchWindowMs}`,
+      `stream_decode_interval=${options.streamDecodeInterval}`,
       `request_stagger_ms=${options.requestStaggerMs}`,
       `max_concurrent_requests=${options.maxConcurrentRequests}`,
       `gpu_memory_utilization=${options.gpuMemoryUtilization}`,
@@ -758,6 +760,7 @@ async function main(): Promise<void> {
       maximum(rungs.map((rung) => rung.promptTokens + rung.generationTokens)),
     maxBatchSize: options.maxBatchSize,
     batchWindowMs: options.batchWindowMs,
+    streamDecodeInterval: options.streamDecodeInterval,
     maxConcurrentRequests: options.maxConcurrentRequests,
     gpuMemoryUtilization: options.gpuMemoryUtilization,
     onEvent(event) {
@@ -792,6 +795,7 @@ async function main(): Promise<void> {
         ignoreEos: options.ignoreEos,
         maxBatchSize: options.maxBatchSize,
         batchWindowMs: options.batchWindowMs,
+        streamDecodeInterval: options.streamDecodeInterval,
         requestStaggerMs: options.requestStaggerMs,
         maxConcurrentRequests: options.maxConcurrentRequests,
         gpuMemoryUtilization: options.gpuMemoryUtilization,

@@ -122,6 +122,7 @@ function report(metrics: TrialMetrics = trial()): BenchmarkReport {
     ignoreEos: true,
     maxBatchSize: 8,
     batchWindowMs: 2,
+    streamDecodeInterval: 1,
     requestStaggerMs: 0,
     maxConcurrentRequests: 1,
     gpuMemoryUtilization: 0.9,
@@ -144,6 +145,8 @@ const budget: ServeRegressionBudget = {
   minCompletionTokenRatio: 0.98,
   minStreamChunks: 1,
   minStreamBytes: 1,
+  maxMeanTtftMs: 500,
+  maxObservedStreamChunkGapMs: 100,
   expectedRoute: "single",
   expectedReason: "streaming",
   minRouteDecisions: 1,
@@ -312,6 +315,12 @@ describe("serve regression matrix", () => {
     expect(() =>
       assertServeReportBudget("qwen", report(trial({ streamBytes: 0 })), budget),
     ).toThrow("stream_bytes");
+    expect(() =>
+      assertServeReportBudget("qwen", report(trial({ meanTtftMs: 1_000 })), budget),
+    ).toThrow("mean_ttft_ms");
+    expect(() =>
+      assertServeReportBudget("qwen", report(trial({ maxStreamChunkGapMs: 1_000 })), budget),
+    ).toThrow("max_stream_chunk_gap_ms");
     expect(() =>
       assertServeReportBudget(
         "qwen",

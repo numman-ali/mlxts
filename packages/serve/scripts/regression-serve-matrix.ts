@@ -23,6 +23,8 @@ export type ServeRegressionBudget = {
   minCompletionTokenRatio: number;
   minStreamChunks?: number;
   minStreamBytes?: number;
+  maxMeanTtftMs?: number;
+  maxObservedStreamChunkGapMs?: number;
   expectedRoute?: string;
   expectedReason?: string;
   minRouteDecisions?: number;
@@ -267,6 +269,24 @@ function streamFailures(metrics: TrialMetrics, budget: ServeRegressionBudget): s
       `stream_bytes ${metrics.streamBytes.toFixed(0)} < ${budget.minStreamBytes.toFixed(0)}`,
     );
   }
+  if (budget.maxMeanTtftMs !== undefined) {
+    const ttftMs = metrics.meanTtftMs;
+    if (ttftMs === null || ttftMs > budget.maxMeanTtftMs) {
+      failures.push(
+        `mean_ttft_ms ${ttftMs?.toFixed(1) ?? "n/a"} > ${budget.maxMeanTtftMs.toFixed(1)}`,
+      );
+    }
+  }
+  if (budget.maxObservedStreamChunkGapMs !== undefined) {
+    const gapMs = metrics.maxStreamChunkGapMs;
+    if (gapMs === null || gapMs > budget.maxObservedStreamChunkGapMs) {
+      failures.push(
+        `max_stream_chunk_gap_ms ${gapMs?.toFixed(1) ?? "n/a"} > ${budget.maxObservedStreamChunkGapMs.toFixed(
+          1,
+        )}`,
+      );
+    }
+  }
   return failures;
 }
 
@@ -443,6 +463,8 @@ function baseSpecs(options: CliOptions): ServeRegressionSpec[] {
         minCompletionTokenRatio: 0.98,
         minStreamChunks: 1,
         minStreamBytes: 1,
+        maxMeanTtftMs: 8_000,
+        maxObservedStreamChunkGapMs: 1_000,
         expectedRoute: "single",
         expectedReason: "unsupported_model_type",
         minRouteDecisions: 1,
@@ -494,6 +516,8 @@ function baseSpecs(options: CliOptions): ServeRegressionSpec[] {
         minCompletionTokenRatio: 0.98,
         minStreamChunks: 1,
         minStreamBytes: 1,
+        maxMeanTtftMs: 1_000,
+        maxObservedStreamChunkGapMs: 1_000,
         expectedRoute: "single",
         expectedReason: "sliding_window_cache",
         minRouteDecisions: 1,
@@ -550,6 +574,8 @@ function capabilitySpecs(options: CliOptions): ServeRegressionSpec[] {
         minCompletionTokenRatio: 0.98,
         minStreamChunks: 1,
         minStreamBytes: 1,
+        maxMeanTtftMs: 8_000,
+        maxObservedStreamChunkGapMs: 1_000,
         expectedRoute: "single",
         expectedReason: "unsupported_model_type",
         minRouteDecisions: 1,
@@ -576,6 +602,7 @@ function capabilitySpecs(options: CliOptions): ServeRegressionSpec[] {
         minCompletionTokenRatio: 0.98,
         minStreamChunks: 1,
         minStreamBytes: 1,
+        maxObservedStreamChunkGapMs: 2_000,
         expectedRoute: "single",
         expectedReason: "unsupported_model_type",
         minRouteDecisions: 1,

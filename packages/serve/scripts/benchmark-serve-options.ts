@@ -23,6 +23,7 @@ export type ServeBenchmarkOptions = {
   port: number;
   maxBatchSize: number;
   batchWindowMs: number;
+  streamDecodeInterval: number;
   maxConcurrentRequests: number;
   requestTimeoutMs: number;
   gpuMemoryUtilization: number;
@@ -45,6 +46,7 @@ type PromptOutputPair = Pick<ServeBenchmarkRung, "promptTokens" | "generationTok
 const DEFAULT_PROMPT_TOKENS = [128];
 const DEFAULT_GENERATION_TOKENS = [128];
 const DEFAULT_CONCURRENCY = [1];
+const DEFAULT_STREAM_DECODE_INTERVAL = 1;
 
 function usage(): never {
   console.error(
@@ -68,6 +70,7 @@ function usage(): never {
       "  --max-concurrent-requests <n>   Server-side in-flight generation limit, default 1",
       "  --max-batch-size <n>            Admission micro-batch size, default 32",
       "  --batch-window-ms <n>           Admission micro-batch window, default 1",
+      "  --stream-decode-interval <n>    Streaming text flush interval, default 1",
       "  --gpu-memory-utilization <f>    Serving memory preflight budget, default 0.9",
       "  --request-timeout-ms <n>        Client fetch timeout per request, default 3600000",
       "  --max-prompt-tokens <n>         Override server prompt admission limit",
@@ -178,6 +181,7 @@ type ParseState = {
   port: number;
   maxBatchSize: number;
   batchWindowMs: number;
+  streamDecodeInterval: number;
   maxConcurrentRequests: number;
   requestTimeoutMs: number;
   gpuMemoryUtilization: number;
@@ -202,6 +206,7 @@ function defaultParseState(): ParseState {
     port: 0,
     maxBatchSize: 32,
     batchWindowMs: 1,
+    streamDecodeInterval: DEFAULT_STREAM_DECODE_INTERVAL,
     maxConcurrentRequests: 1,
     requestTimeoutMs: 3_600_000,
     gpuMemoryUtilization: 0.9,
@@ -270,6 +275,9 @@ function readServerValueArg(state: ParseState, arg: string, value: string | unde
       return true;
     case "--batch-window-ms":
       state.batchWindowMs = readNonNegativeInteger(arg, value);
+      return true;
+    case "--stream-decode-interval":
+      state.streamDecodeInterval = readPositiveInteger(arg, value);
       return true;
     case "--max-concurrent-requests":
       state.maxConcurrentRequests = readPositiveInteger(arg, value);
@@ -373,6 +381,7 @@ export function parseServeBenchmarkArgs(argv: readonly string[]): ServeBenchmark
     port: state.port,
     maxBatchSize: state.maxBatchSize,
     batchWindowMs: state.batchWindowMs,
+    streamDecodeInterval: state.streamDecodeInterval,
     maxConcurrentRequests: state.maxConcurrentRequests,
     requestTimeoutMs: state.requestTimeoutMs,
     gpuMemoryUtilization: state.gpuMemoryUtilization,

@@ -342,6 +342,7 @@ describe("Transformer caches", () => {
     expect(slidingView.shape).toEqual([2, 1, 4, 1]);
     expect(ownedFullKeys.shape).toEqual([2, 1, 4, 1]);
     expect(ownedSlidingKeys.shape).toEqual([2, 1, 2, 1]);
+    expect(cache.leftPaddingValuesForLayer(1, 2, 1)).toEqual([0, 0]);
     expect(fullPadding.toList()).toEqual([2, 0]);
     expect(slidingPaddingAfterDecode.toList()).toEqual([0, 0]);
   });

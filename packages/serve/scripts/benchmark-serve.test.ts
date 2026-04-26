@@ -26,6 +26,7 @@ describe("serve benchmark reports", () => {
         ignoreEos: true,
         maxBatchSize: 8,
         batchWindowMs: 2,
+        streamDecodeInterval: 1,
         requestStaggerMs: 25,
         maxConcurrentRequests: 1,
         gpuMemoryUtilization: 0.9,

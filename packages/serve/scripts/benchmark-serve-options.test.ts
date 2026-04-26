@@ -29,6 +29,7 @@ describe("serve benchmark options", () => {
       port: 0,
       maxBatchSize: 32,
       batchWindowMs: 1,
+      streamDecodeInterval: 1,
       maxConcurrentRequests: 1,
       requestTimeoutMs: 3_600_000,
       gpuMemoryUtilization: 0.9,
@@ -65,6 +66,8 @@ describe("serve benchmark options", () => {
       "8",
       "--batch-window-ms",
       "2",
+      "--stream-decode-interval",
+      "4",
       "--max-concurrent-requests",
       "2",
       "--gpu-memory-utilization",
@@ -104,6 +107,7 @@ describe("serve benchmark options", () => {
       port: 8081,
       maxBatchSize: 8,
       batchWindowMs: 2,
+      streamDecodeInterval: 4,
       maxConcurrentRequests: 2,
       requestTimeoutMs: 7_200_000,
       requestStaggerMs: 25,
@@ -192,6 +196,9 @@ describe("serve benchmark options", () => {
     );
     expect(() => parseServeBenchmarkArgs(["model", "--request-stagger-ms", "-1"])).toThrow(
       "--request-stagger-ms expects a non-negative integer",
+    );
+    expect(() => parseServeBenchmarkArgs(["model", "--stream-decode-interval", "0"])).toThrow(
+      "--stream-decode-interval expects a positive integer",
     );
     expect(() =>
       buildServeBenchmarkRungs(

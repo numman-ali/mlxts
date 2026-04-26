@@ -23,6 +23,7 @@ import {
 } from "../../infrastructure/cache/view";
 import {
   type AttentionMask,
+  canOmitLeftPaddedAttentionMask,
   createCausalMask,
   createLeftPaddedAttentionMask,
 } from "../../infrastructure/masks";
@@ -65,6 +66,14 @@ function retainAttentionMask(
 
   const visiblePastLength = Math.max(0, totalKeyLength - sequenceLength);
   if (isManagedLayerPatternBatchKVCache(cache)) {
+    const leftPaddingValues = cache.leftPaddingValuesForLayer(
+      layerIndex,
+      totalKeyLength,
+      sequenceLength,
+    );
+    if (canOmitLeftPaddedAttentionMask(sequenceLength, leftPaddingValues)) {
+      return null;
+    }
     using leftPadding = cache.leftPaddingTensorForLayer(layerIndex, totalKeyLength, sequenceLength);
     return createLeftPaddedAttentionMask(
       sequenceLength,

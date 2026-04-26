@@ -204,12 +204,17 @@ export class LayerPatternBatchKVCache implements TransformerBatchCache {
     activeKeyLength: number,
     queryLength: number,
   ): MxArray {
+    return array(this.leftPaddingValuesForLayer(layerIndex, activeKeyLength, queryLength), "int32");
+  }
+
+  leftPaddingValuesForLayer(
+    layerIndex: number,
+    activeKeyLength: number,
+    queryLength: number,
+  ): number[] {
     this.assertLayerIndex(layerIndex);
-    return array(
-      this.#leftPadding.map((_, batchIndex) =>
-        this.leftPaddingForLayer(batchIndex, activeKeyLength, queryLength),
-      ),
-      "int32",
+    return this.#leftPadding.map((_, batchIndex) =>
+      this.leftPaddingForLayer(batchIndex, activeKeyLength, queryLength),
     );
   }
 
