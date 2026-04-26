@@ -9,6 +9,7 @@ import { Module } from "@mlxts/nn";
 
 import type { AttentionMask } from "../../infrastructure/masks";
 import { Qwen3_5TextAttention } from "./attention";
+import type { Qwen3_5TextBatchCache } from "./batch-cache";
 import type { Qwen3_5TextCache } from "./cache";
 import { Qwen3_5GatedDeltaNet } from "./gated-delta";
 import { Qwen3_5TextMLP } from "./mlp";
@@ -44,7 +45,7 @@ export class Qwen3_5TextDecoderLayer extends Module {
 
   run(
     x: MxArray,
-    cache?: Qwen3_5TextCache,
+    cache?: Qwen3_5TextCache | Qwen3_5TextBatchCache,
     attentionMask?: AttentionMask,
     positionIds?: MxArray,
   ): MxArray {
@@ -58,7 +59,7 @@ export class Qwen3_5TextDecoderLayer extends Module {
 
   private runTokenMixer(
     normalizedInputs: MxArray,
-    cache: Qwen3_5TextCache | undefined,
+    cache: Qwen3_5TextCache | Qwen3_5TextBatchCache | undefined,
     attentionMask: AttentionMask | undefined,
     positionIds: MxArray | undefined,
   ): MxArray {

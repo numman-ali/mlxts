@@ -192,6 +192,92 @@ const mlx::core::fast::CustomKernelFunction& qwen_gated_delta_kernel() {
   return kernel;
 }
 
+const mlx::core::fast::CustomKernelFunction&
+qwen_gated_delta_masked_kernel() {
+  static const auto kernel = mlx::core::fast::metal_kernel(
+      "mlxts_qwen_gated_delta_update_masked",
+      {"q", "k", "v", "g", "beta", "state_in", "mask", "T"},
+      {"y", "state_out"},
+      R"metal(
+        const uint combined_head = thread_position_in_grid.z;
+        const uint batch = combined_head / Hv;
+        const uint value_head = combined_head % Hv;
+        const uint key_head = value_head / (Hv / Hk);
+        const uint value_dim_index = thread_position_in_grid.y;
+        const uint lane = thread_position_in_threadgroup.x;
+        constexpr int values_per_lane = Dk / 32;
+
+        auto q_row = q + ((batch * T * Hk + key_head) * Dk);
+        auto k_row = k + ((batch * T * Hk + key_head) * Dk);
+        auto v_row = v + ((batch * T * Hv + value_head) * Dv);
+        auto g_row = g + (batch * T * Hv);
+        auto beta_row = beta + (batch * T * Hv);
+        auto mask_row = mask + (batch * T);
+        auto state_row = state_in + ((combined_head * Dv + value_dim_index) * Dk);
+        auto next_state_row = state_out + ((combined_head * Dv + value_dim_index) * Dk);
+        auto y_row = y + ((batch * T * Hv + value_head) * Dv);
+
+        float local_state[values_per_lane];
+        for (int offset = 0; offset < values_per_lane; ++offset) {
+          const uint key_dim_index = values_per_lane * lane + offset;
+          local_state[offset] = static_cast<float>(state_row[key_dim_index]);
+        }
+
+        for (int step = 0; step < T; ++step) {
+          if (!mask_row[step]) {
+            if (thread_index_in_simdgroup == 0) {
+              y_row[value_dim_index] = static_cast<InT>(0.0f);
+            }
+
+            q_row += Hk * Dk;
+            k_row += Hk * Dk;
+            v_row += Hv * Dv;
+            g_row += Hv;
+            beta_row += Hv;
+            y_row += Hv * Dv;
+            continue;
+          }
+
+          float kv_memory = 0.0f;
+          for (int offset = 0; offset < values_per_lane; ++offset) {
+            const uint key_dim_index = values_per_lane * lane + offset;
+            local_state[offset] *= static_cast<float>(g_row[value_head]);
+            kv_memory += local_state[offset] * static_cast<float>(k_row[key_dim_index]);
+          }
+          kv_memory = simd_sum(kv_memory);
+
+          const float delta =
+              (static_cast<float>(v_row[value_dim_index]) - kv_memory) *
+              static_cast<float>(beta_row[value_head]);
+
+          float output_value = 0.0f;
+          for (int offset = 0; offset < values_per_lane; ++offset) {
+            const uint key_dim_index = values_per_lane * lane + offset;
+            local_state[offset] += static_cast<float>(k_row[key_dim_index]) * delta;
+            output_value += local_state[offset] * static_cast<float>(q_row[key_dim_index]);
+          }
+          output_value = simd_sum(output_value);
+
+          if (thread_index_in_simdgroup == 0) {
+            y_row[value_dim_index] = static_cast<InT>(output_value);
+          }
+
+          q_row += Hk * Dk;
+          k_row += Hk * Dk;
+          v_row += Hv * Dv;
+          g_row += Hv;
+          beta_row += Hv;
+          y_row += Hv * Dv;
+        }
+
+        for (int offset = 0; offset < values_per_lane; ++offset) {
+          const uint key_dim_index = values_per_lane * lane + offset;
+          next_state_row[key_dim_index] = static_cast<StT>(local_state[offset]);
+        }
+      )metal");
+  return kernel;
+}
+
 void expect_rank(const array& value, int rank, const char* name) {
   if (static_cast<int>(value.ndim()) != rank) {
     std::ostringstream message;
@@ -218,6 +304,88 @@ void expect_dim(
             << dimension << " to be " << expected << ", got " << actual << ".";
     throw std::invalid_argument(message.str());
   }
+}
+
+void expect_dtype(
+    const array& value,
+    mlx::core::Dtype expected,
+    const char* name,
+    const char* dtype) {
+  if (value.dtype() != expected) {
+    std::ostringstream message;
+    message << "mlxts_qwen_gated_delta_update: expected " << name
+            << " dtype " << dtype << ".";
+    throw std::invalid_argument(message.str());
+  }
+}
+
+struct QwenGatedDeltaShape {
+  int batch_size;
+  int sequence_length;
+  int key_heads;
+  int key_head_dim;
+  int value_heads;
+  int value_head_dim;
+};
+
+QwenGatedDeltaShape validate_qwen_gated_delta_inputs(
+    const array& q_array,
+    const array& k_array,
+    const array& v_array,
+    const array& g_array,
+    const array& beta_array,
+    const array& state_array) {
+  expect_rank(q_array, 4, "q");
+  expect_rank(k_array, 4, "k");
+  expect_rank(v_array, 4, "v");
+  expect_rank(g_array, 3, "g");
+  expect_rank(beta_array, 3, "beta");
+  expect_rank(state_array, 4, "state");
+
+  const auto batch_size = shape_dim(q_array, 0);
+  const auto sequence_length = shape_dim(q_array, 1);
+  const auto key_heads = shape_dim(q_array, 2);
+  const auto key_head_dim = shape_dim(q_array, 3);
+  const auto value_heads = shape_dim(v_array, 2);
+  const auto value_head_dim = shape_dim(v_array, 3);
+
+  expect_dim(k_array, 0, batch_size, "k", "batch");
+  expect_dim(k_array, 1, sequence_length, "k", "sequence");
+  expect_dim(k_array, 2, key_heads, "k", "key heads");
+  expect_dim(k_array, 3, key_head_dim, "k", "key head dim");
+  expect_dim(v_array, 0, batch_size, "v", "batch");
+  expect_dim(v_array, 1, sequence_length, "v", "sequence");
+  expect_dim(g_array, 0, batch_size, "g", "batch");
+  expect_dim(g_array, 1, sequence_length, "g", "sequence");
+  expect_dim(g_array, 2, value_heads, "g", "value heads");
+  expect_dim(beta_array, 0, batch_size, "beta", "batch");
+  expect_dim(beta_array, 1, sequence_length, "beta", "sequence");
+  expect_dim(beta_array, 2, value_heads, "beta", "value heads");
+  expect_dim(state_array, 0, batch_size, "state", "batch");
+  expect_dim(state_array, 1, value_heads, "state", "value heads");
+  expect_dim(state_array, 2, value_head_dim, "state", "value head dim");
+  expect_dim(state_array, 3, key_head_dim, "state", "key head dim");
+
+  if (key_heads <= 0 || value_heads <= 0 || value_heads % key_heads != 0) {
+    std::ostringstream message;
+    message << "mlxts_qwen_gated_delta_update: value heads " << value_heads
+            << " must be divisible by key heads " << key_heads << ".";
+    throw std::invalid_argument(message.str());
+  }
+  if (key_head_dim <= 0 || key_head_dim % 32 != 0) {
+    std::ostringstream message;
+    message << "mlxts_qwen_gated_delta_update: key head dim " << key_head_dim
+            << " must be a positive multiple of 32.";
+    throw std::invalid_argument(message.str());
+  }
+
+  return {
+      batch_size,
+      sequence_length,
+      key_heads,
+      key_head_dim,
+      value_heads,
+      value_head_dim};
 }
 
 void append_json_escaped(std::ostringstream& out, std::string_view value) {
@@ -483,49 +651,8 @@ extern "C" int mlxts_qwen_gated_delta_update(
     const auto& beta_array = mlx_array_get_(beta);
     const auto& state_array = mlx_array_get_(state);
 
-    expect_rank(q_array, 4, "q");
-    expect_rank(k_array, 4, "k");
-    expect_rank(v_array, 4, "v");
-    expect_rank(g_array, 3, "g");
-    expect_rank(beta_array, 3, "beta");
-    expect_rank(state_array, 4, "state");
-
-    const auto batch_size = shape_dim(q_array, 0);
-    const auto sequence_length = shape_dim(q_array, 1);
-    const auto key_heads = shape_dim(q_array, 2);
-    const auto key_head_dim = shape_dim(q_array, 3);
-    const auto value_heads = shape_dim(v_array, 2);
-    const auto value_head_dim = shape_dim(v_array, 3);
-
-    expect_dim(k_array, 0, batch_size, "k", "batch");
-    expect_dim(k_array, 1, sequence_length, "k", "sequence");
-    expect_dim(k_array, 2, key_heads, "k", "key heads");
-    expect_dim(k_array, 3, key_head_dim, "k", "key head dim");
-    expect_dim(v_array, 0, batch_size, "v", "batch");
-    expect_dim(v_array, 1, sequence_length, "v", "sequence");
-    expect_dim(g_array, 0, batch_size, "g", "batch");
-    expect_dim(g_array, 1, sequence_length, "g", "sequence");
-    expect_dim(g_array, 2, value_heads, "g", "value heads");
-    expect_dim(beta_array, 0, batch_size, "beta", "batch");
-    expect_dim(beta_array, 1, sequence_length, "beta", "sequence");
-    expect_dim(beta_array, 2, value_heads, "beta", "value heads");
-    expect_dim(state_array, 0, batch_size, "state", "batch");
-    expect_dim(state_array, 1, value_heads, "state", "value heads");
-    expect_dim(state_array, 2, value_head_dim, "state", "value head dim");
-    expect_dim(state_array, 3, key_head_dim, "state", "key head dim");
-
-    if (key_heads <= 0 || value_heads <= 0 || value_heads % key_heads != 0) {
-      std::ostringstream message;
-      message << "mlxts_qwen_gated_delta_update: value heads " << value_heads
-              << " must be divisible by key heads " << key_heads << ".";
-      throw std::invalid_argument(message.str());
-    }
-    if (key_head_dim <= 0 || key_head_dim % 32 != 0) {
-      std::ostringstream message;
-      message << "mlxts_qwen_gated_delta_update: key head dim "
-              << key_head_dim << " must be a positive multiple of 32.";
-      throw std::invalid_argument(message.str());
-    }
+    const auto shape = validate_qwen_gated_delta_inputs(
+        q_array, k_array, v_array, g_array, beta_array, state_array);
 
     const auto input_dtype = q_array.dtype();
 
@@ -536,9 +663,12 @@ extern "C" int mlxts_qwen_gated_delta_update(
         g_array,
         beta_array,
         state_array,
-        array(sequence_length, mlx::core::int32)};
+        array(shape.sequence_length, mlx::core::int32)};
     std::vector<mlx::core::Shape> output_shapes = {
-        {batch_size, sequence_length, value_heads, value_head_dim},
+        {shape.batch_size,
+         shape.sequence_length,
+         shape.value_heads,
+         shape.value_head_dim},
         state_array.shape()};
     std::vector<mlx::core::Dtype> output_dtypes = {
         input_dtype,
@@ -547,16 +677,96 @@ extern "C" int mlxts_qwen_gated_delta_update(
         template_args = {
             {"InT", input_dtype},
             {"StT", state_array.dtype()},
-            {"Dk", key_head_dim},
-            {"Dv", value_head_dim},
-            {"Hk", key_heads},
-            {"Hv", value_heads}};
+            {"Dk", shape.key_head_dim},
+            {"Dv", shape.value_head_dim},
+            {"Hk", shape.key_heads},
+            {"Hv", shape.value_heads}};
 
     auto outputs = qwen_gated_delta_kernel()(
         inputs,
         output_shapes,
         output_dtypes,
-        {32, value_head_dim, batch_size * value_heads},
+        {32, shape.value_head_dim, shape.batch_size * shape.value_heads},
+        {32, 4, 1},
+        template_args,
+        std::nullopt,
+        false,
+        mlx_stream_get_(s));
+    if (outputs.size() != 2) {
+      throw std::runtime_error(
+          "mlxts_qwen_gated_delta_update: expected two native outputs.");
+    }
+
+    mlx_array_set_(*output, outputs[0]);
+    mlx_array_set_(*state_out, outputs[1]);
+  } catch (std::exception& e) {
+    mlx_error(e.what());
+    return 1;
+  }
+  return 0;
+}
+
+extern "C" int mlxts_qwen_gated_delta_update_masked(
+    mlx_array* output,
+    mlx_array* state_out,
+    const mlx_array q,
+    const mlx_array k,
+    const mlx_array v,
+    const mlx_array g,
+    const mlx_array beta,
+    const mlx_array state,
+    const mlx_array mask,
+    const mlx_stream s) {
+  try {
+    const auto& q_array = mlx_array_get_(q);
+    const auto& k_array = mlx_array_get_(k);
+    const auto& v_array = mlx_array_get_(v);
+    const auto& g_array = mlx_array_get_(g);
+    const auto& beta_array = mlx_array_get_(beta);
+    const auto& state_array = mlx_array_get_(state);
+    const auto& mask_array = mlx_array_get_(mask);
+
+    const auto shape = validate_qwen_gated_delta_inputs(
+        q_array, k_array, v_array, g_array, beta_array, state_array);
+    expect_rank(mask_array, 2, "mask");
+    expect_dim(mask_array, 0, shape.batch_size, "mask", "batch");
+    expect_dim(mask_array, 1, shape.sequence_length, "mask", "sequence");
+    expect_dtype(mask_array, mlx::core::bool_, "mask", "bool");
+
+    const auto input_dtype = q_array.dtype();
+
+    std::vector<array> inputs = {
+        q_array,
+        k_array,
+        v_array,
+        g_array,
+        beta_array,
+        state_array,
+        mask_array,
+        array(shape.sequence_length, mlx::core::int32)};
+    std::vector<mlx::core::Shape> output_shapes = {
+        {shape.batch_size,
+         shape.sequence_length,
+         shape.value_heads,
+         shape.value_head_dim},
+        state_array.shape()};
+    std::vector<mlx::core::Dtype> output_dtypes = {
+        input_dtype,
+        state_array.dtype()};
+    std::vector<std::pair<std::string, mlx::core::fast::TemplateArg>>
+        template_args = {
+            {"InT", input_dtype},
+            {"StT", state_array.dtype()},
+            {"Dk", shape.key_head_dim},
+            {"Dv", shape.value_head_dim},
+            {"Hk", shape.key_heads},
+            {"Hv", shape.value_heads}};
+
+    auto outputs = qwen_gated_delta_masked_kernel()(
+        inputs,
+        output_shapes,
+        output_dtypes,
+        {32, shape.value_head_dim, shape.batch_size * shape.value_heads},
         {32, 4, 1},
         template_args,
         std::nullopt,

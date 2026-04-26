@@ -709,7 +709,7 @@ describe("transformers generation engine", () => {
     ).toBe(true);
   });
 
-  test("keeps Qwen single-route fallback while statically batching Gemma layer-pattern prompts", async () => {
+  test("statically batches Qwen and Gemma layer-pattern prompts without continuous scheduling", async () => {
     using qwenModel = new TinyModel({ family: "qwen", modelType: "qwen3_5_text" });
     using gemmaSlidingModel = new TinyModel({
       family: "gemma",
@@ -743,7 +743,7 @@ describe("transformers generation engine", () => {
     await qwenBatch([textRequest("qwen-one"), textRequest("qwen-two")]);
     await gemmaBatch([textRequest("gemma-one"), textRequest("gemma-two")]);
 
-    expect(qwenModel.batchForwardCount).toBe(0);
+    expect(qwenModel.batchForwardCount).toBeGreaterThan(0);
     expect(gemmaSlidingModel.batchForwardCount).toBeGreaterThan(0);
     expect(qwenEvents.some((event) => event.type === "generation_scheduler_phase")).toBe(false);
     expect(gemmaEvents.some((event) => event.type === "generation_scheduler_phase")).toBe(false);
@@ -752,12 +752,21 @@ describe("transformers generation engine", () => {
       id: "qwen-one",
       protocol: "openai.completions",
       model: "tiny",
-      route: "single",
-      eligible: false,
-      reason: "unsupported_model_type",
+      route: "static",
+      eligible: true,
+      reason: "eligible",
       modelType: "qwen3_5_text",
       maxBatchSize: 1,
       stream: false,
+    });
+    expect(qwenEvents).toContainEqual({
+      type: "generation_batch_start",
+      mode: "static",
+      model: "tiny",
+      ids: ["qwen-one", "qwen-two"],
+      batchSize: 2,
+      maxTokens: 2,
+      maxTokensByRequest: [2, 2],
     });
     expect(gemmaEvents).toContainEqual({
       type: "generation_route_decision",

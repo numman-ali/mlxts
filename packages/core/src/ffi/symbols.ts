@@ -202,6 +202,10 @@ export const ARITHMETIC_SYMBOLS = {
 export const MLXTS_NATIVE_SYMBOLS = {
   mlxts_gelu_approx: { args: [P, P, P], returns: I32 },
   mlxts_qwen_gated_delta_update: { args: [P, P, P, P, P, P, P, P, P], returns: I32 },
+  mlxts_qwen_gated_delta_update_masked: {
+    args: [P, P, P, P, P, P, P, P, P, P],
+    returns: I32,
+  },
   mlxts_array_assign_inplace: { args: [P, P], returns: I32 },
   mlxts_slice_update_inplace: {
     args: [P, P, P, U64_FAST, P, U64_FAST, P, U64_FAST, P],

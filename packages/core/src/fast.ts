@@ -54,6 +54,12 @@ export type QwenGatedDeltaUpdateResult = {
   state: MxArray;
 };
 
+export type QwenGatedDeltaUpdateOptions = {
+  /** Optional rank-2 boolean mask with shape `[batch, sequence]`. */
+  mask?: MxArray;
+  stream?: S;
+};
+
 const textEncoder = new TextEncoder();
 
 function encodeCString(value: string): Uint8Array {
@@ -134,6 +140,18 @@ function expectDimension(
       `fast.qwenGatedDeltaUpdate: expected ${name} ${label} to be ${expected}, got ${actual ?? "undefined"}.`,
     );
   }
+}
+
+function expectDtype(name: string, value: MxArray, dtype: string): void {
+  if (value.dtype !== dtype) {
+    throw new Error(
+      `fast.qwenGatedDeltaUpdate: expected ${name} dtype ${dtype}, got ${value.dtype}.`,
+    );
+  }
+}
+
+function isQwenGatedDeltaOptions(value: unknown): value is QwenGatedDeltaUpdateOptions {
+  return typeof value === "object" && value !== null && !(value instanceof MxArray);
 }
 
 /**
@@ -304,13 +322,57 @@ export function qwenGatedDeltaUpdate(
   beta: MxArray,
   state: MxArray,
   stream?: S,
+): QwenGatedDeltaUpdateResult;
+export function qwenGatedDeltaUpdate(
+  q: MxArray,
+  k: MxArray,
+  v: MxArray,
+  g: MxArray,
+  beta: MxArray,
+  state: MxArray,
+  mask: MxArray,
+  stream?: S,
+): QwenGatedDeltaUpdateResult;
+export function qwenGatedDeltaUpdate(
+  q: MxArray,
+  k: MxArray,
+  v: MxArray,
+  g: MxArray,
+  beta: MxArray,
+  state: MxArray,
+  options?: QwenGatedDeltaUpdateOptions,
+): QwenGatedDeltaUpdateResult;
+export function qwenGatedDeltaUpdate(
+  q: MxArray,
+  k: MxArray,
+  v: MxArray,
+  g: MxArray,
+  beta: MxArray,
+  state: MxArray,
+  maskOrOptionsOrStream?: MxArray | QwenGatedDeltaUpdateOptions | S,
+  stream?: S,
 ): QwenGatedDeltaUpdateResult {
+  let mask: MxArray | undefined;
+  let resolvedStream = stream;
+  if (maskOrOptionsOrStream instanceof MxArray) {
+    mask = maskOrOptionsOrStream;
+  } else if (isQwenGatedDeltaOptions(maskOrOptionsOrStream)) {
+    mask = maskOrOptionsOrStream.mask;
+    resolvedStream = maskOrOptionsOrStream.stream;
+  } else {
+    resolvedStream = maskOrOptionsOrStream;
+  }
+
   expectRank("q", q, 4);
   expectRank("k", k, 4);
   expectRank("v", v, 4);
   expectRank("g", g, 3);
   expectRank("beta", beta, 3);
   expectRank("state", state, 4);
+  if (mask !== undefined) {
+    expectRank("mask", mask, 2);
+    expectDtype("mask", mask, "bool");
+  }
 
   const [batchSize, sequenceLength, keyHeads, keyHeadDim] = q.shape;
   const valueHeads = v.shape[2];
@@ -351,23 +413,45 @@ export function qwenGatedDeltaUpdate(
   expectDimension("state", state, 1, valueHeads, "valueHeads");
   expectDimension("state", state, 2, valueHeadDim, "valueHeadDim");
   expectDimension("state", state, 3, keyHeadDim, "keyHeadDim");
+  if (mask !== undefined) {
+    expectDimension("mask", mask, 0, batchSize, "batch");
+    expectDimension("mask", mask, 1, sequenceLength, "sequence");
+  }
 
   const outputSlot = new OutSlot();
   const stateSlot = new OutSlot();
-  checkStatus(
-    ffi.mlxts_qwen_gated_delta_update(
-      outputSlot.prepare(),
-      stateSlot.prepare(),
-      q._ctx,
-      k._ctx,
-      v._ctx,
-      g._ctx,
-      beta._ctx,
-      state._ctx,
-      s(stream),
-    ),
-    "mlxts_qwen_gated_delta_update",
-  );
+  if (mask === undefined) {
+    checkStatus(
+      ffi.mlxts_qwen_gated_delta_update(
+        outputSlot.prepare(),
+        stateSlot.prepare(),
+        q._ctx,
+        k._ctx,
+        v._ctx,
+        g._ctx,
+        beta._ctx,
+        state._ctx,
+        s(resolvedStream),
+      ),
+      "mlxts_qwen_gated_delta_update",
+    );
+  } else {
+    checkStatus(
+      ffi.mlxts_qwen_gated_delta_update_masked(
+        outputSlot.prepare(),
+        stateSlot.prepare(),
+        q._ctx,
+        k._ctx,
+        v._ctx,
+        g._ctx,
+        beta._ctx,
+        state._ctx,
+        mask._ctx,
+        s(resolvedStream),
+      ),
+      "mlxts_qwen_gated_delta_update_masked",
+    );
+  }
 
   const output = MxArray._fromCtx(outputSlot.read("qwen gated delta output"), {
     shape: [batchSize, sequenceLength, valueHeads, valueHeadDim],

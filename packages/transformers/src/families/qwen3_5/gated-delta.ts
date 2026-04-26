@@ -10,6 +10,7 @@ import {
   concatenate,
   contiguous,
   exp,
+  expandDims,
   fastRmsNorm,
   formatShape,
   greater,
@@ -26,6 +27,7 @@ import {
 } from "@mlxts/core";
 import { Conv1d, fuseQuantizedLinears, Linear, Module, QuantizedLinear, silu } from "@mlxts/nn";
 
+import { Qwen3_5TextBatchCache } from "./batch-cache";
 import type { Qwen3_5TextCache } from "./cache";
 import { gatedDeltaSequenceFromKeyHeads } from "./gated-delta-recurrence";
 import { Qwen3_5RMSNormGated } from "./norm";
@@ -53,6 +55,15 @@ function stableSoftplus(x: MxArray): MxArray {
   using slowPath = log(expPlusOne);
   using mask = greater(x, 20);
   return where(mask, x, slowPath);
+}
+
+function applySequenceMask(x: MxArray, mask: MxArray | null): MxArray {
+  if (mask === null) {
+    return retainArray(x);
+  }
+  using featureMask = expandDims(mask, 2);
+  using zero = zeros([...x.shape], x.dtype);
+  return where(featureMask, x, zero);
 }
 
 const decayFactorsTransform = compile(
@@ -148,7 +159,7 @@ export class Qwen3_5GatedDeltaNet extends Module {
     return this.run(x, 0);
   }
 
-  run(x: MxArray, layerIndex: number, cache?: Qwen3_5TextCache): MxArray {
+  run(x: MxArray, layerIndex: number, cache?: Qwen3_5TextCache | Qwen3_5TextBatchCache): MxArray {
     const [batchSize, sequenceLength, hiddenSize] = x.shape;
     if (
       batchSize === undefined ||
@@ -167,113 +178,121 @@ export class Qwen3_5GatedDeltaNet extends Module {
     }
 
     const linearState = cache?.linearState(layerIndex);
+    const linearMask =
+      cache instanceof Qwen3_5TextBatchCache ? cache.linearAttentionMask(sequenceLength) : null;
     const convStateLength = Math.max(0, this.#convKernelSize - 1);
 
-    using projectedQkv = this.inProjectionQkv.forward(x);
-    using projectedZ = this.inProjectionZ.forward(x);
-    const projectedBA = this.projectBA(x);
-    using z = reshape(projectedZ, [
-      batchSize,
-      sequenceLength,
-      this.#numValueHeads,
-      this.#valueHeadDim,
-    ]);
-
-    let createdConvState: MxArray | null = null;
-    const activeConvState =
-      linearState?.convState ??
-      (() => {
-        if (convStateLength === 0) {
-          return null;
-        }
-        createdConvState = zeros([batchSize, convStateLength, this.#convDim], x.dtype);
-        return createdConvState;
-      })();
-
     try {
-      using convInput =
-        activeConvState === null
-          ? retainArray(projectedQkv)
-          : concatenate([activeConvState, projectedQkv], 1);
-      using rawConvOutput = this.conv1d.forward(convInput);
-      using convOutput = silu(rawConvOutput);
-      using querySlice = takeLastAxisRange(convOutput, 0, this.#keyDim);
-      using keySlice = takeLastAxisRange(convOutput, this.#keyDim, this.#keyDim * 2);
-      using valueSlice = takeLastAxisRange(convOutput, this.#keyDim * 2, this.#convDim);
-      using queries = reshape(querySlice, [
-        batchSize,
-        sequenceLength,
-        this.#numKeyHeads,
-        this.#keyHeadDim,
-      ]);
-      using keys = reshape(keySlice, [
-        batchSize,
-        sequenceLength,
-        this.#numKeyHeads,
-        this.#keyHeadDim,
-      ]);
-      using values = reshape(valueSlice, [
+      using rawProjectedQkv = this.inProjectionQkv.forward(x);
+      using projectedQkv = applySequenceMask(rawProjectedQkv, linearMask);
+      using projectedZ = this.inProjectionZ.forward(x);
+      const projectedBA = this.projectBA(x);
+      using z = reshape(projectedZ, [
         batchSize,
         sequenceLength,
         this.#numValueHeads,
         this.#valueHeadDim,
       ]);
-      using normalizedQueries = fastRmsNorm(queries, undefined, { eps: 1e-6 });
-      using normalizedKeys = fastRmsNorm(keys, undefined, { eps: 1e-6 });
-      using scaledQueries = multiply(normalizedQueries, this.#keyHeadDim ** -1);
-      using scaledKeys = multiply(normalizedKeys, this.#keyHeadDim ** -0.5);
-      using beta = sigmoid(projectedBA.b);
-      using g = decayFactors(projectedBA.a, this.aLog, this.dtBias);
 
-      let createdRecurrentState: MxArray | null = null;
-      const initialState =
-        linearState?.recurrentState ??
+      let createdConvState: MxArray | null = null;
+      const activeConvState =
+        linearState?.convState ??
         (() => {
-          createdRecurrentState = zeros(
-            [batchSize, this.#numValueHeads, this.#valueHeadDim, this.#keyHeadDim],
-            "float32",
-          );
-          return createdRecurrentState;
+          if (convStateLength === 0) {
+            return null;
+          }
+          createdConvState = zeros([batchSize, convStateLength, this.#convDim], x.dtype);
+          return createdConvState;
         })();
 
       try {
-        const next = gatedDeltaSequenceFromKeyHeads(
-          scaledQueries,
-          scaledKeys,
-          values,
-          g,
-          beta,
-          initialState,
-        );
+        using convInput =
+          activeConvState === null
+            ? retainArray(projectedQkv)
+            : concatenate([activeConvState, projectedQkv], 1);
+        using rawConvOutput = this.conv1d.forward(convInput);
+        using convOutput = silu(rawConvOutput);
+        using querySlice = takeLastAxisRange(convOutput, 0, this.#keyDim);
+        using keySlice = takeLastAxisRange(convOutput, this.#keyDim, this.#keyDim * 2);
+        using valueSlice = takeLastAxisRange(convOutput, this.#keyDim * 2, this.#convDim);
+        using queries = reshape(querySlice, [
+          batchSize,
+          sequenceLength,
+          this.#numKeyHeads,
+          this.#keyHeadDim,
+        ]);
+        using keys = reshape(keySlice, [
+          batchSize,
+          sequenceLength,
+          this.#numKeyHeads,
+          this.#keyHeadDim,
+        ]);
+        using values = reshape(valueSlice, [
+          batchSize,
+          sequenceLength,
+          this.#numValueHeads,
+          this.#valueHeadDim,
+        ]);
+        using normalizedQueries = fastRmsNorm(queries, undefined, { eps: 1e-6 });
+        using normalizedKeys = fastRmsNorm(keys, undefined, { eps: 1e-6 });
+        using scaledQueries = multiply(normalizedQueries, this.#keyHeadDim ** -1);
+        using scaledKeys = multiply(normalizedKeys, this.#keyHeadDim ** -0.5);
+        using beta = sigmoid(projectedBA.b);
+        using g = decayFactors(projectedBA.a, this.aLog, this.dtBias);
+
+        let createdRecurrentState: MxArray | null = null;
+        const initialState =
+          linearState?.recurrentState ??
+          (() => {
+            createdRecurrentState = zeros(
+              [batchSize, this.#numValueHeads, this.#valueHeadDim, this.#keyHeadDim],
+              "float32",
+            );
+            return createdRecurrentState;
+          })();
+
         try {
-          using recurrentOutput = asType(next.output, x.dtype);
-          using gatedOutput = this.norm.forward(recurrentOutput, z);
-          using mergedOutput = reshape(gatedOutput, [batchSize, sequenceLength, this.#valueDim]);
-          if (cache !== undefined) {
-            let nextConvState: MxArray | null = null;
-            if (convStateLength > 0) {
-              using nextConvStateView = slice(
-                convInput,
-                [0, sequenceLength, 0],
-                [batchSize, sequenceLength + convStateLength, this.#convDim],
-              );
-              nextConvState = contiguous(nextConvStateView);
+          const next = gatedDeltaSequenceFromKeyHeads(
+            scaledQueries,
+            scaledKeys,
+            values,
+            g,
+            beta,
+            initialState,
+            linearMask ?? undefined,
+          );
+          try {
+            using recurrentOutput = asType(next.output, x.dtype);
+            using gatedOutput = this.norm.forward(recurrentOutput, z);
+            using mergedOutput = reshape(gatedOutput, [batchSize, sequenceLength, this.#valueDim]);
+            if (cache !== undefined) {
+              let nextConvState: MxArray | null = null;
+              if (convStateLength > 0) {
+                using nextConvStateView = slice(
+                  convInput,
+                  [0, sequenceLength, 0],
+                  [batchSize, sequenceLength + convStateLength, this.#convDim],
+                );
+                nextConvState = contiguous(nextConvStateView);
+              }
+              cache.updateLinearState(layerIndex, nextConvState, next.state);
+              nextConvState?.free();
             }
-            cache.updateLinearState(layerIndex, nextConvState, next.state);
-            nextConvState?.free();
+            return this.outProjection.forward(mergedOutput);
+          } finally {
+            next.output.free();
+            next.state.free();
           }
-          return this.outProjection.forward(mergedOutput);
         } finally {
-          next.output.free();
-          next.state.free();
+          createdRecurrentState?.free();
         }
       } finally {
-        createdRecurrentState?.free();
+        projectedBA.b.free();
+        projectedBA.a.free();
+        createdConvState?.free();
       }
     } finally {
-      projectedBA.b.free();
-      projectedBA.a.free();
-      createdConvState?.free();
+      linearMask?.free();
     }
   }
 

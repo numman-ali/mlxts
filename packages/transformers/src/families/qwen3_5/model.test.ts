@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { array, retainArray, zeros } from "@mlxts/core";
+import { generateBatchTokens, generateTokens } from "../../generation";
 import { Qwen3_5TextCache } from "./cache";
 import { Qwen3_5TextCausalLM } from "./model";
 import type { Qwen3_5TextConfig } from "./types";
@@ -132,5 +133,35 @@ describe("Qwen3_5TextCausalLM", () => {
     using inputIds = array([[1, 2]], "int32");
     using logits = model.forward(inputIds);
     expect(logits.shape).toEqual([1, 2, config.vocabSize]);
+  });
+
+  test("static greedy batch generation matches separate hybrid-cache generation", () => {
+    using model = new Qwen3_5TextCausalLM(qwen3_5TextConfig());
+    const prompts = [
+      [1, 2, 3, 4],
+      [5, 6],
+    ];
+    const options = { maxTokens: 2, temperature: 0, eosTokenIds: [] };
+
+    const separate = prompts.map((prompt) => generateTokens(model, prompt, options));
+    const batched = generateBatchTokens(model, prompts, options);
+
+    expect(batched).toEqual(separate);
+  });
+
+  test("static greedy batch generation filters completed Qwen rows", () => {
+    using model = new Qwen3_5TextCausalLM(qwen3_5TextConfig());
+    const prompts = [[1, 2, 3], [4]];
+    const options = { maxTokens: [1, 3], temperature: 0, eosTokenIds: [] };
+
+    const separate = prompts.map((prompt, index) =>
+      generateTokens(model, prompt, {
+        ...options,
+        maxTokens: options.maxTokens[index] ?? 0,
+      }),
+    );
+    const batched = generateBatchTokens(model, prompts, options);
+
+    expect(batched).toEqual(separate);
   });
 });

@@ -16,6 +16,7 @@ const GEMMA_LAYER_PATTERN_BATCH_MODEL_TYPES = new Set(["gemma3_text", "gemma4_te
 const STATIC_BATCH_MODEL_TYPES = new Set([
   ...CONTINUOUS_BATCH_MODEL_TYPES,
   ...GEMMA_LAYER_PATTERN_BATCH_MODEL_TYPES,
+  "qwen3_5_text",
 ]);
 
 function configHasSlidingWindow(model: CausalLM): boolean {

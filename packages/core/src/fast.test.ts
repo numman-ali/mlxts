@@ -411,6 +411,35 @@ describe("fast.qwenGatedDeltaUpdate", () => {
     }
   });
 
+  test("zeros masked steps and preserves recurrent state", () => {
+    if (!isMetalAvailable()) {
+      return;
+    }
+
+    const keyVector = [1, ...Array(31).fill(0)];
+    using q = array([[[keyVector], [keyVector], [keyVector]]], "float32");
+    using k = array([[[keyVector], [keyVector], [keyVector]]], "float32");
+    using v = array([[[[2]], [[100]], [[5]]]], "float32");
+    using g = array([[[1], [0.25], [1]]], "float32");
+    using beta = array([[[0.5], [0.5], [0.5]]], "float32");
+    using state = zeros([1, 1, 1, 32], "float32");
+    using mask = array([[1, 0, 1]], "bool");
+
+    const result = qwenGatedDeltaUpdate(q, k, v, g, beta, state, { mask });
+    try {
+      result.output.eval();
+      result.state.eval();
+      expect(result.output.toList()).toEqual([[[[1]], [[0]], [[3]]]]);
+
+      const stateList = result.state.toList() as number[][][][];
+      expect(stateList[0]?.[0]?.[0]?.[0]).toBeCloseTo(3);
+      expect(stateList[0]?.[0]?.[0]?.slice(1)).toEqual(Array(31).fill(0));
+    } finally {
+      result.output.free();
+      result.state.free();
+    }
+  });
+
   test("validates Qwen gated-delta input ranks and shapes", () => {
     using q = ones([1, 1, 1, 32], "float32");
     using k = ones([1, 1, 1, 32], "float32");
@@ -429,6 +458,9 @@ describe("fast.qwenGatedDeltaUpdate", () => {
     using moreValueBeta = ones([1, 1, 3], "float32");
     using moreValueState = zeros([1, 3, 2, 32], "float32");
     using longerK = ones([1, 2, 1, 32], "float32");
+    using rank3Mask = ones([1, 1, 1], "bool");
+    using longerMask = ones([1, 2], "bool");
+    using floatMask = ones([1, 1], "float32");
 
     expect(() => qwenGatedDeltaUpdate(rank3Q, k, v, g, beta, state)).toThrow("expected q rank 4");
     expect(() => qwenGatedDeltaUpdate(narrowQ, narrowK, v, g, beta, narrowState)).toThrow(
@@ -446,6 +478,15 @@ describe("fast.qwenGatedDeltaUpdate", () => {
     ).toThrow("must be divisible");
     expect(() => qwenGatedDeltaUpdate(q, longerK, v, g, beta, state)).toThrow(
       "expected k sequence",
+    );
+    expect(() => qwenGatedDeltaUpdate(q, k, v, g, beta, state, rank3Mask)).toThrow(
+      "expected mask rank 2",
+    );
+    expect(() => qwenGatedDeltaUpdate(q, k, v, g, beta, state, longerMask)).toThrow(
+      "expected mask sequence",
+    );
+    expect(() => qwenGatedDeltaUpdate(q, k, v, g, beta, state, floatMask)).toThrow(
+      "expected mask dtype bool",
     );
   });
 });

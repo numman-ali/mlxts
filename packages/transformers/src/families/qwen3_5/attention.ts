@@ -23,8 +23,14 @@ import {
   retainTransformerCacheView,
   updateAndFetchTransformerCacheView,
 } from "../../infrastructure/cache/view";
-import { type AttentionMask, createCausalMask } from "../../infrastructure/masks";
+import {
+  type AttentionMask,
+  canOmitLeftPaddedAttentionMask,
+  createCausalMask,
+  createLeftPaddedAttentionMask,
+} from "../../infrastructure/masks";
 import type { TransformerCache } from "../../types";
+import { Qwen3_5TextBatchCache } from "./batch-cache";
 import { Qwen3_5TextRotaryEmbedding } from "./rotary";
 import type { Qwen3_5TextConfig } from "./types";
 
@@ -44,6 +50,8 @@ type RotatedAttentionHeads = {
   queries: MxArray;
   keys: MxArray;
 };
+
+type QwenAttentionCache = TransformerCache | Qwen3_5TextBatchCache;
 
 function takeLastAxisRange(x: MxArray, start: number, end: number): MxArray {
   const rank = x.shape.length;
@@ -165,7 +173,7 @@ export class Qwen3_5TextAttention extends Module {
   run(
     x: MxArray,
     layerIndex: number,
-    cache?: TransformerCache,
+    cache?: QwenAttentionCache,
     attentionMask?: AttentionMask,
     positionIds?: MxArray,
   ): MxArray {
@@ -197,43 +205,51 @@ export class Qwen3_5TextAttention extends Module {
       using keyHeads = transpose(normalizedKeys, [0, 2, 1, 3]);
       using valueHeads = transpose(valueInputs, [0, 2, 1, 3]);
 
-      const rotated = this.rotateAttentionHeads(queryHeads, keyHeads, cache, positionIds);
+      const ropeOffset = this.ropeOffsetForCache(cache);
       try {
-        using activeKeyValues =
-          cache === undefined
-            ? retainTransformerCacheView(rotated.keys, valueHeads)
-            : updateAndFetchTransformerCacheView(cache, layerIndex, rotated.keys, valueHeads);
-        const retainedMask = this.retainAttentionMask(
-          attentionMask,
-          activeKeyValues.keys,
-          sequenceLength,
-          rotated.queries.dtype,
-        );
-
+        const rotated = this.rotateAttentionHeads(queryHeads, keyHeads, ropeOffset, positionIds);
         try {
-          using attentionOutput = scaledDotProductAttention(
-            rotated.queries,
+          using activeKeyValues =
+            cache === undefined
+              ? retainTransformerCacheView(rotated.keys, valueHeads)
+              : updateAndFetchTransformerCacheView(cache, layerIndex, rotated.keys, valueHeads);
+          const retainedMask = this.retainAttentionMask(
+            attentionMask,
             activeKeyValues.keys,
-            activeKeyValues.values,
-            attentionOptionsForMask(retainedMask, this.#headDim),
-          );
-          using transposedOutput = transpose(attentionOutput, [0, 2, 1, 3]);
-          using mergedOutput = reshape(transposedOutput, [
-            batch,
             sequenceLength,
-            this.#numHeads * this.#headDim,
-          ]);
-          using gatedOutput = sigmoid(projected.gates);
-          using scaledOutput = multiply(mergedOutput, gatedOutput);
-          return this.outputProjection.forward(scaledOutput);
-        } finally {
-          if (retainedMask instanceof MxArray) {
-            retainedMask.free();
+            rotated.queries.dtype,
+            cache,
+          );
+
+          try {
+            using attentionOutput = scaledDotProductAttention(
+              rotated.queries,
+              activeKeyValues.keys,
+              activeKeyValues.values,
+              attentionOptionsForMask(retainedMask, this.#headDim),
+            );
+            using transposedOutput = transpose(attentionOutput, [0, 2, 1, 3]);
+            using mergedOutput = reshape(transposedOutput, [
+              batch,
+              sequenceLength,
+              this.#numHeads * this.#headDim,
+            ]);
+            using gatedOutput = sigmoid(projected.gates);
+            using scaledOutput = multiply(mergedOutput, gatedOutput);
+            return this.outputProjection.forward(scaledOutput);
+          } finally {
+            if (retainedMask instanceof MxArray) {
+              retainedMask.free();
+            }
           }
+        } finally {
+          rotated.queries.free();
+          rotated.keys.free();
         }
       } finally {
-        rotated.queries.free();
-        rotated.keys.free();
+        if (ropeOffset instanceof MxArray) {
+          ropeOffset.free();
+        }
       }
     } finally {
       projected.queries.free();
@@ -261,7 +277,7 @@ export class Qwen3_5TextAttention extends Module {
   private rotateAttentionHeads(
     queryHeads: MxArray,
     keyHeads: MxArray,
-    cache: TransformerCache | undefined,
+    ropeOffset: number | MxArray,
     positionIds: MxArray | undefined,
   ): RotatedAttentionHeads {
     let queries: MxArray | null = null;
@@ -271,12 +287,12 @@ export class Qwen3_5TextAttention extends Module {
         queries = fastRoPE(queryHeads, this.#rotaryEmbedding.rotaryDimensions, {
           traditional: false,
           base: this.#ropeBase,
-          offset: cache?.offset ?? 0,
+          offset: ropeOffset,
         });
         keys = fastRoPE(keyHeads, this.#rotaryEmbedding.rotaryDimensions, {
           traditional: false,
           base: this.#ropeBase,
-          offset: cache?.offset ?? 0,
+          offset: ropeOffset,
         });
         return { queries, keys };
       }
@@ -292,11 +308,19 @@ export class Qwen3_5TextAttention extends Module {
     }
   }
 
+  private ropeOffsetForCache(cache: QwenAttentionCache | undefined): number | MxArray {
+    if (cache instanceof Qwen3_5TextBatchCache) {
+      return cache.offsetTensor();
+    }
+    return cache?.offset ?? 0;
+  }
+
   private retainAttentionMask(
     attentionMask: AttentionMask | undefined,
     activeKeys: MxArray,
     sequenceLength: number,
     dtype: DType,
+    cache: QwenAttentionCache | undefined,
   ): AttentionMask {
     if (attentionMask !== undefined) {
       return attentionMask === null || attentionMask === "causal"
@@ -312,6 +336,18 @@ export class Qwen3_5TextAttention extends Module {
     }
 
     const visiblePastLength = Math.max(0, totalKeyLength - sequenceLength);
+    if (cache instanceof Qwen3_5TextBatchCache) {
+      if (canOmitLeftPaddedAttentionMask(sequenceLength, cache.leftPadding)) {
+        return null;
+      }
+      using leftPadding = cache.leftPaddingTensor();
+      return createLeftPaddedAttentionMask(
+        sequenceLength,
+        totalKeyLength,
+        visiblePastLength,
+        leftPadding,
+      );
+    }
     return createCausalMask(sequenceLength, totalKeyLength, visiblePastLength, dtype);
   }
 

@@ -199,7 +199,7 @@ describe("serve regression matrix", () => {
     expect(() => assertServeReportBudget("qwen", report(), budget)).not.toThrow();
   });
 
-  test("accepts Gemma static-batch reports while guarding continuous counters", () => {
+  test("accepts static-batch reports while guarding continuous counters", () => {
     const baseServerRequest = trial().serverRequests[0];
     if (baseServerRequest === undefined) {
       throw new Error("Expected trial fixture to include one server request.");
@@ -274,6 +274,21 @@ describe("serve regression matrix", () => {
 
     expect(() =>
       assertServeReportBudget("gemma", report(staticMetrics), staticBudget),
+    ).not.toThrow();
+    expect(() =>
+      assertServeReportBudget(
+        "qwen",
+        report(
+          trial({
+            ...staticMetrics,
+            routeDecisions: staticMetrics.routeDecisions.map((decision) => ({
+              ...decision,
+              modelType: "qwen3_5_text",
+            })),
+          }),
+        ),
+        staticBudget,
+      ),
     ).not.toThrow();
     expect(() =>
       assertServeReportBudget(

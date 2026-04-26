@@ -158,6 +158,39 @@ function activePromptIndices(maxTokens: readonly number[]): number[] {
   return activeIndices;
 }
 
+type StaticBatchCacheFactory = (leftPadding: readonly number[]) => unknown;
+
+function isStaticBatchCacheFactory(value: unknown): value is StaticBatchCacheFactory {
+  return typeof value === "function";
+}
+
+function isTransformerBatchCache(value: unknown): value is TransformerBatchCache {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "updateAndFetch" in value &&
+    "advance" in value &&
+    "filter" in value &&
+    "offsetTensor" in value &&
+    "leftPaddingTensor" in value
+  );
+}
+
+function createModelOwnedBatchCache(
+  model: CausalLM,
+  leftPadding: readonly number[],
+): TransformerBatchCache | null {
+  const factory = Reflect.get(model, "createBatchCache");
+  if (!isStaticBatchCacheFactory(factory)) {
+    return null;
+  }
+  const cache = Reflect.apply(factory, model, [leftPadding]);
+  if (!isTransformerBatchCache(cache)) {
+    throw new Error("generateBatchTokens: model-owned batch cache is not a TransformerBatchCache.");
+  }
+  return cache;
+}
+
 function gemmaLayerWindowSizes(model: CausalLM): (number | undefined)[] | null {
   if (model.config.family !== "gemma") {
     return null;
@@ -198,6 +231,10 @@ function createStaticBatchCache(
   model: CausalLM,
   leftPadding: readonly number[],
 ): TransformerBatchCache {
+  const modelOwnedCache = createModelOwnedBatchCache(model, leftPadding);
+  if (modelOwnedCache !== null) {
+    return modelOwnedCache;
+  }
   const layerWindowSizes = gemmaLayerWindowSizes(model);
   return layerWindowSizes === null
     ? new BatchKVCache(model.layerCount, leftPadding)

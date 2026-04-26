@@ -6,6 +6,7 @@
 import {
   add,
   asType,
+  expandDims,
   fast,
   formatShape,
   isMetalAvailable,
@@ -18,6 +19,8 @@ import {
   stack,
   subtract,
   sum,
+  where,
+  zeros,
 } from "@mlxts/core";
 
 function sliceSequenceStep(x: MxArray, step: number): MxArray {
@@ -62,6 +65,7 @@ function gatedDeltaStep(
   g: MxArray,
   beta: MxArray,
   state: MxArray,
+  mask?: MxArray,
 ): { output: MxArray; state: MxArray } {
   const keyHeadDim = k.shape[2] ?? 0;
   const queryHeadDim = q.shape[2] ?? 0;
@@ -79,10 +83,32 @@ function gatedDeltaStep(
   using nextState = add(decayedState, update);
   using queryView = reshape(q, [q.shape[0] ?? 0, q.shape[1] ?? 0, 1, queryHeadDim]);
   using nextStateTimesQuery = multiply(nextState, queryView);
-  const output = sum(nextStateTimesQuery, 3);
+  let output = sum(nextStateTimesQuery, 3);
+  let retainedState = retainArray(nextState);
+
+  try {
+    if (mask !== undefined) {
+      using maskHeads = expandDims(mask, 1);
+      using outputMask = expandDims(maskHeads, 2);
+      using zeroOutput = zeros([...output.shape], output.dtype);
+      const maskedOutput = where(outputMask, output, zeroOutput);
+      output.free();
+      output = maskedOutput;
+
+      using stateMask = expandDims(outputMask, 3);
+      const maskedState = where(stateMask, nextState, state);
+      retainedState.free();
+      retainedState = maskedState;
+    }
+  } catch (error) {
+    output.free();
+    retainedState.free();
+    throw error;
+  }
+
   return {
     output,
-    state: retainArray(nextState),
+    state: retainedState,
   };
 }
 
@@ -94,6 +120,7 @@ export function gatedDeltaSequence(
   g: MxArray,
   beta: MxArray,
   initialState: MxArray,
+  mask?: MxArray,
 ): { output: MxArray; state: MxArray } {
   const sequenceLength = q.shape[1];
   if (sequenceLength === undefined) {
@@ -112,7 +139,8 @@ export function gatedDeltaSequence(
       using vStep = sliceSequenceStep(v, step);
       using gStep = sliceSequenceStep(g, step);
       using betaStep = sliceSequenceStep(beta, step);
-      const next = gatedDeltaStep(qStep, kStep, vStep, gStep, betaStep, state);
+      using maskStep = mask === undefined ? undefined : sliceSequenceStep(mask, step);
+      const next = gatedDeltaStep(qStep, kStep, vStep, gStep, betaStep, state, maskStep);
       state.free();
       state = next.state;
       outputs.push(next.output);
@@ -164,9 +192,12 @@ export function gatedDeltaSequenceFromKeyHeads(
   g: MxArray,
   beta: MxArray,
   initialState: MxArray,
+  mask?: MxArray,
 ): { output: MxArray; state: MxArray } {
   if (canUseNativeGatedDelta(q, v, initialState)) {
-    return fast.qwenGatedDeltaUpdate(q, k, v, g, beta, initialState);
+    return mask === undefined
+      ? fast.qwenGatedDeltaUpdate(q, k, v, g, beta, initialState)
+      : fast.qwenGatedDeltaUpdate(q, k, v, g, beta, initialState, { mask });
   }
 
   const keyHeads = q.shape[2];
@@ -184,5 +215,13 @@ export function gatedDeltaSequenceFromKeyHeads(
   using floatValues = asType(v, "float32");
   using floatG = asType(g, "float32");
   using floatBeta = asType(beta, "float32");
-  return gatedDeltaSequence(floatQueries, floatKeys, floatValues, floatG, floatBeta, initialState);
+  return gatedDeltaSequence(
+    floatQueries,
+    floatKeys,
+    floatValues,
+    floatG,
+    floatBeta,
+    initialState,
+    mask,
+  );
 }

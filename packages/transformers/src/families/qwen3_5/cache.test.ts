@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { array, mxEval } from "@mlxts/core";
 
+import { Qwen3_5TextBatchCache } from "./batch-cache";
 import { Qwen3_5TextCache } from "./cache";
 
 describe("Qwen3_5TextCache", () => {
@@ -71,5 +72,74 @@ describe("Qwen3_5TextCache", () => {
     expect(() => cache.linearState(1)).toThrow("linear state only exists");
     expect(() => cache.advance(-1)).toThrow("sequenceLength must be a non-negative integer");
     expect(() => new Qwen3_5TextCache([])).toThrow("must contain at least one layer");
+  });
+});
+
+describe("Qwen3_5TextBatchCache", () => {
+  test("tracks hybrid batched state, masks left padding, and extracts single caches", () => {
+    using cache = new Qwen3_5TextBatchCache(["linear_attention", "full_attention"], [2, 0]);
+
+    expect(cache.batchSize).toBe(2);
+    expect(cache.layerCount).toBe(2);
+    expect(cache.leftPadding).toEqual([2, 0]);
+    expect(cache.offsets).toEqual([-2, 0]);
+
+    using fullKeys = array([[[[0], [0], [7]]], [[[1], [2], [3]]]], "float32");
+    using fullValues = array([[[[0], [0], [70]]], [[[10], [20], [30]]]], "float32");
+    using activeKeys = cache.updateAndFetch(1, fullKeys, fullValues).keys;
+    mxEval(activeKeys);
+    expect(activeKeys.shape).toEqual([2, 1, 3, 1]);
+
+    using convState = array([[[7, 8]], [[1, 2]]], "float32");
+    using recurrentState = array([[[[9]]], [[[3]]]], "float32");
+    cache.updateLinearState(0, convState, recurrentState);
+
+    using initialMask = cache.linearAttentionMask(3);
+    expect(initialMask?.toList()).toEqual([
+      [0, 0, 1],
+      [1, 1, 1],
+    ]);
+
+    cache.advance(3);
+    expect(cache.offsets).toEqual([1, 3]);
+    using decodeMask = cache.linearAttentionMask(1);
+    expect(decodeMask).toBeNull();
+
+    const extracted = cache.extract(0);
+    try {
+      expect(extracted).toBeInstanceOf(Qwen3_5TextCache);
+      expect(extracted.offset).toBe(1);
+      const arrays = extracted.arrays();
+      try {
+        mxEval(...arrays);
+        expect(arrays.map((value) => value.toList())).toEqual([
+          [[[7, 8]]],
+          [[[[9]]]],
+          [[[[7]]]],
+          [[[[70]]]],
+        ]);
+      } finally {
+        for (const value of arrays) {
+          value.free();
+        }
+      }
+    } finally {
+      extracted[Symbol.dispose]();
+    }
+  });
+
+  test("filters full and linear state by active rows", () => {
+    using cache = new Qwen3_5TextBatchCache(["linear_attention", "full_attention"], [1, 0]);
+    using convState = array([[[4, 5]], [[6, 7]]], "float32");
+    using recurrentState = array([[[[8]]], [[[9]]]], "float32");
+    cache.updateLinearState(0, convState, recurrentState);
+
+    cache.filter([1]);
+
+    expect(cache.batchSize).toBe(1);
+    expect(cache.leftPadding).toEqual([0]);
+    expect(cache.offsets).toEqual([0]);
+    expect(cache.linearState(0).convState?.toList()).toEqual([[[6, 7]]]);
+    expect(cache.linearState(0).recurrentState?.toList()).toEqual([[[[9]]]]);
   });
 });

@@ -9,18 +9,21 @@ import { Embedding, Linear, Module } from "@mlxts/nn";
 import { retainInputEmbeddings } from "../../infrastructure/input-embeddings";
 import { type AttentionMask, createStepAttentionMask } from "../../infrastructure/masks";
 import type { CausalLM, DecoderCache, ForwardOptions, TransformerCache } from "../../types";
+import { Qwen3_5TextBatchCache } from "./batch-cache";
 import { Qwen3_5TextDecoderLayer } from "./block";
 import { Qwen3_5TextCache } from "./cache";
 import { Qwen3_5RMSNorm } from "./norm";
 import type { Qwen3_5TextConfig } from "./types";
 
-function expectQwenCache(cache: DecoderCache | undefined): Qwen3_5TextCache | undefined {
+type Qwen3_5DecoderCache = Qwen3_5TextCache | Qwen3_5TextBatchCache;
+
+function expectQwenCache(cache: DecoderCache | undefined): Qwen3_5DecoderCache | undefined {
   if (cache === undefined) {
     return undefined;
   }
-  if (!(cache instanceof Qwen3_5TextCache)) {
+  if (!(cache instanceof Qwen3_5TextCache) && !(cache instanceof Qwen3_5TextBatchCache)) {
     throw new Error(
-      `Qwen3_5TextModel.forward: expected Qwen3_5TextCache, got ${cache.constructor.name}.`,
+      `Qwen3_5TextModel.forward: expected Qwen3_5TextCache or Qwen3_5TextBatchCache, got ${cache.constructor.name}.`,
     );
   }
   return cache;
@@ -39,11 +42,21 @@ function inputShape(inputIds: MxArray): { batchSize: number; sequenceLength: num
 function runDecoderLayer(
   layer: Qwen3_5TextDecoderLayer,
   hiddenStates: MxArray,
-  cache: Qwen3_5TextCache | undefined,
+  cache: Qwen3_5DecoderCache | undefined,
   attentionMask: AttentionMask | undefined,
   positionIds?: MxArray,
 ): MxArray {
   return layer.run(hiddenStates, cache, attentionMask, positionIds);
+}
+
+function createFullAttentionMask(
+  sequenceLength: number,
+  cache: Qwen3_5DecoderCache | undefined,
+): AttentionMask | undefined {
+  if (cache instanceof Qwen3_5TextBatchCache) {
+    return undefined;
+  }
+  return createStepAttentionMask(sequenceLength, cache?.offset ?? 0);
 }
 
 /** Decoder backbone shared by Qwen 3.5 text checkpoints. */
@@ -97,12 +110,12 @@ export class Qwen3_5TextModel extends Module {
 
   private runDecoderLayers(
     initialHiddenStates: MxArray,
-    cache: Qwen3_5TextCache | undefined,
+    cache: Qwen3_5DecoderCache | undefined,
     positionIds: MxArray | undefined,
     sequenceLength: number,
   ): MxArray {
     let hiddenStates = initialHiddenStates;
-    const fullAttentionMask = createStepAttentionMask(sequenceLength, cache?.offset ?? 0);
+    const fullAttentionMask = createFullAttentionMask(sequenceLength, cache);
     try {
       for (let layerIndex = 0; layerIndex < this.layers.length; layerIndex += 1) {
         const layer = this.layers[layerIndex];
@@ -157,6 +170,11 @@ export class Qwen3_5TextCausalLM extends Module implements CausalLM {
 
   createCache(): TransformerCache {
     return new Qwen3_5TextCache(this.config.layerTypes);
+  }
+
+  /** Create the Qwen-specific hybrid cache for static batched generation. */
+  createBatchCache(leftPadding: readonly number[]): Qwen3_5TextBatchCache {
+    return new Qwen3_5TextBatchCache(this.config.layerTypes, leftPadding);
   }
 
   forward(inputIds: MxArray, options?: ForwardOptions): MxArray;

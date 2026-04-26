@@ -376,6 +376,40 @@ export class BatchKVCache implements TransformerBatchCache {
     this.#offsets = [...this.#offsets, ...other.#offsets];
   }
 
+  extractLayer(batchIndex: number, layerIndex: number): { keys: MxArray; values: MxArray } | null {
+    if (!Number.isInteger(batchIndex) || batchIndex < 0 || batchIndex >= this.batchSize) {
+      throw new Error(
+        `BatchKVCache.extract: batch index ${batchIndex} is out of range for batch size ${this.batchSize}.`,
+      );
+    }
+    const layer = this.#layers[layerIndex];
+    if (layer === undefined) {
+      throw new Error(`BatchKVCache.extractLayer: layer ${layerIndex} is out of range.`);
+    }
+    if (layer.keys === null || layer.values === null) {
+      return null;
+    }
+    const padding = this.#leftPadding[batchIndex] ?? 0;
+    if (Math.max(0, layer.length - padding) === 0) {
+      return null;
+    }
+    const heads = layer.keys.shape[1] ?? 0;
+    const keyWidth = layer.keys.shape[3] ?? 0;
+    const valueWidth = layer.values.shape[3] ?? 0;
+    return {
+      keys: slice(
+        layer.keys,
+        [batchIndex, 0, padding, 0],
+        [batchIndex + 1, heads, layer.length, keyWidth],
+      ),
+      values: slice(
+        layer.values,
+        [batchIndex, 0, padding, 0],
+        [batchIndex + 1, heads, layer.length, valueWidth],
+      ),
+    };
+  }
+
   extract(batchIndex: number): TransformerCache {
     if (!Number.isInteger(batchIndex) || batchIndex < 0 || batchIndex >= this.batchSize) {
       throw new Error(
@@ -385,32 +419,16 @@ export class BatchKVCache implements TransformerBatchCache {
     const cache = new KVCache(this.layerCount);
     let visibleLength = 0;
     for (let layerIndex = 0; layerIndex < this.#layers.length; layerIndex += 1) {
-      const layer = this.#layers[layerIndex];
-      if (layer === undefined || layer.keys === null || layer.values === null) {
+      const pair = this.extractLayer(batchIndex, layerIndex);
+      if (pair === null) {
         continue;
       }
-      const padding = this.#leftPadding[batchIndex] ?? 0;
-      const layerVisibleLength = Math.max(0, layer.length - padding);
-      if (layerVisibleLength === 0) {
-        continue;
-      }
-      const heads = layer.keys.shape[1] ?? 0;
-      const keyWidth = layer.keys.shape[3] ?? 0;
-      const valueWidth = layer.values.shape[3] ?? 0;
-      using keys = slice(
-        layer.keys,
-        [batchIndex, 0, padding, 0],
-        [batchIndex + 1, heads, layer.length, keyWidth],
-      );
-      using values = slice(
-        layer.values,
-        [batchIndex, 0, padding, 0],
-        [batchIndex + 1, heads, layer.length, valueWidth],
-      );
+      using keys = pair.keys;
+      using values = pair.values;
       const updated = cache.updateAndFetch(layerIndex, keys, values);
       updated.keys.free();
       updated.values.free();
-      visibleLength = Math.max(visibleLength, layerVisibleLength);
+      visibleLength = Math.max(visibleLength, pair.keys.shape[2] ?? 0);
     }
     cache.advance(visibleLength);
     return cache;

@@ -81,8 +81,8 @@ model id so long startup sequences are easier to follow.
 The first-class model server wraps one loaded model in a small single-flight
 admission queue. Nearby non-streaming requests can coalesce into one
 micro-batch; the transformer-backed engine now turns eligible greedy full-cache
-LLaMA-like groups and Gemma 3/4 layer-pattern groups into real static
-`generateBatch()` calls. Qwen hybrid caches, sampled/model-native-default
+LLaMA-like groups, Qwen 3.6 text groups, and Gemma 3/4 layer-pattern groups into
+real static `generateBatch()` calls. Qwen streaming, sampled/model-native-default
 requests, and Gemma streaming still fall back to the single-request path until a
 deeper scheduler owns those decode patterns. Mixed `max_tokens` are supported
 inside that static greedy batch path. Engines without native `generateBatch()`
@@ -251,19 +251,18 @@ hour so long-context prefill does not get mislabeled as a model failure.
 Use comma lists with the default cartesian matrix for broad serving sweeps,
 `--matrix zip` for paired prompt/output rungs, or `--rungs` for a deliberate
 capability ladder such as `128x128@1,1024x512@1,10000x128@2`. Add
-`--report-json <path>` for overnight evidence that can be compared later.
-The batch row counters are important: Qwen still exercises the single-request
-path, Gemma 3/4 greedy non-streaming requests can use static batching, and
-Gemma streaming still stays out of the continuous scheduler. Endpoint benchmark
-output should be used to separate real batch execution from admission
-coalescing. This harness measures completions serving over token-array prompts;
-use `--protocol chat` or `--protocol responses` when the thing under test is the
-wire adapter and chat-template path. Completions remains the exact-token
-throughput mode; chat and Responses use deterministic text prompts and should be
-reported as protocol health, not exact token-array parity. `--ignore-eos` is
-rejected with `--protocol responses` because the current Responses benchmark
-does not expose that nonstandard serving extension. Tool quality still needs its
-own benchmark.
+`--report-json <path>` for overnight evidence that can be compared later. The
+batch row counters are important: Qwen and Gemma 3/4 greedy non-streaming
+requests can use static batching, while their streaming paths still stay out of
+the continuous scheduler. Endpoint benchmark output should be used to separate
+real batch execution from admission coalescing. This harness measures
+completions serving over token-array prompts; use `--protocol chat` or
+`--protocol responses` when the thing under test is the wire adapter and
+chat-template path. Completions remains the exact-token throughput mode; chat
+and Responses use deterministic text prompts and should be reported as protocol
+health, not exact token-array parity. `--ignore-eos` is rejected with
+`--protocol responses` because the current Responses benchmark does not expose
+that nonstandard serving extension. Tool quality still needs its own benchmark.
 
 ## Regression Matrix
 
@@ -285,10 +284,9 @@ bun run packages/serve/scripts/regression-serve-matrix.ts --real-models
 For heavier local proof work, add `--capability-smoke`; it includes longer Qwen
 output/context endpoint rungs and writes JSON reports under
 `.tmp/serve-regression/`. These commands are lock-guarded and intentionally
-sequential. The real smoke also runs non-streaming greedy Qwen fallback and
-Gemma static-batch checks so route reasons, server-request evidence, and batch
-counters stay honest instead of accidentally implying unsupported continuous
-batching.
+sequential. The real smoke also runs non-streaming greedy Qwen and Gemma
+static-batch checks so route reasons, server-request evidence, and batch counters
+stay honest instead of accidentally implying unsupported continuous batching.
 
 ## Engine Primitives
 
@@ -373,12 +371,12 @@ with `mode: "continuous"` so benchmark output can separate scheduler queue,
 prefill, admission, first-token, and finish phases from admission coalescing and
 static batch calls.
 
-The continuous path is intentionally narrow. Qwen hybrid caches, Gemma
-streaming/continuous sliding-global caches, sampled generation, prefix cache,
-paged cache, and multimodal batching still fall back to the single-model lane
-until their cache semantics are represented properly. Gemma 3/4 greedy
-non-streaming requests have a separate static batching path backed by the
-layer-pattern batch cache in `@mlxts/transformers`.
+The continuous path is intentionally narrow. Qwen streaming/continuous hybrid
+caches, Gemma streaming/continuous sliding-global caches, sampled generation,
+prefix cache, paged cache, and multimodal batching still fall back to the
+single-model lane until their cache semantics are represented properly. Qwen 3.6
+text and Gemma 3/4 greedy non-streaming requests have separate static batching
+paths backed by package-owned caches in `@mlxts/transformers`.
 
 `createMicroBatchingGenerationEngine()` and
 `createConcurrencyLimitGenerationEngine()` remain available as lower-level
