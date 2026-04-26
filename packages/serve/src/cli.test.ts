@@ -390,6 +390,104 @@ describe("serve CLI args", () => {
     );
     expect(
       formatServeEvent({
+        type: "generation_scheduler_phase",
+        mode: "continuous",
+        phase: "prefill_start",
+        model: "qwen-local",
+        id: "cmpl-a",
+        ids: ["cmpl-a"],
+        promptTokens: 4096,
+        maxTokens: 64,
+        queuedMs: 2,
+        schedulerMs: 2,
+        waiting: 0,
+        prefilling: 1,
+        active: 1,
+        maxBatchSize: 8,
+      }),
+    ).toBe(
+      "[scheduler] continuous cmpl-a prefill_start queued=2.0ms prompt_tokens=4096 max_tokens=64 waiting=0 prefilling=1 active=1/8",
+    );
+    expect(
+      formatServeEvent({
+        type: "generation_scheduler_phase",
+        mode: "continuous",
+        phase: "admitted",
+        model: "qwen-local",
+        ids: ["cmpl-a", "cmpl-b"],
+        batchSize: 2,
+        maxTokens: 64,
+        maxTokensByRequest: [32, 64],
+        queuedMsByRequest: [1.5, 2.5],
+        schedulerMs: 2.5,
+        waiting: 0,
+        prefilling: 0,
+        active: 2,
+        maxBatchSize: 8,
+      }),
+    ).toBe(
+      "[scheduler] continuous admitted size=2 wait_ms=1.5,2.5 max_tokens=64 per_request=32,64 ids=cmpl-a,cmpl-b waiting=0 prefilling=0 active=2/8",
+    );
+    expect(
+      formatServeEvent({
+        type: "generation_scheduler_phase",
+        mode: "continuous",
+        phase: "first_token",
+        model: "qwen-local",
+        id: "cmpl-a",
+        ids: ["cmpl-a"],
+        completionTokens: 1,
+        queuedMs: 4,
+        schedulerMs: 4,
+        waiting: 0,
+        prefilling: 0,
+        active: 2,
+        maxBatchSize: 8,
+      }),
+    ).toBe(
+      "[scheduler] continuous cmpl-a first_token at=4.0ms queued=4.0ms completion_tokens=1 waiting=0 prefilling=0 active=2/8",
+    );
+    expect(
+      formatServeEvent({
+        type: "generation_scheduler_phase",
+        mode: "continuous",
+        phase: "finished",
+        model: "qwen-local",
+        id: "cmpl-a",
+        ids: ["cmpl-a"],
+        completionTokens: 64,
+        finishReason: "length",
+        queuedMs: 12,
+        schedulerMs: 12,
+        waiting: 0,
+        prefilling: 0,
+        active: 0,
+        maxBatchSize: 8,
+      }),
+    ).toBe(
+      "[scheduler] continuous cmpl-a finished reason=length elapsed=12.0ms completion_tokens=64 waiting=0 prefilling=0 active=0/8",
+    );
+    expect(
+      formatServeEvent({
+        type: "generation_scheduler_phase",
+        mode: "continuous",
+        phase: "cancelled",
+        model: "qwen-local",
+        id: "cmpl-a",
+        ids: ["cmpl-a"],
+        completionTokens: 0,
+        queuedMs: 3,
+        schedulerMs: 3,
+        waiting: 0,
+        prefilling: 0,
+        active: 0,
+        maxBatchSize: 8,
+      }),
+    ).toBe(
+      "[scheduler] continuous cmpl-a cancelled elapsed=3.0ms completion_tokens=0 waiting=0 prefilling=0 active=0/8",
+    );
+    expect(
+      formatServeEvent({
         type: "generation_admission_batch",
         mode: "micro",
         engineMode: "batch",
@@ -434,6 +532,27 @@ describe("serve CLI args", () => {
         false,
       ),
     ).toBe(false);
+    expect(
+      shouldLogServeEvent(
+        {
+          type: "generation_scheduler_phase",
+          mode: "continuous",
+          phase: "queued",
+          model: "qwen-local",
+          id: "cmpl-test",
+          ids: ["cmpl-test"],
+          queuedAhead: 0,
+          promptTokens: 12,
+          maxTokens: 32,
+          schedulerMs: 0,
+          waiting: 1,
+          prefilling: 0,
+          active: 0,
+          maxBatchSize: 8,
+        },
+        false,
+      ),
+    ).toBe(true);
     expect(
       shouldLogServeEvent(
         {

@@ -285,7 +285,12 @@ describe("serveLoadedModel", () => {
       expect(await second.json()).toMatchObject({ choices: [{ text: "c".repeat(16) }] });
       expect(model.batchForwardCount).toBeGreaterThan(0);
       expect(
-        events.find((event) => event.type === "generation_batch_start" && event.batchSize === 2),
+        events.find(
+          (event) =>
+            event.type === "generation_scheduler_phase" &&
+            event.phase === "admitted" &&
+            event.batchSize === 2,
+        ),
       ).toMatchObject({
         mode: "continuous",
         model: "tiny",

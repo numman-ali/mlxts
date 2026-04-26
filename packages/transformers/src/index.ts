@@ -27,6 +27,7 @@ export {
 } from "./families/qwen3_5/preprocessing";
 export {
   type ContinuousBatchEvent,
+  type ContinuousBatchSchedulerEvent,
   type ContinuousBatchTokenRequest,
   type ContinuousBatchTokenSchedulerOptions,
   createContinuousBatchTokenScheduler,

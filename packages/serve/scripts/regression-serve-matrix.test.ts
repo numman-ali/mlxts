@@ -35,6 +35,8 @@ function trial(overrides: Partial<TrialMetrics> = {}): TrialMetrics {
     staticBatchRows: 0,
     continuousAdmissions: 0,
     continuousAdmissionRows: 0,
+    continuousSchedulerPhases: 0,
+    maxContinuousBatchSize: 0,
     maxGenerationBatchSize: 1,
     streamChunks: 4,
     streamBytes: 100,
@@ -84,6 +86,13 @@ function trial(overrides: Partial<TrialMetrics> = {}): TrialMetrics {
         modelLaneWaitMs: 1,
         modelLaneQueuedAhead: 0,
         modelLaneInFlightAtQueue: 1,
+        schedulerQueuedMs: null,
+        schedulerPrefillStartMs: null,
+        schedulerAdmittedMs: null,
+        schedulerFirstTokenMs: null,
+        schedulerFinishedMs: null,
+        schedulerPhaseEvents: 0,
+        schedulerAdmittedBatchSize: null,
         firstPrefillProgressMs: null,
         lastPrefillProgressMs: null,
         prefillObservedMs: null,
@@ -142,6 +151,7 @@ const budget: ServeRegressionBudget = {
   expectedAdmissionBatches: 1,
   expectedStaticBatches: 0,
   expectedContinuousAdmissions: 0,
+  expectedContinuousSchedulerPhases: 0,
   expectedMaxGenerationBatchSize: 1,
   minModelLaneWaitEvents: 1,
   minModelLaneBusyWaitEvents: 1,
@@ -230,6 +240,9 @@ describe("serve regression matrix", () => {
       assertServeReportBudget("qwen", report(trial({ continuousAdmissions: 1 })), budget),
     ).toThrow("continuous_admissions");
     expect(() =>
+      assertServeReportBudget("qwen", report(trial({ continuousSchedulerPhases: 1 })), budget),
+    ).toThrow("continuous_scheduler_phases");
+    expect(() =>
       assertServeReportBudget("qwen", report(trial({ maxGenerationBatchSize: 2 })), budget),
     ).toThrow("max_generation_batch");
     expect(() =>
@@ -239,24 +252,10 @@ describe("serve regression matrix", () => {
           trial({
             serverRequests: [
               {
-                id: "request",
-                model: "local",
-                protocol: "openai.completions",
-                routeDecisionMs: 1,
+                ...baseServerRequest,
                 modelLaneWaitMs: null,
                 modelLaneQueuedAhead: null,
                 modelLaneInFlightAtQueue: null,
-                firstPrefillProgressMs: null,
-                lastPrefillProgressMs: null,
-                prefillObservedMs: null,
-                firstCompletionProgressMs: 100,
-                completeObservedMs: 1000,
-                durationMs: 1000,
-                maxSilentEventGapMs: 900,
-                prefillEvents: 0,
-                progressEvents: 2,
-                maxCompletionTokens: 128,
-                finishReason: "length",
               },
             ],
           }),

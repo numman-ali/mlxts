@@ -37,6 +37,7 @@ import type {
 export { GenerationAbortError } from "./infrastructure/generation/cancellation";
 export type {
   ContinuousBatchEvent,
+  ContinuousBatchSchedulerEvent,
   ContinuousBatchTokenRequest,
   ContinuousBatchTokenSchedulerOptions,
 } from "./infrastructure/generation/continuous-batch";

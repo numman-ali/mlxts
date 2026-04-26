@@ -122,6 +122,31 @@ function formatMemoryUsage(memory: GenerationMemoryUsage | undefined): string {
   return ` active=${formatBytes(memory.activeBytes)} cache=${formatBytes(memory.cacheBytes)} peak=${formatBytes(memory.peakBytes)}`;
 }
 
+function formatSchedulerCounts(
+  event: Extract<ServeEvent, { type: "generation_scheduler_phase" }>,
+): string {
+  return `waiting=${event.waiting} prefilling=${event.prefilling} active=${event.active}/${event.maxBatchSize}`;
+}
+
+function formatSchedulerPhase(
+  event: Extract<ServeEvent, { type: "generation_scheduler_phase" }>,
+): string {
+  switch (event.phase) {
+    case "queued":
+      return `[scheduler] ${event.mode} ${event.id} queued queued_ahead=${event.queuedAhead} prompt_tokens=${event.promptTokens} max_tokens=${event.maxTokens} ${formatSchedulerCounts(event)}`;
+    case "prefill_start":
+      return `[scheduler] ${event.mode} ${event.id} prefill_start queued=${formatDuration(event.queuedMs)} prompt_tokens=${event.promptTokens} max_tokens=${event.maxTokens} ${formatSchedulerCounts(event)}`;
+    case "admitted":
+      return `[scheduler] ${event.mode} admitted size=${event.batchSize} wait_ms=${event.queuedMsByRequest.map((ms) => ms.toFixed(1)).join(",")} max_tokens=${event.maxTokens} per_request=${event.maxTokensByRequest.join(",")} ids=${event.ids.join(",")} ${formatSchedulerCounts(event)}`;
+    case "first_token":
+      return `[scheduler] ${event.mode} ${event.id} first_token at=${formatDuration(event.schedulerMs)} queued=${formatDuration(event.queuedMs)} completion_tokens=${event.completionTokens} ${formatSchedulerCounts(event)}`;
+    case "finished":
+      return `[scheduler] ${event.mode} ${event.id} finished reason=${event.finishReason} elapsed=${formatDuration(event.schedulerMs)} completion_tokens=${event.completionTokens} ${formatSchedulerCounts(event)}`;
+    case "cancelled":
+      return `[scheduler] ${event.mode} ${event.id} cancelled elapsed=${formatDuration(event.schedulerMs)} completion_tokens=${event.completionTokens} ${formatSchedulerCounts(event)}`;
+  }
+}
+
 export function formatServeEvent(event: ServeEvent): string {
   switch (event.type) {
     case "request_start":
@@ -142,6 +167,8 @@ export function formatServeEvent(event: ServeEvent): string {
       return `[generation] ${event.id} prefill prompt_tokens=${event.promptTokens} prefill_tokens=${event.processedPrefillTokens}/${event.totalPrefillTokens} chunk_tokens=${event.chunkTokens}${formatMemoryUsage(event.memory)}`;
     case "generation_batch_start":
       return `[batch] ${event.mode} model=${event.model} size=${event.batchSize} max_tokens=${event.maxTokens} per_request=${event.maxTokensByRequest.join(",")} ids=${event.ids.join(",")} started`;
+    case "generation_scheduler_phase":
+      return formatSchedulerPhase(event);
     case "generation_admission_batch":
       return `[batch] ${event.mode} model=${event.model} size=${event.batchSize} engine=${event.engineMode} max_tokens=${event.maxTokens} per_request=${event.maxTokensByRequest.join(",")} ids=${event.ids.join(",")} admitted`;
     case "generation_complete":
@@ -159,6 +186,8 @@ export function shouldLogServeEvent(event: ServeEvent, verbose: boolean): boolea
     case "generation_progress":
     case "generation_prefill_progress":
     case "generation_batch_start":
+    case "generation_scheduler_phase":
+      return true;
     case "generation_admission_batch":
     case "generation_complete":
     case "generation_error":

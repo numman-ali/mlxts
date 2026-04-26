@@ -86,6 +86,89 @@ export type GenerationRouteDecisionReason =
   | "sampled_generation"
   | "repetition_penalty";
 
+type ContinuousSchedulerCounts = {
+  waiting: number;
+  prefilling: number;
+  active: number;
+  maxBatchSize: number;
+};
+
+type ContinuousSchedulerTiming = {
+  schedulerMs: number;
+};
+
+type ContinuousSchedulerRequestTiming = ContinuousSchedulerTiming & {
+  queuedMs: number;
+};
+
+type ContinuousSchedulerServeEvent =
+  | (ContinuousSchedulerCounts &
+      ContinuousSchedulerTiming & {
+        type: "generation_scheduler_phase";
+        mode: "continuous";
+        phase: "queued";
+        model: string;
+        id: string;
+        ids: readonly string[];
+        queuedAhead: number;
+        promptTokens: number;
+        maxTokens: number;
+      })
+  | (ContinuousSchedulerCounts &
+      ContinuousSchedulerRequestTiming & {
+        type: "generation_scheduler_phase";
+        mode: "continuous";
+        phase: "prefill_start";
+        model: string;
+        id: string;
+        ids: readonly string[];
+        promptTokens: number;
+        maxTokens: number;
+      })
+  | (ContinuousSchedulerCounts &
+      ContinuousSchedulerTiming & {
+        type: "generation_scheduler_phase";
+        mode: "continuous";
+        phase: "admitted";
+        model: string;
+        ids: readonly string[];
+        batchSize: number;
+        maxTokens: number;
+        maxTokensByRequest: readonly number[];
+        queuedMsByRequest: readonly number[];
+      })
+  | (ContinuousSchedulerCounts &
+      ContinuousSchedulerRequestTiming & {
+        type: "generation_scheduler_phase";
+        mode: "continuous";
+        phase: "first_token";
+        model: string;
+        id: string;
+        ids: readonly string[];
+        completionTokens: number;
+      })
+  | (ContinuousSchedulerCounts &
+      ContinuousSchedulerRequestTiming & {
+        type: "generation_scheduler_phase";
+        mode: "continuous";
+        phase: "finished";
+        model: string;
+        id: string;
+        ids: readonly string[];
+        completionTokens: number;
+        finishReason: Extract<NormalizedFinishReason, "length" | "eos">;
+      })
+  | (ContinuousSchedulerCounts &
+      ContinuousSchedulerRequestTiming & {
+        type: "generation_scheduler_phase";
+        mode: "continuous";
+        phase: "cancelled";
+        model: string;
+        id: string;
+        ids: readonly string[];
+        completionTokens: number;
+      });
+
 export type GenerationStreamEvent =
   | {
       type: "text";
@@ -183,6 +266,7 @@ export type ServeEvent =
       maxTokens: number;
       maxTokensByRequest: readonly number[];
     }
+  | ContinuousSchedulerServeEvent
   | {
       type: "generation_admission_batch";
       mode: "micro";

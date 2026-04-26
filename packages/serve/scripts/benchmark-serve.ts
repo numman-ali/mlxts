@@ -51,6 +51,13 @@ export type ServerRequestTimingReport = {
   modelLaneWaitMs: number | null;
   modelLaneQueuedAhead: number | null;
   modelLaneInFlightAtQueue: number | null;
+  schedulerQueuedMs: number | null;
+  schedulerPrefillStartMs: number | null;
+  schedulerAdmittedMs: number | null;
+  schedulerFirstTokenMs: number | null;
+  schedulerFinishedMs: number | null;
+  schedulerPhaseEvents: number;
+  schedulerAdmittedBatchSize: number | null;
   firstPrefillProgressMs: number | null;
   lastPrefillProgressMs: number | null;
   prefillObservedMs: number | null;
@@ -92,6 +99,8 @@ export type TrialMetrics = {
   staticBatchRows: number;
   continuousAdmissions: number;
   continuousAdmissionRows: number;
+  continuousSchedulerPhases: number;
+  maxContinuousBatchSize: number;
   maxGenerationBatchSize: number;
   streamChunks: number;
   streamBytes: number;
@@ -162,8 +171,11 @@ function maxPresent(values: ReadonlyArray<number | null>): number | null {
   return present.length === 0 ? null : Math.max(...present);
 }
 
-function eventRequestId(event: ServeEvent): string | undefined {
-  return "id" in event ? event.id : undefined;
+function eventRequestIds(event: ServeEvent): readonly string[] {
+  if ("ids" in event) {
+    return event.ids;
+  }
+  return "id" in event ? [event.id] : [];
 }
 
 function directoryExists(path: string): boolean {
@@ -231,6 +243,15 @@ function batchSizeEvents(
     .map((event) => event.batchSize);
 }
 
+function continuousSchedulerBatchSizeEvents(
+  events: readonly RecordedServeEvent[],
+  phase: "admitted",
+): number[] {
+  return events
+    .filter((event) => event.type === "generation_scheduler_phase" && event.phase === phase)
+    .map((event) => event.batchSize);
+}
+
 function admissionBatchSizes(events: readonly RecordedServeEvent[]): number[] {
   return events
     .filter((event) => event.type === "generation_admission_batch")
@@ -277,16 +298,14 @@ function groupEventsByRequestId(
 ): Map<string, RecordedServeEvent[]> {
   const groups = new Map<string, RecordedServeEvent[]>();
   for (const event of events) {
-    const id = eventRequestId(event);
-    if (id === undefined) {
-      continue;
+    for (const id of eventRequestIds(event)) {
+      const group = groups.get(id);
+      if (group === undefined) {
+        groups.set(id, [event]);
+        continue;
+      }
+      group.push(event);
     }
-    const group = groups.get(id);
-    if (group === undefined) {
-      groups.set(id, [event]);
-      continue;
-    }
-    group.push(event);
   }
   return groups;
 }
@@ -300,6 +319,19 @@ function maxCompletionTokens(events: readonly RecordedServeEvent[]): number {
   );
 }
 
+function schedulerAdmittedQueuedMs(
+  id: string,
+  event:
+    | Extract<RecordedServeEvent, { type: "generation_scheduler_phase"; phase: "admitted" }>
+    | undefined,
+): number | null {
+  if (event === undefined) {
+    return null;
+  }
+  const index = event.ids.indexOf(id);
+  return index < 0 ? null : (event.queuedMsByRequest[index] ?? null);
+}
+
 type RequestEventSlice = {
   sorted: RecordedServeEvent[];
   start: Extract<RecordedServeEvent, { type: "generation_start" }> | undefined;
@@ -307,6 +339,7 @@ type RequestEventSlice = {
   modelLaneWait: Extract<RecordedServeEvent, { type: "generation_model_lane_wait" }> | undefined;
   complete: Extract<RecordedServeEvent, { type: "generation_complete" }> | undefined;
   error: Extract<RecordedServeEvent, { type: "generation_error" }> | undefined;
+  schedulerEvents: Extract<RecordedServeEvent, { type: "generation_scheduler_phase" }>[];
   prefillEvents: Extract<RecordedServeEvent, { type: "generation_prefill_progress" }>[];
   progressEvents: Extract<RecordedServeEvent, { type: "generation_progress" }>[];
 };
@@ -320,6 +353,7 @@ function requestEventSlice(group: readonly RecordedServeEvent[]): RequestEventSl
     modelLaneWait: sorted.find((event) => event.type === "generation_model_lane_wait"),
     complete: sorted.find((event) => event.type === "generation_complete"),
     error: sorted.find((event) => event.type === "generation_error"),
+    schedulerEvents: sorted.filter((event) => event.type === "generation_scheduler_phase"),
     prefillEvents: sorted.filter((event) => event.type === "generation_prefill_progress"),
     progressEvents: sorted.filter((event) => event.type === "generation_progress"),
   };
@@ -366,6 +400,10 @@ function requestTimingReport(id: string, group: readonly RecordedServeEvent[]) {
   const firstPrefillMs = relativeMs(slice.prefillEvents[0], startedAt);
   const lastPrefillMs = relativeMs(slice.prefillEvents[slice.prefillEvents.length - 1], startedAt);
   const firstCompletion = slice.progressEvents.find((event) => event.completionTokens > 0);
+  const prefillStart = slice.schedulerEvents.find((event) => event.phase === "prefill_start");
+  const admitted = slice.schedulerEvents.find((event) => event.phase === "admitted");
+  const firstToken = slice.schedulerEvents.find((event) => event.phase === "first_token");
+  const finished = slice.schedulerEvents.find((event) => event.phase === "finished");
 
   return {
     id,
@@ -379,6 +417,14 @@ function requestTimingReport(id: string, group: readonly RecordedServeEvent[]) {
     modelLaneWaitMs: slice.modelLaneWait?.waitMs ?? null,
     modelLaneQueuedAhead: slice.modelLaneWait?.queuedAhead ?? null,
     modelLaneInFlightAtQueue: slice.modelLaneWait?.inFlightAtQueue ?? null,
+    schedulerQueuedMs:
+      schedulerAdmittedQueuedMs(id, admitted) ?? firstToken?.queuedMs ?? finished?.queuedMs ?? null,
+    schedulerPrefillStartMs: prefillStart?.schedulerMs ?? null,
+    schedulerAdmittedMs: admitted?.schedulerMs ?? null,
+    schedulerFirstTokenMs: firstToken?.schedulerMs ?? null,
+    schedulerFinishedMs: finished?.schedulerMs ?? null,
+    schedulerPhaseEvents: slice.schedulerEvents.length,
+    schedulerAdmittedBatchSize: admitted?.batchSize ?? null,
     firstPrefillProgressMs: firstPrefillMs,
     lastPrefillProgressMs: lastPrefillMs,
     prefillObservedMs: prefillObservedMs(firstPrefillMs, lastPrefillMs),
@@ -469,8 +515,8 @@ async function runTrial(
   const requestDurations = results.map((result) => result.durationMs);
   const admissionSizes = admissionBatchSizes(events);
   const staticBatchSizes = batchSizeEvents(events, "static");
-  const continuousAdmissionSizes = batchSizeEvents(events, "continuous");
-  const generationBatchSizes = batchSizeEvents(events);
+  const continuousAdmissionSizes = continuousSchedulerBatchSizeEvents(events, "admitted");
+  const generationBatchSizes = [...staticBatchSizes, ...continuousAdmissionSizes];
   const routeDecisions = routeDecisionReports(events);
   const serverRequests = serverRequestTimingReports(events);
 
@@ -499,8 +545,10 @@ async function runTrial(
     maxAdmissionBatchSize: Math.max(0, ...admissionSizes),
     staticBatches: countEvents(events, "generation_batch_start", "static"),
     staticBatchRows: sum(staticBatchSizes),
-    continuousAdmissions: countEvents(events, "generation_batch_start", "continuous"),
+    continuousAdmissions: continuousAdmissionSizes.length,
     continuousAdmissionRows: sum(continuousAdmissionSizes),
+    continuousSchedulerPhases: countEvents(events, "generation_scheduler_phase"),
+    maxContinuousBatchSize: Math.max(0, ...continuousAdmissionSizes),
     maxGenerationBatchSize: Math.max(0, ...generationBatchSizes),
     streamChunks,
     streamBytes,
@@ -540,6 +588,8 @@ function averageTrialMetrics(trials: readonly TrialMetrics[]): TrialMetrics {
     staticBatchRows: mean(trials.map((trial) => trial.staticBatchRows)),
     continuousAdmissions: mean(trials.map((trial) => trial.continuousAdmissions)),
     continuousAdmissionRows: mean(trials.map((trial) => trial.continuousAdmissionRows)),
+    continuousSchedulerPhases: mean(trials.map((trial) => trial.continuousSchedulerPhases)),
+    maxContinuousBatchSize: mean(trials.map((trial) => trial.maxContinuousBatchSize)),
     maxGenerationBatchSize: mean(trials.map((trial) => trial.maxGenerationBatchSize)),
     streamChunks: mean(trials.map((trial) => trial.streamChunks)),
     streamBytes: mean(trials.map((trial) => trial.streamBytes)),
@@ -592,6 +642,8 @@ function printMetrics(prefix: string, metrics: TrialMetrics): void {
       `static_batch_rows=${metrics.staticBatchRows.toFixed(0)}`,
       `continuous_admissions=${metrics.continuousAdmissions.toFixed(0)}`,
       `continuous_admission_rows=${metrics.continuousAdmissionRows.toFixed(0)}`,
+      `continuous_scheduler_phases=${metrics.continuousSchedulerPhases.toFixed(0)}`,
+      `max_continuous_batch=${metrics.maxContinuousBatchSize.toFixed(0)}`,
       `max_generation_batch=${metrics.maxGenerationBatchSize.toFixed(0)}`,
       `stream_chunks=${metrics.streamChunks.toFixed(0)}`,
       `stream_bytes=${metrics.streamBytes.toFixed(0)}`,

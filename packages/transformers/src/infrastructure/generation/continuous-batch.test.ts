@@ -80,12 +80,16 @@ describe("continuous batch token scheduler", () => {
   test("admits a row after decode has started", async () => {
     using model = new DeterministicBatchModel();
     const batches: number[] = [];
+    const phases: string[] = [];
     const scheduler = createContinuousBatchTokenScheduler(model, {
       maxBatchSize: 2,
       temperature: 0,
       eosTokenIds: [],
       onBatch(event) {
         batches.push(event.batchSize);
+      },
+      onSchedulerEvent(event) {
+        phases.push(event.type);
       },
     });
     let second: Promise<unknown> | undefined;
@@ -104,17 +108,25 @@ describe("continuous batch token scheduler", () => {
     await expect(first).resolves.toEqual({ tokenIds: [2, 2, 2], finishReason: "length" });
     await expect(second).resolves.toEqual({ tokenIds: [2, 2], finishReason: "length" });
     expect(batches).toContain(2);
+    expect(phases).toContain("queued");
+    expect(phases).toContain("admitted");
+    expect(phases).toContain("first_token");
+    expect(phases).toContain("finished");
     expect(model.forwardBatchSizes).toContain(2);
   });
 
   test("chunks a long waiting prompt while active rows keep decoding", async () => {
     using model = new DeterministicBatchModel();
     const prefillProgress: string[] = [];
+    const phases: string[] = [];
     const scheduler = createContinuousBatchTokenScheduler(model, {
       maxBatchSize: 2,
       prefillStepSize: 2,
       temperature: 0,
       eosTokenIds: [],
+      onSchedulerEvent(event) {
+        phases.push(event.type);
+      },
     });
     let second: Promise<unknown> | undefined;
 
@@ -142,6 +154,7 @@ describe("continuous batch token scheduler", () => {
     await expect(second).resolves.toEqual({ tokenIds: [2], finishReason: "length" });
 
     expect(prefillProgress).toEqual(["2/5:2", "4/5:2", "5/5:1"]);
+    expect(phases).toContain("prefill_start");
     const chunkForwards = model.forwardSequenceLengths
       .map((sequenceLength, index) => ({ sequenceLength, index }))
       .filter(({ sequenceLength }) => sequenceLength === 2);
@@ -283,10 +296,14 @@ describe("continuous batch token scheduler", () => {
     using model = new DeterministicBatchModel();
     const controller = new AbortController();
     let releaseLane: (() => void) | undefined;
+    const phases: string[] = [];
     const scheduler = createContinuousBatchTokenScheduler(model, {
       maxBatchSize: 1,
       temperature: 0,
       eosTokenIds: [],
+      onSchedulerEvent(event) {
+        phases.push(event.type);
+      },
       async runExclusive(work) {
         await new Promise<void>((resolve) => {
           releaseLane = resolve;
@@ -308,6 +325,7 @@ describe("continuous batch token scheduler", () => {
     releaseLane();
 
     await expect(queued).rejects.toBeInstanceOf(GenerationAbortError);
+    expect(phases).toContain("cancelled");
     expect(model.forwardBatchSizes).toEqual([]);
   });
 });

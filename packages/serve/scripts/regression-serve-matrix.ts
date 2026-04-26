@@ -30,6 +30,7 @@ export type ServeRegressionBudget = {
   expectedAdmissionBatches?: number;
   expectedStaticBatches?: number;
   expectedContinuousAdmissions?: number;
+  expectedContinuousSchedulerPhases?: number;
   expectedMaxGenerationBatchSize?: number;
   minModelLaneWaitEvents?: number;
   minModelLaneBusyWaitEvents?: number;
@@ -339,6 +340,16 @@ function batchCounterFailures(metrics: TrialMetrics, budget: ServeRegressionBudg
     );
   }
   if (
+    budget.expectedContinuousSchedulerPhases !== undefined &&
+    metrics.continuousSchedulerPhases !== budget.expectedContinuousSchedulerPhases
+  ) {
+    failures.push(
+      `continuous_scheduler_phases ${metrics.continuousSchedulerPhases.toFixed(0)} != ${budget.expectedContinuousSchedulerPhases.toFixed(
+        0,
+      )}`,
+    );
+  }
+  if (
     budget.expectedMaxGenerationBatchSize !== undefined &&
     metrics.maxGenerationBatchSize !== budget.expectedMaxGenerationBatchSize
   ) {
@@ -427,6 +438,7 @@ function baseSpecs(options: CliOptions): ServeRegressionSpec[] {
         minServerRequests: 1,
         expectedStaticBatches: 0,
         expectedContinuousAdmissions: 0,
+        expectedContinuousSchedulerPhases: 0,
         expectedMaxGenerationBatchSize: 0,
         minModelLaneWaitEvents: 1,
       },
@@ -450,6 +462,7 @@ function baseSpecs(options: CliOptions): ServeRegressionSpec[] {
         expectedAdmissionBatches: 0,
         expectedStaticBatches: 0,
         expectedContinuousAdmissions: 0,
+        expectedContinuousSchedulerPhases: 0,
         expectedMaxGenerationBatchSize: 0,
         minModelLaneWaitEvents: 2,
         minModelLaneBusyWaitEvents: 1,
@@ -476,6 +489,7 @@ function baseSpecs(options: CliOptions): ServeRegressionSpec[] {
         minServerRequests: 1,
         expectedStaticBatches: 0,
         expectedContinuousAdmissions: 0,
+        expectedContinuousSchedulerPhases: 0,
         expectedMaxGenerationBatchSize: 0,
         minModelLaneWaitEvents: 1,
       },
@@ -499,6 +513,7 @@ function baseSpecs(options: CliOptions): ServeRegressionSpec[] {
         expectedAdmissionBatches: 0,
         expectedStaticBatches: 0,
         expectedContinuousAdmissions: 0,
+        expectedContinuousSchedulerPhases: 0,
         expectedMaxGenerationBatchSize: 0,
         minModelLaneWaitEvents: 2,
         minModelLaneBusyWaitEvents: 1,
@@ -530,6 +545,7 @@ function capabilitySpecs(options: CliOptions): ServeRegressionSpec[] {
         minServerRequests: 1,
         expectedStaticBatches: 0,
         expectedContinuousAdmissions: 0,
+        expectedContinuousSchedulerPhases: 0,
         expectedMaxGenerationBatchSize: 0,
         minModelLaneWaitEvents: 1,
       },
@@ -555,6 +571,7 @@ function capabilitySpecs(options: CliOptions): ServeRegressionSpec[] {
         minServerRequests: 1,
         expectedStaticBatches: 0,
         expectedContinuousAdmissions: 0,
+        expectedContinuousSchedulerPhases: 0,
         expectedMaxGenerationBatchSize: 0,
         minModelLaneWaitEvents: 1,
       },

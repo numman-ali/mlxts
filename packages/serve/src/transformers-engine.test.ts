@@ -478,6 +478,117 @@ describe("transformers generation engine", () => {
     expect(model.batchForwardCount).toBeGreaterThan(0);
   });
 
+  test("emits scheduler phases for eligible continuous generation", async () => {
+    using model = batchEligibleModel();
+    const tokenizer = new TinyTokenizer();
+    const events: ServeEvent[] = [];
+    const engine = createTransformersGenerationEngine({
+      model,
+      tokenizer,
+      maxBatchSize: 2,
+      batchWindowMs: 1,
+      onEvent(event) {
+        events.push(event);
+      },
+    });
+    const generateBatch = engine.generateBatch;
+    if (generateBatch === undefined) {
+      throw new Error("Expected transformers engine to expose generateBatch.");
+    }
+
+    await generateBatch([textRequest("one"), textRequest("two")]);
+
+    expect(events).toContainEqual({
+      type: "generation_route_decision",
+      id: "one",
+      protocol: "openai.completions",
+      model: "tiny",
+      route: "continuous",
+      eligible: true,
+      reason: "eligible",
+      modelType: "llama",
+      maxBatchSize: 2,
+      stream: false,
+    });
+    expect(
+      events.some(
+        (event) => event.type === "generation_batch_start" && event.mode === "continuous",
+      ),
+    ).toBe(false);
+    expect(
+      events.some(
+        (event) =>
+          event.type === "generation_scheduler_phase" &&
+          event.phase === "admitted" &&
+          event.batchSize === 2,
+      ),
+    ).toBe(true);
+    expect(
+      events.some(
+        (event) => event.type === "generation_scheduler_phase" && event.phase === "first_token",
+      ),
+    ).toBe(true);
+    expect(model.batchForwardCount).toBeGreaterThan(0);
+  });
+
+  test("emits scheduler prefill phases for waiting continuous rows", async () => {
+    using model = batchEligibleModel();
+    const tokenizer = new TinyTokenizer();
+    const events: ServeEvent[] = [];
+    const engine = createTransformersGenerationEngine({
+      model,
+      tokenizer,
+      maxBatchSize: 2,
+      onEvent(event) {
+        events.push(event);
+      },
+    });
+
+    const first = engine.generate(textRequest("first", { maxTokens: 8, temperature: 0 }));
+    await Bun.sleep(0);
+    const second = engine.generate({
+      ...textRequest("second", { maxTokens: 1, temperature: 0 }),
+      input: { kind: "text", text: "longer" },
+    });
+
+    await Promise.all([first, second]);
+
+    expect(
+      events.some(
+        (event) => event.type === "generation_scheduler_phase" && event.phase === "prefill_start",
+      ),
+    ).toBe(true);
+  });
+
+  test("emits scheduler cancellation phases for aborted continuous rows", async () => {
+    using model = batchEligibleModel();
+    const tokenizer = new TinyTokenizer();
+    const controller = new AbortController();
+    const events: ServeEvent[] = [];
+    const engine = createTransformersGenerationEngine({
+      model,
+      tokenizer,
+      maxBatchSize: 2,
+      batchWindowMs: 10,
+      onEvent(event) {
+        events.push(event);
+      },
+    });
+
+    const aborted = engine.generate({
+      ...textRequest("aborted", { maxTokens: 1, temperature: 0 }),
+      abortSignal: controller.signal,
+    });
+    controller.abort();
+
+    await expect(aborted).rejects.toThrow("cancelled");
+    expect(
+      events.some(
+        (event) => event.type === "generation_scheduler_phase" && event.phase === "cancelled",
+      ),
+    ).toBe(true);
+  });
+
   test("reports Qwen and Gemma cache variants as single-route fallbacks", async () => {
     using qwenModel = new TinyModel({ family: "qwen", modelType: "qwen3_5_text" });
     using gemmaSlidingModel = new TinyModel({
@@ -513,6 +624,8 @@ describe("transformers generation engine", () => {
 
     expect(qwenModel.batchForwardCount).toBe(0);
     expect(gemmaSlidingModel.batchForwardCount).toBe(0);
+    expect(qwenEvents.some((event) => event.type === "generation_scheduler_phase")).toBe(false);
+    expect(gemmaEvents.some((event) => event.type === "generation_scheduler_phase")).toBe(false);
     expect(qwenEvents).toContainEqual({
       type: "generation_route_decision",
       id: "qwen-one",

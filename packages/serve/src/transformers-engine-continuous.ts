@@ -4,6 +4,7 @@
  */
 
 import {
+  type ContinuousBatchSchedulerEvent,
   type ContinuousBatchTokenSchedulerOptions,
   createContinuousBatchTokenScheduler,
 } from "@mlxts/transformers";
@@ -69,22 +70,135 @@ function schedulerOptions(
     maxBatchSize: maxBatchSize(options),
     batchWindowMs: options.batchWindowMs ?? 0,
     runExclusive: (work) => lane.run(work),
-    onBatch(event) {
-      const firstId = event.ids[0];
+    onSchedulerEvent(event) {
+      emitContinuousSchedulerPhase(options, prepared.request.model, modelsByRequestId, event);
+    },
+  };
+}
+
+function schedulerEventModel(
+  fallbackModel: string,
+  modelsByRequestId: Map<string, string>,
+  event: ContinuousBatchSchedulerEvent,
+): string {
+  const id = "id" in event ? event.id : event.ids[0];
+  return id === undefined ? fallbackModel : (modelsByRequestId.get(id) ?? fallbackModel);
+}
+
+function emitContinuousSchedulerPhase(
+  options: TransformersGenerationEngineOptions,
+  fallbackModel: string,
+  modelsByRequestId: Map<string, string>,
+  event: ContinuousBatchSchedulerEvent,
+): void {
+  const model = schedulerEventModel(fallbackModel, modelsByRequestId, event);
+  switch (event.type) {
+    case "queued":
       options.onEvent?.({
-        type: "generation_batch_start",
+        type: "generation_scheduler_phase",
         mode: "continuous",
-        model:
-          firstId === undefined
-            ? prepared.request.model
-            : (modelsByRequestId.get(firstId) ?? prepared.request.model),
+        phase: event.type,
+        model,
+        id: event.id,
+        ids: [event.id],
+        queuedAhead: event.queuedAhead,
+        promptTokens: event.promptTokens,
+        maxTokens: event.maxTokens,
+        schedulerMs: event.schedulerMs,
+        waiting: event.waiting,
+        prefilling: event.prefilling,
+        active: event.active,
+        maxBatchSize: event.maxBatchSize,
+      });
+      return;
+    case "prefill_start":
+      options.onEvent?.({
+        type: "generation_scheduler_phase",
+        mode: "continuous",
+        phase: event.type,
+        model,
+        id: event.id,
+        ids: [event.id],
+        promptTokens: event.promptTokens,
+        maxTokens: event.maxTokens,
+        queuedMs: event.queuedMs,
+        schedulerMs: event.schedulerMs,
+        waiting: event.waiting,
+        prefilling: event.prefilling,
+        active: event.active,
+        maxBatchSize: event.maxBatchSize,
+      });
+      return;
+    case "admitted":
+      options.onEvent?.({
+        type: "generation_scheduler_phase",
+        mode: "continuous",
+        phase: event.type,
+        model,
         ids: event.ids,
         batchSize: event.batchSize,
         maxTokens: event.maxTokens,
         maxTokensByRequest: event.maxTokensByRequest,
+        queuedMsByRequest: event.queuedMsByRequest,
+        schedulerMs: event.schedulerMs,
+        waiting: event.waiting,
+        prefilling: event.prefilling,
+        active: event.active,
+        maxBatchSize: event.maxBatchSize,
       });
-    },
-  };
+      return;
+    case "first_token":
+      options.onEvent?.({
+        type: "generation_scheduler_phase",
+        mode: "continuous",
+        phase: event.type,
+        model,
+        id: event.id,
+        ids: [event.id],
+        completionTokens: event.completionTokens,
+        queuedMs: event.queuedMs,
+        schedulerMs: event.schedulerMs,
+        waiting: event.waiting,
+        prefilling: event.prefilling,
+        active: event.active,
+        maxBatchSize: event.maxBatchSize,
+      });
+      return;
+    case "finished":
+      options.onEvent?.({
+        type: "generation_scheduler_phase",
+        mode: "continuous",
+        phase: event.type,
+        model,
+        id: event.id,
+        ids: [event.id],
+        completionTokens: event.completionTokens,
+        finishReason: event.finishReason,
+        queuedMs: event.queuedMs,
+        schedulerMs: event.schedulerMs,
+        waiting: event.waiting,
+        prefilling: event.prefilling,
+        active: event.active,
+        maxBatchSize: event.maxBatchSize,
+      });
+      return;
+    case "cancelled":
+      options.onEvent?.({
+        type: "generation_scheduler_phase",
+        mode: "continuous",
+        phase: event.type,
+        model,
+        id: event.id,
+        ids: [event.id],
+        completionTokens: event.completionTokens,
+        queuedMs: event.queuedMs,
+        schedulerMs: event.schedulerMs,
+        waiting: event.waiting,
+        prefilling: event.prefilling,
+        active: event.active,
+        maxBatchSize: event.maxBatchSize,
+      });
+  }
 }
 
 function schedulerKey(prepared: PreparedGenerationRequest): string {

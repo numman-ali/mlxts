@@ -358,8 +358,9 @@ local process checks.
 `createTransformersGenerationEngine()` now owns the first real continuous
 batching path for loaded-model serving: non-streaming greedy requests against
 full-cache LLaMA-like models can join an active decode loop between token steps.
-It emits `generation_batch_start` events with `mode: "continuous"` so benchmark
-output can separate this from admission coalescing and static batch calls.
+It emits `generation_scheduler_phase` events with `mode: "continuous"` so
+benchmark output can separate scheduler queue, prefill, admission, first-token,
+and finish phases from admission coalescing and static batch calls.
 
 The continuous path is intentionally narrow. Qwen hybrid caches, Gemma
 sliding/global caches, streaming, sampled generation, prefix cache, paged cache,

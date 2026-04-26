@@ -10,14 +10,10 @@ import {
   withDefaultStream,
 } from "@mlxts/core";
 
-import type {
-  BatchGenerationOptions,
-  CausalLM,
-  GenerationResult,
-  PrefillProgressEvent,
-} from "../../types";
+import type { CausalLM, GenerationResult, PrefillProgressEvent } from "../../types";
 import { BatchKVCache } from "../cache";
 import { GenerationAbortError, throwIfGenerationAborted } from "./cancellation";
+import type { ContinuousBatchQueueSnapshot } from "./continuous-batch-events";
 import {
   combineCurrentTokens,
   integerAtLeast,
@@ -31,46 +27,32 @@ import {
   validateContinuousBatchOptions,
   yieldToScheduler,
 } from "./continuous-batch-helpers";
+import { ContinuousBatchTelemetry } from "./continuous-batch-telemetry";
+import type {
+  ContinuousBatchTokenRequest,
+  ContinuousBatchTokenSchedulerOptions,
+  RunExclusive,
+} from "./continuous-batch-types";
 import { resolveGenerationOptions } from "./defaults";
 import { validatePrefillStepSize } from "./helpers";
 import { finishIfEos } from "./runtime";
 
-type RunExclusive = <T>(work: () => Promise<T>) => Promise<T>;
-export type ContinuousBatchTokenSchedulerOptions = Omit<
-  BatchGenerationOptions,
-  "maxTokens" | "abortSignal"
-> & {
-  /** Maximum active rows admitted into one decode step. */
-  maxBatchSize?: number;
-  /** Delay before starting a fresh scheduler loop so nearby requests can join. */
-  batchWindowMs?: number;
-  /** Optional model-lane guard shared with fallback generation. */
-  runExclusive?: RunExclusive;
-  /** Emitted whenever the scheduler admits rows into the active decode batch. */
-  onBatch?: (event: ContinuousBatchEvent) => void;
-};
-
-export type ContinuousBatchTokenRequest = {
-  id?: string;
-  promptTokenIds: readonly number[];
-  maxTokens: number;
-  abortSignal?: AbortSignal;
-  onPrefillProgress?: (event: PrefillProgressEvent) => void;
-  onToken?: (tokenId: number, generatedTokenIds: readonly number[]) => void;
-};
-
-export type ContinuousBatchEvent = {
-  ids: readonly string[];
-  batchSize: number;
-  maxTokens: number;
-  maxTokensByRequest: readonly number[];
-};
+export type {
+  ContinuousBatchEvent,
+  ContinuousBatchSchedulerEvent,
+} from "./continuous-batch-events";
+export type {
+  ContinuousBatchTokenRequest,
+  ContinuousBatchTokenSchedulerOptions,
+} from "./continuous-batch-types";
 
 type ScheduledRequest = {
   id: string;
   promptTokenIds: readonly number[];
   maxTokens: number;
+  enqueuedAtMs: number;
   generated: number[];
+  firstTokenEmitted: boolean;
   finishReason: GenerationResult["finishReason"];
   abortSignal?: AbortSignal;
   onAbort?: () => void;
@@ -94,7 +76,7 @@ export class ContinuousBatchTokenScheduler {
   readonly #maxBatchSize: number;
   readonly #batchWindowMs: number;
   readonly #runExclusive: RunExclusive;
-  readonly #onBatch: ((event: ContinuousBatchEvent) => void) | undefined;
+  readonly #telemetry: ContinuousBatchTelemetry;
   readonly #eosTokenIds: ReadonlySet<number>;
   readonly #padTokenId: number;
   readonly #prefillStepSize: number;
@@ -117,7 +99,7 @@ export class ContinuousBatchTokenScheduler {
     this.#maxBatchSize = integerAtLeast(options.maxBatchSize ?? 8, "maxBatchSize", 1);
     this.#batchWindowMs = integerAtLeast(options.batchWindowMs ?? 0, "batchWindowMs", 0);
     this.#runExclusive = options.runExclusive ?? defaultRunExclusive;
-    this.#onBatch = options.onBatch;
+    this.#telemetry = new ContinuousBatchTelemetry(options.onBatch, options.onSchedulerEvent);
     this.#eosTokenIds = new Set(resolved.eosTokenIds ?? []);
     this.#padTokenId = options.padTokenId ?? 0;
     this.#prefillStepSize = options.prefillStepSize ?? 2048;
@@ -145,7 +127,9 @@ export class ContinuousBatchTokenScheduler {
         id: request.id ?? `continuous-${this.#nextId}`,
         promptTokenIds: request.promptTokenIds,
         maxTokens: request.maxTokens,
+        enqueuedAtMs: performance.now(),
         generated: [],
+        firstTokenEmitted: false,
         finishReason: "length",
         ...(request.abortSignal === undefined ? {} : { abortSignal: request.abortSignal }),
         ...(request.onPrefillProgress === undefined
@@ -157,7 +141,9 @@ export class ContinuousBatchTokenScheduler {
       };
       this.#nextId += 1;
       this.#attachAbort(entry);
+      const queuedAhead = this.#waiting.length;
       this.#waiting.push(entry);
+      this.#telemetry.queued(entry, queuedAhead, this.#snapshot());
       this.#schedule();
     });
   }
@@ -170,6 +156,7 @@ export class ContinuousBatchTokenScheduler {
       const index = this.#waiting.indexOf(entry);
       if (index >= 0) {
         this.#waiting.splice(index, 1);
+        this.#telemetry.cancelled(entry, this.#snapshot());
         this.#cleanup(entry);
         entry.reject(
           new GenerationAbortError("ContinuousBatchTokenScheduler: generation was cancelled."),
@@ -179,6 +166,7 @@ export class ContinuousBatchTokenScheduler {
       if (prefillIndex >= 0) {
         const [prefilling] = this.#prefilling.splice(prefillIndex, 1);
         prefilling?.cache[Symbol.dispose]();
+        this.#telemetry.cancelled(entry, this.#snapshot());
         this.#cleanup(entry);
         entry.reject(
           new GenerationAbortError("ContinuousBatchTokenScheduler: generation was cancelled."),
@@ -264,6 +252,7 @@ export class ContinuousBatchTokenScheduler {
       }
       if (request.abortSignal?.aborted) {
         this.#cleanup(request);
+        this.#telemetry.cancelled(request, this.#snapshot());
         request.reject(
           new GenerationAbortError("ContinuousBatchTokenScheduler: generation was cancelled."),
         );
@@ -333,7 +322,7 @@ export class ContinuousBatchTokenScheduler {
       nextToken.free();
     }
 
-    this.#emitBatch();
+    this.#telemetry.admitted(this.#active, this.#snapshot());
   }
 
   #startPrefillingRow(): void {
@@ -346,6 +335,7 @@ export class ContinuousBatchTokenScheduler {
       cache: new BatchKVCache(this.#model.layerCount, [0]),
       cursor: 0,
     });
+    this.#telemetry.prefillStart(request, this.#snapshot());
   }
 
   #advancePrefillingRow(): void {
@@ -400,20 +390,7 @@ export class ContinuousBatchTokenScheduler {
     }
 
     this.#active.push(request);
-    this.#emitBatch();
-  }
-
-  #emitBatch(): void {
-    if (this.#active.length === 0) {
-      return;
-    }
-    const maxTokensByRequest = this.#active.map((request) => request.maxTokens);
-    this.#onBatch?.({
-      ids: this.#active.map((request) => request.id),
-      batchSize: this.#active.length,
-      maxTokens: Math.max(...maxTokensByRequest),
-      maxTokensByRequest,
-    });
+    this.#telemetry.admitted(this.#active, this.#snapshot());
   }
 
   #decodeOneStep(): void {
@@ -436,6 +413,10 @@ export class ContinuousBatchTokenScheduler {
 
       request.generated.push(tokenId);
       request.onToken?.(tokenId, request.generated);
+      if (!request.firstTokenEmitted) {
+        request.firstTokenEmitted = true;
+        this.#telemetry.firstToken(request, this.#snapshot());
+      }
       const eosFinishReason = finishIfEos(this.#eosTokenIds, tokenId);
       if (eosFinishReason !== null) {
         request.finishReason = eosFinishReason;
@@ -471,10 +452,20 @@ export class ContinuousBatchTokenScheduler {
 
   #finishRequest(request: ScheduledRequest): void {
     this.#cleanup(request);
+    this.#telemetry.finished(request, this.#snapshot());
     request.resolve({
       tokenIds: [...request.generated],
       finishReason: request.finishReason,
     });
+  }
+
+  #snapshot(): ContinuousBatchQueueSnapshot {
+    return {
+      waiting: this.#waiting.length,
+      prefilling: this.#prefilling.length,
+      active: this.#active.length,
+      maxBatchSize: this.#maxBatchSize,
+    };
   }
 
   #failAll(error: unknown): void {
