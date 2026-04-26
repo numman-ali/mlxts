@@ -23,6 +23,7 @@ This file is the roadmap. Detailed designs live in separate docs:
 | [docs/python-equivalence-map.md](./docs/python-equivalence-map.md) | Python ML ecosystem → mlxts mapping |
 | [docs/gates-and-milestones.md](./docs/gates-and-milestones.md) | Exit criteria for every phase |
 | [docs/inference-optimizations.md](./docs/inference-optimizations.md) | Inference optimization catalog — techniques, papers, reference implementations |
+| [docs/serving-runtime-strategy.md](./docs/serving-runtime-strategy.md) | Serving/runtime strategy boundaries and future backend flag posture |
 | [docs/architecture.md](./docs/architecture.md) | System architecture and layer responsibilities |
 | [docs/code-standards.md](./docs/code-standards.md) | Code quality, naming, structure, testing standards |
 | [docs/agentic-loop.md](./docs/agentic-loop.md) | Multi-agent engineering workflow |

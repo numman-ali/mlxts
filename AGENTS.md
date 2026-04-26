@@ -116,6 +116,7 @@ The `.reference/` folder contains local clones of upstream repositories for rese
 | [docs/code-standards.md](./docs/code-standards.md)     | Code quality, naming, structure, testing standards                                 |
 | [docs/runtime-safety.md](./docs/runtime-safety.md)     | Runtime ownership, telemetry, and soak expectations                                |
 | [docs/product-surfaces.md](./docs/product-surfaces.md) | API, CLI, TUI, GUI design guidelines                                               |
+| [docs/serving-runtime-strategy.md](./docs/serving-runtime-strategy.md) | Strategy boundaries for serving, runtime backends, and future operator flags |
 | [docs/setup.md](./docs/setup.md)                       | Development environment setup and build instructions                               |
 
 

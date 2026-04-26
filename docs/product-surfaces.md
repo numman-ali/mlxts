@@ -14,11 +14,14 @@ This document defines the standards for each surface. All agents must consider t
 │                     TUI (future)                     │
 │       Interactive terminal, live training view       │
 ├─────────────────────────────────────────────────────┤
-│                     CLI (Phase 4-5)                  │
-│        train, generate, inspect, benchmark           │
+│            CLI / Serve / Agent (Phase 4-9)           │
+│   train, generate, serve, inspect, benchmark, agent   │
 ├─────────────────────────────────────────────────────┤
-│                     API (Phase 1-3)                  │
-│  @mlxts/core, @mlxts/nn, @mlxts/optimizers, examples │
+│              Examples / Workbooks (ongoing)          │
+│       real tasks, proof flows, thin package usage     │
+├─────────────────────────────────────────────────────┤
+│                     API (Phase 1+)                   │
+│         canonical @mlxts/* package surfaces          │
 └─────────────────────────────────────────────────────┘
 ```
 
@@ -162,6 +165,119 @@ The engineering implication is just as important as the operator experience: thi
 This operator flow lives in `examples/nanogpt` because nanoGPT is now an
 intentional example surface rather than a publishable package. The behavior is
 canonical; the reusable abstractions should still live in `@mlxts/*`.
+
+---
+
+## Serving Surface — The Local Model Endpoint
+
+**Users**: Developers running local models from OpenAI-compatible tools, agents,
+scripts, and product prototypes.
+
+**When**: Phase 9 onward. Built on `@mlxts/transformers`, tokenizers, runtime
+controls, and the shared protocol-neutral generation request shape.
+
+### Principles
+
+**First-class package, not an example.** Loading and serving models belongs in
+`@mlxts/serve`. Examples can demonstrate usage, but they do not own the product
+contract.
+
+**Protocol adapters stay thin.** OpenAI completions, chat completions,
+Responses, and future Anthropic Messages normalize into one internal request
+model. They do not normalize into each other and they do not carry model-family
+prompt logic.
+
+**Model-native by default.** If a request omits sampling parameters, serving
+preserves that omission so checkpoint `generation_config.json` can apply. Safety
+or determinism modes must be explicit.
+
+**Truthful concurrency.** Admission coalescing, static batch decode, and
+continuous token-level batching are different claims. Logs, benchmarks, and
+operator docs must name the exact layer being exercised.
+
+**Operationally visible.** Serving must report model ids, request limits,
+memory/admission metadata, generation start/completion/error events, streaming
+lifecycle, and enough benchmark counters to debug multi-agent use.
+
+### Standards
+
+- `mlxts-serve <model>` starts a useful local endpoint with minimal flags
+- `/health`, `/info`, `/v1/models`, and supported protocol routes are explicit
+- protocol gaps reject clearly instead of accepting unsupported semantics
+- request limits separate prompt tokens, generated tokens, total tokens, and
+  memory-utilization preflight
+- generated reasoning is surfaced as reasoning metadata, not leaked into visible
+  assistant text
+- benchmark claims use `bench:serve` for endpoint behavior and paired
+  generation parity only for model-runtime comparison
+
+---
+
+## Agent Surface — The Local Tool Loop
+
+**Users**: Developers who want to talk to a local model like an assistant and
+inspect how tools, reasoning, and observations work.
+
+**When**: Phase 9 onward. Built on `@mlxts/serve` chat routes and package-owned
+tool-loop primitives.
+
+### Principles
+
+**The agent owns the loop.** Conversation state, tool schemas, tool-call
+parsing, tool execution, observations, max-iteration behavior, and CLI
+presentation belong in `@mlxts/agent`.
+
+**Serving owns the endpoint.** `@mlxts/serve` executes model requests and formats
+wire protocols. It does not execute tools.
+
+**Inspectable by default.** Reasoning, assistant text, tool calls, tool results,
+and stop notices should be visually distinct without feeling like raw HTTP logs.
+
+**Safe before powerful.** Read-only file tools are the first slice. Shell tools,
+write/edit tools, MCP, approvals, and sandbox policy are separate explicit
+layers.
+
+### Standards
+
+- streaming is the default interactive path when the served endpoint supports it
+- `--greedy` / `--deterministic` are explicit safety modes, not hidden defaults
+- Qwen-style thinking and native tool-call syntax are handled deliberately
+- a real interactive smoke covers multiple turns, reasoning display, tool use,
+  and a final answer after observation
+
+---
+
+## Examples / Workbooks — The Learning and Proof Surface
+
+**Users**: Developers learning the package stack, researchers reproducing a
+flow, agents using the repo as a task workbook, and maintainers proving that a
+surface works end to end.
+
+**When**: Ongoing. Examples exist when they teach or validate a real workflow.
+
+### Principles
+
+**Thin over packages.** If reusable behavior appears in multiple examples, move
+it into a canonical package instead of growing an example-local framework.
+
+**Real-world over toy demos.** Examples should feel like ML workbooks: clear
+setup, meaningful data/model choices, observable results, and honest limits.
+
+**Proof labels matter.** Experimental proof assets can stay in the repo when
+they teach something real, but they must not silently become product claims.
+
+**Agent-readable.** A coding agent should be able to open an example, understand
+the intended flow, run the narrow validation, and improve the reusable package
+surface underneath it.
+
+### Standards
+
+- examples document commands from their own directory when the workflow is
+  example-owned
+- reusable package APIs are preferred over root scripts or loose helper layers
+- examples include validation or review notes when they are used for proof
+- no example is allowed to become the hidden product surface for serving,
+  training, or agent behavior
 
 ---
 

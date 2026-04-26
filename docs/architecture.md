@@ -8,7 +8,7 @@
 │                                                         │
 │  ┌───────────────────────────────────────────────────┐  │
 │  │      Canonical @mlxts/* package surfaces          │  │
-│  │      train, data, tokenizers                      │  │
+│  │      train, transformers, serve, agent, align     │  │
 │  └────────────────────────┬──────────────────────────┘  │
 │                           │ uses                        │
 │  ┌────────────────────────┴──────────────────────────┐  │
@@ -211,6 +211,7 @@ running under different execution strategies.
 
 For now, runtime strategy selection stays private to `@mlxts/transformers`
 until there is a validated winner worth carrying as public surface. See
+[docs/serving-runtime-strategy.md](./serving-runtime-strategy.md),
 [docs/proposals/2026-04-06-runtime-execution-architecture.md](./proposals/2026-04-06-runtime-execution-architecture.md)
 and
 [docs/proposals/2026-04-08-readable-runtime-restructure.md](./proposals/2026-04-08-readable-runtime-restructure.md)

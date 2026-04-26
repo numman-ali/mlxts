@@ -16,6 +16,8 @@ The repo is package-first now. The canonical product surface is the extracted
 - `@mlxts/lora`
 - `@mlxts/align`
 - `@mlxts/quantize`
+- `@mlxts/serve`
+- `@mlxts/agent`
 
 `examples/nanogpt` is the committed in-repo nanoGPT example and regression
 surface. It proves the package stack works end to end, but it is an example,
@@ -33,6 +35,9 @@ The priorities are:
 - readable APIs and readable code
 - explicit ownership and runtime safety
 - package surfaces that can grow into a real ecosystem
+- first-class local serving and agent loops, not example-only demos
+- examples that act like ML workbooks: real flows, real evidence, thin over
+  reusable packages
 
 ## Repo shape
 
@@ -44,9 +49,19 @@ packages/
   train/        Schedules, gradient utilities, checkpoints, loop helpers
   data/         Text loading and batching
   tokenizers/   Tokenizer implementations
+  transformers/ Hugging Face checkpoint loading, model families, generation
+  quantize/     Quantization primitives and checkpoint conversion support
+  lora/         Adapter layers, injection, merge helpers
+  align/        SFT/DPO data prep and recipe helpers
+  serve/        Local OpenAI-compatible serving and scheduling surfaces
+  agent/        Local tool-using agent loops over served models
 examples/
   nanogpt/      Committed nanoGPT example and regression surface
+  chat/         Interactive local chat over transformer checkpoints
+  lora-finetune/ Fine-tuning workbook over @mlxts/lora and @mlxts/align
+  train-proof/  Training/alignment proof workflow
   qwen3_5-image/ Dedicated Qwen 3.5 / Qwen 3.6 multimodal image example
+  serve-completions/ Serving concurrency/protocol example
 docs/           Architecture, setup, standards, roadmap
 scripts/        Validation, packaging, and repo tooling
 ```
@@ -88,6 +103,14 @@ bun run examples/qwen3_5-image/index.ts mlx-community/Qwen3.6-27B-4bit \
   --greedy
 ```
 
+If you want to serve a local model and talk to it through the package-owned
+agent loop:
+
+```bash
+mlxts-serve mlx-community/Qwen3.6-27B-4bit --model-id qwen-local --port 8000
+mlxts-agent --model qwen-local --endpoint http://127.0.0.1:8000 --cwd .
+```
+
 ## Package examples
 
 ```ts
@@ -127,7 +150,11 @@ packing checks for the public packages before any real release happens.
 - a broader dedicated examples repo beyond the committed in-repo examples
 - real npm publishing
 - hosted API docs
-- serving and deployment ergonomics beyond the current local/runtime surfaces
+- production deployment ergonomics beyond the current local serving/runtime
+  surfaces
 - diffusion and broader generative-media families beyond the first multimodal transformer tranche
+- advanced serving backends such as paged KV, TurboQuant-style KV compression,
+  speculative decoding, and full multimodal serving until the cache/scheduler
+  seams are proven
 
 Those come later in the roadmap once the current package ergonomics are fully settled.
