@@ -14,9 +14,9 @@ import { ModelExecutionLane, type ModelExecutionLaneStats } from "./model-execut
 import { createContinuousTransformersGeneration } from "./transformers-engine-continuous";
 import {
   generateSinglePreparedRequest,
-  generateTransformersBatch,
   prepareGenerationRequest,
 } from "./transformers-engine-generation";
+import { continuousBatchIneligibilityReason } from "./transformers-engine-routing";
 import {
   compileMessagePrompt,
   createPrefillProgressReporter,
@@ -28,6 +28,10 @@ import {
   promptTokenCount,
   promptTokenIds,
 } from "./transformers-engine-shared";
+import {
+  createStaticTransformersGeneration,
+  runStaticBatchOnModelLane,
+} from "./transformers-engine-static";
 import {
   createStreamingDecodeState,
   handleStreamingDoneEvent,
@@ -108,6 +112,10 @@ async function runOnModelLane<T>(
   }
 }
 
+function maxBatchSize(options: TransformersGenerationEngineOptions): number {
+  return options.maxBatchSize ?? 1;
+}
+
 function streamTokenEventsForRequest(
   request: NormalizedGenerationRequest,
   options: TransformersGenerationEngineOptions,
@@ -139,11 +147,16 @@ export function createTransformersGenerationEngine(
   options: TransformersGenerationEngineOptions,
 ): GenerationEngine {
   const lane = new ModelExecutionLane(options.maxConcurrentRequests ?? 1);
+  const staticGeneration = createStaticTransformersGeneration(options, lane);
   const continuous = createContinuousTransformersGeneration(options, lane);
 
   function generate(
     request: NormalizedGenerationRequest,
   ): NormalizedGenerationResult | Promise<NormalizedGenerationResult> {
+    const staticallyBatched = staticGeneration.generate(request);
+    if (staticallyBatched !== null) {
+      return staticallyBatched;
+    }
     const scheduled = continuous.generate(request);
     if (scheduled !== null) {
       return scheduled;
@@ -157,10 +170,15 @@ export function createTransformersGenerationEngine(
   return {
     generate,
     generateBatch(requests) {
-      if ((options.maxBatchSize ?? 1) > 1) {
+      if (
+        maxBatchSize(options) > 1 &&
+        requests.every(
+          (request) => continuousBatchIneligibilityReason(request, options) === "eligible",
+        )
+      ) {
         return Promise.all(requests.map((request) => generate(request)));
       }
-      return generateTransformersBatch(requests, options);
+      return runStaticBatchOnModelLane(lane, options, requests);
     },
     async *stream(request) {
       const scheduled = continuous.stream(request);

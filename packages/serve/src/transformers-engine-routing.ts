@@ -11,11 +11,12 @@ import type {
   NormalizedGenerationRequest,
 } from "./types";
 
-const STATIC_BATCH_MODEL_TYPES = new Set(["gemma", "llama", "mistral", "mistral3", "phi3"]);
-
-type BatchRouteOptions = {
-  allowStreaming?: boolean;
-};
+const CONTINUOUS_BATCH_MODEL_TYPES = new Set(["gemma", "llama", "mistral", "mistral3", "phi3"]);
+const GEMMA_LAYER_PATTERN_BATCH_MODEL_TYPES = new Set(["gemma3_text", "gemma4_text", "gemma4"]);
+const STATIC_BATCH_MODEL_TYPES = new Set([
+  ...CONTINUOUS_BATCH_MODEL_TYPES,
+  ...GEMMA_LAYER_PATTERN_BATCH_MODEL_TYPES,
+]);
 
 function configHasSlidingWindow(model: CausalLM): boolean {
   const config = model.config;
@@ -39,15 +40,33 @@ function effectiveRepetitionPenalty(options: TransformersGenerationEngineOptions
   return options.model.config.generationDefaults?.repetitionPenalty ?? 1.0;
 }
 
+function hasGemmaLayerPatternBatchCache(model: CausalLM): boolean {
+  if (!GEMMA_LAYER_PATTERN_BATCH_MODEL_TYPES.has(model.config.modelType)) {
+    return false;
+  }
+
+  const layerTypes: unknown = Reflect.get(model.config, "layerTypes");
+  const slidingWindow: unknown = Reflect.get(model.config, "slidingWindow");
+  return (
+    Array.isArray(layerTypes) &&
+    layerTypes.length === model.layerCount &&
+    layerTypes.every(
+      (layerType) => layerType === "full_attention" || layerType === "sliding_attention",
+    ) &&
+    typeof slidingWindow === "number" &&
+    Number.isInteger(slidingWindow) &&
+    slidingWindow > 0
+  );
+}
+
 export function staticBatchIneligibilityReason(
   request: NormalizedGenerationRequest,
   options: TransformersGenerationEngineOptions,
-  routeOptions: BatchRouteOptions = {},
 ): GenerationRouteDecisionReason {
-  if (request.stream && routeOptions.allowStreaming !== true) {
+  if (request.stream) {
     return "streaming";
   }
-  if (configHasSlidingWindow(options.model)) {
+  if (configHasSlidingWindow(options.model) && !hasGemmaLayerPatternBatchCache(options.model)) {
     return "sliding_window_cache";
   }
   if (!STATIC_BATCH_MODEL_TYPES.has(options.model.config.modelType)) {
@@ -66,7 +85,19 @@ export function continuousBatchIneligibilityReason(
   request: NormalizedGenerationRequest,
   options: TransformersGenerationEngineOptions,
 ): GenerationRouteDecisionReason {
-  return staticBatchIneligibilityReason(request, options, { allowStreaming: true });
+  if (configHasSlidingWindow(options.model)) {
+    return "sliding_window_cache";
+  }
+  if (!CONTINUOUS_BATCH_MODEL_TYPES.has(options.model.config.modelType)) {
+    return "unsupported_model_type";
+  }
+  if (effectiveTemperature(request, options) !== 0) {
+    return "sampled_generation";
+  }
+  if (effectiveRepetitionPenalty(options) !== 1.0) {
+    return "repetition_penalty";
+  }
+  return "eligible";
 }
 
 export function canUseStaticBatchGeneration(
@@ -84,7 +115,7 @@ export function routeDecisionForRequest(
   eligible: boolean;
   reason: GenerationRouteDecisionReason;
 } {
-  const reason = staticBatchIneligibilityReason(request, options);
+  const reason = continuousBatchIneligibilityReason(request, options);
   if (reason !== "eligible") {
     return { route: "single", eligible: false, reason };
   }

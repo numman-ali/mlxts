@@ -196,6 +196,98 @@ describe("serve regression matrix", () => {
     expect(() => assertServeReportBudget("qwen", report(), budget)).not.toThrow();
   });
 
+  test("accepts Gemma static-batch reports while guarding continuous counters", () => {
+    const baseServerRequest = trial().serverRequests[0];
+    if (baseServerRequest === undefined) {
+      throw new Error("Expected trial fixture to include one server request.");
+    }
+
+    const staticBudget: ServeRegressionBudget = {
+      minCompletionTps: 20,
+      maxPeakMemoryGb: 12,
+      maxActiveDeltaGb: 1,
+      minCompletionTokenRatio: 0.98,
+      expectedRoute: "static",
+      expectedReason: "eligible",
+      minRouteDecisions: 2,
+      minServerRequests: 2,
+      expectedAdmissionBatches: 0,
+      expectedStaticBatches: 1,
+      expectedStaticBatchRows: 2,
+      expectedContinuousAdmissions: 0,
+      expectedContinuousSchedulerPhases: 0,
+      expectedMaxGenerationBatchSize: 2,
+      minModelLaneWaitEvents: 2,
+    };
+    const staticMetrics = trial({
+      admissionBatches: 0,
+      admissionRows: 0,
+      maxAdmissionBatchSize: 0,
+      staticBatches: 1,
+      staticBatchRows: 2,
+      maxGenerationBatchSize: 2,
+      routeDecisions: [
+        {
+          id: "request-a",
+          model: "local",
+          protocol: "openai.completions",
+          route: "static",
+          eligible: true,
+          reason: "eligible",
+          modelType: "gemma4_text",
+          maxBatchSize: 8,
+          stream: false,
+        },
+        {
+          id: "request-b",
+          model: "local",
+          protocol: "openai.completions",
+          route: "static",
+          eligible: true,
+          reason: "eligible",
+          modelType: "gemma4_text",
+          maxBatchSize: 8,
+          stream: false,
+        },
+      ],
+      routeSummary: [{ key: "static:eligible", route: "static", reason: "eligible", count: 2 }],
+      serverRequests: [
+        {
+          ...baseServerRequest,
+          id: "request-a",
+          route: "static",
+          routeReason: "eligible",
+          modelLaneInFlightAtQueue: 0,
+        },
+        {
+          ...baseServerRequest,
+          id: "request-b",
+          route: "static",
+          routeReason: "eligible",
+          modelLaneInFlightAtQueue: 0,
+        },
+      ],
+    });
+
+    expect(() =>
+      assertServeReportBudget("gemma", report(staticMetrics), staticBudget),
+    ).not.toThrow();
+    expect(() =>
+      assertServeReportBudget(
+        "gemma",
+        report(trial({ ...staticMetrics, staticBatchRows: 1 })),
+        staticBudget,
+      ),
+    ).toThrow("static_batch_rows");
+    expect(() =>
+      assertServeReportBudget(
+        "gemma",
+        report(trial({ ...staticMetrics, continuousSchedulerPhases: 1 })),
+        staticBudget,
+      ),
+    ).toThrow("continuous_scheduler_phases");
+  });
+
   test("fails on throughput, memory, token, stream, route, evidence, batch, and finish regressions", () => {
     const baseServerRequest = trial().serverRequests[0];
     if (baseServerRequest === undefined) {

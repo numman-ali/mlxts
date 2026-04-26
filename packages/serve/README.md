@@ -244,9 +244,10 @@ Use comma lists with the default cartesian matrix for broad serving sweeps,
 `--matrix zip` for paired prompt/output rungs, or `--rungs` for a deliberate
 capability ladder such as `128x128@1,1024x512@1,10000x128@2`. Add
 `--report-json <path>` for overnight evidence that can be compared later.
-The batch row counters are important: Qwen and Gemma4 currently exercise the
-single-request path even when requests are admitted together, so endpoint
-benchmark output should be used to separate real batch execution from admission
+The batch row counters are important: Qwen still exercises the single-request
+path, Gemma 3/4 greedy non-streaming requests can use static batching, and
+Gemma streaming still stays out of the continuous scheduler. Endpoint benchmark
+output should be used to separate real batch execution from admission
 coalescing. This harness measures completions serving over token-array prompts;
 use `--protocol chat` or `--protocol responses` when the thing under test is the
 wire adapter and chat-template path. Completions remains the exact-token
@@ -276,9 +277,10 @@ bun run packages/serve/scripts/regression-serve-matrix.ts --real-models
 For heavier local proof work, add `--capability-smoke`; it includes longer Qwen
 output/context endpoint rungs and writes JSON reports under
 `.tmp/serve-regression/`. These commands are lock-guarded and intentionally
-sequential. The real smoke also runs non-streaming greedy Qwen/Gemma fallback
-checks so route reasons, server-request evidence, and batch counters stay honest
-instead of accidentally implying unsupported continuous batching.
+sequential. The real smoke also runs non-streaming greedy Qwen fallback and
+Gemma static-batch checks so route reasons, server-request evidence, and batch
+counters stay honest instead of accidentally implying unsupported continuous
+batching.
 
 ## Engine Primitives
 
@@ -364,9 +366,11 @@ prefill, admission, first-token, and finish phases from admission coalescing and
 static batch calls.
 
 The continuous path is intentionally narrow. Qwen hybrid caches, Gemma
-sliding/global caches, sampled generation, prefix cache, paged cache, and
-multimodal batching still fall back to the single-model lane until their cache
-semantics are represented properly.
+streaming/continuous sliding-global caches, sampled generation, prefix cache,
+paged cache, and multimodal batching still fall back to the single-model lane
+until their cache semantics are represented properly. Gemma 3/4 greedy
+non-streaming requests have a separate static batching path backed by the
+layer-pattern batch cache in `@mlxts/transformers`.
 
 `createMicroBatchingGenerationEngine()` and
 `createConcurrencyLimitGenerationEngine()` remain available as lower-level

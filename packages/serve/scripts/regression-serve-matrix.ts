@@ -29,6 +29,7 @@ export type ServeRegressionBudget = {
   minServerRequests?: number;
   expectedAdmissionBatches?: number;
   expectedStaticBatches?: number;
+  expectedStaticBatchRows?: number;
   expectedContinuousAdmissions?: number;
   expectedContinuousSchedulerPhases?: number;
   expectedMaxGenerationBatchSize?: number;
@@ -330,6 +331,16 @@ function batchCounterFailures(metrics: TrialMetrics, budget: ServeRegressionBudg
     );
   }
   if (
+    budget.expectedStaticBatchRows !== undefined &&
+    metrics.staticBatchRows !== budget.expectedStaticBatchRows
+  ) {
+    failures.push(
+      `static_batch_rows ${metrics.staticBatchRows.toFixed(0)} != ${budget.expectedStaticBatchRows.toFixed(
+        0,
+      )}`,
+    );
+  }
+  if (
     budget.expectedContinuousAdmissions !== undefined &&
     metrics.continuousAdmissions !== budget.expectedContinuousAdmissions
   ) {
@@ -506,17 +517,17 @@ function baseSpecs(options: CliOptions): ServeRegressionSpec[] {
         maxPeakMemoryGb: 13,
         maxActiveDeltaGb: 1,
         minCompletionTokenRatio: 0.98,
-        expectedRoute: "single",
-        expectedReason: "sliding_window_cache",
+        expectedRoute: "static",
+        expectedReason: "eligible",
         minRouteDecisions: 2,
         minServerRequests: 2,
         expectedAdmissionBatches: 0,
-        expectedStaticBatches: 0,
+        expectedStaticBatches: 1,
+        expectedStaticBatchRows: 2,
         expectedContinuousAdmissions: 0,
         expectedContinuousSchedulerPhases: 0,
-        expectedMaxGenerationBatchSize: 0,
+        expectedMaxGenerationBatchSize: 2,
         minModelLaneWaitEvents: 2,
-        minModelLaneBusyWaitEvents: 1,
       },
     },
   ];

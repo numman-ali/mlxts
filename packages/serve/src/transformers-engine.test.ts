@@ -55,12 +55,16 @@ class SpecialTokenTokenizer extends TinyTokenizer {
 
 type TinyModelConfig = Partial<BaseModelConfig> & {
   slidingWindow?: number;
+  layerTypes?: string[];
 };
 
 class TinyModel implements CausalLM {
   readonly family: BaseModelConfig["family"];
   readonly layerCount = 1;
-  readonly config: BaseModelConfig;
+  readonly config: BaseModelConfig & {
+    slidingWindow?: number;
+    layerTypes?: string[];
+  };
   readonly forwardBatchSizes: number[] = [];
 
   constructor(config: TinyModelConfig = {}) {
@@ -77,6 +81,7 @@ class TinyModel implements CausalLM {
         ? {}
         : { generationDefaults: config.generationDefaults }),
       ...(config.slidingWindow === undefined ? {} : { slidingWindow: config.slidingWindow }),
+      ...(config.layerTypes === undefined ? {} : { layerTypes: config.layerTypes }),
     };
   }
 
@@ -344,9 +349,7 @@ describe("transformers generation engine", () => {
     if (generateBatch === undefined) {
       throw new Error("Expected transformers engine to expose generateBatch.");
     }
-    expect(() => {
-      void generateBatch([request]);
-    }).toThrow("prompt token limit");
+    await expect(generateBatch([request])).rejects.toThrow("prompt token limit");
 
     await expect(
       (async () => {
@@ -655,12 +658,13 @@ describe("transformers generation engine", () => {
     ).toBe(true);
   });
 
-  test("reports Qwen and Gemma cache variants as single-route fallbacks", async () => {
+  test("keeps Qwen single-route fallback while statically batching Gemma layer-pattern prompts", async () => {
     using qwenModel = new TinyModel({ family: "qwen", modelType: "qwen3_5_text" });
     using gemmaSlidingModel = new TinyModel({
       family: "gemma",
       modelType: "gemma4_text",
       slidingWindow: 16,
+      layerTypes: ["sliding_attention"],
     });
     const tokenizer = new TinyTokenizer();
     const qwenEvents: ServeEvent[] = [];
@@ -689,7 +693,7 @@ describe("transformers generation engine", () => {
     await gemmaBatch([textRequest("gemma-one"), textRequest("gemma-two")]);
 
     expect(qwenModel.batchForwardCount).toBe(0);
-    expect(gemmaSlidingModel.batchForwardCount).toBe(0);
+    expect(gemmaSlidingModel.batchForwardCount).toBeGreaterThan(0);
     expect(qwenEvents.some((event) => event.type === "generation_scheduler_phase")).toBe(false);
     expect(gemmaEvents.some((event) => event.type === "generation_scheduler_phase")).toBe(false);
     expect(qwenEvents).toContainEqual({
@@ -709,12 +713,112 @@ describe("transformers generation engine", () => {
       id: "gemma-one",
       protocol: "openai.completions",
       model: "tiny",
+      route: "static",
+      eligible: true,
+      reason: "eligible",
+      modelType: "gemma4_text",
+      maxBatchSize: 1,
+      stream: false,
+    });
+    expect(gemmaEvents).toContainEqual({
+      type: "generation_batch_start",
+      mode: "static",
+      model: "tiny",
+      ids: ["gemma-one", "gemma-two"],
+      batchSize: 2,
+      maxTokens: 2,
+      maxTokensByRequest: [2, 2],
+    });
+  });
+
+  test("coalesces concurrent Gemma layer-pattern requests through static batching only", async () => {
+    using model = new TinyModel({
+      family: "gemma",
+      modelType: "gemma4_text",
+      slidingWindow: 16,
+      layerTypes: ["sliding_attention"],
+    });
+    const tokenizer = new TinyTokenizer();
+    const events: ServeEvent[] = [];
+    const engine = createTransformersGenerationEngine({
+      model,
+      tokenizer,
+      maxBatchSize: 2,
+      batchWindowMs: 1,
+      onEvent(event) {
+        events.push(event);
+      },
+    });
+
+    const results = await Promise.all([
+      engine.generate(textRequest("gemma-one")),
+      engine.generate(textRequest("gemma-two")),
+    ]);
+
+    expect(results.map((result) => result.text)).toEqual(["cc", "cc"]);
+    expect(model.batchForwardCount).toBeGreaterThan(0);
+    expect(events.some((event) => event.type === "generation_scheduler_phase")).toBe(false);
+    expect(events).toContainEqual({
+      type: "generation_route_decision",
+      id: "gemma-one",
+      protocol: "openai.completions",
+      model: "tiny",
+      route: "static",
+      eligible: true,
+      reason: "eligible",
+      modelType: "gemma4_text",
+      maxBatchSize: 2,
+      stream: false,
+    });
+    expect(events).toContainEqual({
+      type: "generation_batch_start",
+      mode: "static",
+      model: "tiny",
+      ids: ["gemma-one", "gemma-two"],
+      batchSize: 2,
+      maxTokens: 2,
+      maxTokensByRequest: [2, 2],
+    });
+  });
+
+  test("keeps streaming Gemma layer-pattern requests out of continuous batching", async () => {
+    using model = new TinyModel({
+      family: "gemma",
+      modelType: "gemma4_text",
+      slidingWindow: 16,
+      layerTypes: ["sliding_attention"],
+    });
+    const tokenizer = new TinyTokenizer();
+    const events: ServeEvent[] = [];
+    const engine = createTransformersGenerationEngine({
+      model,
+      tokenizer,
+      maxBatchSize: 2,
+      onEvent(event) {
+        events.push(event);
+      },
+    });
+    const stream = await engine.stream?.({ ...textRequest("gemma-stream"), stream: true });
+    if (stream === undefined) {
+      throw new Error("Expected transformers engine to expose stream.");
+    }
+
+    for await (const _event of stream) {
+      // Exhaust the stream so route and scheduler events settle.
+    }
+
+    expect(events.some((event) => event.type === "generation_scheduler_phase")).toBe(false);
+    expect(events).toContainEqual({
+      type: "generation_route_decision",
+      id: "gemma-stream",
+      protocol: "openai.completions",
+      model: "tiny",
       route: "single",
       eligible: false,
       reason: "sliding_window_cache",
       modelType: "gemma4_text",
-      maxBatchSize: 1,
-      stream: false,
+      maxBatchSize: 2,
+      stream: true,
     });
   });
 
