@@ -10,7 +10,7 @@ import {
   withDefaultStream,
 } from "@mlxts/core";
 
-import type { CausalLM, GenerationResult, PrefillProgressEvent } from "../../types";
+import type { CausalLM, GenerationResult } from "../../types";
 import { BatchKVCache } from "../cache";
 import { GenerationAbortError, throwIfGenerationAborted } from "./cancellation";
 import type { ContinuousBatchQueueSnapshot } from "./continuous-batch-events";
@@ -28,10 +28,13 @@ import {
   yieldToScheduler,
 } from "./continuous-batch-helpers";
 import { ContinuousBatchTelemetry } from "./continuous-batch-telemetry";
-import type {
-  ContinuousBatchTokenRequest,
-  ContinuousBatchTokenSchedulerOptions,
-  RunExclusive,
+import {
+  type ContinuousBatchTokenRequest,
+  type ContinuousBatchTokenSchedulerOptions,
+  defaultRunExclusive,
+  type PrefillingRequest,
+  type RunExclusive,
+  type ScheduledRequest,
 } from "./continuous-batch-types";
 import { resolveGenerationOptions } from "./defaults";
 import { validatePrefillStepSize } from "./helpers";
@@ -45,30 +48,6 @@ export type {
   ContinuousBatchTokenRequest,
   ContinuousBatchTokenSchedulerOptions,
 } from "./continuous-batch-types";
-
-type ScheduledRequest = {
-  id: string;
-  promptTokenIds: readonly number[];
-  maxTokens: number;
-  enqueuedAtMs: number;
-  generated: number[];
-  firstTokenEmitted: boolean;
-  finishReason: GenerationResult["finishReason"];
-  abortSignal?: AbortSignal;
-  onAbort?: () => void;
-  onPrefillProgress?: (event: PrefillProgressEvent) => void;
-  onToken?: (tokenId: number, generatedTokenIds: readonly number[]) => void;
-  resolve(result: GenerationResult): void;
-  reject(error: unknown): void;
-};
-
-type PrefillingRequest = {
-  request: ScheduledRequest;
-  cache: BatchKVCache;
-  cursor: number;
-};
-
-const defaultRunExclusive: RunExclusive = (work) => work();
 
 /** Scheduler-owned continuous greedy decode loop for full-cache batchable models. */
 export class ContinuousBatchTokenScheduler {
@@ -289,13 +268,27 @@ export class ContinuousBatchTokenScheduler {
       return;
     }
     if (this.#active.length === 0 && this.#prefilling.length === 0) {
-      this.#admitFullRows(Math.min(capacity, this.#waiting.length));
+      const count = Math.min(capacity, this.#waiting.length);
+      if (this.#shouldChunkInitialRows(count)) {
+        for (let index = 0; index < count; index += 1) {
+          this.#startPrefillingRow();
+        }
+        this.#advancePrefillingRow();
+        return;
+      }
+      this.#admitFullRows(count);
       return;
     }
     if (capacity > 0 && this.#prefilling.length === 0 && this.#waiting.length > 0) {
       this.#startPrefillingRow();
     }
     this.#advancePrefillingRow();
+  }
+
+  #shouldChunkInitialRows(count: number): boolean {
+    return this.#waiting
+      .slice(0, count)
+      .some((request) => request.promptTokenIds.length - 1 > this.#prefillStepSize);
   }
 
   #admitFullRows(count: number): void {
@@ -339,16 +332,28 @@ export class ContinuousBatchTokenScheduler {
   }
 
   #advancePrefillingRow(): void {
+    const readyIndex = this.#prefilling.findIndex(
+      (prefilling) => this.#remainingPrefillTokens(prefilling) <= 0,
+    );
+    if (readyIndex >= 0) {
+      this.#finishPrefillingRow(readyIndex);
+      return;
+    }
     const prefilling = this.#prefilling[0];
     if (prefilling === undefined) {
       return;
     }
-    const remainingPrefillTokens = prefilling.request.promptTokenIds.length - prefilling.cursor - 1;
-    if (remainingPrefillTokens > 0) {
-      this.#prefillOneChunk(prefilling, remainingPrefillTokens);
-      return;
+    this.#prefillOneChunk(prefilling, this.#remainingPrefillTokens(prefilling));
+    if (this.#prefilling.length > 1 && this.#remainingPrefillTokens(prefilling) > 0) {
+      const [rotated] = this.#prefilling.splice(0, 1);
+      if (rotated !== undefined) {
+        this.#prefilling.push(rotated);
+      }
     }
-    this.#finishPrefillingRow(prefilling);
+  }
+
+  #remainingPrefillTokens(prefilling: PrefillingRequest): number {
+    return prefilling.request.promptTokenIds.length - prefilling.cursor - 1;
   }
 
   #prefillOneChunk(prefilling: PrefillingRequest, remainingPrefillTokens: number): void {
@@ -364,11 +369,15 @@ export class ContinuousBatchTokenScheduler {
     prefilling.request.onPrefillProgress?.(progress.event);
   }
 
-  #finishPrefillingRow(prefilling: PrefillingRequest): void {
+  #finishPrefillingRow(index: number): void {
+    const prefilling = this.#prefilling[index];
+    if (prefilling === undefined) {
+      return;
+    }
     const tail = prefilling.request.promptTokenIds.slice(prefilling.cursor);
     using tailInput = array([tail], "int32");
     const nextToken = sampleNextBatchToken(this.#model, tailInput, prefilling.cache);
-    const [ready] = this.#prefilling.splice(0, 1);
+    const [ready] = this.#prefilling.splice(index, 1);
     if (ready === undefined) {
       nextToken.free();
       return;

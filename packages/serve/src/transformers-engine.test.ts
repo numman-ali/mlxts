@@ -66,6 +66,7 @@ class TinyModel implements CausalLM {
     layerTypes?: string[];
   };
   readonly forwardBatchSizes: number[] = [];
+  readonly forwardSequenceLengths: number[] = [];
 
   constructor(config: TinyModelConfig = {}) {
     const family = config.family ?? "gemma";
@@ -95,6 +96,7 @@ class TinyModel implements CausalLM {
       throw new Error("TinyModel.forward expected rank-2 token ids.");
     }
     this.forwardBatchSizes.push(batchSize);
+    this.forwardSequenceLengths.push(sequenceLength);
     options?.cache?.advance(sequenceLength);
     return array(
       Array.from({ length: batchSize }, () =>
@@ -630,6 +632,52 @@ describe("transformers generation engine", () => {
         (event) => event.type === "generation_scheduler_phase" && event.phase === "prefill_start",
       ),
     ).toBe(true);
+  });
+
+  test("admits short initial continuous rows while long initial rows prefill in chunks", async () => {
+    using model = batchEligibleModel();
+    const tokenizer = new TinyTokenizer();
+    const order: string[] = [];
+    const events: ServeEvent[] = [];
+    const engine = createTransformersGenerationEngine({
+      model,
+      tokenizer,
+      maxBatchSize: 2,
+      batchWindowMs: 1,
+      onEvent(event) {
+        events.push(event);
+        if (
+          event.type === "generation_scheduler_phase" &&
+          event.phase === "first_token" &&
+          event.id === "short"
+        ) {
+          order.push("short-first-token");
+        }
+        if (event.type === "generation_prefill_progress" && event.id === "long") {
+          order.push(`long-prefill:${event.processedPrefillTokens}`);
+        }
+      },
+    });
+
+    const long = engine.generate({
+      ...textRequest("long", { maxTokens: 1, temperature: 0 }),
+      input: { kind: "text", text: "x".repeat(4096) },
+    });
+    const short = engine.generate({
+      ...textRequest("short", { maxTokens: 1, temperature: 0 }),
+      input: { kind: "text", text: "y" },
+    });
+
+    await Promise.all([long, short]);
+
+    expect(order.indexOf("short-first-token")).toBeGreaterThanOrEqual(0);
+    expect(order.indexOf("short-first-token")).toBeLessThan(order.indexOf("long-prefill:2048"));
+    expect(model.forwardSequenceLengths).not.toContain(4096);
+    expect(
+      events.filter(
+        (event) => event.type === "generation_scheduler_phase" && event.phase === "prefill_start",
+      ),
+    ).toHaveLength(2);
   });
 
   test("emits scheduler cancellation phases for aborted continuous rows", async () => {

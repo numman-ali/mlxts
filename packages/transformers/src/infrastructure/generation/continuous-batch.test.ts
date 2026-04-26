@@ -168,6 +168,56 @@ describe("continuous batch token scheduler", () => {
     expect(model.forwardSequenceLengths).not.toContain(6);
   });
 
+  test("chunks long initial prompts instead of full-prefilling before the first decode", async () => {
+    using model = new DeterministicBatchModel();
+    const order: string[] = [];
+    const prefillProgress: string[] = [];
+    const phases: string[] = [];
+    const scheduler = createContinuousBatchTokenScheduler(model, {
+      maxBatchSize: 2,
+      prefillStepSize: 2,
+      temperature: 0,
+      eosTokenIds: [],
+      onSchedulerEvent(event) {
+        phases.push(event.type);
+      },
+    });
+
+    const first = scheduler.enqueue({
+      id: "first",
+      promptTokenIds: [0, 0, 0, 0, 0, 0],
+      maxTokens: 1,
+      onPrefillProgress(event) {
+        const progress = `${event.processedTokens}/${event.totalTokens}:${event.chunkTokens}`;
+        prefillProgress.push(progress);
+        order.push(`first-prefill:${progress}`);
+      },
+      onToken() {
+        order.push("first-token");
+      },
+    });
+    const second = scheduler.enqueue({
+      id: "second",
+      promptTokenIds: [1],
+      maxTokens: 1,
+      onToken() {
+        order.push("second-token");
+      },
+    });
+
+    await expect(Promise.all([first, second])).resolves.toEqual([
+      { tokenIds: [2], finishReason: "length" },
+      { tokenIds: [2], finishReason: "length" },
+    ]);
+
+    expect(prefillProgress).toEqual(["2/5:2", "4/5:2", "5/5:1"]);
+    expect(phases.filter((phase) => phase === "prefill_start")).toHaveLength(2);
+    expect(order.indexOf("second-token")).toBeGreaterThanOrEqual(0);
+    expect(order.indexOf("second-token")).toBeLessThan(order.indexOf("first-prefill:2/5:2"));
+    expect(model.forwardSequenceLengths).not.toContain(6);
+    expect(model.forwardBatchSizes[0]).toBe(1);
+  });
+
   test("rejects rows aborted during partial prefill", async () => {
     using model = new DeterministicBatchModel();
     const controller = new AbortController();
