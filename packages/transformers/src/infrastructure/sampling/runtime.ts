@@ -7,6 +7,7 @@ import {
   arange,
   argpartition,
   argsort,
+  array,
   broadcastTo,
   compile,
   cumsum,
@@ -42,7 +43,12 @@ const minPVariantsByThreshold = new Map<
   DisposableTransform<(logprobs: MxArray) => MxArray>
 >();
 const topPVariantsByShape = new Map<string, DisposableTransform<(logprobs: MxArray) => MxArray>>();
-const topKVariantsByShape = new Map<string, DisposableTransform<(logprobs: MxArray) => MxArray>>();
+type TopKTransformEntry = {
+  transform: DisposableTransform<(logprobs: MxArray) => MxArray>;
+  maskedPositions: MxArray;
+};
+
+const topKVariantsByShape = new Map<string, TopKTransformEntry>();
 
 function repetitionPenaltyTransformFor(
   penalty: number,
@@ -147,16 +153,19 @@ function topKTransformFor(
   topK: number,
 ): DisposableTransform<(logprobs: MxArray) => MxArray> {
   const key = shapeVariantKey(logprobs, topK);
-  let transform = topKVariantsByShape.get(key);
-  if (transform !== undefined) {
-    return transform;
+  const cached = topKVariantsByShape.get(key);
+  if (cached !== undefined) {
+    return cached.transform;
   }
 
   const vocabSize = inferLastAxisSize(logprobs);
-  transform = compile((logprobs: MxArray) => {
+  const maskedPositions = array(
+    Array.from({ length: vocabSize - topK }, (_, index) => index + topK),
+    "int32",
+  );
+  const transform = compile((logprobs: MxArray) => {
     using negatedLogprobs = negative(logprobs);
     using partitionedIndices = argpartition(negatedLogprobs, topK - 1, -1);
-    using maskedPositions = arange(topK, vocabSize, 1, "int32");
     using maskedIndices = takeAxis(partitionedIndices, maskedPositions, -1);
     using maskedValues = full(
       shapeToArray(maskedIndices.shape),
@@ -165,7 +174,7 @@ function topKTransformFor(
     );
     return putAlongAxis(logprobs, maskedIndices, maskedValues, -1);
   });
-  topKVariantsByShape.set(key, transform);
+  topKVariantsByShape.set(key, { transform, maskedPositions });
   return transform;
 }
 

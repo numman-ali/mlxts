@@ -74,6 +74,9 @@ function schedulerOptions(
     ...(batchOptions.topK === undefined ? {} : { topK: batchOptions.topK }),
     ...(batchOptions.topP === undefined ? {} : { topP: batchOptions.topP }),
     ...(batchOptions.minP === undefined ? {} : { minP: batchOptions.minP }),
+    ...(batchOptions.repetitionPenalty === undefined
+      ? {}
+      : { repetitionPenalty: batchOptions.repetitionPenalty }),
     ...(batchOptions.seed === undefined ? {} : { seed: batchOptions.seed }),
     ...(batchOptions.eosTokenIds === undefined ? {} : { eosTokenIds: batchOptions.eosTokenIds }),
     ...(batchOptions.useCache === undefined ? {} : { useCache: batchOptions.useCache }),

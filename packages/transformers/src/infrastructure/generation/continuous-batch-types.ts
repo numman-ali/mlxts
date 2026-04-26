@@ -2,8 +2,10 @@ import type {
   BatchGenerationOptions,
   GenerationResult,
   PrefillProgressEvent,
+  SamplerOptions,
   TransformerBatchCache,
 } from "../../types";
+import type { SamplerState } from "../sampling";
 import type {
   ContinuousBatchEvent,
   ContinuousBatchSchedulerEvent,
@@ -17,6 +19,8 @@ export type ScheduledRequest = {
   id: string;
   promptTokenIds: readonly number[];
   maxTokens: number;
+  samplerOptions: SamplerOptions;
+  samplerState: SamplerState;
   enqueuedAtMs: number;
   generated: number[];
   firstTokenEmitted: boolean;

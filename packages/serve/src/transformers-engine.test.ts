@@ -617,6 +617,55 @@ describe("transformers generation engine", () => {
     expect(model.batchForwardCount).toBeGreaterThan(0);
   });
 
+  test("streams sampled full-cache requests through the continuous scheduler", async () => {
+    using model = batchEligibleModel();
+    const tokenizer = new TinyTokenizer();
+    const events: ServeEvent[] = [];
+    const engine = createTransformersGenerationEngine({
+      model,
+      tokenizer,
+      maxBatchSize: 2,
+      batchWindowMs: 1,
+      onEvent(event) {
+        events.push(event);
+      },
+    });
+    const stream = engine.stream;
+    if (stream === undefined) {
+      throw new Error("Expected transformers engine to expose stream.");
+    }
+
+    const sampledRequest = (id: string) => ({
+      ...textRequest(id, { maxTokens: 2, temperature: 1, topK: 1 }),
+      stream: true,
+    });
+    const [first, second] = await Promise.all([
+      collectStreamEvents(stream, sampledRequest("sampled-stream-one")),
+      collectStreamEvents(stream, sampledRequest("sampled-stream-two")),
+    ]);
+
+    expect(first).toEqual([
+      { type: "text", text: "c" },
+      { type: "text", text: "c" },
+      {
+        type: "done",
+        finishReason: "length",
+        usage: { promptTokens: 2, completionTokens: 2, totalTokens: 4 },
+      },
+    ]);
+    expect(second).toEqual(first);
+    expect(
+      events.filter(
+        (event) =>
+          event.type === "generation_route_decision" &&
+          event.route === "continuous" &&
+          event.eligible &&
+          event.stream,
+      ),
+    ).toHaveLength(2);
+    expect(model.batchForwardCount).toBeGreaterThan(0);
+  });
+
   test("emits scheduler prefill phases for waiting continuous rows", async () => {
     using model = batchEligibleModel();
     const tokenizer = new TinyTokenizer();
@@ -1192,17 +1241,30 @@ describe("transformers generation engine", () => {
     expect(model.batchForwardCount).toBeGreaterThan(0);
   });
 
-  test("falls back for explicit or model-default sampled requests", async () => {
+  test("routes explicit and model-default sampled requests through continuous batching", async () => {
     using explicitSampled = batchEligibleModel();
     using defaultSampled = batchEligibleModel({
       generationDefaults: { temperature: 1, topK: 1 },
     });
     const tokenizer = new TinyTokenizer();
+    const explicitEvents: ServeEvent[] = [];
+    const defaultEvents: ServeEvent[] = [];
     const explicitEngine = createTransformersGenerationEngine({
       model: explicitSampled,
       tokenizer,
+      maxBatchSize: 2,
+      onEvent(event) {
+        explicitEvents.push(event);
+      },
     });
-    const defaultEngine = createTransformersGenerationEngine({ model: defaultSampled, tokenizer });
+    const defaultEngine = createTransformersGenerationEngine({
+      model: defaultSampled,
+      tokenizer,
+      maxBatchSize: 2,
+      onEvent(event) {
+        defaultEvents.push(event);
+      },
+    });
     const explicitBatch = explicitEngine.generateBatch;
     const defaultBatch = defaultEngine.generateBatch;
     if (explicitBatch === undefined || defaultBatch === undefined) {
@@ -1218,8 +1280,24 @@ describe("transformers generation engine", () => {
       textRequest("default-two", { maxTokens: 2 }),
     ]);
 
-    expect(explicitSampled.batchForwardCount).toBe(0);
-    expect(defaultSampled.batchForwardCount).toBe(0);
+    expect(explicitSampled.batchForwardCount).toBeGreaterThan(0);
+    expect(defaultSampled.batchForwardCount).toBeGreaterThan(0);
+    expect(
+      explicitEvents.filter(
+        (event) =>
+          event.type === "generation_route_decision" &&
+          event.route === "continuous" &&
+          event.eligible,
+      ),
+    ).toHaveLength(2);
+    expect(
+      defaultEvents.filter(
+        (event) =>
+          event.type === "generation_route_decision" &&
+          event.route === "continuous" &&
+          event.eligible,
+      ),
+    ).toHaveLength(2);
   });
 
   test("preserves prompt-open reasoning handling on static chat batches", async () => {

@@ -166,6 +166,47 @@ class ModelOwnedBatchCacheModel extends DeterministicBatchModel {
   }
 }
 
+class DefaultSampledBatchModel extends DeterministicBatchModel {
+  override readonly config: BaseModelConfig = {
+    family: "gemma",
+    modelType: "deterministic-batch-test",
+    rawConfig: {},
+    vocabSize: 3,
+    hiddenSize: 1,
+    numHiddenLayers: 1,
+    generationDefaults: { temperature: 1, topK: 1 },
+  };
+}
+
+class RepetitionPenaltyBatchModel extends DeterministicBatchModel {
+  override forward(inputIds: MxArray, options?: ForwardOptions): MxArray {
+    this.lastForwardCache = options?.cache;
+    const [batchSize, sequenceLength] = inputIds.shape;
+    if (batchSize === undefined || sequenceLength === undefined) {
+      throw new Error("RepetitionPenaltyBatchModel.forward expected rank-2 token ids.");
+    }
+    this.forwardBatchSizes.push(batchSize);
+    this.forwardSequenceLengths.push(sequenceLength);
+    options?.cache?.advance(sequenceLength);
+    return array(
+      Array.from({ length: batchSize }, () =>
+        Array.from({ length: sequenceLength }, () => [4, 3, 1]),
+      ),
+      "float32",
+    );
+  }
+}
+
+class ThrowingPrefillModel extends DeterministicBatchModel {
+  override forward(inputIds: MxArray, options?: ForwardOptions): MxArray {
+    const sequenceLength = inputIds.shape[1];
+    if (sequenceLength === 2) {
+      throw new Error("prefill failed");
+    }
+    return super.forward(inputIds, options);
+  }
+}
+
 describe("continuous batch token scheduler", () => {
   test("admits a row after decode has started", async () => {
     using model = new DeterministicBatchModel();
@@ -370,6 +411,24 @@ describe("continuous batch token scheduler", () => {
     expect(model.forwardSequenceLengths).not.toContain(6);
   });
 
+  test("rejects prefilling rows when chunked prefill fails", async () => {
+    using model = new ThrowingPrefillModel();
+    const scheduler = createContinuousBatchTokenScheduler(model, {
+      maxBatchSize: 1,
+      prefillStepSize: 2,
+      temperature: 0,
+      eosTokenIds: [],
+    });
+
+    await expect(
+      scheduler.enqueue({
+        id: "failing-prefill",
+        promptTokenIds: [0, 0, 0, 0],
+        maxTokens: 1,
+      }),
+    ).rejects.toThrow("prefill failed");
+  });
+
   test("filters mixed length rows independently", async () => {
     using model = new DeterministicBatchModel();
     const scheduler = createContinuousBatchTokenScheduler(model, {
@@ -386,6 +445,86 @@ describe("continuous batch token scheduler", () => {
     expect(results).toEqual([
       { tokenIds: [2], finishReason: "length" },
       { tokenIds: [2, 2, 2], finishReason: "length" },
+    ]);
+    expect(model.forwardBatchSizes).toContain(2);
+  });
+
+  test("samples rows after one batched forward pass", async () => {
+    using model = new DeterministicBatchModel();
+    const scheduler = createContinuousBatchTokenScheduler(model, {
+      maxBatchSize: 2,
+      temperature: 1,
+      topK: 1,
+      eosTokenIds: [],
+    });
+
+    const results = await Promise.all([
+      scheduler.enqueue({ promptTokenIds: [0], maxTokens: 2 }),
+      scheduler.enqueue({ promptTokenIds: [1], maxTokens: 2 }),
+    ]);
+
+    expect(results).toEqual([
+      { tokenIds: [2, 2], finishReason: "length" },
+      { tokenIds: [2, 2], finishReason: "length" },
+    ]);
+    expect(model.forwardBatchSizes).toContain(2);
+  });
+
+  test("honors model-default sampled options", async () => {
+    using model = new DefaultSampledBatchModel();
+    const scheduler = createContinuousBatchTokenScheduler(model, {
+      maxBatchSize: 2,
+      eosTokenIds: [],
+    });
+
+    const results = await Promise.all([
+      scheduler.enqueue({ promptTokenIds: [0], maxTokens: 1 }),
+      scheduler.enqueue({ promptTokenIds: [1], maxTokens: 1 }),
+    ]);
+
+    expect(results).toEqual([
+      { tokenIds: [2], finishReason: "length" },
+      { tokenIds: [2], finishReason: "length" },
+    ]);
+    expect(model.forwardBatchSizes).toContain(2);
+  });
+
+  test("keeps seeded sampled rows deterministic", async () => {
+    using model = new DeterministicBatchModel();
+    const scheduler = createContinuousBatchTokenScheduler(model, {
+      maxBatchSize: 2,
+      temperature: 1,
+      topK: 3,
+      seed: 123,
+      eosTokenIds: [],
+    });
+
+    const results = await Promise.all([
+      scheduler.enqueue({ promptTokenIds: [0], maxTokens: 3 }),
+      scheduler.enqueue({ promptTokenIds: [0], maxTokens: 3 }),
+    ]);
+
+    expect(results[0]?.tokenIds).toEqual(results[1]?.tokenIds);
+    expect(model.forwardBatchSizes).toContain(2);
+  });
+
+  test("keeps repetition-penalty history per row", async () => {
+    using model = new RepetitionPenaltyBatchModel();
+    const scheduler = createContinuousBatchTokenScheduler(model, {
+      maxBatchSize: 2,
+      temperature: 0,
+      repetitionPenalty: 2,
+      eosTokenIds: [],
+    });
+
+    const results = await Promise.all([
+      scheduler.enqueue({ promptTokenIds: [0], maxTokens: 2 }),
+      scheduler.enqueue({ promptTokenIds: [2], maxTokens: 2 }),
+    ]);
+
+    expect(results).toEqual([
+      { tokenIds: [1, 0], finishReason: "length" },
+      { tokenIds: [0, 1], finishReason: "length" },
     ]);
     expect(model.forwardBatchSizes).toContain(2);
   });

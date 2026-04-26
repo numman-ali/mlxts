@@ -66,6 +66,8 @@ export function batchOptionsKey(options: BatchGenerationOptions): string {
     temperature: options.temperature,
     topP: options.topP,
     topK: options.topK,
+    minP: options.minP,
+    repetitionPenalty: options.repetitionPenalty,
     seed: options.seed,
     padTokenId: options.padTokenId,
     eosTokenIds: options.eosTokenIds ?? [],

@@ -96,7 +96,7 @@ export function staticBatchIneligibilityReason(
 }
 
 export function continuousBatchIneligibilityReason(
-  request: NormalizedGenerationRequest,
+  _request: NormalizedGenerationRequest,
   options: TransformersGenerationEngineOptions,
 ): GenerationRouteDecisionReason {
   const hasLayerPatternBatchCache = hasGemmaLayerPatternBatchCache(options.model);
@@ -110,12 +110,6 @@ export function continuousBatchIneligibilityReason(
     !hasHybridQwenBatchCache
   ) {
     return "unsupported_model_type";
-  }
-  if (effectiveTemperature(request, options) !== 0) {
-    return "sampled_generation";
-  }
-  if (effectiveRepetitionPenalty(options) !== 1.0) {
-    return "repetition_penalty";
   }
   return "eligible";
 }

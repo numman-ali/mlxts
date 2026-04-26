@@ -13,11 +13,15 @@ import {
 import type {
   BatchGenerationOptions,
   CausalLM,
+  GenerationResult,
   PrefillProgressEvent,
+  SamplerOptions,
   TransformerBatchCache,
 } from "../../types";
+import { SamplerState } from "../sampling";
 import { createBatchCacheForModel } from "./batch-cache-factory";
 import { GenerationAbortError } from "./cancellation";
+import type { ContinuousBatchTokenRequest, ScheduledRequest } from "./continuous-batch-types";
 import { takeLastLogits } from "./helpers";
 
 type AbortablePrefillRequest = {
@@ -44,12 +48,53 @@ export function validateContinuousBatchOptions(options: BatchGenerationOptions):
   if (options.useCache === false) {
     throw new Error("ContinuousBatchTokenScheduler: cache-enabled decoding is required.");
   }
-  if ((options.temperature ?? 1.0) > 0) {
-    throw new Error("ContinuousBatchTokenScheduler: continuous batching requires temperature: 0.");
-  }
-  if ((options.repetitionPenalty ?? 1.0) !== 1.0) {
-    throw new Error("ContinuousBatchTokenScheduler: repetition penalty is not supported yet.");
-  }
+}
+
+export function samplerOptionsFrom(options: SamplerOptions): SamplerOptions {
+  return {
+    ...(options.temperature === undefined ? {} : { temperature: options.temperature }),
+    ...(options.topK === undefined ? {} : { topK: options.topK }),
+    ...(options.topP === undefined ? {} : { topP: options.topP }),
+    ...(options.minP === undefined ? {} : { minP: options.minP }),
+    ...(options.repetitionPenalty === undefined
+      ? {}
+      : { repetitionPenalty: options.repetitionPenalty }),
+    ...(options.seed === undefined ? {} : { seed: options.seed }),
+  };
+}
+
+export function createScheduledRequest(
+  id: string,
+  request: ContinuousBatchTokenRequest,
+  samplerOptions: SamplerOptions,
+  resolve: (result: GenerationResult) => void,
+  reject: (error: unknown) => void,
+): ScheduledRequest {
+  return {
+    id,
+    promptTokenIds: request.promptTokenIds,
+    maxTokens: request.maxTokens,
+    samplerOptions,
+    samplerState: new SamplerState(request.promptTokenIds, samplerOptions),
+    enqueuedAtMs: performance.now(),
+    generated: [],
+    firstTokenEmitted: false,
+    finishReason: "length",
+    ...(request.abortSignal === undefined ? {} : { abortSignal: request.abortSignal }),
+    ...(request.onPrefillProgress === undefined
+      ? {}
+      : { onPrefillProgress: request.onPrefillProgress }),
+    ...(request.onToken === undefined ? {} : { onToken: request.onToken }),
+    resolve,
+    reject,
+  };
+}
+
+export function remainingPrefillTokens(prefilling: {
+  request: { promptTokenIds: readonly number[] };
+  cursor: number;
+}): number {
+  return prefilling.request.promptTokenIds.length - prefilling.cursor - 1;
 }
 
 export function yieldToScheduler(): Promise<void> {
@@ -82,6 +127,52 @@ export function disposePrefillingCaches(
   }
 }
 
+export function dropAbortedActiveRows(
+  active: ScheduledRequest[],
+  currentToken: MxArray | null,
+  cache: TransformerBatchCache | null,
+  onCancelled: (request: ScheduledRequest) => void,
+): {
+  active: ScheduledRequest[];
+  currentToken: MxArray | null;
+  cache: TransformerBatchCache | null;
+} {
+  if (active.length === 0 || currentToken === null || cache === null) {
+    return { active, currentToken, cache };
+  }
+
+  const keepPositions: number[] = [];
+  for (let index = 0; index < active.length; index += 1) {
+    const request = active[index];
+    if (request === undefined) {
+      continue;
+    }
+    if (request.abortSignal?.aborted) {
+      onCancelled(request);
+      continue;
+    }
+    keepPositions.push(index);
+  }
+
+  if (keepPositions.length === active.length) {
+    return { active, currentToken, cache };
+  }
+  if (keepPositions.length === 0) {
+    currentToken.free();
+    cache[Symbol.dispose]();
+    return { active: [], currentToken: null, cache: null };
+  }
+
+  const nextActive = keepPositions
+    .map((index) => active[index])
+    .filter((entry) => entry !== undefined);
+  cache.filter(keepPositions);
+  const nextToken = tokenRows(currentToken, keepPositions);
+  mxEval(nextToken);
+  currentToken.free();
+  return { active: nextActive, currentToken: nextToken, cache };
+}
+
 export function shouldChunkInitialRows(
   waiting: readonly { promptTokenIds: readonly number[] }[],
   count: number,
@@ -111,13 +202,21 @@ function leftPadPrompts(
 
 export function prefillReadyBatch(
   model: CausalLM,
-  prompts: readonly (readonly number[])[],
+  rows: readonly { promptTokenIds: readonly number[]; samplerState: SamplerState }[],
   padTokenId: number,
+  options: SamplerOptions,
 ): { cache: TransformerBatchCache; nextToken: MxArray } {
+  const prompts = rows.map((row) => row.promptTokenIds);
   const { padded, leftPadding } = leftPadPrompts(prompts, padTokenId);
   const cache = createBatchCacheForModel(model, leftPadding, "ContinuousBatchTokenScheduler");
   using promptInput = array(padded, "int32");
-  const nextToken = sampleNextBatchToken(model, promptInput, cache);
+  const nextToken = sampleNextBatchToken(
+    model,
+    promptInput,
+    cache,
+    rows.map((row) => row.samplerState),
+    options,
+  );
   return { cache, nextToken };
 }
 
@@ -136,12 +235,78 @@ export function sampleNextBatchToken(
   model: CausalLM,
   inputIds: MxArray,
   cache: TransformerBatchCache,
+  samplerStates: readonly SamplerState[],
+  options: SamplerOptions,
 ): MxArray {
   using logits = model.forward(inputIds, { cache });
   using lastLogits = takeLastLogits(logits, "ContinuousBatchTokenScheduler");
-  const nextToken = sampleGreedyBatchTokenTensor(lastLogits, "ContinuousBatchTokenScheduler");
+  const nextToken = sampleBatchTokenTensor(
+    lastLogits,
+    samplerStates,
+    options,
+    "ContinuousBatchTokenScheduler",
+  );
   mxEval(nextToken);
   return nextToken;
+}
+
+function sampleBatchTokenTensor(
+  logits: MxArray,
+  samplerStates: readonly SamplerState[],
+  options: SamplerOptions,
+  context: string,
+): MxArray {
+  const batchSize = logits.shape[0];
+  const vocabSize = logits.shape[1];
+  if (
+    batchSize === undefined ||
+    vocabSize === undefined ||
+    logits.shape.length !== 2 ||
+    batchSize !== samplerStates.length
+  ) {
+    throw new Error(
+      `${context}: expected rank-2 logits with ${samplerStates.length} sampler rows, got [${logits.shape.join(", ")}].`,
+    );
+  }
+
+  if ((options.temperature ?? 1.0) <= 0 && (options.repetitionPenalty ?? 1.0) <= 1.0) {
+    return sampleGreedyBatchTokenTensor(logits, context);
+  }
+
+  const sampledRows: MxArray[] = [];
+  try {
+    for (let row = 0; row < batchSize; row += 1) {
+      using rowLogits = slice(logits, [row, 0], [row + 1, vocabSize]);
+      const samplerState = samplerStates[row];
+      if (samplerState === undefined) {
+        throw new Error(`${context}: missing sampler state for row ${row}.`);
+      }
+      const rowToken = samplerState.sampleTokenTensor(rowLogits, options);
+      sampledRows.push(rowToken);
+      mxEval(rowToken);
+    }
+
+    if (sampledRows.length === 1) {
+      const only = sampledRows.pop();
+      if (only === undefined) {
+        throw new Error(`${context}: sampled no token rows.`);
+      }
+      return only;
+    }
+
+    const sampled = concatenate(sampledRows, 0);
+    try {
+      mxEval(sampled);
+      return sampled;
+    } catch (error) {
+      sampled.free();
+      throw error;
+    }
+  } finally {
+    for (const row of sampledRows) {
+      row.free();
+    }
+  }
 }
 
 function materializeBatchCacheState(cache: TransformerBatchCache): boolean {

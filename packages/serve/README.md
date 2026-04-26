@@ -79,13 +79,13 @@ start/completion logs. Multi-model CLI loads are logged with the model index and
 model id so long startup sequences are easier to follow.
 
 The first-class model server wraps one loaded model in a small scheduler-aware
-admission queue. Eligible greedy full-cache LLaMA-like, Qwen 3.6 text, and Gemma
-3/4 layer-pattern requests can join the transformer-owned continuous scheduler,
-including streaming completions and chat streams. Sampled/model-native-default
-requests still fall back to the single-request path until sampled batched decode
-is implemented. Engines without native batching support still benefit from
-serialized request admission instead of overlapping local generations on the
-same model instance.
+admission queue. Eligible full-cache LLaMA-like, Qwen 3.6 text, and Gemma 3/4
+layer-pattern requests can join the transformer-owned continuous scheduler,
+including streaming completions and chat streams. The scheduler supports greedy
+decode and model-native sampled defaults by keeping sampler state per request
+row. Engines without native batching support still benefit from serialized
+request admission instead of overlapping local generations on the same model
+instance.
 
 When `temperature`, `top_p`, or `top_k` are omitted, serving leaves them unset so
 `@mlxts/transformers` can apply the checkpoint's `generation_config.json`.
@@ -248,12 +248,11 @@ Use comma lists with the default cartesian matrix for broad serving sweeps,
 `--matrix zip` for paired prompt/output rungs, or `--rungs` for a deliberate
 capability ladder such as `128x128@1,1024x512@1,10000x128@2`. Add
 `--report-json <path>` for overnight evidence that can be compared later. The
-batch row counters are important: eligible greedy Qwen and Gemma 3/4 requests
-now report continuous scheduler admissions for both buffered and streaming
-completions, while sampled/model-native-default requests still report
-single-route fallback. Endpoint benchmark output should be used to separate
-real batch execution from admission coalescing. This harness measures
-completions serving over token-array prompts; use `--protocol chat` or
+batch row counters are important: eligible Qwen and Gemma 3/4 requests now
+report continuous scheduler admissions for both buffered and streaming
+completions, including sampled/model-native-default requests. Endpoint benchmark
+output should be used to separate real batch execution from admission coalescing.
+This harness measures completions serving over token-array prompts; use `--protocol chat` or
 `--protocol responses` when the thing under test is the wire adapter and
 chat-template path. Completions remains the exact-token throughput mode; chat
 and Responses use deterministic text prompts and should be reported as protocol
@@ -362,17 +361,17 @@ startServeServer({
 local process checks.
 
 `createTransformersGenerationEngine()` now owns the first real continuous
-batching path for loaded-model serving: eligible greedy requests can join an
-active decode loop between token steps, including streaming completions/chat
-streams for full-cache LLaMA-like models, Qwen 3.6 text models with model-owned
-hybrid batch caches, and Gemma 3/4 layer-pattern models. It emits
+batching path for loaded-model serving: eligible greedy or sampled requests can
+join an active decode loop between token steps, including streaming
+completions/chat streams for full-cache LLaMA-like models, Qwen 3.6 text models
+with model-owned hybrid batch caches, and Gemma 3/4 layer-pattern models. It emits
 `generation_scheduler_phase` events with `mode: "continuous"` so benchmark
 output can separate scheduler queue, prefill, admission, first-token, and finish
 phases from admission coalescing and static batch calls.
 
-The continuous path is intentionally narrow. Sampled generation, prefix cache,
-paged cache, multimodal batching, and broader cache policies still fall back to
-the single-model lane until their semantics are represented properly below the
+The continuous path is still intentionally narrow. Prefix cache, paged cache,
+multimodal batching, and broader cache policies still fall back to the
+single-model lane until their semantics are represented properly below the
 serving layer.
 
 `createMicroBatchingGenerationEngine()` and

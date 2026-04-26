@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { array } from "@mlxts/core";
+import { array, full } from "@mlxts/core";
 
 import { SamplerState } from "./index";
 
@@ -68,6 +68,19 @@ describe("sampling", () => {
 
     expect(firstToken.item()).toBe(1);
     expect(secondToken.item()).toBe(1);
+  });
+
+  test("SamplerState handles Gemma-scale top-k vocabularies", () => {
+    using logits = full([1, 262144], 0, "float32");
+    using state = new SamplerState([], {});
+    using token = state.sampleTokenTensor(logits, {
+      temperature: 1,
+      topK: 64,
+      seed: 0,
+    });
+
+    expect(token.shape).toEqual([1, 1]);
+    expect(Number.isInteger(token.item())).toBe(true);
   });
 
   test("SamplerState applies top-p pruning on the device", () => {
