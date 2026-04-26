@@ -36,7 +36,23 @@ These gates are non-negotiable at every phase boundary. Code does not advance un
 |------|---------|---------------|
 | Memory stability | `cd examples/nanogpt && bun run bench:memory` | No unbounded memory growth over repeated operations |
 | Soak test | `cd examples/nanogpt && bun run soak:<preset>` | Throughput stable, memory stable over sustained runs |
-| Acceptance | `bun run acceptance:<preset>` | Loss reaches target, generation produces coherent output |
+| Acceptance | `cd examples/nanogpt && bun run acceptance:<preset>` | Loss reaches target, generation produces coherent output |
+
+### Change-Specific Gates
+
+Use the narrowest gate that proves the change, then run the full required gates
+before commit.
+
+| Change area | Minimum focused proof | Required broader gate before handoff |
+|-------------|----------------------|--------------------------------------|
+| Package API or pure TypeScript logic | Package-local tests for the touched package | `bun run typecheck`, `bun run check:coverage` |
+| Runtime-sensitive tensor, generation, cache, or serving code | Focused tests plus `bun run check:tensor-lifetimes` and a `docs/reviews/` artifact | `bun run check:runtime-review`, `bun run check:coverage` |
+| Model-family generation or performance | Family tests plus `bun run bench:generation:parity --require-mlx-lm-reference` when making parity claims | Qwen/Gemma real regression when cached checkpoints are available |
+| Serving behavior | `bun run --filter '@mlxts/serve' regression:serve` | `bun run regression:qwen-gemma -- --profile real` for high-risk serving/model commits |
+| Serving capability claim | `bench:serve --report-json` ladder with route, scheduler, stream, and memory evidence | `bun run regression:qwen-gemma -- --profile substantial` when cached models fit |
+| Agent loop behavior | `bun test packages/agent/src` plus a served-model smoke when practical | Serve regression if protocol or streaming semantics changed |
+| Training or alignment proof | Example/package-focused tests and the relevant proof command | Promote to self-hosted Apple Silicon gate only after the proof is stable |
+| Example/workbook docs or scripts | The example's documented smoke command | No root example script; reusable behavior belongs in packages |
 
 ---
 
@@ -237,14 +253,14 @@ in CI as a regression gate.
 | `@mlxts/serve` starts a server on `Bun.serve()` | Test: server responds to health check |
 | `/v1/chat/completions` endpoint works | Test: curl request returns valid response |
 | `/v1/completions` endpoint works | Test: completion request returns text |
-| `/v1/responses` endpoint works | Test: responses request returns valid response |
-| Anthropic-compatible API endpoint works | Test: Anthropic client can connect |
-| `/v1/embeddings` endpoint works | Test: embedding request returns vector |
-| Streaming responses (SSE) | Test: stream tokens one at a time |
-| Protocol adapters share one prompt compiler path | Test: chat, completions, responses, and Anthropic requests normalize to the same internal generation request |
-| `mlxts serve --model meta-llama/Llama-3.2-1B-Instruct` works | End-to-end demo |
-| Ollama-compatible API (same as OpenAI compat) | Test: Ollama client can connect |
-| Model loading/unloading | Test: switch models without restart |
+| Text-only `/v1/responses` endpoint works | Test: responses request returns valid text response and semantic SSE stream |
+| Streaming responses (SSE) | Test: completions/chat/responses stream token or semantic deltas with usage where supported |
+| Protocol adapters share one internal request path | Test: chat, completions, and text Responses normalize to the protocol-neutral request model |
+| `mlxts-serve meta-llama/Llama-3.2-1B-Instruct` works | End-to-end demo through the package-owned binary |
+| Qwen/Gemma continuous scheduler routes are honest | Real regression asserts route decisions, scheduler phases, stream health, and memory budgets |
+| Future Anthropic-compatible API endpoint works | Test: Anthropic client can connect once the adapter exists |
+| Future `/v1/embeddings` endpoint works | Test: embedding request returns vector once embedding engines exist |
+| Future dynamic model loading/unloading works | Test: switch models without restart once the engine pool exists |
 
 ### What "done" looks like
 `mlxts serve --model meta-llama/Llama-3.2-1B-Instruct --quantize 4bit` starts a server. Any OpenAI-compatible client (Cursor, Continue, LangChain.js, etc.) connects and gets fast, streaming responses.

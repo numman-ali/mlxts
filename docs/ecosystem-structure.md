@@ -272,13 +272,13 @@ Production inference server with OpenAI-compatible API.
 
 | Concern | What it provides |
 |---------|-----------------|
-| API server | `/v1/chat/completions`, `/v1/completions`, `/v1/embeddings` |
-| KV cache | PagedAttention-style cache management |
-| Batching | Continuous batching for concurrent requests |
-| Streaming | Server-sent events for token streaming |
-| Model management | Load/unload models, model registry |
-| Quantized inference | Run quantized models at full speed |
-| Protocol adapters | OpenAI chat/completions/responses and Anthropic-style APIs over one shared request model |
+| API server | `/v1/chat/completions`, `/v1/completions`, text-only `/v1/responses`, `/v1/models`, `/health`, `/info` |
+| Admission | prompt/generated/total-token limits, memory preflight, cancellation, and streaming lifecycle |
+| Batching | admission micro-batching plus cache-generic continuous scheduling for eligible LLaMA-like, Qwen 3.6 text, and Gemma 3/4 layer-pattern requests |
+| Streaming | Server-sent events for completions, chat, narrow Responses, reasoning separation, and stream keepalive |
+| Model serving | single-model and multi-model load-at-start serving; dynamic load/unload and engine-pool eviction remain future work |
+| Benchmarking | endpoint `bench:serve` and Qwen/Gemma regression matrices with route, scheduler, stream, and memory evidence |
+| Protocol adapters | OpenAI chat/completions and narrow text Responses over one shared request model; Anthropic and embeddings remain future adapters |
 
 **Dependencies:** `@mlxts/core`, `@mlxts/nn`, `@mlxts/transformers`, `@mlxts/tokenizers`
 
@@ -303,6 +303,10 @@ Model quantization and compressed inference.
 
 #### `@mlxts/eval`
 
+**Future package.** Evaluation is a planned layer, not a current workspace
+package. Current benchmark and regression surfaces live in `@mlxts/transformers`,
+`@mlxts/serve`, and example-owned proof flows.
+
 Model evaluation and benchmarking.
 
 | Concern | What it provides |
@@ -319,6 +323,10 @@ Model evaluation and benchmarking.
 ### Layer 8: Developer Tools
 
 #### `@mlxts/cli`
+
+**Future umbrella package.** The current CLI shape is package-owned binaries
+such as `mlxts-serve` and `mlxts-agent`. Keep that shape until an umbrella CLI
+has a stronger reason to exist than centralizing names.
 
 Command-line tools for the mlxts ecosystem.
 

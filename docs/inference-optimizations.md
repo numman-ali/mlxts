@@ -244,9 +244,11 @@ All three share lineage — vLLM-MLX is the origin, Rapid-MLX and oMLX forked an
 
 These techniques are not all-or-nothing. The progression is:
 
-1. **Phase 9 launch**: Simple KV cache → paged cache → chunked prefill → FCFS batching → OpenAI API. Get the serving surface right.
-2. **Optimization pass 1**: Prompt caching (LCP matching), tool parser registry, model auto-config, pre-computed SSE.
-3. **Optimization pass 2**: Multi-model engine pool, memory management, SSD persistence, KV quantization.
-4. **Optimization pass 3**: MTP, speculative decoding, jump-forward decoding, SpecPrefill.
+1. **Current serving baseline**: OpenAI-compatible completions/chat plus narrow text Responses, admission limits, cancellation, streaming, multi-model loading, endpoint benchmarks, and cache-generic continuous batching for eligible LLaMA-like, Qwen 3.6 text, and Gemma 3/4 layer-pattern requests.
+2. **Scheduler hardening**: token-budget admission, separate prefill/completion budgets, richer fairness controls, and higher-concurrency evidence for sampled/model-native defaults.
+3. **Cache pass 1**: prefix cache with LCP matching and explicit Qwen non-trimmable-state handling; rotating/max-KV policy for long contexts.
+4. **Cache pass 2**: paged KV, quantized KV, model-aware memory policy, and production metrics for cache hits, tokens saved, evictions, and memory pressure.
+5. **Production serving pass**: `/metrics`, model pool/eviction, fuller Responses, Anthropic Messages, structured output/logprobs, and multimodal serving over the same normalized request model.
+6. **Advanced speed pass**: whole-batch sampling, MTP, speculative/prompt-lookup decode, jump-forward decoding, SpecPrefill, TurboQuant, and custom native or Metal seams only after evidence proves the strategy.
 
 Each pass adds capability behind stable interfaces. The serving API, model code, and user-facing CLI don't change between passes.

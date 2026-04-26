@@ -743,7 +743,7 @@ and minimal serving are in place.
 
 **Goal**: Production-quality inference server. Quantized inference. Any OpenAI-compatible client can connect. Architecturally flexible enough that new optimization techniques (from papers or upstream projects) slot in without rewiring the stack.
 
-**Current status**: Phase 9 now contains both landed serving tranches and future production tranches. Treat the existing `@mlxts/serve` endpoint, streaming, admission, cancellation, multi-model loading, benchmark/regression harnesses, and first full-KV greedy continuous scheduler as real surfaces to preserve, while keeping paged/prefix cache, broader cache-aware scheduling, embeddings, Anthropic compatibility, and advanced optimization hooks as future work.
+**Current status**: Phase 9 now contains both landed serving tranches and future production tranches. Treat the existing `@mlxts/serve` endpoint, streaming, admission, cancellation, multi-model loading, benchmark/regression harnesses, and cache-generic continuous scheduler as real surfaces to preserve. The scheduler now covers eligible LLaMA-like, Qwen 3.6 text, and Gemma 3/4 layer-pattern requests for buffered and streaming generation, including model-native sampled defaults. Keep paged/prefix cache, richer scheduler policy, production metrics, multimodal serving, embeddings, Anthropic compatibility, and advanced optimization hooks as future work.
 
 **Research basis**: Deep analysis of three MLX inference servers — Rapid-MLX (speed-focused), vLLM-MLX (foundational batching/paging), oMLX (production serving/memory management). These share lineage (vLLM-MLX → forks) but diverged into complementary specializations. Key findings are documented in [docs/inference-optimizations.md](./docs/inference-optimizations.md). Reference repos at `.reference/rapid-mlx`, `.reference/vllm-mlx`, `.reference/omlx`.
 
@@ -810,7 +810,9 @@ KV cache is the critical infrastructure for both single-user generation and mult
 - Future Anthropic-compatible API adapter maps into the same internal request model
 - `Bun.serve()` — no Express, no Node HTTP
 - Server-sent events for token streaming, cancellation, long-context heartbeats, and cooperative prefill progress
-- Landed first full-KV greedy continuous batching for eligible LLaMA-like requests; future tranches cover Qwen/Gemma cache semantics, sampling, streaming scheduler integration, paged cache, and prefix cache
+- Landed cache-generic continuous batching for eligible LLaMA-like, Qwen 3.6 text, and Gemma 3/4 layer-pattern requests, including streaming and model-native sampled defaults
+- Future scheduler tranches cover token-budget admission, separate prefill/completion budgets, stronger fairness controls, and higher-concurrency sampled evidence
+- Future cache tranches cover prefix cache, paged cache, rotating/max-KV policy, quantized KV, and TurboQuant-style attention backends
 - Future model loading/unloading without restart via engine pool
 - Future per-model settings (sampling params, TTL, aliases) persisted to JSON
 - Landed disconnect guard — monitor client disconnection and cancel generation

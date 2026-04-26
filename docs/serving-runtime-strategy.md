@@ -175,17 +175,25 @@ it is an operator-facing default.
 
 The next work should stay ordered around architecture truth:
 
-1. Keep the repo alignment review current and fix docs that drift behind the
-   actual package surfaces.
-2. Make this serving/runtime strategy the shared map for flags and backends.
-3. Profile Qwen memory and long-prefill behavior against `mlx-lm` with paired
-   evidence.
-4. Implement Qwen hybrid-cache batching only through honest cache/scheduler
-   seams.
-5. Implement Gemma sliding/global cache batching on the same scheduler model.
-6. Expand protocol support through the shared request model: fuller Responses,
-   then Anthropic Messages.
-7. Resume MoE and multimodal work once serving/cache strategy is not in flux.
+1. Keep repo alignment current as package surfaces evolve; stale roadmap text is
+   a real engineering hazard.
+2. Lock serving baselines for Qwen/Gemma across greedy and model-default
+   sampled generation, buffered and streaming output, `@1/@2/@4/@8`
+   concurrency, staggered arrivals, and short/long output rungs.
+3. Introduce a typed internal serving/runtime strategy seam before exposing
+   advanced operator flags such as paged cache, TurboQuant, attention backends,
+   speculative decode, or MTP.
+4. Harden the scheduler: token-budget admission, separate prefill/completion
+   budgets, stronger fairness controls, and explicit per-row decode state for
+   sampler, stop, reasoning, and future logits processors.
+5. Build cache backends behind stable contracts: dense managed cache first,
+   then prefix cache, rotating/max-KV policy, quantized KV, paged KV, and later
+   TurboQuant or tiered SSD storage.
+6. Add production metrics with bounded-cardinality request, scheduler, stream,
+   cache, memory, cancellation, and error counters before claiming production
+   parity with TGI-style systems.
+7. Expand protocols through the shared request model: fuller Responses,
+   Anthropic Messages, structured output/logprobs, then multimodal serving.
 
 That order protects the thing that matters most: every new capability should
 make the stack feel more coherent, not more accidental.
