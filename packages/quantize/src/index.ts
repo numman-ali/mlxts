@@ -9,6 +9,7 @@ export { resolveQuantizationParameters } from "./parameters";
 export { quantizeModel, quantizeModule } from "./quantize-module";
 export { setupQuantizedModule } from "./setup-quantized-module";
 export type {
+  EmbeddingChildSlot,
   LinearChildSlot,
   ModuleChildSlot,
   QuantizationParameterOverrides,

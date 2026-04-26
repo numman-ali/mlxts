@@ -1,5 +1,5 @@
 import type { QuantizationMode } from "@mlxts/core";
-import type { Linear, Module, QuantizedLinear } from "@mlxts/nn";
+import type { Embedding, Linear, Module, QuantizedEmbedding, QuantizedLinear } from "@mlxts/nn";
 
 /** Fully resolved quantization parameters for one target module. */
 export type QuantizationParameters = {
@@ -18,9 +18,9 @@ export type QuantizationParameterOverrides = {
 /** Selection result for live module quantization. */
 export type QuantizeSelectionResult = boolean | QuantizationParameterOverrides;
 
-/** Options for quantizing dense linear modules in place. */
+/** Options for quantizing dense linear and embedding modules in place. */
 export type QuantizeModuleOptions = QuantizationParameterOverrides & {
-  select?: (path: string, layer: Linear) => QuantizeSelectionResult;
+  select?: (path: string, layer: Embedding | Linear) => QuantizeSelectionResult;
 };
 
 /** One module that was quantized or prepared for quantized loading. */
@@ -77,4 +77,12 @@ export type LinearChildSlot = {
   parent: Module;
   key: string;
   child: Linear | QuantizedLinear;
+};
+
+/** One direct child embedding slot discovered during traversal. */
+export type EmbeddingChildSlot = {
+  path: string;
+  parent: Module;
+  key: string;
+  child: Embedding | QuantizedEmbedding;
 };

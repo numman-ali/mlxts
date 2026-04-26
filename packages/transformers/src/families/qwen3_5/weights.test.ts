@@ -8,6 +8,9 @@ import { join } from "path";
 import type { Qwen3_5Config, Qwen3_5TextConfig, Qwen3_5VisionConfig } from "./types";
 import {
   detectQwen3_5CheckpointStyle,
+  isIgnoredQwen3_5CausalLMWeight,
+  isIgnoredQwen3_5Weight,
+  sanitizeQwen3_5CausalLMWeight,
   sanitizeQwen3_5TextWeight,
   sanitizeQwen3_5Weight,
   transformQwen3_5CheckpointTensor,
@@ -169,6 +172,59 @@ describe("Qwen 3.5 weight mapping", () => {
     expect(sanitizeQwen3_5Weight(config, "language_model.lm_head.weight")).toBe("lmHead.weight");
   });
 
+  test("maps top-level qwen3_5 causal-LM loads to text paths and ignores vision", () => {
+    const config = qwen3_5TextConfig();
+
+    expect(sanitizeQwen3_5CausalLMWeight(config, "language_model.model.embed_tokens.weight")).toBe(
+      "model.embedTokens.weight",
+    );
+    expect(
+      sanitizeQwen3_5CausalLMWeight(
+        config,
+        "model.language_model.layers.0.linear_attn.conv1d.weight",
+      ),
+    ).toBe("model.layers.0.linearAttention.conv1d.weight");
+    expect(sanitizeQwen3_5CausalLMWeight(config, "language_model.lm_head.weight")).toBe(
+      "lmHead.weight",
+    );
+    expect(
+      sanitizeQwen3_5CausalLMWeight(config, "model.visual.patch_embed.proj.weight"),
+    ).toBeNull();
+    expect(isIgnoredQwen3_5CausalLMWeight(config, "model.visual.patch_embed.proj.weight")).toBe(
+      true,
+    );
+    expect(
+      sanitizeQwen3_5CausalLMWeight(config, "vision_tower.patch_embed.proj.weight"),
+    ).toBeNull();
+    expect(isIgnoredQwen3_5CausalLMWeight(config, "vision_tower.patch_embed.proj.weight")).toBe(
+      true,
+    );
+  });
+
+  test("rejects malformed or out-of-range Qwen checkpoint names", () => {
+    const textConfig = qwen3_5TextConfig();
+    const wrapperConfig = qwen3_5Config();
+
+    expect(
+      sanitizeQwen3_5TextWeight(textConfig, "model.layers.10.mlp.down_proj.weight"),
+    ).toBeNull();
+    expect(sanitizeQwen3_5TextWeight(textConfig, "model.layers.x.mlp.down_proj.weight")).toBeNull();
+    expect(sanitizeQwen3_5Weight(wrapperConfig, "vision_tower.unknown.weight")).toBeNull();
+    expect(
+      sanitizeQwen3_5Weight(wrapperConfig, "vision_tower.blocks.4.attn.qkv.weight"),
+    ).toBeNull();
+    expect(
+      sanitizeQwen3_5Weight(wrapperConfig, "vision_tower.blocks.x.attn.qkv.weight"),
+    ).toBeNull();
+    expect(isIgnoredQwen3_5CausalLMWeight(textConfig, "language_model.mtp.layers.0.weight")).toBe(
+      true,
+    );
+    expect(isIgnoredQwen3_5Weight(wrapperConfig, "vision_tower.rotary_pos_emb.inv_freq")).toBe(
+      true,
+    );
+    expect(isIgnoredQwen3_5Weight(wrapperConfig, "mtp.layers.0.weight")).toBe(true);
+  });
+
   test("detects converted checkpoint layout without modifying already-direct norm weights", async () => {
     const directory = mkdtempSync(join(tmpdir(), "mlxts-qwen3_5-mlx-"));
     const snapshotPath = join(directory, "model.safetensors");
@@ -208,6 +264,78 @@ describe("Qwen 3.5 weight mapping", () => {
         norm,
       );
       expect(transformed.toList()).toEqual([1.25, 0.75]);
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
+  test("detects raw checkpoint layout and ignores non-conv tensors", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "mlxts-qwen3_5-raw-"));
+    const snapshotPath = join(directory, "model.safetensors");
+    try {
+      using ignoredTensor = MxArray.fromData([1, 2, 3, 4], [2, 2]);
+      using rawConvTensor = MxArray.fromData(
+        Array.from({ length: 8 }, (_, index) => index + 1),
+        [2, 1, 4],
+      );
+      await saveSafetensors(
+        {
+          "language_model.model.layers.0.mlp.down_proj.weight": ignoredTensor,
+          "language_model.model.layers.0.linear_attn.conv1d.weight": rawConvTensor,
+        },
+        snapshotPath,
+      );
+
+      const style = await detectQwen3_5CheckpointStyle({
+        source: "local",
+        directory,
+        files: [
+          {
+            relativePath: "notes.txt",
+            localPath: join(directory, "notes.txt"),
+            size: 0,
+          },
+          {
+            relativePath: "model.safetensors",
+            localPath: snapshotPath,
+            size: Bun.file(snapshotPath).size,
+          },
+        ],
+        totalBytes: Bun.file(snapshotPath).size,
+      });
+
+      expect(style).toBe("raw-hf");
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
+  test("returns null when no Qwen conv layout can be detected", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "mlxts-qwen3_5-no-style-"));
+    const snapshotPath = join(directory, "model.safetensors");
+    try {
+      using malformedConvTensor = MxArray.fromData([1, 2, 3, 4], [2, 2]);
+      await saveSafetensors(
+        {
+          "language_model.model.layers.0.linear_attn.conv1d.weight": malformedConvTensor,
+        },
+        snapshotPath,
+      );
+
+      const style = await detectQwen3_5CheckpointStyle({
+        source: "local",
+        directory,
+        files: [
+          {
+            relativePath: "model.safetensors",
+            localPath: snapshotPath,
+            size: Bun.file(snapshotPath).size,
+          },
+        ],
+        totalBytes: Bun.file(snapshotPath).size,
+      });
+
+      expect(style).toBeNull();
     } finally {
       rmSync(directory, { recursive: true, force: true });
     }

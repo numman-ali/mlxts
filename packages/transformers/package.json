@@ -42,6 +42,7 @@
     "test:coverage": "bun test --coverage",
     "build": "bun run ../../scripts/build-package.ts --entry src/index.ts",
     "parity:verify": "bun run scripts/verify-llama-parity.ts",
-    "bench:cache": "bun run scripts/benchmark-cache.ts"
+    "bench:cache": "bun run scripts/benchmark-cache.ts",
+    "regression:models": "bun run scripts/regression-model-matrix.ts"
   }
 }

@@ -1,6 +1,6 @@
-import { Linear, Module, QuantizedLinear } from "@mlxts/nn";
+import { Embedding, Linear, Module, QuantizedEmbedding, QuantizedLinear } from "@mlxts/nn";
 
-import type { LinearChildSlot, ModuleChildSlot } from "./types";
+import type { EmbeddingChildSlot, LinearChildSlot, ModuleChildSlot } from "./types";
 
 function childPath(prefix: string, key: string): string {
   return prefix === "" ? key : `${prefix}.${key}`;
@@ -72,6 +72,30 @@ export function visitLinearChildren(
     module,
     (slot) => {
       if (!(slot.child instanceof Linear || slot.child instanceof QuantizedLinear)) {
+        return;
+      }
+
+      visitor({
+        path: slot.path,
+        parent: slot.parent,
+        key: slot.key,
+        child: slot.child,
+      });
+    },
+    prefix,
+  );
+}
+
+/** Visit direct child embedding slots in stable enumerable-key order. */
+export function visitEmbeddingChildren(
+  module: Module,
+  visitor: (slot: EmbeddingChildSlot) => void,
+  prefix = "",
+): void {
+  visitChildModules(
+    module,
+    (slot) => {
+      if (!(slot.child instanceof Embedding || slot.child instanceof QuantizedEmbedding)) {
         return;
       }
 

@@ -15,6 +15,7 @@ export {
   expandQwen3_5ImageTokens,
   prepareQwen3_5ImagePrompt,
 } from "./families/qwen3_5/conditional";
+export { loadQwen3_5ForConditionalGeneration } from "./families/qwen3_5/load";
 export {
   type DecodedQwen3_5Image,
   loadQwen3_5VisionPreprocessor,

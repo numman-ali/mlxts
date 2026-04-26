@@ -16,6 +16,7 @@ import {
   loadCausalLM,
   loadInteractionProfile,
   loadPretrainedTokenizer,
+  loadQwen3_5ForConditionalGeneration,
   loadQwen3_5VisionPreprocessor,
   makePromptCache,
   prepareQwen3_5ImageBatch,
@@ -47,6 +48,26 @@ The canonical surface is function-first: `resolvePretrainedSource()`,
 `generateText()`, and `generateTextStream()`. `AutoModel` and `AutoTokenizer`
 are convenience aliases over the same loader functions.
 
+## Model Regression Matrix
+
+Use the focused matrix before commits that touch loading, quantization, model
+families, generation, or benchmark surfaces:
+
+```bash
+bun run --filter '@mlxts/transformers' regression:models
+```
+
+When cached real Qwen and Gemma checkpoints are available, use the stricter
+local smoke before high-risk model commits:
+
+```bash
+bun run packages/transformers/scripts/regression-model-matrix.ts --decode-smoke
+```
+
+The real path runs sequentially under the shared MLX runtime lock, checks
+load-memory budgets for Qwen 3.6 and Gemma 4, and enforces decode smoke budgets
+for throughput, peak memory, active-memory slope, and evals-per-token.
+
 Qwen 3.5 / Qwen 3.6 multimodal checkpoints also expose image-preparation
 helpers through the same package surface. The package owns checkpoint loading,
 chat template discovery, `preprocessor_config.json` parsing, multimodal prompt
@@ -55,7 +76,7 @@ resize stay at the example/application edge.
 
 ```ts
 const localSource = await resolvePretrainedSource("mlx-community/Qwen3.6-27B-4bit");
-using model = await loadCausalLM(localSource);
+using model = await loadQwen3_5ForConditionalGeneration(localSource);
 const tokenizer = await loadPretrainedTokenizer(localSource);
 const preprocessor = await loadQwen3_5VisionPreprocessor(localSource);
 

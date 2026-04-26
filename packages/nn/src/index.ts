@@ -14,6 +14,7 @@ export { Linear } from "./linear";
 export { LoRALinear } from "./lora-linear";
 export { crossEntropy, mse } from "./losses";
 export { Module } from "./module";
+export { QuantizedEmbedding } from "./quantized-embedding";
 export { fuseQuantizedLinears, QuantizedLinear } from "./quantized-linear";
 export { RMSNorm } from "./rms-norm";
 export { RoPE } from "./rope";

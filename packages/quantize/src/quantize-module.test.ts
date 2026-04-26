@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { Linear, Module, QuantizedLinear } from "@mlxts/nn";
+import { Embedding, Linear, Module, QuantizedEmbedding, QuantizedLinear } from "@mlxts/nn";
 
 import { quantizeModule } from "./quantize-module";
 
@@ -13,6 +13,7 @@ class TinyBlock extends Module {
 }
 
 class TinyModel extends Module {
+  tokens = new Embedding(8, 64);
   input = new Linear(64, 64);
   block = new TinyBlock();
 
@@ -69,9 +70,10 @@ describe("quantizeModule", () => {
     });
 
     expect(model.input).toBeInstanceOf(QuantizedLinear);
+    expect(model.tokens).toBeInstanceOf(QuantizedEmbedding);
     expect(model.block.up).toBeInstanceOf(QuantizedLinear);
     expect(model.block.down).toBeInstanceOf(Linear);
-    expect(result.targets.map((target) => target.path)).toEqual(["input", "block.up"]);
+    expect(result.targets.map((target) => target.path)).toEqual(["input", "block.up", "tokens"]);
     expect(result.skipped).toEqual([
       {
         path: "block.down",
@@ -88,8 +90,10 @@ describe("quantizeModule", () => {
     });
 
     expect(model.input).toBeInstanceOf(Linear);
+    expect(model.tokens).toBeInstanceOf(Embedding);
     expect(result.targets).toEqual([]);
     expect(result.skipped.some((entry) => entry.path === "input")).toBe(true);
+    expect(result.skipped.some((entry) => entry.path === "tokens")).toBe(true);
   });
 
   test("walks module arrays in stable order", () => {

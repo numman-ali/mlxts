@@ -196,12 +196,6 @@ function isQuantizableMappedWeight(
   if (tensor.shape.length !== 2 || !isFloatingDType(tensor.dtype)) {
     return false;
   }
-  if (
-    mappedPath.endsWith("embedTokens.weight") ||
-    mappedPath.endsWith("embedTokensPerLayer.weight")
-  ) {
-    return false;
-  }
   if (options.quantizeLmHead === false && mappedPath === "lmHead.weight") {
     return false;
   }

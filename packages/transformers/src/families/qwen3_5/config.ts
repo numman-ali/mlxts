@@ -34,8 +34,10 @@ import type {
 } from "./types";
 import {
   detectQwen3_5CheckpointStyle,
+  isIgnoredQwen3_5CausalLMWeight,
   isIgnoredQwen3_5TextWeight,
   isIgnoredQwen3_5Weight,
+  sanitizeQwen3_5CausalLMWeight,
   sanitizeQwen3_5TextWeight,
   sanitizeQwen3_5Weight,
   transformQwen3_5CheckpointTensor,
@@ -375,6 +377,17 @@ export function parseQwen3_5Config(rawConfig: Record<string, unknown>): Qwen3_5C
   };
 }
 
+export function parseQwen3_5CausalLMConfig(rawConfig: Record<string, unknown>): Qwen3_5TextConfig {
+  const config = expectConfigRecord(rawConfig, "Qwen 3.5 config");
+  const modelType = expectString(config, "model_type", "Qwen 3.5 config");
+  if (modelType !== "qwen3_5") {
+    throw new ConfigParseError(`Qwen 3.5 config.model_type must be "qwen3_5", got "${modelType}".`);
+  }
+
+  const textConfig = expectConfigRecord(config.text_config, "Qwen 3.5 config.text_config");
+  return parseQwen3_5TextConfigInternal(textConfig, "Qwen 3.5 config.text_config", config);
+}
+
 export const qwen3_5TextFamily: FamilyRegistration<Qwen3_5TextConfig> = {
   family: "qwen",
   modelTypes: ["qwen3_5_text"],
@@ -389,7 +402,21 @@ export const qwen3_5TextFamily: FamilyRegistration<Qwen3_5TextConfig> = {
   },
 };
 
-export const qwen3_5Family: FamilyRegistration<Qwen3_5Config> = {
+export const qwen3_5Family: FamilyRegistration<Qwen3_5TextConfig> = {
+  family: "qwen",
+  modelTypes: ["qwen3_5"],
+  parseConfig: parseQwen3_5CausalLMConfig,
+  createModel: (config) => new Qwen3_5TextCausalLM(config),
+  sanitizeWeight: sanitizeQwen3_5CausalLMWeight,
+  isIgnoredWeight: isIgnoredQwen3_5CausalLMWeight,
+  createCheckpointTensorTransform: async ({ snapshot }) => {
+    const style = await detectQwen3_5CheckpointStyle(snapshot);
+    return (_checkpointName, weightPath, tensor) =>
+      transformQwen3_5CheckpointTensor(style, weightPath, tensor);
+  },
+};
+
+export const qwen3_5ConditionalFamily: FamilyRegistration<Qwen3_5Config> = {
   family: "qwen",
   modelTypes: ["qwen3_5"],
   parseConfig: parseQwen3_5Config,

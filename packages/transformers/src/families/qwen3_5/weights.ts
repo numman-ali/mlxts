@@ -55,6 +55,17 @@ function normalizeWrapperTextCheckpointName(checkpointName: string): string {
     : checkpointName;
 }
 
+function normalizeCausalLMTextCheckpointName(checkpointName: string): string {
+  if (
+    checkpointName.startsWith("layers.") ||
+    checkpointName.startsWith("embed_tokens.") ||
+    checkpointName.startsWith("norm.")
+  ) {
+    return `model.${checkpointName}`;
+  }
+  return checkpointName;
+}
+
 function stripPrefix(checkpointName: string, prefixes: readonly string[]): string | null {
   for (const prefix of prefixes) {
     if (checkpointName.startsWith(prefix)) {
@@ -371,6 +382,25 @@ export function sanitizeQwen3_5Weight(
   return null;
 }
 
+export function sanitizeQwen3_5CausalLMWeight(
+  config: Qwen3_5TextConfig,
+  checkpointName: string,
+): string | null {
+  const languageModelName = stripPrefix(checkpointName, LANGUAGE_MODEL_PREFIXES);
+  if (languageModelName !== null) {
+    return sanitizeQwen3_5TextWeight(
+      config,
+      normalizeCausalLMTextCheckpointName(languageModelName),
+    );
+  }
+
+  if (stripPrefix(checkpointName, VISION_PREFIXES) !== null) {
+    return null;
+  }
+
+  return sanitizeQwen3_5TextWeight(config, checkpointName);
+}
+
 export function isIgnoredQwen3_5TextWeight(
   config: Qwen3_5TextConfig,
   checkpointName: string,
@@ -380,6 +410,23 @@ export function isIgnoredQwen3_5TextWeight(
     checkpointName.startsWith("mtp.") ||
     (config.tieWordEmbeddings && checkpointName === "lm_head.weight")
   );
+}
+
+export function isIgnoredQwen3_5CausalLMWeight(
+  config: Qwen3_5TextConfig,
+  checkpointName: string,
+): boolean {
+  const languageModelName = stripPrefix(checkpointName, LANGUAGE_MODEL_PREFIXES);
+  if (languageModelName !== null) {
+    return isIgnoredQwen3_5TextWeight(
+      config,
+      normalizeCausalLMTextCheckpointName(languageModelName),
+    );
+  }
+
+  return stripPrefix(checkpointName, VISION_PREFIXES) !== null
+    ? true
+    : isIgnoredQwen3_5TextWeight(config, checkpointName);
 }
 
 export function isIgnoredQwen3_5Weight(config: Qwen3_5Config, checkpointName: string): boolean {

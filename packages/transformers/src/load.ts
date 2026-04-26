@@ -124,11 +124,15 @@ function tokenizerFileSet(
   return fileSet;
 }
 
-type PreparedModel = {
+export type PreparedModel<TModel extends CausalLM & Module = CausalLM & Module> = {
   registration: FamilyRegistration;
   config: BaseModelConfig;
-  model: CausalLM & Module;
+  model: TModel;
 };
+
+export type PrepareModelFromConfig<TModel extends CausalLM & Module = CausalLM & Module> = (
+  configRecord: Record<string, unknown>,
+) => PreparedModel<TModel>;
 
 function ensureModuleModel(model: CausalLM, family: string): CausalLM & Module {
   if (!(model instanceof Module)) {
@@ -331,13 +335,23 @@ function finalizeLoadedModel(
 }
 
 /** Load a pretrained decoder model from a local directory or Hugging Face repo. */
-export async function loadCausalLM(
+export async function loadPreparedCausalLM(
+  source: string,
+  options?: LoadCausalLMOptions,
+): Promise<CausalLM>;
+export async function loadPreparedCausalLM<TModel extends CausalLM & Module>(
+  source: string,
+  options: LoadCausalLMOptions | undefined,
+  prepare: PrepareModelFromConfig<TModel>,
+): Promise<TModel>;
+export async function loadPreparedCausalLM(
   source: string,
   options: LoadCausalLMOptions = {},
+  prepare: PrepareModelFromConfig = prepareModel,
 ): Promise<CausalLM> {
   const snapshot = await resolvePretrainedSnapshot(source, options);
   const inspection = inspectSnapshot(snapshot);
-  const { registration, config, model } = prepareModel(inspection.config);
+  const { registration, config, model } = prepare(inspection.config);
   const generationDefaults = parseGenerationDefaults(inspection.generationConfig);
   if (generationDefaults !== undefined) {
     config.generationDefaults = generationDefaults;
@@ -384,6 +398,14 @@ export async function loadCausalLM(
     model[Symbol.dispose]();
     throw error;
   }
+}
+
+/** Load a pretrained decoder model from a local directory or Hugging Face repo. */
+export async function loadCausalLM(
+  source: string,
+  options: LoadCausalLMOptions = {},
+): Promise<CausalLM> {
+  return loadPreparedCausalLM(source, options);
 }
 
 /** Load the tokenizer associated with a pretrained model snapshot. */

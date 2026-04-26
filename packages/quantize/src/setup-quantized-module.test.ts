@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { Linear, Module, QuantizedLinear } from "@mlxts/nn";
+import { Embedding, Linear, Module, QuantizedEmbedding, QuantizedLinear } from "@mlxts/nn";
 
 import { resolveCheckpointQuantizationPlan } from "./checkpoint-plan";
 import { setupQuantizedModule } from "./setup-quantized-module";
@@ -14,6 +14,7 @@ class TinyBlock extends Module {
 }
 
 class TinyModel extends Module {
+  tokens = new Embedding(8, 64);
   block = new TinyBlock();
   lmHead = new Linear(64, 128);
 
@@ -36,8 +37,9 @@ describe("setupQuantizedModule", () => {
 
     expect(model.block.qProjection).toBeInstanceOf(QuantizedLinear);
     expect(model.block.kProjection).toBeInstanceOf(QuantizedLinear);
+    expect(model.tokens).toBeInstanceOf(QuantizedEmbedding);
     expect(model.lmHead).toBeInstanceOf(QuantizedLinear);
-    expect(result.targets).toHaveLength(3);
+    expect(result.targets).toHaveLength(4);
   });
 
   test("honors explicit-only checkpoint rules", () => {
@@ -46,6 +48,7 @@ describe("setupQuantizedModule", () => {
       quantization: {
         bits: 4,
         group_size: 64,
+        tokens: true,
         "block.qProjection": true,
       },
     });
@@ -56,9 +59,10 @@ describe("setupQuantizedModule", () => {
     const result = setupQuantizedModule(model, plan);
 
     expect(model.block.qProjection).toBeInstanceOf(QuantizedLinear);
+    expect(model.tokens).toBeInstanceOf(QuantizedEmbedding);
     expect(model.block.kProjection).toBeInstanceOf(Linear);
     expect(model.lmHead).toBeInstanceOf(Linear);
-    expect(result.targets.map((target) => target.path)).toEqual(["block.qProjection"]);
+    expect(result.targets.map((target) => target.path)).toEqual(["block.qProjection", "tokens"]);
   });
 
   test("rejects unsupported providers until weight transforms exist", () => {
@@ -85,6 +89,7 @@ describe("setupQuantizedModule", () => {
       quantization: {
         bits: 4,
         group_size: 64,
+        tokens: false,
         "block.qProjection": false,
       },
     });
@@ -94,8 +99,13 @@ describe("setupQuantizedModule", () => {
 
     const result = setupQuantizedModule(model, plan);
     expect(model.block.qProjection).toBeInstanceOf(Linear);
+    expect(model.tokens).toBeInstanceOf(Embedding);
     expect(result.skipped).toContainEqual({
       path: "block.qProjection",
+      reason: "explicit checkpoint rule disabled quantization",
+    });
+    expect(result.skipped).toContainEqual({
+      path: "tokens",
       reason: "explicit checkpoint rule disabled quantization",
     });
   });

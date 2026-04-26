@@ -3,9 +3,9 @@
 import type { GenerationOptions, PretrainedLoadProgressEvent } from "@mlxts/transformers";
 import {
   generatePreparedTokens,
-  loadCausalLM,
   loadInteractionProfile,
   loadPretrainedTokenizer,
+  loadQwen3_5ForConditionalGeneration,
   loadQwen3_5VisionPreprocessor,
   prepareQwen3_5ImageBatch,
   prepareQwen3_5ImagePrompt,
@@ -198,7 +198,9 @@ async function main(): Promise<void> {
 
   const reportProgress = createProgressReporter();
   const localSource = await resolvePretrainedSource(cli.source, { onProgress: reportProgress });
-  using model = await loadCausalLM(localSource, { onProgress: reportProgress });
+  using model = await loadQwen3_5ForConditionalGeneration(localSource, {
+    onProgress: reportProgress,
+  });
   const tokenizer = await loadPretrainedTokenizer(localSource, { onProgress: reportProgress });
   const interactionProfile = await loadInteractionProfile(localSource);
   const preprocessor = await loadQwen3_5VisionPreprocessor(localSource);
