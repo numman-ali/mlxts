@@ -143,6 +143,8 @@ const budget: ServeRegressionBudget = {
   expectedStaticBatches: 0,
   expectedContinuousAdmissions: 0,
   expectedMaxGenerationBatchSize: 1,
+  minModelLaneWaitEvents: 1,
+  minModelLaneBusyWaitEvents: 1,
 };
 
 describe("serve regression matrix", () => {
@@ -185,6 +187,11 @@ describe("serve regression matrix", () => {
   });
 
   test("fails on throughput, memory, token, stream, route, evidence, batch, and finish regressions", () => {
+    const baseServerRequest = trial().serverRequests[0];
+    if (baseServerRequest === undefined) {
+      throw new Error("Expected trial fixture to include one server request.");
+    }
+
     expect(() =>
       assertServeReportBudget("qwen", report(trial({ completionTps: 10 })), budget),
     ).toThrow("completion_tps");
@@ -225,6 +232,54 @@ describe("serve regression matrix", () => {
     expect(() =>
       assertServeReportBudget("qwen", report(trial({ maxGenerationBatchSize: 2 })), budget),
     ).toThrow("max_generation_batch");
+    expect(() =>
+      assertServeReportBudget(
+        "qwen",
+        report(
+          trial({
+            serverRequests: [
+              {
+                id: "request",
+                model: "local",
+                protocol: "openai.completions",
+                routeDecisionMs: 1,
+                modelLaneWaitMs: null,
+                modelLaneQueuedAhead: null,
+                modelLaneInFlightAtQueue: null,
+                firstPrefillProgressMs: null,
+                lastPrefillProgressMs: null,
+                prefillObservedMs: null,
+                firstCompletionProgressMs: 100,
+                completeObservedMs: 1000,
+                durationMs: 1000,
+                maxSilentEventGapMs: 900,
+                prefillEvents: 0,
+                progressEvents: 2,
+                maxCompletionTokens: 128,
+                finishReason: "length",
+              },
+            ],
+          }),
+        ),
+        budget,
+      ),
+    ).toThrow("model_lane_wait_events");
+    expect(() =>
+      assertServeReportBudget(
+        "qwen",
+        report(
+          trial({
+            serverRequests: [
+              {
+                ...baseServerRequest,
+                modelLaneInFlightAtQueue: 0,
+              },
+            ],
+          }),
+        ),
+        budget,
+      ),
+    ).toThrow("model_lane_busy_wait_events");
     expect(() =>
       assertServeReportBudget("qwen", report(trial({ finishReasons: ["unknown"] })), budget),
     ).toThrow("unexpected finish reasons");
