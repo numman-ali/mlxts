@@ -7,14 +7,22 @@ import { formatShape, MxArray } from "@mlxts/core";
 import { Linear, Module } from "@mlxts/nn";
 
 import {
+  isManagedLayerPatternBatchKVCache,
+  isSingleTransformerCache,
+} from "../../infrastructure/cache";
+import {
   createBorrowedTransformerCacheView,
   retainTransformerCacheView,
   type TransformerCacheView,
   updateAndFetchTransformerCacheView,
 } from "../../infrastructure/cache/view";
-import { type AttentionMask, createCausalMask } from "../../infrastructure/masks";
+import {
+  type AttentionMask,
+  createCausalMask,
+  createLeftPaddedAttentionMask,
+} from "../../infrastructure/masks";
 import { recordTransformerRuntimeCounter } from "../../infrastructure/runtime-profile";
-import type { TransformerCache } from "../../types";
+import type { DecoderCache } from "../../types";
 import { Gemma4RMSNorm } from "./norm";
 import { createRoPE, type RotaryEmbedding } from "./rope";
 import type { AttentionRuntimeLayout, AttentionRuntimeWeights } from "./runtime/attention";
@@ -33,6 +41,19 @@ type Gemma4AttentionResult = {
   output: MxArray;
   keyValues: Gemma4SharedKeyValues | null;
 };
+
+function ropeOffsetForCache(cache: DecoderCache | undefined): number | MxArray {
+  if (cache === undefined) {
+    return 0;
+  }
+  if (isManagedLayerPatternBatchKVCache(cache)) {
+    return cache.offsetTensor();
+  }
+  if (isSingleTransformerCache(cache)) {
+    return cache.offset;
+  }
+  throw new Error("Gemma4TextAttention.forward: unsupported batch cache implementation.");
+}
 
 /** Self-attention module used by Gemma 4 dense text decoder blocks. */
 export class Gemma4TextAttention extends Module {
@@ -109,26 +130,33 @@ export class Gemma4TextAttention extends Module {
 
   run(
     x: MxArray,
-    cache?: TransformerCache,
+    cache?: DecoderCache,
     sharedKeyValues?: Gemma4SharedKeyValues,
     attentionMask?: AttentionMask,
   ): Gemma4AttentionResult {
     const { sequenceLength } = this.assertInputShape(x);
-    const offset = cache?.offset ?? 0;
+    const offset = ropeOffsetForCache(cache);
     const layout = this.runtimeLayout();
     const weights = this.runtimeWeights();
 
-    using rotatedQueries = prepareQueryHeadsAndRope(layout, weights, x, offset);
-    using activeKeyValues = this.resolveActiveKeyValues(x, cache, sharedKeyValues, offset);
-    return this.runSDPAAndOutput(
-      layout,
-      weights,
-      rotatedQueries,
-      activeKeyValues,
-      sharedKeyValues,
-      attentionMask,
-      sequenceLength,
-    );
+    try {
+      using rotatedQueries = prepareQueryHeadsAndRope(layout, weights, x, offset);
+      using activeKeyValues = this.resolveActiveKeyValues(x, cache, sharedKeyValues, offset);
+      return this.runSDPAAndOutput(
+        layout,
+        weights,
+        rotatedQueries,
+        activeKeyValues,
+        sharedKeyValues,
+        cache,
+        attentionMask,
+        sequenceLength,
+      );
+    } finally {
+      if (offset instanceof MxArray) {
+        offset.free();
+      }
+    }
   }
 
   private runSDPAAndOutput(
@@ -137,11 +165,13 @@ export class Gemma4TextAttention extends Module {
     rotatedQueries: MxArray,
     activeKeyValues: TransformerCacheView,
     sharedKeyValues: Gemma4SharedKeyValues | undefined,
+    cache: DecoderCache | undefined,
     attentionMask: AttentionMask | undefined,
     sequenceLength: number,
   ): Gemma4AttentionResult {
     const { mask: attentionMaskValue, ownedMask } = this.resolveAttentionMask(
       attentionMask,
+      cache,
       sequenceLength,
       activeKeyValues.keys,
       rotatedQueries.dtype,
@@ -192,9 +222,9 @@ export class Gemma4TextAttention extends Module {
 
   private resolveActiveKeyValues(
     x: MxArray,
-    cache: TransformerCache | undefined,
+    cache: DecoderCache | undefined,
     sharedKeyValues: Gemma4SharedKeyValues | undefined,
-    offset: number,
+    offset: number | MxArray,
   ): TransformerCacheView {
     if (sharedKeyValues !== undefined) {
       return createBorrowedTransformerCacheView(sharedKeyValues.keys, sharedKeyValues.values);
@@ -204,12 +234,13 @@ export class Gemma4TextAttention extends Module {
 
   private resolveAttentionMask(
     attentionMask: AttentionMask | undefined,
+    cache: DecoderCache | undefined,
     sequenceLength: number,
     keys: MxArray,
     dtype: MxArray["dtype"],
   ): { mask: AttentionMask; ownedMask: MxArray | null } {
     if (attentionMask === undefined) {
-      const createdMask = this.createMask(sequenceLength, keys, dtype);
+      const createdMask = this.createMask(cache, sequenceLength, keys, dtype);
       if (createdMask instanceof MxArray) {
         recordTransformerRuntimeCounter("attention.mask_created");
       }
@@ -239,8 +270,8 @@ export class Gemma4TextAttention extends Module {
 
   private buildFreshKeyValues(
     x: MxArray,
-    cache: TransformerCache | undefined,
-    offset: number,
+    cache: DecoderCache | undefined,
+    offset: number | MxArray,
   ): TransformerCacheView {
     const layout = this.runtimeLayout();
     const weights = this.runtimeWeights();
@@ -262,6 +293,7 @@ export class Gemma4TextAttention extends Module {
   }
 
   private createMask(
+    cache: DecoderCache | undefined,
     sequenceLength: number,
     keys: MxArray,
     dtype: MxArray["dtype"],
@@ -271,6 +303,20 @@ export class Gemma4TextAttention extends Module {
       throw new Error("Gemma4TextAttention.forward: key states are missing a sequence axis.");
     }
     const visiblePastLength = Math.max(0, totalKeyLength - sequenceLength);
+    if (isManagedLayerPatternBatchKVCache(cache)) {
+      using leftPadding = cache.leftPaddingTensorForLayer(
+        this.#layerIndex,
+        totalKeyLength,
+        sequenceLength,
+      );
+      return createLeftPaddedAttentionMask(
+        sequenceLength,
+        totalKeyLength,
+        visiblePastLength,
+        leftPadding,
+        this.#windowSize,
+      );
+    }
     return createCausalMask(
       sequenceLength,
       totalKeyLength,

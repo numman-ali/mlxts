@@ -1,8 +1,13 @@
 import type { DecoderCache, TransformerCache } from "../../types";
 
 import { isManagedBatchKVCache } from "./batch";
+import { isManagedLayerPatternBatchKVCache } from "./layer-pattern-batch";
 
 export { BatchKVCache, isManagedBatchKVCache } from "./batch";
+export {
+  isManagedLayerPatternBatchKVCache,
+  LayerPatternBatchKVCache,
+} from "./layer-pattern-batch";
 export { cacheStateArrays, KVCache, LayerPatternKVCache, SlidingWindowKVCache } from "./single";
 
 /** Return true when a decoder cache has the single-sequence cache contract. */
@@ -19,7 +24,11 @@ export function expectSingleTransformerCache(
     return undefined;
   }
   if (!isSingleTransformerCache(cache)) {
-    const cacheName = isManagedBatchKVCache(cache) ? "BatchKVCache" : "batch cache";
+    const cacheName = isManagedBatchKVCache(cache)
+      ? "BatchKVCache"
+      : isManagedLayerPatternBatchKVCache(cache)
+        ? "LayerPatternBatchKVCache"
+        : "batch cache";
     throw new Error(`${context}: ${cacheName} is not supported by this model yet.`);
   }
   return cache;

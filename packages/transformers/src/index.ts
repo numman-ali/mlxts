@@ -45,6 +45,7 @@ export {
 export {
   BatchKVCache,
   KVCache,
+  LayerPatternBatchKVCache,
   LayerPatternKVCache,
   SlidingWindowKVCache,
 } from "./infrastructure/cache";

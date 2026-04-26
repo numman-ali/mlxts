@@ -8,7 +8,7 @@ import { add } from "@mlxts/core";
 import { Module } from "@mlxts/nn";
 
 import type { AttentionMask } from "../../infrastructure/masks";
-import type { TransformerCache } from "../../types";
+import type { DecoderCache } from "../../types";
 import { Gemma3Attention } from "./attention";
 import { Gemma3MLP } from "./mlp";
 import { Gemma3RMSNorm } from "./norm";
@@ -43,7 +43,7 @@ export class Gemma3DecoderBlock extends Module {
     return this.run(x);
   }
 
-  run(x: MxArray, cache?: TransformerCache, attentionMask?: AttentionMask): MxArray {
+  run(x: MxArray, cache?: DecoderCache, attentionMask?: AttentionMask): MxArray {
     using normalizedForAttention = this.inputLayerNorm.forward(x);
     using attentionOutput = this.selfAttention.run(normalizedForAttention, cache, attentionMask);
     using normalizedAttentionOutput = this.postAttentionLayerNorm.forward(attentionOutput);

@@ -6,17 +6,23 @@
 import { type DisposableTransform, formatShape, MxArray, multiply } from "@mlxts/core";
 import { Embedding, Linear, Module } from "@mlxts/nn";
 
-import { expectSingleTransformerCache, LayerPatternKVCache } from "../../infrastructure/cache";
+import {
+  isManagedBatchKVCache,
+  isManagedLayerPatternBatchKVCache,
+  isSingleTransformerCache,
+  type LayerPatternBatchKVCache,
+  LayerPatternKVCache,
+} from "../../infrastructure/cache";
 import { retainInputEmbeddings } from "../../infrastructure/input-embeddings";
 import type { AttentionMask } from "../../infrastructure/masks";
-import type { CausalLM, ForwardOptions, TransformerCache } from "../../types";
+import type { CausalLM, DecoderCache, ForwardOptions, TransformerCache } from "../../types";
 import { Gemma4TextDecoderBlock } from "./block";
 import { Gemma4RMSNorm } from "./norm";
 import {
   buildSharedKeyValuePlan,
-  createAttentionMasks,
   createLogitSoftcap,
   createPerLayerInputs,
+  createAttentionMasks as createSingleAttentionMasks,
   releasePerLayerInputs,
   releaseSharedKeyValues,
   resolvePerLayerInput,
@@ -24,6 +30,22 @@ import {
   takeSharedKeyValuesForLayer,
 } from "./runtime/model";
 import type { Gemma4SharedKeyValues, Gemma4TextConfig } from "./types";
+
+type Gemma4Cache = TransformerCache | LayerPatternBatchKVCache;
+
+function expectGemma4Cache(
+  cache: DecoderCache | undefined,
+  context: string,
+): Gemma4Cache | undefined {
+  if (cache === undefined) {
+    return undefined;
+  }
+  if (isSingleTransformerCache(cache) || isManagedLayerPatternBatchKVCache(cache)) {
+    return cache;
+  }
+  const cacheName = isManagedBatchKVCache(cache) ? "BatchKVCache" : "batch cache";
+  throw new Error(`${context}: ${cacheName} is not supported by Gemma 4.`);
+}
 
 /** Decoder backbone shared by Gemma 4 dense text-family checkpoints. */
 export class Gemma4TextModel extends Module {
@@ -86,7 +108,7 @@ export class Gemma4TextModel extends Module {
     return this.run(inputIds);
   }
 
-  run(inputIds: MxArray, cache?: TransformerCache, inputEmbeddings?: MxArray): MxArray {
+  run(inputIds: MxArray, cache?: Gemma4Cache, inputEmbeddings?: MxArray): MxArray {
     this.assertTokenIds(inputIds, "Gemma4TextModel.forward");
     const sequenceLength = inputIds.shape[1];
     if (sequenceLength === undefined) {
@@ -108,13 +130,7 @@ export class Gemma4TextModel extends Module {
       inputScale: this.#perLayerInputScale,
       projectionScale: this.#perLayerProjectionScale,
     });
-    const attentionMasks = createAttentionMasks(
-      this.layers,
-      sequenceLength,
-      cache?.offset ?? 0,
-      this.#slidingWindow,
-      cache !== undefined,
-    );
+    const attentionMasks = this.createAttentionMasks(sequenceLength, cache);
 
     try {
       const layered = this.runLayers(hidden, cache, perLayerInputs, attentionMasks);
@@ -173,9 +189,9 @@ export class Gemma4TextModel extends Module {
 
   private runLayers(
     hidden: MxArray,
-    cache: TransformerCache | undefined,
+    cache: Gemma4Cache | undefined,
     perLayerInputs: MxArray | null,
-    attentionMasks: AttentionMask[],
+    attentionMasks: (AttentionMask | undefined)[],
   ): { hidden: MxArray; keyValues: (Gemma4SharedKeyValues | null)[] } {
     let currentHidden = hidden;
     const keyValues = Array<Gemma4SharedKeyValues | null>(this.layers.length).fill(null);
@@ -227,6 +243,22 @@ export class Gemma4TextModel extends Module {
       perLayerProjectionNorm: this.perLayerProjectionNorm,
     };
   }
+
+  private createAttentionMasks(
+    sequenceLength: number,
+    cache: Gemma4Cache | undefined,
+  ): (AttentionMask | undefined)[] {
+    if (isManagedLayerPatternBatchKVCache(cache)) {
+      return this.layers.map(() => undefined);
+    }
+    return createSingleAttentionMasks(
+      this.layers,
+      sequenceLength,
+      cache?.offset ?? 0,
+      this.#slidingWindow,
+      cache !== undefined,
+    );
+  }
 }
 
 /** Causal LM wrapper for Gemma 4 dense text-family checkpoints. */
@@ -276,7 +308,7 @@ export class Gemma4TextCausalLM extends Module implements CausalLM {
         ? optionsOrTensor
         : undefined;
 
-    const cache = expectSingleTransformerCache(options?.cache, "Gemma4TextCausalLM.forward");
+    const cache = expectGemma4Cache(options?.cache, "Gemma4TextCausalLM.forward");
     using hidden = this.model.run(inputIds, cache, options?.inputEmbeddings);
     let logits =
       this.lmHead === null ? this.model.embedTokens.asLinear(hidden) : this.lmHead.forward(hidden);

@@ -2,8 +2,9 @@ import { describe, expect, test } from "bun:test";
 import { array, full, type MxArray, retainArray, zeros } from "@mlxts/core";
 import { Module } from "@mlxts/nn";
 
+import { generateBatchTokens, generateTokens } from "../../generation";
 import type { TransformerCache } from "../../types";
-import { Gemma4TextModel } from "./model";
+import { Gemma4TextCausalLM, Gemma4TextModel } from "./model";
 import type { Gemma4SharedKeyValues, Gemma4TextConfig } from "./types";
 
 function gemma4Config(overrides: Partial<Gemma4TextConfig> = {}): Gemma4TextConfig {
@@ -80,6 +81,28 @@ class CapturePerLayerInputBlock extends Module {
 }
 
 describe("Gemma4TextModel", () => {
+  test("static greedy batch generation matches separate single-prompt generation with shared KV", () => {
+    using model = new Gemma4TextCausalLM(
+      gemma4Config({
+        numHiddenLayers: 3,
+        layerTypes: ["sliding_attention", "full_attention", "sliding_attention"],
+        hiddenSizePerLayerInput: 0,
+        numKvSharedLayers: 1,
+        slidingWindow: 2,
+      }),
+    );
+    const prompts = [
+      [1, 2, 3, 4],
+      [5, 6],
+    ];
+    const options = { maxTokens: 2, temperature: 0, eosTokenIds: [] };
+
+    const separate = prompts.map((prompt) => generateTokens(model, prompt, options));
+    const batched = generateBatchTokens(model, prompts, options);
+
+    expect(batched).toEqual(separate);
+  });
+
   test("scales per-layer token embeddings by sqrt(hiddenSizePerLayerInput)", () => {
     const config = gemma4Config();
     using model = new Gemma4TextModel(config);

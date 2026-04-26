@@ -132,6 +132,27 @@ describe("causal masks", () => {
     expect(mask.toList()).toEqual([[[[0, 1, 1, 1, 1]]], [[[0, 0, 0, 1, 1]]]]);
   });
 
+  test("creates left-padded sliding masks after stale positions are trimmed", () => {
+    using leftPadding = array([1, 0], "int32");
+    using mask = createLeftPaddedAttentionMask(2, 4, 2, leftPadding, 3);
+
+    expect(mask.shape).toEqual([2, 1, 2, 4]);
+    expect(mask.toList()).toEqual([
+      [
+        [
+          [0, 1, 1, 0],
+          [0, 1, 1, 1],
+        ],
+      ],
+      [
+        [
+          [1, 1, 1, 0],
+          [0, 1, 1, 1],
+        ],
+      ],
+    ]);
+  });
+
   test("rejects non-positive query and key lengths", () => {
     expect(() => createCausalMask(0, 1, 0)).toThrow("must be positive");
     expect(() => createCausalMask(1, 0, 0)).toThrow("must be positive");

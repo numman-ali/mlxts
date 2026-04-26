@@ -5,6 +5,7 @@ import {
   BatchKVCache,
   cacheStateArrays,
   KVCache,
+  LayerPatternBatchKVCache,
   LayerPatternKVCache,
   SlidingWindowKVCache,
 } from "./index";
@@ -307,5 +308,184 @@ describe("Transformer caches", () => {
     expect(empty.leftPadding).toEqual([2, 0]);
     expect(empty.offsets).toEqual([0, 2]);
     expect(ownedExtendedKeys.toList()).toEqual([[[[0], [0]]], [[[7], [8]]]]);
+  });
+
+  test("managed LayerPatternBatchKVCache retains full and sliding layers independently", () => {
+    using cache = new LayerPatternBatchKVCache(2, [2, 0], [undefined, 2]);
+    using keys = array([[[[0], [0], [1], [2]]], [[[3], [4], [5], [6]]]], "float32");
+    using values = array([[[[10], [10], [11], [12]]], [[[13], [14], [15], [16]]]], "float32");
+    using fullView = cache.updateAndFetch(0, keys, values).keys;
+    using slidingView = cache.updateAndFetch(1, keys, values).keys;
+    cache.advance(4);
+    const stateArrays = cache.arrays();
+    const fullKeys = stateArrays[0];
+    const fullValues = stateArrays[1];
+    const slidingKeys = stateArrays[2];
+    const slidingValues = stateArrays[3];
+    if (
+      fullKeys === undefined ||
+      fullValues === undefined ||
+      slidingKeys === undefined ||
+      slidingValues === undefined
+    ) {
+      throw new Error("expected retained layer-pattern batch cache keys");
+    }
+    using ownedFullKeys = fullKeys;
+    using _ownedFullValues = fullValues;
+    using ownedSlidingKeys = slidingKeys;
+    using _ownedSlidingValues = slidingValues;
+    using fullPadding = cache.leftPaddingTensorForLayer(0, 4, 0);
+    using slidingPaddingAfterDecode = cache.leftPaddingTensorForLayer(1, 2, 1);
+    mxEval(fullView, slidingView, ownedFullKeys, ownedSlidingKeys);
+
+    expect(fullView.shape).toEqual([2, 1, 4, 1]);
+    expect(slidingView.shape).toEqual([2, 1, 4, 1]);
+    expect(ownedFullKeys.shape).toEqual([2, 1, 4, 1]);
+    expect(ownedSlidingKeys.shape).toEqual([2, 1, 2, 1]);
+    expect(fullPadding.toList()).toEqual([2, 0]);
+    expect(slidingPaddingAfterDecode.toList()).toEqual([0, 0]);
+  });
+
+  test("managed LayerPatternBatchKVCache filters active requests with retained sliding state", () => {
+    using cache = new LayerPatternBatchKVCache(2, [2, 1, 0], [undefined, 2]);
+    using keys = array([[[[0], [0], [1]]], [[[0], [2], [3]]], [[[4], [5], [6]]]], "float32");
+    using values = array(
+      [[[[10], [10], [11]]], [[[10], [12], [13]]], [[[14], [15], [16]]]],
+      "float32",
+    );
+    using fullView = cache.updateAndFetch(0, keys, values).keys;
+    using slidingView = cache.updateAndFetch(1, keys, values).keys;
+    cache.advance(3);
+    mxEval(fullView, slidingView);
+
+    cache.filter([0, 1]);
+    const stateArrays = cache.arrays();
+    const fullKeys = stateArrays[0];
+    const fullValues = stateArrays[1];
+    const slidingKeys = stateArrays[2];
+    const slidingValues = stateArrays[3];
+    if (
+      fullKeys === undefined ||
+      fullValues === undefined ||
+      slidingKeys === undefined ||
+      slidingValues === undefined
+    ) {
+      throw new Error("expected retained layer-pattern batch cache keys");
+    }
+    using ownedFullKeys = fullKeys;
+    using _ownedFullValues = fullValues;
+    using ownedSlidingKeys = slidingKeys;
+    using _ownedSlidingValues = slidingValues;
+    mxEval(ownedFullKeys, ownedSlidingKeys);
+
+    expect(cache.batchSize).toBe(2);
+    expect(cache.length).toBe(2);
+    expect(cache.leftPadding).toEqual([1, 0]);
+    expect(cache.offsets).toEqual([1, 2]);
+    expect(ownedFullKeys.toList()).toEqual([[[[0], [1]]], [[[2], [3]]]]);
+    expect(ownedSlidingKeys.toList()).toEqual([[[[0], [1]]], [[[2], [3]]]]);
+  });
+
+  test("managed LayerPatternBatchKVCache extends batches and extracts single caches", () => {
+    using first = new LayerPatternBatchKVCache(2, [0], [undefined, 2]);
+    using firstKeys = array([[[[1], [2], [3]]]], "float32");
+    using firstValues = array([[[[11], [12], [13]]]], "float32");
+    using firstFullView = first.updateAndFetch(0, firstKeys, firstValues).keys;
+    using firstSlidingView = first.updateAndFetch(1, firstKeys, firstValues).keys;
+    first.advance(3);
+
+    using second = new LayerPatternBatchKVCache(2, [0], [undefined, 2]);
+    using secondKeys = array([[[[4]]]], "float32");
+    using secondValues = array([[[[14]]]], "float32");
+    using secondFullView = second.updateAndFetch(0, secondKeys, secondValues).keys;
+    using secondSlidingView = second.updateAndFetch(1, secondKeys, secondValues).keys;
+    second.advance(1);
+    mxEval(firstFullView, firstSlidingView, secondFullView, secondSlidingView);
+
+    first.extend(second);
+    const stateArrays = first.arrays();
+    const fullKeys = stateArrays[0];
+    const fullValues = stateArrays[1];
+    const slidingKeys = stateArrays[2];
+    const slidingValues = stateArrays[3];
+    if (
+      fullKeys === undefined ||
+      fullValues === undefined ||
+      slidingKeys === undefined ||
+      slidingValues === undefined
+    ) {
+      throw new Error("expected extended layer-pattern batch cache keys");
+    }
+    using ownedFullKeys = fullKeys;
+    using _ownedFullValues = fullValues;
+    using ownedSlidingKeys = slidingKeys;
+    using _ownedSlidingValues = slidingValues;
+    mxEval(ownedFullKeys, ownedSlidingKeys);
+
+    expect(first.batchSize).toBe(2);
+    expect(first.length).toBe(3);
+    expect(first.leftPadding).toEqual([0, 2]);
+    expect(first.offsets).toEqual([3, 1]);
+    expect(ownedFullKeys.toList()).toEqual([[[[1], [2], [3]]], [[[0], [0], [4]]]]);
+    expect(ownedSlidingKeys.toList()).toEqual([[[[2], [3]]], [[[0], [4]]]]);
+
+    using extracted = first.extract(1);
+    const extractedArrays = extracted.arrays();
+    const extractedFullKeys = extractedArrays[0];
+    const extractedFullValues = extractedArrays[1];
+    const extractedSlidingKeys = extractedArrays[2];
+    const extractedSlidingValues = extractedArrays[3];
+    if (
+      extractedFullKeys === undefined ||
+      extractedFullValues === undefined ||
+      extractedSlidingKeys === undefined ||
+      extractedSlidingValues === undefined
+    ) {
+      throw new Error("expected extracted layer-pattern cache keys");
+    }
+    using ownedExtractedFullKeys = extractedFullKeys;
+    using _ownedExtractedFullValues = extractedFullValues;
+    using ownedExtractedSlidingKeys = extractedSlidingKeys;
+    using _ownedExtractedSlidingValues = extractedSlidingValues;
+    mxEval(ownedExtractedFullKeys, ownedExtractedSlidingKeys);
+
+    expect(extracted.offset).toBe(1);
+    expect(ownedExtractedFullKeys.toList()).toEqual([[[[4]]]]);
+    expect(ownedExtractedSlidingKeys.toList()).toEqual([[[[4]]]]);
+  });
+
+  test("managed LayerPatternBatchKVCache validates metadata and incompatible operations", () => {
+    expect(() => new LayerPatternBatchKVCache(0, [0], [undefined])).toThrow(
+      "layerCount must be a positive integer",
+    );
+    expect(() => new LayerPatternBatchKVCache(1, [], [undefined])).toThrow(
+      "leftPadding must contain",
+    );
+    expect(() => new LayerPatternBatchKVCache(1, [-1], [undefined])).toThrow("leftPadding[0]");
+    expect(() => new LayerPatternBatchKVCache(2, [0], [undefined])).toThrow(
+      "must match layerCount",
+    );
+    expect(() => new LayerPatternBatchKVCache(1, [0], [0])).toThrow(
+      "each window size must be positive",
+    );
+
+    using cache = new LayerPatternBatchKVCache(1, [0, 0], [undefined]);
+    expect(() => cache.advance(-1)).toThrow("sequenceLength must be non-negative");
+    expect(() => cache.filter([])).toThrow("batchIndices must contain");
+    expect(() => cache.filter([2])).toThrow("out of range");
+    expect(() => cache.filter([0, 0])).toThrow("duplicate");
+    expect(() => cache.extract(2)).toThrow("out of range");
+    expect(() => cache.extend(new BatchKVCache(1, [0]))).toThrow(
+      "expected another layer-pattern batch cache",
+    );
+
+    using incompatible = new LayerPatternBatchKVCache(1, [0], [2]);
+    expect(() => cache.extend(incompatible)).toThrow("layer window sizes must match");
+
+    using wrongBatchKeys = array([[[[1]]]], "float32");
+    using wrongBatchValues = array([[[[1]]]], "float32");
+    expect(() => cache.updateAndFetch(0, wrongBatchKeys, wrongBatchValues)).toThrow(
+      "update batch size must be 2",
+    );
   });
 });

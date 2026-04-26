@@ -6,13 +6,35 @@
 import { formatShape, MxArray, multiply } from "@mlxts/core";
 import { Embedding, Linear, Module } from "@mlxts/nn";
 
-import { expectSingleTransformerCache, LayerPatternKVCache } from "../../infrastructure/cache";
+import {
+  isManagedBatchKVCache,
+  isManagedLayerPatternBatchKVCache,
+  isSingleTransformerCache,
+  type LayerPatternBatchKVCache,
+  LayerPatternKVCache,
+} from "../../infrastructure/cache";
 import { retainInputEmbeddings } from "../../infrastructure/input-embeddings";
 import { type AttentionMask, createStepAttentionMask } from "../../infrastructure/masks";
-import type { CausalLM, ForwardOptions, TransformerCache } from "../../types";
+import type { CausalLM, DecoderCache, ForwardOptions, TransformerCache } from "../../types";
 import { Gemma3DecoderBlock } from "./block";
 import { Gemma3RMSNorm } from "./norm";
 import type { Gemma3TextConfig } from "./types";
+
+type Gemma3Cache = TransformerCache | LayerPatternBatchKVCache;
+
+function expectGemma3Cache(
+  cache: DecoderCache | undefined,
+  context: string,
+): Gemma3Cache | undefined {
+  if (cache === undefined) {
+    return undefined;
+  }
+  if (isSingleTransformerCache(cache) || isManagedLayerPatternBatchKVCache(cache)) {
+    return cache;
+  }
+  const cacheName = isManagedBatchKVCache(cache) ? "BatchKVCache" : "batch cache";
+  throw new Error(`${context}: ${cacheName} is not supported by Gemma 3.`);
+}
 
 /** Decoder backbone shared by Gemma 3 text checkpoints. */
 export class Gemma3TextModel extends Module {
@@ -40,7 +62,7 @@ export class Gemma3TextModel extends Module {
     return this.run(inputIds);
   }
 
-  run(inputIds: MxArray, cache?: TransformerCache, inputEmbeddings?: MxArray): MxArray {
+  run(inputIds: MxArray, cache?: Gemma3Cache, inputEmbeddings?: MxArray): MxArray {
     const [batch, sequenceLength] = inputIds.shape;
     if (batch === undefined || sequenceLength === undefined || inputIds.shape.length !== 2) {
       throw new Error(
@@ -56,11 +78,7 @@ export class Gemma3TextModel extends Module {
         "Gemma3TextModel.forward",
       ) ?? this.embedTokens.forward(inputIds);
     let hidden = multiply(embedded, this.#embeddingScale);
-    const attentionMasks = this.createAttentionMasks(
-      sequenceLength,
-      cache?.offset ?? 0,
-      cache !== undefined,
-    );
+    const attentionMasks = this.createAttentionMasks(sequenceLength, cache);
 
     try {
       for (let layerIndex = 0; layerIndex < this.layers.length; layerIndex += 1) {
@@ -93,9 +111,13 @@ export class Gemma3TextModel extends Module {
 
   private createAttentionMasks(
     sequenceLength: number,
-    pastLength: number,
-    trimmedSlidingMasks: boolean,
-  ): AttentionMask[] {
+    cache: Gemma3Cache | undefined,
+  ): (AttentionMask | undefined)[] {
+    if (isManagedLayerPatternBatchKVCache(cache)) {
+      return this.layers.map(() => undefined);
+    }
+
+    const pastLength = cache?.offset ?? 0;
     const sharedMasks = new Map<string, AttentionMask>();
     return this.layers.map((layer) => {
       const key = layer.isSliding ? `sliding:${this.#slidingWindow}` : "full";
@@ -107,7 +129,7 @@ export class Gemma3TextModel extends Module {
         sequenceLength,
         pastLength,
         layer.isSliding ? this.#slidingWindow : undefined,
-        layer.isSliding && trimmedSlidingMasks,
+        layer.isSliding && cache !== undefined,
       );
       sharedMasks.set(key, attentionMask);
       return attentionMask;
@@ -158,7 +180,7 @@ export class Gemma3TextCausalLM extends Module implements CausalLM {
         ? optionsOrTensor
         : undefined;
 
-    const cache = expectSingleTransformerCache(options?.cache, "Gemma3TextCausalLM.forward");
+    const cache = expectGemma3Cache(options?.cache, "Gemma3TextCausalLM.forward");
     using hidden = this.model.run(inputIds, cache, options?.inputEmbeddings);
     const logits =
       this.lmHead === null ? this.model.embedTokens.asLinear(hidden) : this.lmHead.forward(hidden);

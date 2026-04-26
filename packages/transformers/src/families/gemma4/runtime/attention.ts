@@ -78,7 +78,7 @@ export function prepareQueryHeadsAndRope(
   layout: AttentionRuntimeLayout,
   weights: AttentionRuntimeWeights,
   x: MxArray,
-  offset: number,
+  offset: number | MxArray,
 ): MxArray {
   using queryHeads = prepareQueryHeads(layout, weights, x);
   return weights.rope.forward(queryHeads, offset);
@@ -88,7 +88,7 @@ export function prepareKeyHeadsAndRope(
   layout: AttentionRuntimeLayout,
   weights: AttentionRuntimeWeights,
   x: MxArray,
-  offset: number,
+  offset: number | MxArray,
 ): MxArray {
   using keyHeads = prepareKeyHeads(layout, weights, x);
   return weights.rope.forward(keyHeads, offset);
@@ -98,7 +98,7 @@ export function prepareKeyValueHeads(
   layout: AttentionRuntimeLayout,
   weights: AttentionRuntimeWeights,
   x: MxArray,
-  offset: number,
+  offset: number | MxArray,
 ): { keys: MxArray; values: MxArray } {
   if (weights.vProjection === null) {
     const batchSize = x.shape[0] ?? 0;

@@ -10,8 +10,9 @@ import type {
   BatchTokenGenerationEvent,
   CausalLM,
   GenerationResult,
+  TransformerBatchCache,
 } from "../../types";
-import { BatchKVCache } from "../cache";
+import { BatchKVCache, LayerPatternBatchKVCache } from "../cache";
 import { throwIfGenerationAborted } from "./cancellation";
 import { resolveGenerationOptions } from "./defaults";
 import { takeLastLogits } from "./helpers";
@@ -128,7 +129,11 @@ function nextInputTensor(tokenIds: readonly number[], keepPositions: readonly nu
   );
 }
 
-function sampleNextBatchToken(model: CausalLM, inputIds: MxArray, cache: BatchKVCache): MxArray {
+function sampleNextBatchToken(
+  model: CausalLM,
+  inputIds: MxArray,
+  cache: TransformerBatchCache,
+): MxArray {
   using logits = model.forward(inputIds, { cache });
   using lastLogits = takeLastLogits(logits, "generateBatchTokens");
   const nextToken = sampleGreedyBatchTokenTensor(lastLogits);
@@ -151,6 +156,52 @@ function activePromptIndices(maxTokens: readonly number[]): number[] {
     }
   }
   return activeIndices;
+}
+
+function gemmaLayerWindowSizes(model: CausalLM): (number | undefined)[] | null {
+  if (model.config.family !== "gemma") {
+    return null;
+  }
+  if (
+    model.config.modelType !== "gemma3_text" &&
+    model.config.modelType !== "gemma4_text" &&
+    model.config.modelType !== "gemma4"
+  ) {
+    return null;
+  }
+
+  const layerTypes = Reflect.get(model.config, "layerTypes");
+  const slidingWindow = Reflect.get(model.config, "slidingWindow");
+  if (!Array.isArray(layerTypes) || layerTypes.length !== model.layerCount) {
+    throw new Error("generateBatchTokens: Gemma batch cache requires one layer type per layer.");
+  }
+  if (typeof slidingWindow !== "number" || !Number.isInteger(slidingWindow) || slidingWindow <= 0) {
+    throw new Error("generateBatchTokens: Gemma batch cache requires a positive sliding window.");
+  }
+
+  const layerWindowSizes: (number | undefined)[] = [];
+  for (const layerType of layerTypes) {
+    if (layerType === "sliding_attention") {
+      layerWindowSizes.push(slidingWindow);
+      continue;
+    }
+    if (layerType === "full_attention") {
+      layerWindowSizes.push(undefined);
+      continue;
+    }
+    throw new Error(`generateBatchTokens: unsupported Gemma layer type ${String(layerType)}.`);
+  }
+  return layerWindowSizes;
+}
+
+function createStaticBatchCache(
+  model: CausalLM,
+  leftPadding: readonly number[],
+): TransformerBatchCache {
+  const layerWindowSizes = gemmaLayerWindowSizes(model);
+  return layerWindowSizes === null
+    ? new BatchKVCache(model.layerCount, leftPadding)
+    : new LayerPatternBatchKVCache(model.layerCount, leftPadding, layerWindowSizes);
 }
 
 function activePrompts(
@@ -255,7 +306,7 @@ function recordGeneratedBatchTokens(
 
 function runGreedyBatchDecode(
   model: CausalLM,
-  cache: BatchKVCache,
+  cache: TransformerBatchCache,
   initialToken: MxArray,
   initialActiveOriginalIndices: readonly number[],
   maxTokens: readonly number[],
@@ -338,7 +389,7 @@ export function generateBatchTokensInternal(
 
   return runGenerationScope(() => {
     throwIfGenerationAborted(resolvedOptions.abortSignal, "generateBatchTokens");
-    using cache = new BatchKVCache(model.layerCount, leftPadding);
+    using cache = createStaticBatchCache(model, leftPadding);
     using promptInput = array(padded, "int32");
     const initialToken = sampleNextBatchToken(model, promptInput, cache);
     throwIfGenerationAborted(resolvedOptions.abortSignal, "generateBatchTokens");

@@ -8,7 +8,7 @@ import { add, multiply, ones } from "@mlxts/core";
 import { Linear, Module } from "@mlxts/nn";
 import { gegluApprox } from "../../infrastructure/gated-activations";
 import type { AttentionMask } from "../../infrastructure/masks";
-import type { TransformerCache } from "../../types";
+import type { DecoderCache } from "../../types";
 import { Gemma4TextAttention } from "./attention";
 import { Gemma4TextMLP } from "./mlp";
 import { Gemma4RMSNorm } from "./norm";
@@ -60,7 +60,7 @@ export class Gemma4TextDecoderBlock extends Module {
 
   run(
     x: MxArray,
-    cache?: TransformerCache,
+    cache?: DecoderCache,
     sharedKeyValues?: Gemma4SharedKeyValues,
     perLayerInput?: MxArray,
     attentionMask?: AttentionMask,
