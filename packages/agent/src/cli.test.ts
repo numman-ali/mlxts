@@ -1,6 +1,12 @@
 import { describe, expect, test } from "bun:test";
 
-import { formatAgentUsage, parseAgentArgs, printAgentEvent, runAgentRepl } from "./cli";
+import {
+  createAgentEventPrinter,
+  formatAgentUsage,
+  parseAgentArgs,
+  printAgentEvent,
+  runAgentRepl,
+} from "./cli";
 import type { AgentModel, AgentTool } from "./types";
 
 describe("agent CLI args", () => {
@@ -190,6 +196,7 @@ describe("agent CLI args", () => {
   test("prints streamed assistant content without duplicating the final answer", async () => {
     const inputs = ["hello", "exit"];
     const logs: string[] = [];
+    let terminal = "";
     const model: AgentModel = {
       complete() {
         throw new Error("stream should be used");
@@ -220,13 +227,16 @@ describe("agent CLI args", () => {
         log(message) {
           logs.push(message);
         },
+        write(chunk) {
+          terminal += chunk;
+        },
       },
     );
 
-    const rendered = logs.join("\n");
-    expect(rendered).toContain("[thinking]\n  Say hello.");
-    expect(rendered).toContain("[assistant]\n  Hel\n  lo");
-    expect(rendered.match(/\[assistant\]/g)).toHaveLength(1);
+    expect(terminal).toContain("[thinking]\n  Say hello.");
+    expect(terminal).toContain("[assistant]\n  Hello");
+    expect(terminal.match(/\[assistant\]/g)).toHaveLength(1);
+    expect(terminal).not.toContain("Hel\n  lo");
   });
 
   test("honors non-streaming REPL mode even when the model can stream", async () => {
@@ -373,5 +383,27 @@ describe("agent CLI args", () => {
       "\n[tool result] lookup\n  error: nope",
       "\n[assistant]\n  done\n",
     ]);
+  });
+
+  test("prints streamed deltas as continuous terminal text", () => {
+    const logs: string[] = [];
+    let terminal = "";
+    const print = createAgentEventPrinter(
+      (message) => logs.push(message),
+      (chunk) => {
+        terminal += chunk;
+      },
+    );
+
+    print({ type: "model_delta", iteration: 0, reasoningContentDelta: "The user is ask" });
+    print({ type: "model_delta", iteration: 0, reasoningContentDelta: "ing how I am." });
+    print({ type: "model_delta", iteration: 0, contentDelta: "I'm doin" });
+    print({ type: "model_delta", iteration: 0, contentDelta: "g well." });
+    print({ type: "final", iteration: 0, content: "I'm doing well." });
+
+    expect(logs).toEqual([]);
+    expect(terminal).toBe(
+      "\n[thinking]\n  The user is asking how I am.\n\n[assistant]\n  I'm doing well.\n\n",
+    );
   });
 });

@@ -25,6 +25,7 @@ export type AgentCliParseResult =
 export type AgentCliRuntime = {
   prompt?: (message?: string) => string | null;
   log?: (message: string) => void;
+  write?: (chunk: string) => void;
   model?: AgentModel;
   tools?: readonly AgentTool[];
 };
@@ -270,6 +271,7 @@ type AgentEventPrinterState = {
   iteration: number;
   streamedContent: boolean;
   streamedReasoning: boolean;
+  activeStreamSection: "assistant" | "thinking" | null;
 };
 
 function resetPrinterState(state: AgentEventPrinterState, eventIteration: number): void {
@@ -279,26 +281,51 @@ function resetPrinterState(state: AgentEventPrinterState, eventIteration: number
   state.iteration = eventIteration;
   state.streamedContent = false;
   state.streamedReasoning = false;
+  state.activeStreamSection = null;
+}
+
+function defaultWrite(chunk: string): void {
+  process.stdout.write(chunk);
+}
+
+function indentedDelta(content: string): string {
+  return content.replaceAll("\n", "\n  ");
+}
+
+function beginStreamSection(
+  state: AgentEventPrinterState,
+  section: "assistant" | "thinking",
+  write: (chunk: string) => void,
+): void {
+  if (state.activeStreamSection === section) {
+    return;
+  }
+  write(state.activeStreamSection === null ? `\n[${section}]\n  ` : `\n\n[${section}]\n  `);
+  state.activeStreamSection = section;
+}
+
+function finishStreamSection(state: AgentEventPrinterState, write: (chunk: string) => void): void {
+  if (state.activeStreamSection === null) {
+    return;
+  }
+  write("\n");
+  state.activeStreamSection = null;
 }
 
 function printStreamDelta(
   event: Extract<AgentEvent, { type: "model_delta" }>,
   state: AgentEventPrinterState,
-  log: (message: string) => void,
+  write: (chunk: string) => void,
 ): void {
   if (event.reasoningContentDelta !== undefined) {
-    if (!state.streamedReasoning) {
-      log("\n[thinking]");
-      state.streamedReasoning = true;
-    }
-    log(indentBlock(event.reasoningContentDelta));
+    beginStreamSection(state, "thinking", write);
+    state.streamedReasoning = true;
+    write(indentedDelta(event.reasoningContentDelta));
   }
   if (event.contentDelta !== undefined) {
-    if (!state.streamedContent) {
-      log("\n[assistant]");
-      state.streamedContent = true;
-    }
-    log(indentBlock(event.contentDelta));
+    beginStreamSection(state, "assistant", write);
+    state.streamedContent = true;
+    write(indentedDelta(event.contentDelta));
   }
 }
 
@@ -306,7 +333,9 @@ function printAggregateReasoning(
   event: Extract<AgentEvent, { type: "model_response" }>,
   state: AgentEventPrinterState,
   log: (message: string) => void,
+  write: (chunk: string) => void,
 ): void {
+  finishStreamSection(state, write);
   if (
     !state.streamedReasoning &&
     event.reasoningContent !== undefined &&
@@ -320,36 +349,43 @@ function printFinalAnswer(
   event: Extract<AgentEvent, { type: "final" }>,
   state: AgentEventPrinterState,
   log: (message: string) => void,
+  write: (chunk: string) => void,
 ): void {
   if (state.streamedContent) {
-    log("");
+    finishStreamSection(state, write);
+    write("\n");
     return;
   }
+  finishStreamSection(state, write);
   log(`${formatCliSection("[assistant]", event.content)}\n`);
 }
 
 export function createAgentEventPrinter(
   log: (message: string) => void = console.log,
+  write?: (chunk: string) => void,
 ): (event: AgentEvent) => void {
+  const writeChunk = write ?? (log === console.log ? defaultWrite : log);
   const state: AgentEventPrinterState = {
     iteration: -1,
     streamedContent: false,
     streamedReasoning: false,
+    activeStreamSection: null,
   };
 
   return (event) => {
     resetPrinterState(state, event.iteration);
     switch (event.type) {
       case "model_delta":
-        printStreamDelta(event, state, log);
+        printStreamDelta(event, state, writeChunk);
         return;
       case "model_response":
-        printAggregateReasoning(event, state, log);
+        printAggregateReasoning(event, state, log, writeChunk);
         return;
       case "final":
-        printFinalAnswer(event, state, log);
+        printFinalAnswer(event, state, log, writeChunk);
         return;
       default:
+        finishStreamSection(state, writeChunk);
         printAgentEvent(event, log);
     }
   };
@@ -363,7 +399,8 @@ export async function runAgentRepl(
   const tools = runtime.tools ?? createReadOnlyFileTools({ root: options.cwd });
   const readInput = runtime.prompt ?? prompt;
   const log = runtime.log ?? console.log;
-  const printEvent = createAgentEventPrinter(log);
+  const write = runtime.write ?? (runtime.log === undefined ? defaultWrite : log);
+  const printEvent = createAgentEventPrinter(log, write);
   const messages: AgentMessage[] = [];
 
   log(`Talking to ${options.model} at ${options.endpoint}. Type "exit" to quit.`);
