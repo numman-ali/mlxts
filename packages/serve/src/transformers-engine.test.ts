@@ -191,6 +191,17 @@ function textRequest(
   };
 }
 
+async function collectStreamEvents(
+  stream: NonNullable<ReturnType<typeof createTransformersGenerationEngine>["stream"]>,
+  request: NormalizedGenerationRequest,
+): Promise<GenerationStreamEvent[]> {
+  const output: GenerationStreamEvent[] = [];
+  for await (const event of await stream(request)) {
+    output.push(event);
+  }
+  return output;
+}
+
 function batchEligibleModel(config: TinyModelConfig = {}): TinyModel {
   return new TinyModel({ family: "llama", modelType: "llama", ...config });
 }
@@ -568,20 +579,9 @@ describe("transformers generation engine", () => {
       throw new Error("Expected transformers engine to expose stream.");
     }
 
-    async function collect(
-      streamRequest: NonNullable<typeof engine.stream>,
-      request: NormalizedGenerationRequest,
-    ): Promise<GenerationStreamEvent[]> {
-      const output: GenerationStreamEvent[] = [];
-      for await (const event of await streamRequest(request)) {
-        output.push(event);
-      }
-      return output;
-    }
-
     const [first, second] = await Promise.all([
-      collect(stream, { ...textRequest("stream-one"), stream: true }),
-      collect(stream, { ...textRequest("stream-two"), stream: true }),
+      collectStreamEvents(stream, { ...textRequest("stream-one"), stream: true }),
+      collectStreamEvents(stream, { ...textRequest("stream-two"), stream: true }),
     ]);
 
     expect(first).toEqual([
@@ -894,7 +894,55 @@ describe("transformers generation engine", () => {
     ).toBe(false);
   });
 
-  test("keeps streaming Qwen hybrid-cache requests out of continuous batching", async () => {
+  test("streams Qwen hybrid-cache requests through continuous batching", async () => {
+    using model = new TinyQwenHybridModel();
+    const tokenizer = new TinyTokenizer();
+    const events: ServeEvent[] = [];
+    const engine = createTransformersGenerationEngine({
+      model,
+      tokenizer,
+      maxBatchSize: 2,
+      batchWindowMs: 1,
+      onEvent(event) {
+        events.push(event);
+      },
+    });
+    const stream = engine.stream;
+    if (stream === undefined) {
+      throw new Error("Expected transformers engine to expose stream.");
+    }
+
+    const [first, second] = await Promise.all([
+      collectStreamEvents(stream, { ...textRequest("qwen-stream-one"), stream: true }),
+      collectStreamEvents(stream, { ...textRequest("qwen-stream-two"), stream: true }),
+    ]);
+
+    expect(first.map((event) => event.type)).toEqual(["text", "text", "done"]);
+    expect(second.map((event) => event.type)).toEqual(first.map((event) => event.type));
+    expect(
+      events.some(
+        (event) =>
+          event.type === "generation_scheduler_phase" &&
+          event.phase === "admitted" &&
+          event.batchSize === 2,
+      ),
+    ).toBe(true);
+    expect(model.batchForwardCount).toBeGreaterThan(0);
+    expect(events).toContainEqual({
+      type: "generation_route_decision",
+      id: "qwen-stream-one",
+      protocol: "openai.completions",
+      model: "tiny",
+      route: "continuous",
+      eligible: true,
+      reason: "eligible",
+      modelType: "qwen3_5_text",
+      maxBatchSize: 2,
+      stream: true,
+    });
+  });
+
+  test("aborts scheduler-backed Qwen streams when the iterator closes early", async () => {
     using model = new TinyQwenHybridModel();
     const tokenizer = new TinyTokenizer();
     const events: ServeEvent[] = [];
@@ -906,28 +954,29 @@ describe("transformers generation engine", () => {
         events.push(event);
       },
     });
-    const stream = await engine.stream?.({ ...textRequest("qwen-stream"), stream: true });
+    const stream = engine.stream;
     if (stream === undefined) {
       throw new Error("Expected transformers engine to expose stream.");
     }
 
-    for await (const _event of stream) {
-      // Exhaust the stream so route and scheduler events settle.
-    }
-
-    expect(events.some((event) => event.type === "generation_scheduler_phase")).toBe(false);
-    expect(events).toContainEqual({
-      type: "generation_route_decision",
-      id: "qwen-stream",
-      protocol: "openai.completions",
-      model: "tiny",
-      route: "single",
-      eligible: false,
-      reason: "streaming",
-      modelType: "qwen3_5_text",
-      maxBatchSize: 2,
+    const iterable = await stream({
+      ...textRequest("qwen-close-early", { maxTokens: 128, temperature: 0 }),
       stream: true,
     });
+    const iterator = iterable[Symbol.asyncIterator]();
+    const first = await iterator.next();
+    expect(first.value).toEqual({ type: "text", text: "c" });
+    await iterator.return?.();
+
+    expect(
+      events.some(
+        (event) =>
+          event.type === "generation_scheduler_phase" &&
+          event.phase === "cancelled" &&
+          event.id === "qwen-close-early",
+      ),
+    ).toBe(true);
+    expect(model.forwardSequenceLengths.length).toBeLessThan(128);
   });
 
   test("routes concurrent Gemma layer-pattern requests through continuous batching", async () => {
@@ -981,7 +1030,60 @@ describe("transformers generation engine", () => {
     ).toBe(false);
   });
 
-  test("keeps streaming Gemma layer-pattern requests out of continuous batching", async () => {
+  test("streams Gemma layer-pattern requests through continuous batching", async () => {
+    using model = new TinyModel({
+      family: "gemma",
+      modelType: "gemma4_text",
+      slidingWindow: 16,
+      layerTypes: ["sliding_attention"],
+    });
+    const tokenizer = new TinyTokenizer();
+    const events: ServeEvent[] = [];
+    const engine = createTransformersGenerationEngine({
+      model,
+      tokenizer,
+      maxBatchSize: 2,
+      batchWindowMs: 1,
+      onEvent(event) {
+        events.push(event);
+      },
+    });
+    const stream = engine.stream;
+    if (stream === undefined) {
+      throw new Error("Expected transformers engine to expose stream.");
+    }
+
+    const [first, second] = await Promise.all([
+      collectStreamEvents(stream, { ...textRequest("gemma-stream-one"), stream: true }),
+      collectStreamEvents(stream, { ...textRequest("gemma-stream-two"), stream: true }),
+    ]);
+
+    expect(first.map((event) => event.type)).toEqual(["text", "text", "done"]);
+    expect(second.map((event) => event.type)).toEqual(first.map((event) => event.type));
+    expect(
+      events.some(
+        (event) =>
+          event.type === "generation_scheduler_phase" &&
+          event.phase === "admitted" &&
+          event.batchSize === 2,
+      ),
+    ).toBe(true);
+    expect(model.batchForwardCount).toBeGreaterThan(0);
+    expect(events).toContainEqual({
+      type: "generation_route_decision",
+      id: "gemma-stream-one",
+      protocol: "openai.completions",
+      model: "tiny",
+      route: "continuous",
+      eligible: true,
+      reason: "eligible",
+      modelType: "gemma4_text",
+      maxBatchSize: 2,
+      stream: true,
+    });
+  });
+
+  test("aborts scheduler-backed Gemma streams when the iterator closes early", async () => {
     using model = new TinyModel({
       family: "gemma",
       modelType: "gemma4_text",
@@ -998,28 +1100,29 @@ describe("transformers generation engine", () => {
         events.push(event);
       },
     });
-    const stream = await engine.stream?.({ ...textRequest("gemma-stream"), stream: true });
+    const stream = engine.stream;
     if (stream === undefined) {
       throw new Error("Expected transformers engine to expose stream.");
     }
 
-    for await (const _event of stream) {
-      // Exhaust the stream so route and scheduler events settle.
-    }
-
-    expect(events.some((event) => event.type === "generation_scheduler_phase")).toBe(false);
-    expect(events).toContainEqual({
-      type: "generation_route_decision",
-      id: "gemma-stream",
-      protocol: "openai.completions",
-      model: "tiny",
-      route: "single",
-      eligible: false,
-      reason: "streaming",
-      modelType: "gemma4_text",
-      maxBatchSize: 2,
+    const iterable = await stream({
+      ...textRequest("gemma-close-early", { maxTokens: 128, temperature: 0 }),
       stream: true,
     });
+    const iterator = iterable[Symbol.asyncIterator]();
+    const first = await iterator.next();
+    expect(first.value).toEqual({ type: "text", text: "c" });
+    await iterator.return?.();
+
+    expect(
+      events.some(
+        (event) =>
+          event.type === "generation_scheduler_phase" &&
+          event.phase === "cancelled" &&
+          event.id === "gemma-close-early",
+      ),
+    ).toBe(true);
+    expect(model.forwardSequenceLengths.length).toBeLessThan(128);
   });
 
   test("keeps per-row stop handling on static batch results", async () => {

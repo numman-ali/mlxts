@@ -78,18 +78,14 @@ known stage in the terminal. Use `--verbose` while debugging to add request
 start/completion logs. Multi-model CLI loads are logged with the model index and
 model id so long startup sequences are easier to follow.
 
-The first-class model server wraps one loaded model in a small single-flight
-admission queue. Nearby non-streaming requests can coalesce into one
-micro-batch; the transformer-backed engine now turns eligible greedy full-cache
-LLaMA-like groups, Qwen 3.6 text groups, and Gemma 3/4 layer-pattern groups into
-real static `generateBatch()` calls. Qwen streaming, sampled/model-native-default
-requests, and Gemma streaming still fall back to the single-request path until a
-deeper scheduler owns those decode patterns. Mixed `max_tokens` are supported
-inside that static greedy batch path. Engines without native `generateBatch()`
-support still benefit from serialized request admission instead of overlapping
-local generations on the same model instance. Streaming requests pass through
-the same concurrency gate, so one model-backed engine does not accept
-overlapping decode loops just because the HTTP surface is async.
+The first-class model server wraps one loaded model in a small scheduler-aware
+admission queue. Eligible greedy full-cache LLaMA-like, Qwen 3.6 text, and Gemma
+3/4 layer-pattern requests can join the transformer-owned continuous scheduler,
+including streaming completions and chat streams. Sampled/model-native-default
+requests still fall back to the single-request path until sampled batched decode
+is implemented. Engines without native batching support still benefit from
+serialized request admission instead of overlapping local generations on the
+same model instance.
 
 When `temperature`, `top_p`, or `top_k` are omitted, serving leaves them unset so
 `@mlxts/transformers` can apply the checkpoint's `generation_config.json`.
@@ -252,9 +248,10 @@ Use comma lists with the default cartesian matrix for broad serving sweeps,
 `--matrix zip` for paired prompt/output rungs, or `--rungs` for a deliberate
 capability ladder such as `128x128@1,1024x512@1,10000x128@2`. Add
 `--report-json <path>` for overnight evidence that can be compared later. The
-batch row counters are important: Qwen and Gemma 3/4 greedy non-streaming
-requests can use static batching, while their streaming paths still stay out of
-the continuous scheduler. Endpoint benchmark output should be used to separate
+batch row counters are important: eligible greedy Qwen and Gemma 3/4 requests
+now report continuous scheduler admissions for both buffered and streaming
+completions, while sampled/model-native-default requests still report
+single-route fallback. Endpoint benchmark output should be used to separate
 real batch execution from admission coalescing. This harness measures
 completions serving over token-array prompts; use `--protocol chat` or
 `--protocol responses` when the thing under test is the wire adapter and
@@ -284,9 +281,9 @@ bun run packages/serve/scripts/regression-serve-matrix.ts --real-models
 For heavier local proof work, add `--capability-smoke`; it includes longer Qwen
 output/context endpoint rungs and writes JSON reports under
 `.tmp/serve-regression/`. These commands are lock-guarded and intentionally
-sequential. The real smoke also runs non-streaming greedy Qwen and Gemma
-static-batch checks so route reasons, server-request evidence, and batch counters
-stay honest instead of accidentally implying unsupported continuous batching.
+sequential. The real smoke asserts Qwen/Gemma route reasons, server-request
+evidence, streaming responsiveness, and continuous scheduler counters so
+batching claims stay tied to observed endpoint behavior.
 
 ## Engine Primitives
 
@@ -364,19 +361,18 @@ startServeServer({
 local process checks.
 
 `createTransformersGenerationEngine()` now owns the first real continuous
-batching path for loaded-model serving: greedy requests against full-cache
-LLaMA-like models can join an active decode loop between token steps, including
-streaming completions/chat streams. It emits `generation_scheduler_phase` events
-with `mode: "continuous"` so benchmark output can separate scheduler queue,
-prefill, admission, first-token, and finish phases from admission coalescing and
-static batch calls.
+batching path for loaded-model serving: eligible greedy requests can join an
+active decode loop between token steps, including streaming completions/chat
+streams for full-cache LLaMA-like models, Qwen 3.6 text models with model-owned
+hybrid batch caches, and Gemma 3/4 layer-pattern models. It emits
+`generation_scheduler_phase` events with `mode: "continuous"` so benchmark
+output can separate scheduler queue, prefill, admission, first-token, and finish
+phases from admission coalescing and static batch calls.
 
-The continuous path is intentionally narrow. Qwen streaming/continuous hybrid
-caches, Gemma streaming/continuous sliding-global caches, sampled generation,
-prefix cache, paged cache, and multimodal batching still fall back to the
-single-model lane until their cache semantics are represented properly. Qwen 3.6
-text and Gemma 3/4 greedy non-streaming requests have separate static batching
-paths backed by package-owned caches in `@mlxts/transformers`.
+The continuous path is intentionally narrow. Sampled generation, prefix cache,
+paged cache, multimodal batching, and broader cache policies still fall back to
+the single-model lane until their semantics are represented properly below the
+serving layer.
 
 `createMicroBatchingGenerationEngine()` and
 `createConcurrencyLimitGenerationEngine()` remain available as lower-level

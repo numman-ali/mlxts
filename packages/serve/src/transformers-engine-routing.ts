@@ -101,12 +101,6 @@ export function continuousBatchIneligibilityReason(
 ): GenerationRouteDecisionReason {
   const hasLayerPatternBatchCache = hasGemmaLayerPatternBatchCache(options.model);
   const hasHybridQwenBatchCache = hasQwenHybridBatchCache(options.model);
-  if (hasLayerPatternBatchCache && request.stream) {
-    return "streaming";
-  }
-  if (hasHybridQwenBatchCache && request.stream) {
-    return "streaming";
-  }
   if (configHasSlidingWindow(options.model) && !hasLayerPatternBatchCache) {
     return "sliding_window_cache";
   }
