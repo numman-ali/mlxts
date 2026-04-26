@@ -34,6 +34,7 @@ describe("serve CLI args", () => {
         maxTotalTokens: 4096,
         maxBatchSize: 32,
         batchWindowMs: 1,
+        streamDecodeInterval: 1,
         maxConcurrentRequests: 1,
         gpuMemoryUtilization: 0.9,
         localFilesOnly: false,
@@ -61,6 +62,8 @@ describe("serve CLI args", () => {
       "16",
       "--batch-window-ms",
       "4",
+      "--stream-decode-interval",
+      "2",
       "--max-concurrent-requests",
       "2",
       "--gpu-memory-utilization",
@@ -90,6 +93,7 @@ describe("serve CLI args", () => {
         maxTotalTokens: 1536,
         maxBatchSize: 16,
         batchWindowMs: 4,
+        streamDecodeInterval: 2,
         maxConcurrentRequests: 2,
         gpuMemoryUtilization: 0.75,
         revision: "main",
@@ -153,6 +157,11 @@ describe("serve CLI args", () => {
       kind: "help",
       exitCode: 1,
       message: 'Expected --batch-window-ms to be a non-negative integer, got "-1".',
+    });
+    expect(parseServeArgs(["model", "--stream-decode-interval", "0"])).toMatchObject({
+      kind: "help",
+      exitCode: 1,
+      message: 'Expected --stream-decode-interval to be a positive integer, got "0".',
     });
     expect(parseServeArgs(["model", "--max-concurrent-requests", "0"])).toMatchObject({
       kind: "help",
@@ -263,6 +272,7 @@ describe("serve CLI args", () => {
       maxTotalTokens: 256,
       maxBatchSize: 8,
       batchWindowMs: 2,
+      streamDecodeInterval: 1,
       maxConcurrentRequests: 1,
       gpuMemoryUtilization: 0.75,
       localFilesOnly: false,
@@ -274,6 +284,9 @@ describe("serve CLI args", () => {
     expect(formatServeReady("http://127.0.0.1:8000", options)).toContain("Prompt-token limit: 128");
     expect(formatServeReady("http://127.0.0.1:8000", options)).toContain(
       "Batch scheduler: max_batch=8 window_ms=2",
+    );
+    expect(formatServeReady("http://127.0.0.1:8000", options)).toContain(
+      "Streaming decode interval: 1 token(s)",
     );
     expect(formatServeReady("http://127.0.0.1:8000", options)).toContain(
       "Model execution lanes: max_in_flight=1",
@@ -673,6 +686,7 @@ describe("serve CLI args", () => {
         expect(options.maxPromptTokens).toBe(4096);
         expect(options.maxBatchSize).toBe(32);
         expect(options.batchWindowMs).toBe(1);
+        expect(options.streamDecodeInterval).toBe(1);
         expect(options.maxConcurrentRequests).toBe(1);
         expect(options.gpuMemoryUtilization).toBe(0.9);
         return running;

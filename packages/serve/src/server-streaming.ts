@@ -83,12 +83,12 @@ function handleCompletionDoneStreamEvent(
 ): void {
   flushCompletionTail(controller, state, batch, request, options);
   state.finalUsage = event.usage;
-  state.finalFinishReason = event.finishReason;
+  state.finalFinishReason = state.finalFinishReason === "stop" ? "stop" : event.finishReason;
   enqueueSseJson(
     controller,
     formatOpenAICompletionStreamChunk(request, "", {
       ...options,
-      finishReason: event.finishReason,
+      finishReason: state.finalFinishReason,
       includeUsage: batch.streamOptions.includeUsage,
     }),
   );
@@ -103,14 +103,17 @@ function flushCompletionTail(
   options: { id: string; created: number },
 ): void {
   const tail = state.stopFilter.finish();
-  if (tail !== "") {
+  if (tail.text !== "") {
     enqueueSseJson(
       controller,
-      formatOpenAICompletionStreamChunk(request, tail, {
+      formatOpenAICompletionStreamChunk(request, tail.text, {
         ...options,
         includeUsage: batch.streamOptions.includeUsage,
       }),
     );
+  }
+  if (tail.stopped) {
+    state.finalFinishReason = "stop";
   }
 }
 
@@ -224,7 +227,7 @@ function handleChatDoneStreamEvent(
 ): void {
   flushChatTail(controller, state, chat, options);
   state.finalUsage = event.usage;
-  state.finalFinishReason = event.finishReason;
+  state.finalFinishReason = state.finalFinishReason === "stop" ? "stop" : event.finishReason;
   emitChatTerminalChunk(controller, state, chat, options);
   state.sentTerminalChunk = true;
 }
@@ -250,8 +253,12 @@ function flushChatTail(
   }
 
   const tail = state.stopFilter.finish();
-  if (tail !== "") {
-    emitChatStreamChunk(controller, chat, { content: tail }, options);
+  if (tail.text !== "") {
+    emitChatStreamChunk(controller, chat, { content: tail.text }, options);
+  }
+  if (tail.stopped) {
+    state.finalFinishReason = "stop";
+    state.stoppedByStopSequence = true;
   }
 }
 
@@ -291,13 +298,6 @@ function toAsyncIterator(
 
 function streamWasCancelled(signal: AbortSignal | undefined): boolean {
   return signal?.aborted ?? false;
-}
-
-function markCancelled(
-  finishReason: NormalizedFinishReason,
-  signal: AbortSignal | undefined,
-): NormalizedFinishReason {
-  return streamWasCancelled(signal) ? "cancelled" : finishReason;
 }
 
 export async function closeStreamEvents(
@@ -361,7 +361,9 @@ function finalizeCompletionStream(
   request: ReturnType<typeof normalizeOpenAICompletionRequest>["requests"][number],
   options: StreamControlOptions,
 ): { finishReason: NormalizedFinishReason; usage?: GenerationUsage } {
-  state.finalFinishReason = markCancelled(state.finalFinishReason, options.signal);
+  state.finalFinishReason = streamWasCancelled(options.signal)
+    ? "cancelled"
+    : state.finalFinishReason;
   if (streamWasCancelled(options.signal)) {
     return streamSummary(state.finalFinishReason, state.finalUsage);
   }
@@ -400,7 +402,9 @@ function finalizeChatStream(
   chat: ReturnType<typeof normalizeOpenAIChatCompletionRequest>,
   options: StreamControlOptions,
 ): { finishReason: NormalizedFinishReason; usage?: GenerationUsage } {
-  state.finalFinishReason = markCancelled(state.finalFinishReason, options.signal);
+  state.finalFinishReason = streamWasCancelled(options.signal)
+    ? "cancelled"
+    : state.finalFinishReason;
   if (streamWasCancelled(options.signal)) {
     return streamSummary(state.finalFinishReason, state.finalUsage);
   }

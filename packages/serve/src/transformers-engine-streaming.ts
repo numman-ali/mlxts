@@ -17,7 +17,7 @@ import type {
   NormalizedGenerationRequest,
 } from "./types";
 
-const STREAM_DECODE_INTERVAL = 8;
+export const DEFAULT_STREAM_DECODE_INTERVAL = 1;
 
 type PromptText = {
   text: string;
@@ -82,8 +82,19 @@ function finishReason(reason: GenerationResult["finishReason"]): NormalizedFinis
   return reason === "eos" ? "eos" : "length";
 }
 
-export function streamDecodeInterval(stop: readonly string[] | undefined): number {
-  return stop === undefined || stop.length === 0 ? STREAM_DECODE_INTERVAL : 1;
+function configuredStreamDecodeInterval(options: TransformersGenerationEngineOptions): number {
+  const interval = options.streamDecodeInterval ?? DEFAULT_STREAM_DECODE_INTERVAL;
+  if (!Number.isInteger(interval) || interval <= 0) {
+    throw new Error("streamDecodeInterval must be a positive integer.");
+  }
+  return interval;
+}
+
+export function streamDecodeInterval(
+  options: TransformersGenerationEngineOptions,
+  stop: readonly string[] | undefined,
+): number {
+  return stop === undefined || stop.length === 0 ? configuredStreamDecodeInterval(options) : 1;
 }
 
 export function createStreamingDecodeState(prompt: PromptText | null): StreamingDecodeState {

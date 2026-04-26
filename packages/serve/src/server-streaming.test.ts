@@ -173,6 +173,43 @@ describe("server streaming helpers", () => {
     expect(closed).toBe(true);
   });
 
+  test("chat SSE preserves stop finish when the stop sequence is found during final flush", async () => {
+    const chat = normalizeOpenAIChatCompletionRequest(
+      {
+        model: "tiny",
+        messages: [{ role: "user", content: "Hi" }],
+        stream: true,
+        stop: "stop",
+      },
+      { id: "chat-final-stop" },
+    );
+
+    const { text, summary } = await collectSse((controller) =>
+      writeChatStreamEvents(
+        controller,
+        streamEvents(
+          { type: "text", text: "<think>plan</think>Hello stop" },
+          { type: "done", finishReason: "length" },
+        ),
+        chat,
+        { id: "chat-final-stop", created: 123 },
+      ),
+    );
+    const payloads = parseSsePayloads(text) as Array<{
+      choices: Array<{ delta?: { content?: string }; finish_reason?: string | null }>;
+    }>;
+    const visibleContent = payloads
+      .flatMap((payload) => payload.choices)
+      .map((choice) => choice.delta?.content)
+      .filter((value): value is string => value !== undefined)
+      .join("");
+
+    expect(summary).toEqual({ finishReason: "stop" });
+    expect(visibleContent).toBe("Hello ");
+    expect(payloads.at(-1)?.choices[0]?.finish_reason).toBe("stop");
+    expect(text).not.toContain("Hello stop");
+  });
+
   test("chat SSE emits structured Qwen tool-call deltas without XML leakage", async () => {
     const chat = normalizeOpenAIChatCompletionRequest(
       {

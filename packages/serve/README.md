@@ -57,7 +57,10 @@ projected active memory would exceed that fraction of the MLX allocator limit.
 admission micro-batching queue for concurrent requests against one model
 instance. `--max-concurrent-requests <n>` bounds the number of in-flight model
 jobs; the default is `1` so one loaded Gemma/Qwen runtime is owned by one
-generation at a time.
+generation at a time. `--stream-decode-interval <n>` controls how often the
+transformer engine decodes generated tokens into SSE text; the default is `1`
+for interactive chat responsiveness, while larger values can reduce tokenizer
+work on long-output throughput runs.
 
 `GET /info` is a lightweight operator endpoint for confirming the served model
 ids, enabled wire routes, configured request limits, per-model admission
@@ -78,15 +81,15 @@ model id so long startup sequences are easier to follow.
 The first-class model server wraps one loaded model in a small single-flight
 admission queue. Nearby non-streaming requests can coalesce into one
 micro-batch; the transformer-backed engine now turns eligible greedy full-cache
-LLaMA-like groups into real static `generateBatch()` calls. Qwen hybrid caches,
-Gemma 3/4 layer-pattern caches, sampled/model-native-default requests, and
-streaming still fall back to the single-request path until a deeper scheduler
-owns those decode patterns. Mixed `max_tokens` are supported inside that static
-greedy batch path. Engines without native `generateBatch()` support still
-benefit from serialized request admission instead of overlapping local
-generations on the same model instance. Streaming requests pass through the same
-concurrency gate, so one model-backed engine does not accept overlapping decode
-loops just because the HTTP surface is async.
+LLaMA-like groups and Gemma 3/4 layer-pattern groups into real static
+`generateBatch()` calls. Qwen hybrid caches, sampled/model-native-default
+requests, and Gemma streaming still fall back to the single-request path until a
+deeper scheduler owns those decode patterns. Mixed `max_tokens` are supported
+inside that static greedy batch path. Engines without native `generateBatch()`
+support still benefit from serialized request admission instead of overlapping
+local generations on the same model instance. Streaming requests pass through
+the same concurrency gate, so one model-backed engine does not accept
+overlapping decode loops just because the HTTP surface is async.
 
 When `temperature`, `top_p`, or `top_k` are omitted, serving leaves them unset so
 `@mlxts/transformers` can apply the checkpoint's `generation_config.json`.
@@ -128,6 +131,7 @@ const server = await serveModel({
   gpuMemoryUtilization: 0.9,
   maxBatchSize: 16,
   batchWindowMs: 2,
+  streamDecodeInterval: 1,
   maxConcurrentRequests: 1,
 });
 
@@ -230,6 +234,9 @@ generation id, including route-decision timing, model-lane wait timing, prefill
 progress timing, first completion-progress timing, completion/error timing, and
 the largest silent gap between server events. Staggered or concurrent runs can
 therefore be inspected without relying only on trial averages.
+Use `--stream-decode-interval` on `mlxts-serve` or `streamDecodeInterval` in
+programmatic serving when you need an explicit tradeoff between per-token chat
+responsiveness and lower tokenizer overhead.
 Pass `--request-stagger-ms <n>` to launch concurrent requests at deliberate
 offsets rather than all at once. That is the benchmark shape for testing
 waiting-row scheduler fairness instead of only admission-window coalescing.

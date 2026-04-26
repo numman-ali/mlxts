@@ -19,6 +19,7 @@ import { createModelRouterGenerationEngine } from "./model-router";
 import { createRequestLimitGenerationEngine } from "./request-limits";
 import { startServeServer } from "./server";
 import { createTransformersGenerationEngine } from "./transformers-engine";
+import { DEFAULT_STREAM_DECODE_INTERVAL } from "./transformers-engine-streaming";
 import type { ServeEvent } from "./types";
 
 export const DEFAULT_MODEL_SERVER_HOSTNAME = "127.0.0.1";
@@ -28,6 +29,7 @@ export const DEFAULT_MODEL_SERVER_MAX_PROMPT_TOKENS = 4096;
 export const DEFAULT_MODEL_SERVER_MAX_TOTAL_TOKENS = 4096;
 export const DEFAULT_MODEL_SERVER_MAX_BATCH_SIZE = 32;
 export const DEFAULT_MODEL_SERVER_BATCH_WINDOW_MS = 1;
+export const DEFAULT_MODEL_SERVER_STREAM_DECODE_INTERVAL = DEFAULT_STREAM_DECODE_INTERVAL;
 export const DEFAULT_MODEL_SERVER_MAX_CONCURRENT_REQUESTS = 1;
 export const DEFAULT_MODEL_SERVER_GPU_MEMORY_UTILIZATION = 0.9;
 export type ModelServerRuntimeOptions = {
@@ -38,6 +40,7 @@ export type ModelServerRuntimeOptions = {
   maxTotalTokens?: number;
   maxBatchSize?: number;
   batchWindowMs?: number;
+  streamDecodeInterval?: number;
   maxConcurrentRequests?: number;
   gpuMemoryUtilization?: number;
   apiKey?: string;
@@ -98,6 +101,7 @@ type ResolvedRuntimeOptions = {
   maxTotalTokens: number;
   maxBatchSize: number;
   batchWindowMs: number;
+  streamDecodeInterval: number;
   maxConcurrentRequests: number;
   gpuMemoryUtilization: number;
   apiKey?: string;
@@ -185,6 +189,10 @@ function resolveRuntimeOptions(options: ModelServerRuntimeOptions): ResolvedRunt
     batchWindowMs: requireNonNegativeInteger(
       "batchWindowMs",
       options.batchWindowMs ?? DEFAULT_MODEL_SERVER_BATCH_WINDOW_MS,
+    ),
+    streamDecodeInterval: requirePositiveInteger(
+      "streamDecodeInterval",
+      options.streamDecodeInterval ?? DEFAULT_MODEL_SERVER_STREAM_DECODE_INTERVAL,
     ),
     maxConcurrentRequests: requirePositiveInteger(
       "maxConcurrentRequests",
@@ -292,6 +300,7 @@ function createLoadedModelEngine(
     maxTotalTokens: options.maxTotalTokens,
     maxBatchSize: options.maxBatchSize,
     batchWindowMs: options.batchWindowMs,
+    streamDecodeInterval: options.streamDecodeInterval,
     maxConcurrentRequests: options.maxConcurrentRequests,
     gpuMemoryUtilization: options.gpuMemoryUtilization,
     ...(model.interactionProfile === undefined
@@ -377,6 +386,7 @@ export function serveLoadedModels(options: ServeLoadedModelsOptions): RunningMod
       maxTotalTokens: resolved.maxTotalTokens,
       maxBatchSize: resolved.maxBatchSize,
       batchWindowMs: resolved.batchWindowMs,
+      streamDecodeInterval: resolved.streamDecodeInterval,
       maxConcurrentRequests: resolved.maxConcurrentRequests,
       gpuMemoryUtilization: resolved.gpuMemoryUtilization,
     },
@@ -410,6 +420,7 @@ export function serveLoadedModel(options: ServeLoadedModelOptions): RunningModel
     maxTotalTokens: resolved.maxTotalTokens,
     maxBatchSize: resolved.maxBatchSize,
     batchWindowMs: resolved.batchWindowMs,
+    streamDecodeInterval: resolved.streamDecodeInterval,
     maxConcurrentRequests: resolved.maxConcurrentRequests,
     gpuMemoryUtilization: resolved.gpuMemoryUtilization,
     ...(resolved.apiKey === undefined ? {} : { apiKey: resolved.apiKey }),
@@ -452,6 +463,7 @@ export async function serveModelWithRuntime(
       maxTotalTokens: resolved.maxTotalTokens,
       maxBatchSize: resolved.maxBatchSize,
       batchWindowMs: resolved.batchWindowMs,
+      streamDecodeInterval: resolved.streamDecodeInterval,
       maxConcurrentRequests: resolved.maxConcurrentRequests,
       gpuMemoryUtilization: resolved.gpuMemoryUtilization,
       ...(resolved.apiKey === undefined ? {} : { apiKey: resolved.apiKey }),

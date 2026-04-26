@@ -142,6 +142,9 @@ function resolveServeModelsOptions(options: ServeModelsOptions): ResolvedServeMo
     ...(options.maxTotalTokens === undefined ? {} : { maxTotalTokens: options.maxTotalTokens }),
     ...(options.maxBatchSize === undefined ? {} : { maxBatchSize: options.maxBatchSize }),
     ...(options.batchWindowMs === undefined ? {} : { batchWindowMs: options.batchWindowMs }),
+    ...(options.streamDecodeInterval === undefined
+      ? {}
+      : { streamDecodeInterval: options.streamDecodeInterval }),
     ...(options.maxConcurrentRequests === undefined
       ? {}
       : { maxConcurrentRequests: options.maxConcurrentRequests }),

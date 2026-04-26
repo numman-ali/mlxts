@@ -6,7 +6,7 @@
 /** Create a streaming filter that withholds enough tail text to match stop sequences safely. */
 export function createStopSequenceFilter(stop: readonly string[] | undefined): {
   push(text: string): { text: string; stopped: boolean };
-  finish(): string;
+  finish(): { text: string; stopped: boolean };
 } {
   const sequences = (stop ?? []).filter((sequence) => sequence !== "");
   if (sequences.length === 0) {
@@ -15,7 +15,7 @@ export function createStopSequenceFilter(stop: readonly string[] | undefined): {
         return { text, stopped: false };
       },
       finish() {
-        return "";
+        return { text: "", stopped: false };
       },
     };
   }
@@ -46,9 +46,14 @@ export function createStopSequenceFilter(stop: readonly string[] | undefined): {
       return { text: emitted, stopped: false };
     },
     finish() {
-      const emitted = buffer;
+      const matchIndexes = sequences
+        .map((sequence) => buffer.indexOf(sequence))
+        .filter((index) => index >= 0)
+        .sort((left, right) => left - right);
+      const firstMatch = matchIndexes[0];
+      const emitted = firstMatch === undefined ? buffer : buffer.slice(0, firstMatch);
       buffer = "";
-      return emitted;
+      return { text: emitted, stopped: firstMatch !== undefined };
     },
   };
 }

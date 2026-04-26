@@ -292,7 +292,9 @@ describe("transformers generation engine", () => {
     }
 
     expect(events).toEqual([
-      { type: "text", text: "ccc" },
+      { type: "text", text: "c" },
+      { type: "text", text: "c" },
+      { type: "text", text: "c" },
       {
         type: "done",
         finishReason: "length",
@@ -569,7 +571,8 @@ describe("transformers generation engine", () => {
     ]);
 
     expect(first).toEqual([
-      { type: "text", text: "cc" },
+      { type: "text", text: "c" },
+      { type: "text", text: "c" },
       {
         type: "done",
         finishReason: "length",
@@ -1043,7 +1046,8 @@ describe("transformers generation engine", () => {
     }
 
     expect(events).toEqual([
-      { type: "text", text: "cc" },
+      { type: "text", text: "c" },
+      { type: "text", text: "c" },
       {
         type: "done",
         finishReason: "length",
@@ -1051,6 +1055,37 @@ describe("transformers generation engine", () => {
       },
     ]);
     expect(serveEvents.some((event) => event.type === "generation_model_lane_wait")).toBe(true);
+  });
+
+  test("coalesces streaming text when a decode interval is configured", async () => {
+    using model = new TinyModel();
+    const tokenizer = new TinyTokenizer();
+    const engine = createTransformersGenerationEngine({
+      model,
+      tokenizer,
+      streamDecodeInterval: 2,
+    });
+    const events: GenerationStreamEvent[] = [];
+
+    for await (const event of (await engine.stream?.({
+      id: "request-1",
+      model: "tiny",
+      input: { kind: "text", text: "hi" },
+      sampling: { maxTokens: 2, temperature: 0 },
+      stream: true,
+      protocol: "openai.completions",
+    })) ?? []) {
+      events.push(event);
+    }
+
+    expect(events).toEqual([
+      { type: "text", text: "cc" },
+      {
+        type: "done",
+        finishReason: "length",
+        usage: { promptTokens: 2, completionTokens: 2, totalTokens: 4 },
+      },
+    ]);
   });
 
   test("streams prompt-open thinking as raw think-tagged text", async () => {
@@ -1081,8 +1116,9 @@ describe("transformers generation engine", () => {
       events.push(event);
     }
 
-    expect(events[0]).toEqual({ type: "text", text: "<think>cc" });
-    expect(events[1]).toEqual({
+    expect(events[0]).toEqual({ type: "text", text: "<think>c" });
+    expect(events[1]).toEqual({ type: "text", text: "c" });
+    expect(events[2]).toEqual({
       type: "done",
       finishReason: "length",
       usage: { promptTokens: "user:hi\n<think>\n".length, completionTokens: 2, totalTokens: 18 },

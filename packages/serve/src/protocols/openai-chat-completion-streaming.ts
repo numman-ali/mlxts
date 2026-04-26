@@ -80,7 +80,26 @@ function flushTailLength(buffer: string): number {
 type ReasoningStreamState = {
   buffer: string;
   mode: "content" | "reasoning";
+  trimLeadingContent: boolean;
 };
+
+function pushContentDelta(
+  state: ReasoningStreamState,
+  deltas: OpenAIChatCompletionStreamDelta[],
+  text: string,
+): void {
+  if (!state.trimLeadingContent) {
+    pushDelta(deltas, "content", text);
+    return;
+  }
+
+  const trimmed = text.trimStart();
+  if (trimmed === "") {
+    return;
+  }
+  state.trimLeadingContent = false;
+  pushDelta(deltas, "content", trimmed);
+}
 
 function consumeContentBuffer(
   state: ReasoningStreamState,
@@ -93,7 +112,7 @@ function consumeContentBuffer(
     if (safeLength === 0) {
       return true;
     }
-    pushDelta(deltas, "content", state.buffer.slice(0, safeLength));
+    pushContentDelta(state, deltas, state.buffer.slice(0, safeLength));
     state.buffer = state.buffer.slice(safeLength);
     return true;
   }
@@ -104,7 +123,7 @@ function consumeContentBuffer(
     return false;
   }
 
-  pushDelta(deltas, "content", state.buffer.slice(0, openIndex));
+  pushContentDelta(state, deltas, state.buffer.slice(0, openIndex));
   state.buffer = state.buffer.slice(openIndex + THINK_OPEN.length);
   state.mode = "reasoning";
   return false;
@@ -128,6 +147,7 @@ function consumeReasoningBuffer(
   pushDelta(deltas, "reasoningContent", state.buffer.slice(0, closeIndex));
   state.buffer = state.buffer.slice(closeIndex + THINK_CLOSE.length);
   state.mode = "content";
+  state.trimLeadingContent = true;
   return false;
 }
 
@@ -157,7 +177,11 @@ function flushReasoningStream(state: ReasoningStreamState): OpenAIChatCompletion
   }
 
   const deltas: OpenAIChatCompletionStreamDelta[] = [];
-  pushDelta(deltas, state.mode === "content" ? "content" : "reasoningContent", state.buffer);
+  if (state.mode === "content") {
+    pushContentDelta(state, deltas, state.buffer);
+  } else {
+    pushDelta(deltas, "reasoningContent", state.buffer);
+  }
   state.buffer = "";
   return deltas;
 }
@@ -222,7 +246,7 @@ export function createOpenAIChatCompletionReasoningStream(): {
   push(text: string): OpenAIChatCompletionStreamDelta[];
   finish(): OpenAIChatCompletionStreamDelta[];
 } {
-  const state: ReasoningStreamState = { buffer: "", mode: "content" };
+  const state: ReasoningStreamState = { buffer: "", mode: "content", trimLeadingContent: false };
   return {
     push(text) {
       return appendReasoningStreamChunk(state, text);

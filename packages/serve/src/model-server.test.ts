@@ -196,6 +196,7 @@ describe("serveLoadedModel", () => {
           max_total_tokens: 256,
           max_client_batch_size: 4,
           batch_window_ms: 2,
+          stream_decode_interval: 1,
           max_concurrent_requests: 1,
           gpu_memory_utilization: 0.75,
         },
@@ -501,6 +502,14 @@ describe("serveLoadedModel", () => {
       serveLoadedModel({
         model,
         tokenizer,
+        modelId: "bad-stream-decode",
+        streamDecodeInterval: 0,
+      }),
+    ).toThrow("streamDecodeInterval must be a positive integer.");
+    expect(() =>
+      serveLoadedModel({
+        model,
+        tokenizer,
         modelId: "bad-concurrency",
         maxConcurrentRequests: 0,
       }),
@@ -541,7 +550,7 @@ describe("serveLoadedModel", () => {
       },
       serveLoadedModel(options) {
         calls.push(
-          `serve:${options.modelId}:${options.apiKey}:${options.maxPromptTokens}:${options.maxTotalTokens}:${options.maxBatchSize}:${options.batchWindowMs}:${options.maxConcurrentRequests}:${options.gpuMemoryUtilization}:${options.disposeModelOnStop}`,
+          `serve:${options.modelId}:${options.apiKey}:${options.maxPromptTokens}:${options.maxTotalTokens}:${options.maxBatchSize}:${options.batchWindowMs}:${options.streamDecodeInterval}:${options.maxConcurrentRequests}:${options.gpuMemoryUtilization}:${options.disposeModelOnStop}`,
         );
         return fakeRunningServer(options.modelId);
       },
@@ -556,6 +565,7 @@ describe("serveLoadedModel", () => {
         localFilesOnly: true,
         maxBatchSize: 16,
         batchWindowMs: 3,
+        streamDecodeInterval: 2,
         maxConcurrentRequests: 2,
         gpuMemoryUtilization: 0.8,
       },
@@ -568,7 +578,7 @@ describe("serveLoadedModel", () => {
       "model:/snapshots/qwen",
       "tokenizer:/snapshots/qwen",
       "profile:/snapshots/qwen",
-      "serve:qwen-local:secret:4096:4096:16:3:2:0.8:true",
+      "serve:qwen-local:secret:4096:4096:16:3:2:2:0.8:true",
     ]);
     expect(model.disposeCount).toBe(0);
     running.stop();

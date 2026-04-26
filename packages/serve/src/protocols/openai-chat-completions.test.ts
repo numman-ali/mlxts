@@ -725,7 +725,7 @@ describe("OpenAI chat completions adapter", () => {
     expect(stream.push("<think>I should ")).toEqual([{ reasoningContent: "I " }]);
     expect(stream.push("greet.</think>\n\nHel")).toEqual([{ reasoningContent: "should greet." }]);
     expect(stream.push("lo")).toEqual([]);
-    expect(stream.finish()).toEqual([{ content: "\n\nHello" }]);
+    expect(stream.finish()).toEqual([{ content: "Hello" }]);
   });
 
   test("buffers generated streaming tool-call envelopes", () => {

@@ -8,6 +8,7 @@ import {
   DEFAULT_MODEL_SERVER_MAX_PROMPT_TOKENS,
   DEFAULT_MODEL_SERVER_MAX_TOTAL_TOKENS,
   DEFAULT_MODEL_SERVER_PORT,
+  DEFAULT_MODEL_SERVER_STREAM_DECODE_INTERVAL,
 } from "./model-server";
 
 export type ServeCliModelOption = {
@@ -26,6 +27,7 @@ export type ServeCliOptions = {
   maxTotalTokens: number;
   maxBatchSize: number;
   batchWindowMs: number;
+  streamDecodeInterval: number;
   maxConcurrentRequests: number;
   gpuMemoryUtilization: number;
   revision?: string;
@@ -58,6 +60,7 @@ type ParseState = {
   maxTotalTokens: number;
   maxBatchSize: number;
   batchWindowMs: number;
+  streamDecodeInterval: number;
   maxConcurrentRequests: number;
   gpuMemoryUtilization: number;
   revision?: string;
@@ -135,6 +138,7 @@ function createParseState(): ParseState {
     maxTotalTokens: DEFAULT_MODEL_SERVER_MAX_TOTAL_TOKENS,
     maxBatchSize: DEFAULT_MODEL_SERVER_MAX_BATCH_SIZE,
     batchWindowMs: DEFAULT_MODEL_SERVER_BATCH_WINDOW_MS,
+    streamDecodeInterval: DEFAULT_MODEL_SERVER_STREAM_DECODE_INTERVAL,
     maxConcurrentRequests: DEFAULT_MODEL_SERVER_MAX_CONCURRENT_REQUESTS,
     gpuMemoryUtilization: DEFAULT_MODEL_SERVER_GPU_MEMORY_UTILIZATION,
     localFilesOnly: false,
@@ -208,6 +212,14 @@ function applyFlag(state: ParseState, argv: readonly string[], index: number): n
         argv[index + 1],
         (value) => value >= 0,
         "a non-negative integer",
+      );
+      return index + 1;
+    case "--stream-decode-interval":
+      state.streamDecodeInterval = readIntegerFlag(
+        arg,
+        argv[index + 1],
+        (value) => value > 0,
+        "a positive integer",
       );
       return index + 1;
     case "--max-concurrent-requests":
@@ -321,6 +333,7 @@ function stateToOptions(state: ParseState): ServeCliParseResult {
       maxTotalTokens: state.maxTotalTokens,
       maxBatchSize: state.maxBatchSize,
       batchWindowMs: state.batchWindowMs,
+      streamDecodeInterval: state.streamDecodeInterval,
       maxConcurrentRequests: state.maxConcurrentRequests,
       gpuMemoryUtilization: state.gpuMemoryUtilization,
       ...(state.revision === undefined ? {} : { revision: state.revision }),
@@ -353,6 +366,7 @@ export function formatServeUsage(): string {
     `  --max-total-tokens <n>      Reject prompt_tokens + max_tokens above this cap (default: ${DEFAULT_MODEL_SERVER_MAX_TOTAL_TOKENS})`,
     `  --max-batch-size <n>        Admission micro-batch size per model instance (default: ${DEFAULT_MODEL_SERVER_MAX_BATCH_SIZE})`,
     `  --batch-window-ms <n>       Wait window before flushing a micro-batch (default: ${DEFAULT_MODEL_SERVER_BATCH_WINDOW_MS})`,
+    `  --stream-decode-interval <n>  Decode/flush streaming text every n generated token(s) (default: ${DEFAULT_MODEL_SERVER_STREAM_DECODE_INTERVAL})`,
     `  --max-concurrent-requests <n>  Max in-flight jobs per served model (default: ${DEFAULT_MODEL_SERVER_MAX_CONCURRENT_REQUESTS})`,
     `  --gpu-memory-utilization <f>   Reject estimated requests above this fraction of MLX memory limit (default: ${DEFAULT_MODEL_SERVER_GPU_MEMORY_UTILIZATION})`,
     "  --revision <ref>            Hugging Face revision when source is a repo id",

@@ -53,6 +53,7 @@ export type TransformersGenerationEngineOptions = {
   maxTotalTokens?: number;
   maxBatchSize?: number;
   batchWindowMs?: number;
+  streamDecodeInterval?: number;
   maxConcurrentRequests?: number;
   gpuMemoryUtilization?: number;
   onEvent?: (event: ServeEvent) => void;
@@ -195,7 +196,7 @@ export function createTransformersGenerationEngine(
         enforceGenerationMemoryBudget(options, request, promptTokens);
         emitGenerationProgress(options, request, promptTokens, 0);
         const onPrefillProgress = createPrefillProgressReporter(options, request, promptTokens);
-        const decodeInterval = streamDecodeInterval(request.sampling.stop);
+        const decodeInterval = streamDecodeInterval(options, request.sampling.stop);
         const tokenEvents = streamTokenEventsForRequest(
           request,
           options,

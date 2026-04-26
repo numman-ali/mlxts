@@ -209,7 +209,11 @@ function flushTail(
   }
 
   const tail = state.stopFilter.finish();
-  emitTextDelta(controller, state, options, tail);
+  emitTextDelta(controller, state, options, tail.text);
+  if (tail.stopped) {
+    state.finalFinishReason = "stop";
+    state.stoppedByStopSequence = true;
+  }
 }
 
 function emitReasoningDone(

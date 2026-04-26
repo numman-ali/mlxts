@@ -329,7 +329,7 @@ export function createContinuousTransformersGeneration(
       error: undefined,
     };
     const decodeState = createStreamingDecodeState(prepared.prompt);
-    const decodeInterval = streamDecodeInterval(prepared.request.sampling.stop);
+    const decodeInterval = streamDecodeInterval(options, prepared.request.sampling.stop);
     entry.modelsByRequestId.set(prepared.request.id, prepared.request.model);
     emitGenerationProgress(options, prepared.request, prepared.promptTokens, 0);
     const onPrefillProgress = createPrefillProgressReporter(
