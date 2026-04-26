@@ -8,7 +8,9 @@ mlxts is a TypeScript-native ML stack for Apple Silicon. The repo currently
 centers on:
 
 - `**@mlxts/core` / `@mlxts/nn` / `@mlxts/optimizers` / `@mlxts/train` / `@mlxts/data` / `@mlxts/tokenizers**`: the extracted reusable ML stack
-- `**@mlxts/transformers**`: Pretrained model architectures — LLaMA, Mistral, Gemma families with KV cache, generation, and auto-dispatch
+- `**@mlxts/transformers**`: Pretrained autoregressive and multimodal model architectures — LLaMA, Mistral, Gemma, and Qwen families with KV cache, generation, auto-dispatch, chat templates, and Qwen image preparation
+- `**@mlxts/serve**`: OpenAI-compatible local serving, streaming, admission controls, serving benchmarks, and Qwen/Gemma regression profiles
+- `**@mlxts/agent**`: local tool-loop primitives and CLI behavior on top of the serve/chat surfaces
 - `**Official Hugging Face JS packages**`: `@huggingface/hub` for snapshot download/cache and `@huggingface/jinja` for chat-template rendering inside the transformers loading surface
 - `**examples/nanogpt**`: the committed nanoGPT example and regression surface built on the extracted packages
 
@@ -202,6 +204,17 @@ bun run check:runtime-review
 
 # Check for suspicious nested tensor-producing calls
 bun run check:tensor-lifetimes
+
+# Generation and serving benchmarks
+bun run bench:generation
+bun run bench:generation:parity
+bun run bench:generation:context
+bun run bench:serve
+
+# Focused Qwen/Gemma regression profiles
+bun run regression:qwen-gemma -- --profile quick
+bun run regression:qwen-gemma -- --profile real
+bun run regression:qwen-gemma -- --profile substantial
 
 # Example-local nanoGPT checks
 cd examples/nanogpt

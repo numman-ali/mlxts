@@ -222,8 +222,14 @@ in-process benchmarks that intentionally decode the full requested token count;
 normal serving behavior still honors EOS unless this extension is explicit.
 Pass `--stream` to drive the same rungs through SSE completions with
 `stream_options.include_usage=true`; streaming runs add mean time-to-first-token,
-prompt-to-first-token throughput, post-TTFT completion throughput, SSE chunk
-count, and streamed byte count.
+prompt-to-first-token throughput, post-TTFT completion throughput, stream chunk
+gap timing, SSE chunk count, and streamed byte count. JSON reports also preserve
+per-request duration, TTFT, token counts, launch offset, streaming cadence, and
+finish reason. They also include benchmark-observed server event timelines per
+generation id, including route-decision timing, prefill progress timing, first
+completion-progress timing, completion/error timing, and the largest silent gap
+between server events. Staggered or concurrent runs can therefore be inspected
+without relying only on trial averages.
 Pass `--request-stagger-ms <n>` to launch concurrent requests at deliberate
 offsets rather than all at once. That is the benchmark shape for testing
 waiting-row scheduler fairness instead of only admission-window coalescing.

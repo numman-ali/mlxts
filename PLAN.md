@@ -743,6 +743,8 @@ and minimal serving are in place.
 
 **Goal**: Production-quality inference server. Quantized inference. Any OpenAI-compatible client can connect. Architecturally flexible enough that new optimization techniques (from papers or upstream projects) slot in without rewiring the stack.
 
+**Current status**: Phase 9 now contains both landed serving tranches and future production tranches. Treat the existing `@mlxts/serve` endpoint, streaming, admission, cancellation, multi-model loading, benchmark/regression harnesses, and first full-KV greedy continuous scheduler as real surfaces to preserve, while keeping paged/prefix cache, broader cache-aware scheduling, embeddings, Anthropic compatibility, and advanced optimization hooks as future work.
+
 **Research basis**: Deep analysis of three MLX inference servers — Rapid-MLX (speed-focused), vLLM-MLX (foundational batching/paging), oMLX (production serving/memory management). These share lineage (vLLM-MLX → forks) but diverged into complementary specializations. Key findings are documented in [docs/inference-optimizations.md](./docs/inference-optimizations.md). Reference repos at `.reference/rapid-mlx`, `.reference/vllm-mlx`, `.reference/omlx`.
 
 **Design principle — strategy-agnostic boundaries**: These reference projects study research papers and implement them as needed — MTP from one paper, speculative decoding from another, sparse prefill from a third. Our architecture must be flexible enough to swap strategies at each boundary: different cache backends, different decoding strategies, different scheduling algorithms. The interfaces must be stable even as the implementations behind them evolve. No technique should be hardwired in a way that prevents replacing it with a better one.
@@ -802,16 +804,16 @@ KV cache is the critical infrastructure for both single-user generation and mult
 
 ### 9f. Serving (`@mlxts/serve`)
 
-- Shared internal request model and prompt compiler inherited from Phase 7 interaction profiles; endpoint handlers are protocol adapters, not model-specific prompt logic
-- OpenAI-compatible API: `/v1/chat/completions`, `/v1/completions`, `/v1/embeddings`
-- Future OpenAI `/v1/responses` support maps into the same internal request model
+- Landed shared internal request model and prompt compiler inherited from Phase 7 interaction profiles; endpoint handlers are protocol adapters, not model-specific prompt logic
+- Landed OpenAI-compatible API slices: `/v1/chat/completions`, `/v1/completions`, `/v1/responses` text support, `/v1/models`, `/health`, and `/info`
+- Future OpenAI `/v1/embeddings` support maps into the same internal request model
 - Future Anthropic-compatible API adapter maps into the same internal request model
 - `Bun.serve()` — no Express, no Node HTTP
-- Server-sent events for token streaming with pre-computed envelope optimization
-- Concurrent request handling via paged KV cache and continuous batching
-- Model loading/unloading without restart via engine pool
-- Per-model settings (sampling params, TTL, aliases) persisted to JSON
-- Disconnect guard — monitor client disconnection and cancel generation
+- Server-sent events for token streaming, cancellation, long-context heartbeats, and cooperative prefill progress
+- Landed first full-KV greedy continuous batching for eligible LLaMA-like requests; future tranches cover Qwen/Gemma cache semantics, sampling, streaming scheduler integration, paged cache, and prefix cache
+- Future model loading/unloading without restart via engine pool
+- Future per-model settings (sampling params, TTL, aliases) persisted to JSON
+- Landed disconnect guard — monitor client disconnection and cancel generation
 
 ### 9g. CLI expansion (`@mlxts/cli`)
 

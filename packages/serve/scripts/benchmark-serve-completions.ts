@@ -17,11 +17,13 @@ type CompletionChoice = {
 };
 
 type CompletionResponseBody = {
+  id?: string;
   choices?: CompletionChoice[];
   usage?: CompletionUsage | null;
 };
 
 type ChatResponseBody = {
+  id?: string;
   choices?: Array<{
     message?: { content?: string | null; reasoning_content?: string };
     delta?: { content?: string; reasoning_content?: string };
@@ -37,6 +39,7 @@ type ResponseApiUsage = {
 };
 
 type ResponseApiBody = {
+  id?: string;
   status?: string;
   incomplete_details?: { reason?: string } | null;
   usage?: ResponseApiUsage | null;
@@ -50,10 +53,13 @@ export type BenchmarkPrompt = {
 };
 
 export type RequestMetrics = {
+  id?: string;
   durationMs: number;
   ttftMs: number | null;
   promptToFirstTokenTps: number | null;
   postTtftCompletionTps: number | null;
+  meanStreamChunkGapMs: number | null;
+  maxStreamChunkGapMs: number | null;
   promptTokens: number;
   completionTokens: number;
   totalTokens: number;
@@ -223,6 +229,18 @@ function responseFinishReason(body: CompletionResponseBody | ChatResponseBody | 
   return completionFinishReason(body);
 }
 
+function responseId(
+  body: CompletionResponseBody | ChatResponseBody | ResponseApiBody,
+): string | undefined {
+  if (typeof body.id === "string") {
+    return body.id;
+  }
+  if (isResponseApiBody(body) && typeof body.response?.id === "string") {
+    return body.response.id;
+  }
+  return undefined;
+}
+
 async function runBufferedCompletionRequest(
   endpoint: string,
   modelId: string,
@@ -248,11 +266,15 @@ async function runBufferedCompletionRequest(
     );
   }
   const usage = responseUsage(body);
+  const id = responseId(body);
   return {
+    ...(id === undefined ? {} : { id }),
     durationMs,
     ttftMs: null,
     promptToFirstTokenTps: null,
     postTtftCompletionTps: null,
+    meanStreamChunkGapMs: null,
+    maxStreamChunkGapMs: null,
     promptTokens: usage.prompt_tokens,
     completionTokens: usage.completion_tokens,
     totalTokens: usage.total_tokens,
@@ -286,6 +308,8 @@ type StreamingCompletionMetrics = {
   usage: Required<CompletionUsage>;
   finishReason: string;
   streamChunks: number;
+  streamChunkTimesMs: number[];
+  id?: string;
 };
 
 function initialStreamingCompletionMetrics(): StreamingCompletionMetrics {
@@ -294,7 +318,25 @@ function initialStreamingCompletionMetrics(): StreamingCompletionMetrics {
     usage: { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 },
     finishReason: "unknown",
     streamChunks: 0,
+    streamChunkTimesMs: [],
   };
+}
+
+function recordTextChunk(metrics: StreamingCompletionMetrics, started: number): void {
+  const elapsedMs = performance.now() - started;
+  metrics.streamChunks += 1;
+  metrics.streamChunkTimesMs.push(elapsedMs);
+  metrics.ttftMs ??= elapsedMs;
+}
+
+function retainResponseId(
+  metrics: StreamingCompletionMetrics,
+  body: CompletionResponseBody | ChatResponseBody | ResponseApiBody,
+): void {
+  const id = responseId(body);
+  if (metrics.id === undefined && id !== undefined) {
+    metrics.id = id;
+  }
 }
 
 function updateStreamingCompletionMetrics(
@@ -305,6 +347,7 @@ function updateStreamingCompletionMetrics(
   if (body.usage !== undefined && body.usage !== null) {
     metrics.usage = completionUsage(body);
   }
+  retainResponseId(metrics, body);
 
   const choice = body.choices?.[0];
   if (choice === undefined) {
@@ -320,8 +363,7 @@ function updateStreamingCompletionMetrics(
     text = choice.delta?.content ?? choice.delta?.reasoning_content;
   }
   if (text !== undefined && text !== "") {
-    metrics.streamChunks += 1;
-    metrics.ttftMs ??= performance.now() - started;
+    recordTextChunk(metrics, started);
   }
 }
 
@@ -335,6 +377,7 @@ function updateStreamingResponseMetrics(
   if (response.usage !== undefined && response.usage !== null) {
     metrics.usage = responsesUsage(response);
   }
+  retainResponseId(metrics, body);
   if (event === "response.completed" || event === "response.incomplete") {
     metrics.finishReason = responseApiFinishReason(response);
   }
@@ -344,8 +387,7 @@ function updateStreamingResponseMetrics(
     typeof delta === "string" &&
     delta !== ""
   ) {
-    metrics.streamChunks += 1;
-    metrics.ttftMs ??= performance.now() - started;
+    recordTextChunk(metrics, started);
   }
 }
 
@@ -361,6 +403,30 @@ function validateStreamingMetrics(metrics: StreamingCompletionMetrics): void {
   if (metrics.finishReason === "unknown") {
     throw new Error("benchmark-serve: streaming request ended without a finish reason.");
   }
+}
+
+function streamChunkGapsMs(timesMs: readonly number[]): number[] {
+  const gaps: number[] = [];
+  for (let index = 1; index < timesMs.length; index += 1) {
+    const previous = timesMs[index - 1];
+    const current = timesMs[index];
+    if (previous !== undefined && current !== undefined) {
+      gaps.push(Math.max(0, current - previous));
+    }
+  }
+  return gaps;
+}
+
+function mean(values: readonly number[]): number {
+  return values.reduce((total, value) => total + value, 0) / Math.max(values.length, 1);
+}
+
+function meanOrNull(values: readonly number[]): number | null {
+  return values.length === 0 ? null : mean(values);
+}
+
+function maxOrNull(values: readonly number[]): number | null {
+  return values.length === 0 ? null : Math.max(...values);
 }
 
 function handleSsePayload(
@@ -443,6 +509,7 @@ async function runStreamingCompletionRequest(
 
   const durationMs = performance.now() - started;
   const ttftMs = metrics.ttftMs;
+  const streamChunkGaps = streamChunkGapsMs(metrics.streamChunkTimesMs);
   const promptToFirstTokenTps =
     ttftMs === null || ttftMs <= 0 ? null : metrics.usage.prompt_tokens / (ttftMs / 1000);
   const postTtftCompletionTps =
@@ -453,10 +520,13 @@ async function runStreamingCompletionRequest(
   validateStreamingMetrics(metrics);
 
   return {
+    ...(metrics.id === undefined ? {} : { id: metrics.id }),
     durationMs,
     ttftMs,
     promptToFirstTokenTps,
     postTtftCompletionTps,
+    meanStreamChunkGapMs: meanOrNull(streamChunkGaps),
+    maxStreamChunkGapMs: maxOrNull(streamChunkGaps),
     promptTokens: metrics.usage.prompt_tokens,
     completionTokens: metrics.usage.completion_tokens,
     totalTokens: metrics.usage.total_tokens,

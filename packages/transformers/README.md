@@ -1,10 +1,12 @@
 # `@mlxts/transformers`
 
-Pretrained decoder model loading and explicit generation for mlxts.
+Pretrained transformer loading, multimodal preparation, and explicit generation
+for mlxts.
 
 `@mlxts/transformers` builds on `@mlxts/tokenizers`, `@mlxts/core`,
 `@mlxts/nn`, and the official Hugging Face JS packages to load supported
-decoder families from local paths or Hugging Face snapshots.
+autoregressive text and vision-language families from local paths or Hugging
+Face snapshots.
 
 ```ts
 import {

@@ -31,6 +31,7 @@ describe("serve benchmark completion requests", () => {
         expect(body.temperature).toBe(0);
         expect(body.ignore_eos).toBe(true);
         return Response.json({
+          id: "cmpl-buffered",
           choices: [{ text: "ok", finish_reason: "length" }],
           usage: { prompt_tokens: 2, completion_tokens: 3, total_tokens: 5 },
         });
@@ -47,9 +48,12 @@ describe("serve benchmark completion requests", () => {
       );
 
       expect(metrics).toMatchObject({
+        id: "cmpl-buffered",
         ttftMs: null,
         promptToFirstTokenTps: null,
         postTtftCompletionTps: null,
+        meanStreamChunkGapMs: null,
+        maxStreamChunkGapMs: null,
         promptTokens: 2,
         completionTokens: 3,
         totalTokens: 5,
@@ -67,18 +71,22 @@ describe("serve benchmark completion requests", () => {
     const encoder = new TextEncoder();
     const frames = [
       textSseFrame({
+        id: "cmpl-stream",
         choices: [{ text: "a", finish_reason: null }],
         usage: null,
       }),
       textSseFrame({
+        id: "cmpl-stream",
         choices: [{ text: "b", finish_reason: null }],
         usage: null,
       }),
       textSseFrame({
+        id: "cmpl-stream",
         choices: [{ text: "", finish_reason: "length" }],
         usage: null,
       }),
       textSseFrame({
+        id: "cmpl-stream",
         choices: [],
         usage: { prompt_tokens: 2, completion_tokens: 3, total_tokens: 5 },
       }),
@@ -115,6 +123,7 @@ describe("serve benchmark completion requests", () => {
       );
 
       expect(metrics).toMatchObject({
+        id: "cmpl-stream",
         promptTokens: 2,
         completionTokens: 3,
         totalTokens: 5,
@@ -124,6 +133,8 @@ describe("serve benchmark completion requests", () => {
       expect(metrics.ttftMs).not.toBeNull();
       expect(metrics.promptToFirstTokenTps).not.toBeNull();
       expect(metrics.postTtftCompletionTps).not.toBeNull();
+      expect(metrics.meanStreamChunkGapMs).not.toBeNull();
+      expect(metrics.maxStreamChunkGapMs).not.toBeNull();
       expect(metrics.streamBytes).toBeGreaterThan(0);
     } finally {
       server.stop(true);

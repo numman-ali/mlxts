@@ -90,7 +90,7 @@ nanogpt train
 nanogpt train --preset gpt-small --data ./data/shakespeare.txt --lr 3e-4 --batch-size 2 --grad-accum 8 --max-steps 5000
 ```
 
-**Structured output.** Human-readable by default, machine-parseable with `--json`. Scripts and CI can consume the output reliably.
+**Structured output.** Human-readable by default, machine-parseable with `--json` for finite commands. Scripts and CI can consume one-shot results reliably. Long-running servers and interactive REPLs should expose structured logs, events, status endpoints, or transcripts instead of pretending the live session is one JSON object.
 
 **Long-run control is explicit.** Overnight training is supervised through a run-local directory with structured events, status snapshots, and checkpointed stop/resume. We do not rely on hidden daemons or ad hoc shell state.
 
@@ -103,7 +103,8 @@ nanogpt train --preset gpt-small --data ./data/shakespeare.txt --lr 3e-4 --batch
 ### Standards
 
 - Every command has `--help` with examples
-- Every command supports `--json` for structured output
+- Finite one-shot commands support `--json` for structured output
+- Long-running servers and interactive REPLs expose structured telemetry, status, or transcript surfaces instead of one final `--json` result
 - Exit codes are meaningful: 0 = success, 1 = user error, 2 = system error
 - Long-running operations show progress (spinner or progress bar)
 - Config files override defaults; flags override config files; env vars are a last resort

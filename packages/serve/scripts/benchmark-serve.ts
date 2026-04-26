@@ -11,7 +11,7 @@ import {
 } from "../../transformers/src";
 import { serveLoadedModel } from "../src/model-server";
 import type { ServeEvent } from "../src/types";
-import { runCompletionRequest } from "./benchmark-serve-completions";
+import { type RequestMetrics, runCompletionRequest } from "./benchmark-serve-completions";
 import {
   buildServeBenchmarkRungs,
   parseServeBenchmarkArgs,
@@ -40,6 +40,28 @@ export type RouteDecisionSummary = {
   count: number;
 };
 
+export type ServerRequestTimingReport = {
+  id: string;
+  model: string;
+  protocol: string;
+  inputKind?: string;
+  route?: string;
+  routeReason?: string;
+  routeDecisionMs: number | null;
+  firstPrefillProgressMs: number | null;
+  lastPrefillProgressMs: number | null;
+  prefillObservedMs: number | null;
+  firstCompletionProgressMs: number | null;
+  completeObservedMs: number | null;
+  durationMs: number | null;
+  maxSilentEventGapMs: number | null;
+  prefillEvents: number;
+  progressEvents: number;
+  maxCompletionTokens: number;
+  finishReason?: string;
+  errorCode?: string;
+};
+
 export type TrialMetrics = {
   wallMs: number;
   requestTps: number;
@@ -48,6 +70,8 @@ export type TrialMetrics = {
   meanTtftMs: number | null;
   meanPromptToFirstTokenTps: number | null;
   meanPostTtftCompletionTps: number | null;
+  meanStreamChunkGapMs: number | null;
+  maxStreamChunkGapMs: number | null;
   promptTokens: number;
   completionTokens: number;
   totalTokens: number;
@@ -71,6 +95,13 @@ export type TrialMetrics = {
   finishReasons: string[];
   routeDecisions: RouteDecisionReport[];
   routeSummary: RouteDecisionSummary[];
+  requests: RequestMetricsReport[];
+  serverRequests: ServerRequestTimingReport[];
+};
+
+export type RequestMetricsReport = RequestMetrics & {
+  index: number;
+  launchDelayMs: number;
 };
 
 export type RungReport = {
@@ -97,6 +128,10 @@ export type BenchmarkReport = {
   rungs: RungReport[];
 };
 
+type RecordedServeEvent = ServeEvent & {
+  observedAtMs: number;
+};
+
 function mean(values: readonly number[]): number {
   return values.reduce((total, value) => total + value, 0) / Math.max(values.length, 1);
 }
@@ -117,6 +152,15 @@ function isPresentNumber(value: number | null): value is number {
 function meanPresent(values: ReadonlyArray<number | null>): number | null {
   const present = values.filter(isPresentNumber);
   return present.length === 0 ? null : mean(present);
+}
+
+function maxPresent(values: ReadonlyArray<number | null>): number | null {
+  const present = values.filter(isPresentNumber);
+  return present.length === 0 ? null : Math.max(...present);
+}
+
+function eventRequestId(event: ServeEvent): string | undefined {
+  return "id" in event ? event.id : undefined;
 }
 
 function directoryExists(path: string): boolean {
@@ -162,7 +206,7 @@ async function resolveCachedSnapshotPath(modelSource: string): Promise<string> {
 }
 
 function countEvents(
-  events: readonly ServeEvent[],
+  events: readonly RecordedServeEvent[],
   type: ServeEvent["type"],
   mode?: "static" | "continuous",
 ): number {
@@ -174,20 +218,23 @@ function countEvents(
   }).length;
 }
 
-function batchSizeEvents(events: readonly ServeEvent[], mode?: "static" | "continuous"): number[] {
+function batchSizeEvents(
+  events: readonly RecordedServeEvent[],
+  mode?: "static" | "continuous",
+): number[] {
   return events
     .filter((event) => event.type === "generation_batch_start")
     .filter((event) => mode === undefined || event.mode === mode)
     .map((event) => event.batchSize);
 }
 
-function admissionBatchSizes(events: readonly ServeEvent[]): number[] {
+function admissionBatchSizes(events: readonly RecordedServeEvent[]): number[] {
   return events
     .filter((event) => event.type === "generation_admission_batch")
     .map((event) => event.batchSize);
 }
 
-function routeDecisionReports(events: readonly ServeEvent[]): RouteDecisionReport[] {
+function routeDecisionReports(events: readonly RecordedServeEvent[]): RouteDecisionReport[] {
   return events
     .filter((event) => event.type === "generation_route_decision")
     .map((event) => ({
@@ -201,6 +248,150 @@ function routeDecisionReports(events: readonly ServeEvent[]): RouteDecisionRepor
       maxBatchSize: event.maxBatchSize,
       stream: event.stream,
     }));
+}
+
+function relativeMs(event: RecordedServeEvent | undefined, startedAt: number): number | null {
+  return event === undefined ? null : event.observedAtMs - startedAt;
+}
+
+function maxObservedEventGapMs(events: readonly RecordedServeEvent[]): number | null {
+  if (events.length < 2) {
+    return null;
+  }
+  let maxGapMs = 0;
+  for (let index = 1; index < events.length; index += 1) {
+    const previous = events[index - 1];
+    const current = events[index];
+    if (previous !== undefined && current !== undefined) {
+      maxGapMs = Math.max(maxGapMs, current.observedAtMs - previous.observedAtMs);
+    }
+  }
+  return maxGapMs;
+}
+
+function groupEventsByRequestId(
+  events: readonly RecordedServeEvent[],
+): Map<string, RecordedServeEvent[]> {
+  const groups = new Map<string, RecordedServeEvent[]>();
+  for (const event of events) {
+    const id = eventRequestId(event);
+    if (id === undefined) {
+      continue;
+    }
+    const group = groups.get(id);
+    if (group === undefined) {
+      groups.set(id, [event]);
+      continue;
+    }
+    group.push(event);
+  }
+  return groups;
+}
+
+function maxCompletionTokens(events: readonly RecordedServeEvent[]): number {
+  return Math.max(
+    0,
+    ...events
+      .filter((event) => event.type === "generation_progress")
+      .map((event) => event.completionTokens),
+  );
+}
+
+type RequestEventSlice = {
+  sorted: RecordedServeEvent[];
+  start: Extract<RecordedServeEvent, { type: "generation_start" }> | undefined;
+  route: Extract<RecordedServeEvent, { type: "generation_route_decision" }> | undefined;
+  complete: Extract<RecordedServeEvent, { type: "generation_complete" }> | undefined;
+  error: Extract<RecordedServeEvent, { type: "generation_error" }> | undefined;
+  prefillEvents: Extract<RecordedServeEvent, { type: "generation_prefill_progress" }>[];
+  progressEvents: Extract<RecordedServeEvent, { type: "generation_progress" }>[];
+};
+
+function requestEventSlice(group: readonly RecordedServeEvent[]): RequestEventSlice {
+  const sorted = [...group].sort((left, right) => left.observedAtMs - right.observedAtMs);
+  return {
+    sorted,
+    start: sorted.find((event) => event.type === "generation_start"),
+    route: sorted.find((event) => event.type === "generation_route_decision"),
+    complete: sorted.find((event) => event.type === "generation_complete"),
+    error: sorted.find((event) => event.type === "generation_error"),
+    prefillEvents: sorted.filter((event) => event.type === "generation_prefill_progress"),
+    progressEvents: sorted.filter((event) => event.type === "generation_progress"),
+  };
+}
+
+function sliceStartMs(slice: RequestEventSlice): number {
+  return slice.start?.observedAtMs ?? slice.sorted[0]?.observedAtMs ?? 0;
+}
+
+function prefillObservedMs(firstMs: number | null, lastMs: number | null): number | null {
+  return firstMs === null || lastMs === null ? null : lastMs - firstMs;
+}
+
+function requestDurationMs(slice: RequestEventSlice): number | null {
+  if (slice.complete !== undefined) {
+    return slice.complete.durationMs;
+  }
+  return slice.error?.durationMs ?? null;
+}
+
+function requestModel(slice: RequestEventSlice): string {
+  return (
+    slice.start?.model ??
+    slice.route?.model ??
+    slice.complete?.model ??
+    slice.error?.model ??
+    "unknown"
+  );
+}
+
+function requestProtocol(slice: RequestEventSlice): string {
+  return (
+    slice.start?.protocol ??
+    slice.route?.protocol ??
+    slice.complete?.protocol ??
+    slice.error?.protocol ??
+    "unknown"
+  );
+}
+
+function requestTimingReport(id: string, group: readonly RecordedServeEvent[]) {
+  const slice = requestEventSlice(group);
+  const startedAt = sliceStartMs(slice);
+  const firstPrefillMs = relativeMs(slice.prefillEvents[0], startedAt);
+  const lastPrefillMs = relativeMs(slice.prefillEvents[slice.prefillEvents.length - 1], startedAt);
+  const firstCompletion = slice.progressEvents.find((event) => event.completionTokens > 0);
+
+  return {
+    id,
+    model: requestModel(slice),
+    protocol: requestProtocol(slice),
+    ...(slice.start === undefined ? {} : { inputKind: slice.start.inputKind }),
+    ...(slice.route === undefined
+      ? {}
+      : { route: slice.route.route, routeReason: slice.route.reason }),
+    routeDecisionMs: relativeMs(slice.route, startedAt),
+    firstPrefillProgressMs: firstPrefillMs,
+    lastPrefillProgressMs: lastPrefillMs,
+    prefillObservedMs: prefillObservedMs(firstPrefillMs, lastPrefillMs),
+    firstCompletionProgressMs: relativeMs(firstCompletion, startedAt),
+    completeObservedMs: relativeMs(slice.complete ?? slice.error, startedAt),
+    durationMs: requestDurationMs(slice),
+    maxSilentEventGapMs: maxObservedEventGapMs(slice.sorted),
+    prefillEvents: slice.prefillEvents.length,
+    progressEvents: slice.progressEvents.length,
+    maxCompletionTokens: maxCompletionTokens(slice.sorted),
+    ...(slice.complete === undefined ? {} : { finishReason: slice.complete.finishReason }),
+    ...(slice.error === undefined ? {} : { errorCode: slice.error.code }),
+  };
+}
+
+function serverRequestTimingReports(
+  events: readonly RecordedServeEvent[],
+): ServerRequestTimingReport[] {
+  return [...groupEventsByRequestId(events)]
+    .map(([id, group]) => requestTimingReport(id, group))
+    .sort((left, right) => left.id.localeCompare(right.id));
 }
 
 function summarizeRouteDecisions(
@@ -238,7 +429,7 @@ async function runTrial(
   prompt: { tokenIds: readonly number[]; text: string },
   rung: ServeBenchmarkRung,
   options: ServeBenchmarkOptions,
-  serveEvents: readonly ServeEvent[],
+  serveEvents: readonly RecordedServeEvent[],
 ): Promise<TrialMetrics> {
   resetPeakMemory();
   clearMemoryCache();
@@ -250,7 +441,12 @@ async function runTrial(
     if (delayMs > 0) {
       await Bun.sleep(delayMs);
     }
-    return runCompletionRequest(endpoint, modelId, prompt, rung, options);
+    const metrics = await runCompletionRequest(endpoint, modelId, prompt, rung, options);
+    return {
+      index: requestIndex,
+      launchDelayMs: delayMs,
+      ...metrics,
+    };
   });
   const results = await Promise.all(requests);
   const wallMs = performance.now() - started;
@@ -268,6 +464,7 @@ async function runTrial(
   const continuousAdmissionSizes = batchSizeEvents(events, "continuous");
   const generationBatchSizes = batchSizeEvents(events);
   const routeDecisions = routeDecisionReports(events);
+  const serverRequests = serverRequestTimingReports(events);
 
   return {
     wallMs,
@@ -277,6 +474,8 @@ async function runTrial(
     meanTtftMs: meanPresent(results.map((result) => result.ttftMs)),
     meanPromptToFirstTokenTps: meanPresent(results.map((result) => result.promptToFirstTokenTps)),
     meanPostTtftCompletionTps: meanPresent(results.map((result) => result.postTtftCompletionTps)),
+    meanStreamChunkGapMs: meanPresent(results.map((result) => result.meanStreamChunkGapMs)),
+    maxStreamChunkGapMs: maxPresent(results.map((result) => result.maxStreamChunkGapMs)),
     promptTokens,
     completionTokens,
     totalTokens,
@@ -300,6 +499,8 @@ async function runTrial(
     finishReasons: results.map((result) => result.finishReason),
     routeDecisions,
     routeSummary: summarizeRouteDecisions(routeDecisions),
+    requests: results,
+    serverRequests,
   };
 }
 
@@ -312,6 +513,8 @@ function averageTrialMetrics(trials: readonly TrialMetrics[]): TrialMetrics {
     meanTtftMs: meanPresent(trials.map((trial) => trial.meanTtftMs)),
     meanPromptToFirstTokenTps: meanPresent(trials.map((trial) => trial.meanPromptToFirstTokenTps)),
     meanPostTtftCompletionTps: meanPresent(trials.map((trial) => trial.meanPostTtftCompletionTps)),
+    meanStreamChunkGapMs: meanPresent(trials.map((trial) => trial.meanStreamChunkGapMs)),
+    maxStreamChunkGapMs: maxPresent(trials.map((trial) => trial.maxStreamChunkGapMs)),
     promptTokens: mean(trials.map((trial) => trial.promptTokens)),
     completionTokens: mean(trials.map((trial) => trial.completionTokens)),
     totalTokens: mean(trials.map((trial) => trial.totalTokens)),
@@ -335,6 +538,8 @@ function averageTrialMetrics(trials: readonly TrialMetrics[]): TrialMetrics {
     finishReasons: trials.flatMap((trial) => trial.finishReasons),
     routeDecisions: trials.flatMap((trial) => trial.routeDecisions),
     routeSummary: summarizeRouteDecisions(trials.flatMap((trial) => trial.routeDecisions)),
+    requests: trials.flatMap((trial) => trial.requests),
+    serverRequests: trials.flatMap((trial) => trial.serverRequests),
   };
 }
 
@@ -360,6 +565,8 @@ function printMetrics(prefix: string, metrics: TrialMetrics): void {
       `mean_ttft_ms=${formatNullableMs(metrics.meanTtftMs)}`,
       `mean_prompt_to_first_token_tps=${formatNullableTps(metrics.meanPromptToFirstTokenTps)}`,
       `mean_post_ttft_completion_tps=${formatNullableTps(metrics.meanPostTtftCompletionTps)}`,
+      `mean_stream_chunk_gap_ms=${formatNullableMs(metrics.meanStreamChunkGapMs)}`,
+      `max_stream_chunk_gap_ms=${formatNullableMs(metrics.maxStreamChunkGapMs)}`,
       `mean_request_ms=${metrics.meanRequestMs.toFixed(1)}`,
       `p95_request_ms=${metrics.p95RequestMs.toFixed(1)}`,
       `max_request_ms=${metrics.maxRequestMs.toFixed(1)}`,
@@ -402,7 +609,7 @@ async function benchmarkRung(
   tokenizer: { encode(text: string): number[] },
   rung: ServeBenchmarkRung,
   options: ServeBenchmarkOptions,
-  serveEvents: readonly ServeEvent[],
+  serveEvents: readonly RecordedServeEvent[],
 ): Promise<RungReport> {
   const prompt = createBenchmarkPrompt(
     rung.promptTokens,
@@ -477,7 +684,7 @@ async function main(): Promise<void> {
   ]);
   using loadedModel = model;
 
-  const serveEvents: ServeEvent[] = [];
+  const serveEvents: RecordedServeEvent[] = [];
   const server = serveLoadedModel({
     model: loadedModel,
     tokenizer,
@@ -494,7 +701,7 @@ async function main(): Promise<void> {
     maxConcurrentRequests: options.maxConcurrentRequests,
     gpuMemoryUtilization: options.gpuMemoryUtilization,
     onEvent(event) {
-      serveEvents.push(event);
+      serveEvents.push({ ...event, observedAtMs: performance.now() });
     },
   });
 
