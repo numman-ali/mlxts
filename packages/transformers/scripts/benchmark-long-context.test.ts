@@ -2,8 +2,9 @@ import { describe, expect, test } from "bun:test";
 import type { Tokenizer } from "@mlxts/tokenizers";
 import { mkdtempSync, rmSync } from "fs";
 import { join } from "path";
-
+import type { LongContextOptions, LongContextResult } from "./benchmark-long-context";
 import {
+  assertLongContextResult,
   buildNeedlePromptTokenIds,
   defaultContextTargets,
   findNeedleTokenOffset,
@@ -53,6 +54,55 @@ function mockTokenizer(): Tokenizer {
   };
 }
 
+function options(overrides: Partial<LongContextOptions> = {}): LongContextOptions {
+  return {
+    model: "tiny",
+    rungs: [128],
+    generationTokens: 8,
+    prefillStepSize: 32,
+    metalTrace: false,
+    needlePositions: ["late"],
+    reportJson: null,
+    failOnMismatch: false,
+    maxActiveSlopeMbPerToken: null,
+    ...overrides,
+  };
+}
+
+function result(overrides: Partial<LongContextResult> = {}): LongContextResult {
+  return {
+    needlePosition: "late",
+    rungTokens: 128,
+    promptTokens: 128,
+    expectedMarker: "MKR-TINY-128-LATE",
+    needleTokenOffset: 100,
+    needleTokenStart: 100,
+    needleTokenEnd: 110,
+    needleTokenCenter: 105,
+    needleTokenFraction: 100 / 128,
+    needleTokenCenterFraction: 105 / 128,
+    prefillSeconds: 1,
+    prefillTps: 128,
+    firstTokenSeconds: 0.1,
+    decodeTokens: 8,
+    decodeTps: 80,
+    prefillPeakMemoryGb: 1,
+    activeMemoryAfterPrefillGb: 1,
+    cacheMemoryAfterPrefillGb: 0.1,
+    activeMemoryAfterFirstTokenGb: 1,
+    cacheMemoryAfterFirstTokenGb: 0.1,
+    activeMemoryAfterDecodeGb: 1,
+    cacheMemoryAfterDecodeGb: 0.1,
+    activeMemoryDecodeDeltaGb: 0,
+    activeMemoryDecodeSlopeMbPerToken: 0,
+    peakMemoryAfterDecodeGb: 1,
+    exactMatch: true,
+    containsSecret: true,
+    responseText: "MKR-TINY-128-LATE",
+    ...overrides,
+  };
+}
+
 describe("benchmark-long-context", () => {
   test("defaultContextTargets follows the 32k/64k/128k/256k ladder", () => {
     expect(defaultContextTargets(16_384)).toEqual([]);
@@ -81,10 +131,17 @@ describe("benchmark-long-context", () => {
   });
 
   test("parseLongContextArgs rejects missing needle placement values", () => {
-    expect(
-      parseLongContextArgs(["mlx-community/Qwen3.6-27B-4bit", "--needle-placements", "all"])
-        .needlePositions,
-    ).toEqual(["early", "middle", "late"]);
+    const parsed = parseLongContextArgs([
+      "mlx-community/Qwen3.6-27B-4bit",
+      "--needle-placements",
+      "all",
+      "--fail-on-mismatch",
+      "--max-active-slope-mb-per-token",
+      "0.5",
+    ]);
+    expect(parsed.needlePositions).toEqual(["early", "middle", "late"]);
+    expect(parsed.failOnMismatch).toBe(true);
+    expect(parsed.maxActiveSlopeMbPerToken).toBe(0.5);
     expect(() =>
       parseLongContextArgs(["mlx-community/Qwen3.6-27B-4bit", "--needle-placements"]),
     ).toThrow("--needle-placements expects a value");
@@ -96,6 +153,13 @@ describe("benchmark-long-context", () => {
         "8",
       ]),
     ).toThrow("--needle-placements expects a value");
+    expect(() =>
+      parseLongContextArgs([
+        "mlx-community/Qwen3.6-27B-4bit",
+        "--max-active-slope-mb-per-token",
+        "-1",
+      ]),
+    ).toThrow("--max-active-slope-mb-per-token expects a non-negative number");
   });
 
   test("splitNeedleFillerRepetitions places markers across the context", () => {
@@ -188,5 +252,23 @@ describe("benchmark-long-context", () => {
 
   test("normalizeExactResponse grades the first non-empty generated answer line", () => {
     expect(normalizeExactResponse("\n`MKR-123`,\nassistant\nextra")).toBe("MKR-123");
+  });
+
+  test("assertLongContextResult can fail retrieval and decode memory regressions", () => {
+    expect(() =>
+      assertLongContextResult(result(), options({ failOnMismatch: true })),
+    ).not.toThrow();
+    expect(() =>
+      assertLongContextResult(
+        result({ exactMatch: false, responseText: "wrong" }),
+        options({ failOnMismatch: true }),
+      ),
+    ).toThrow("expected exact marker");
+    expect(() =>
+      assertLongContextResult(
+        result({ activeMemoryDecodeSlopeMbPerToken: 2 }),
+        options({ maxActiveSlopeMbPerToken: 1 }),
+      ),
+    ).toThrow("active_decode_slope");
   });
 });

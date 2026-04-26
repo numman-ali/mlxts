@@ -21,7 +21,7 @@ import {
 } from "./benchmark-serve-options";
 import { createBenchmarkPrompt } from "./benchmark-serve-prompts";
 
-type RouteDecisionReport = {
+export type RouteDecisionReport = {
   id: string;
   model: string;
   protocol: string;
@@ -33,14 +33,14 @@ type RouteDecisionReport = {
   stream: boolean;
 };
 
-type RouteDecisionSummary = {
+export type RouteDecisionSummary = {
   key: string;
   route: string;
   reason: string;
   count: number;
 };
 
-type TrialMetrics = {
+export type TrialMetrics = {
   wallMs: number;
   requestTps: number;
   completionTps: number;
@@ -73,14 +73,14 @@ type TrialMetrics = {
   routeSummary: RouteDecisionSummary[];
 };
 
-type RungReport = {
+export type RungReport = {
   rung: ServeBenchmarkRung;
   arrivalSpanMs: number;
   trials: TrialMetrics[];
   averages: TrialMetrics;
 };
 
-type BenchmarkReport = {
+export type BenchmarkReport = {
   createdAt: string;
   model: string;
   modelId: string;

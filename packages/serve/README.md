@@ -250,6 +250,29 @@ rejected with `--protocol responses` because the current Responses benchmark
 does not expose that nonstandard serving extension. Tool quality still needs its
 own benchmark.
 
+## Regression Matrix
+
+Use the serving regression matrix before substantial serving/model changes:
+
+```bash
+bun run --filter '@mlxts/serve' regression:serve
+```
+
+That cheap path runs focused serving, protocol, streaming, batching, and
+benchmark tests without loading real checkpoints. When cached Qwen/Gemma
+checkpoints are available, the real endpoint smoke composes the existing
+`bench:serve` harness and hard-fails on structural regressions:
+
+```bash
+bun run packages/serve/scripts/regression-serve-matrix.ts --real-models
+```
+
+For heavier local proof work, add `--capability-smoke`; it includes longer Qwen
+output/context endpoint rungs and writes JSON reports under
+`.tmp/serve-regression/`. These commands are lock-guarded and intentionally
+sequential. They verify endpoint behavior and serving budgets, not unsupported
+claims such as Qwen/Gemma continuous batching.
+
 ## Engine Primitives
 
 The package starts with the OpenAI completions, chat completions, and narrow

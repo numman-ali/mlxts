@@ -26,6 +26,8 @@ export type LongContextOptions = {
   metalTrace: boolean;
   needlePositions: NeedlePosition[];
   reportJson: string | null;
+  failOnMismatch: boolean;
+  maxActiveSlopeMbPerToken: number | null;
 };
 
 export type NeedlePosition = "early" | "middle" | "late";
@@ -99,7 +101,7 @@ const RETRIEVAL_SYSTEM_PROMPT =
 
 function usage(): never {
   console.error(
-    "Usage: bun run packages/transformers/scripts/benchmark-long-context.ts --model <repo-or-path> [--rungs 32768,65536,131072] [--needle-placements early,middle,late|all] [--generation-tokens <n>] [--prefill-step-size <n>] [--report-json <path>] [--metal-trace]",
+    "Usage: bun run packages/transformers/scripts/benchmark-long-context.ts --model <repo-or-path> [--rungs 32768,65536,131072] [--needle-placements early,middle,late|all] [--generation-tokens <n>] [--prefill-step-size <n>] [--report-json <path>] [--fail-on-mismatch] [--max-active-slope-mb-per-token <n>] [--metal-trace]",
   );
   process.exit(1);
 }
@@ -108,6 +110,14 @@ function readInteger(flag: string, value: string | undefined): number {
   const parsed = Number.parseInt(value ?? "", 10);
   if (!Number.isInteger(parsed) || parsed <= 0) {
     throw new Error(`benchmark-long-context: ${flag} expects a positive integer.`);
+  }
+  return parsed;
+}
+
+function readNonNegativeNumber(flag: string, value: string | undefined): number {
+  const parsed = Number.parseFloat(value ?? "");
+  if (!Number.isFinite(parsed) || parsed < 0) {
+    throw new Error(`benchmark-long-context: ${flag} expects a non-negative number.`);
   }
   return parsed;
 }
@@ -207,6 +217,8 @@ export function parseLongContextArgs(argv: readonly string[]): LongContextOption
   let metalTrace = false;
   let needlePositions = parseNeedlePositions(undefined);
   let reportJson: string | null = null;
+  let failOnMismatch = false;
+  let maxActiveSlopeMbPerToken: number | null = null;
 
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
@@ -240,6 +252,13 @@ export function parseLongContextArgs(argv: readonly string[]): LongContextOption
         reportJson = readRequiredValue(arg, argv[index + 1]);
         index += 1;
         break;
+      case "--fail-on-mismatch":
+        failOnMismatch = true;
+        break;
+      case "--max-active-slope-mb-per-token":
+        maxActiveSlopeMbPerToken = readNonNegativeNumber(arg, argv[index + 1]);
+        index += 1;
+        break;
       case "--metal-trace":
         metalTrace = true;
         break;
@@ -264,6 +283,8 @@ export function parseLongContextArgs(argv: readonly string[]): LongContextOption
     metalTrace,
     needlePositions,
     reportJson,
+    failOnMismatch,
+    maxActiveSlopeMbPerToken,
   };
 }
 
@@ -651,6 +672,36 @@ function assertRungTargetsWithinContext(rungs: readonly number[], maxContextToke
   );
 }
 
+export function assertLongContextResult(
+  result: LongContextResult,
+  options: LongContextOptions,
+): void {
+  const failures: string[] = [];
+  if (options.failOnMismatch && !result.exactMatch) {
+    failures.push(
+      `expected exact marker ${result.expectedMarker}, got ${JSON.stringify(result.responseText)}`,
+    );
+  }
+  if (
+    options.maxActiveSlopeMbPerToken !== null &&
+    result.activeMemoryDecodeSlopeMbPerToken > options.maxActiveSlopeMbPerToken
+  ) {
+    failures.push(
+      `active_decode_slope ${result.activeMemoryDecodeSlopeMbPerToken.toFixed(
+        2,
+      )} MB/token > ${options.maxActiveSlopeMbPerToken.toFixed(2)} MB/token`,
+    );
+  }
+
+  if (failures.length > 0) {
+    throw new Error(
+      `benchmark-long-context: ${result.rungTokens}/${result.needlePosition} failed: ${failures.join(
+        "; ",
+      )}.`,
+    );
+  }
+}
+
 async function main(): Promise<void> {
   using _runtimeLock = acquireRuntimeCommandLock("bench:generation:context");
   const options = parseLongContextArgs(Bun.argv.slice(2));
@@ -708,6 +759,7 @@ async function main(): Promise<void> {
       if (options.reportJson !== null) {
         await writeLongContextReport(options.reportJson, report);
       }
+      assertLongContextResult(result, options);
     }
   }
 

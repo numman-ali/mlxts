@@ -68,6 +68,19 @@ The real path runs sequentially under the shared MLX runtime lock, checks
 load-memory budgets for Qwen 3.6 and Gemma 4, and enforces decode smoke budgets
 for throughput, peak memory, active-memory slope, and evals-per-token.
 
+The repo-level Qwen/Gemma command composes this transformer matrix with the
+serving matrix:
+
+```bash
+bun run regression:qwen-gemma -- --profile quick
+bun run regression:qwen-gemma -- --profile real
+bun run regression:qwen-gemma -- --profile substantial
+```
+
+`quick` is the normal pre-commit/substantial-edit guardrail. `real` adds cached
+real-model decode and endpoint smoke. `substantial` adds longer endpoint rungs
+and a 32k Qwen retrieval check with exact-match and decode-memory assertions.
+
 Qwen 3.5 / Qwen 3.6 multimodal checkpoints also expose image-preparation
 helpers through the same package surface. The package owns checkpoint loading,
 chat template discovery, `preprocessor_config.json` parsing, multimodal prompt
