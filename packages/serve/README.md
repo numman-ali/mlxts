@@ -282,8 +282,9 @@ For heavier local proof work, add `--capability-smoke`; it includes longer Qwen
 output/context endpoint rungs and writes JSON reports under
 `.tmp/serve-regression/`. These commands are lock-guarded and intentionally
 sequential. The real smoke asserts Qwen/Gemma route reasons, server-request
-evidence, streaming responsiveness, and continuous scheduler counters so
-batching claims stay tied to observed endpoint behavior.
+evidence, streaming responsiveness, and continuous scheduler counters, including
+concurrent `@2` streamed completions, so batching claims stay tied to observed
+endpoint behavior.
 
 ## Engine Primitives
 

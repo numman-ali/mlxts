@@ -23,6 +23,7 @@ export type ServeRegressionBudget = {
   minCompletionTokenRatio: number;
   minStreamChunks?: number;
   minStreamBytes?: number;
+  expectEveryRequestStreamed?: boolean;
   maxMeanTtftMs?: number;
   maxObservedStreamChunkGapMs?: number;
   expectedRoute?: string;
@@ -262,7 +263,30 @@ function tokenFailures(
     : [];
 }
 
-function streamFailures(metrics: TrialMetrics, budget: ServeRegressionBudget): string[] {
+function perRequestStreamFailures(metrics: TrialMetrics, concurrency: number): string[] {
+  const failures: string[] = [];
+  if (metrics.requests.length < concurrency) {
+    failures.push(`requests ${metrics.requests.length} < concurrency ${concurrency}`);
+  }
+  const nonStreamingRequests = metrics.requests.filter(
+    (request) =>
+      request.streamChunks <= 0 ||
+      request.streamBytes <= 0 ||
+      request.ttftMs === null ||
+      (request.finishReason !== "length" && request.finishReason !== "stop"),
+  );
+  if (nonStreamingRequests.length > 0) {
+    const ids = nonStreamingRequests.map((request) => request.id ?? `index:${request.index}`);
+    failures.push(`requests missing per-request SSE evidence: ${ids.join(",")}`);
+  }
+  return failures;
+}
+
+function streamFailures(
+  metrics: TrialMetrics,
+  concurrency: number,
+  budget: ServeRegressionBudget,
+): string[] {
   const failures: string[] = [];
   if (budget.minStreamChunks !== undefined && metrics.streamChunks < budget.minStreamChunks) {
     failures.push(
@@ -291,6 +315,9 @@ function streamFailures(metrics: TrialMetrics, budget: ServeRegressionBudget): s
         )}`,
       );
     }
+  }
+  if (budget.expectEveryRequestStreamed) {
+    failures.push(...perRequestStreamFailures(metrics, concurrency));
   }
   return failures;
 }
@@ -435,7 +462,7 @@ export function assertServeReportBudget(
       ...throughputFailures(averages, budget),
       ...memoryFailures(averages, budget),
       ...tokenFailures(averages, rung.generationTokens, rung.concurrency, budget),
-      ...streamFailures(averages, budget),
+      ...streamFailures(averages, rung.concurrency, budget),
       ...routeFailures(averages, budget),
       ...evidenceFailures(averages, budget),
       ...batchCounterFailures(averages, budget),
@@ -470,6 +497,7 @@ function baseSpecs(options: CliOptions): ServeRegressionSpec[] {
         minCompletionTokenRatio: 0.98,
         minStreamChunks: 1,
         minStreamBytes: 1,
+        expectEveryRequestStreamed: true,
         maxMeanTtftMs: 8_000,
         maxObservedStreamChunkGapMs: 1_000,
         expectedRoute: "continuous",
@@ -506,6 +534,37 @@ function baseSpecs(options: CliOptions): ServeRegressionSpec[] {
         minContinuousAdmissions: 1,
         minContinuousAdmissionRows: 2,
         minContinuousSchedulerPhases: 7,
+        expectedMaxGenerationBatchSize: 2,
+        minModelLaneWaitEvents: 0,
+      },
+    },
+    {
+      label: "qwen36-completions-stream-continuous",
+      model: options.qwenModel,
+      modelId: "qwen-local",
+      rungs: "128x32@2",
+      stream: true,
+      ignoreEos: true,
+      budget: {
+        minCompletionTps: 12,
+        minPostTtftCompletionTps: 20,
+        maxPeakMemoryGb: 22,
+        maxActiveDeltaGb: 1,
+        minCompletionTokenRatio: 0.98,
+        minStreamChunks: 8,
+        minStreamBytes: 1,
+        expectEveryRequestStreamed: true,
+        maxMeanTtftMs: 5_000,
+        maxObservedStreamChunkGapMs: 1_000,
+        expectedRoute: "continuous",
+        expectedReason: "eligible",
+        minRouteDecisions: 2,
+        minServerRequests: 2,
+        expectedAdmissionBatches: 0,
+        expectedStaticBatches: 0,
+        expectedContinuousAdmissions: 1,
+        expectedContinuousAdmissionRows: 2,
+        expectedContinuousSchedulerPhases: 7,
         expectedMaxGenerationBatchSize: 2,
         minModelLaneWaitEvents: 0,
       },
@@ -551,6 +610,7 @@ function baseSpecs(options: CliOptions): ServeRegressionSpec[] {
         minCompletionTokenRatio: 0.98,
         minStreamChunks: 1,
         minStreamBytes: 1,
+        expectEveryRequestStreamed: true,
         maxMeanTtftMs: 1_000,
         maxObservedStreamChunkGapMs: 1_000,
         expectedRoute: "continuous",
@@ -563,6 +623,37 @@ function baseSpecs(options: CliOptions): ServeRegressionSpec[] {
         minContinuousAdmissionRows: 1,
         minContinuousSchedulerPhases: 4,
         expectedMaxGenerationBatchSize: 1,
+        minModelLaneWaitEvents: 0,
+      },
+    },
+    {
+      label: "gemma4-completions-stream-continuous",
+      model: options.gemma4Model,
+      modelId: "gemma-local",
+      rungs: "128x32@2",
+      stream: true,
+      ignoreEos: true,
+      budget: {
+        minCompletionTps: 30,
+        minPostTtftCompletionTps: 20,
+        maxPeakMemoryGb: 13,
+        maxActiveDeltaGb: 1,
+        minCompletionTokenRatio: 0.98,
+        minStreamChunks: 8,
+        minStreamBytes: 1,
+        expectEveryRequestStreamed: true,
+        maxMeanTtftMs: 1_000,
+        maxObservedStreamChunkGapMs: 1_000,
+        expectedRoute: "continuous",
+        expectedReason: "eligible",
+        minRouteDecisions: 2,
+        minServerRequests: 2,
+        expectedAdmissionBatches: 0,
+        expectedStaticBatches: 0,
+        expectedContinuousAdmissions: 1,
+        expectedContinuousAdmissionRows: 2,
+        expectedContinuousSchedulerPhases: 7,
+        expectedMaxGenerationBatchSize: 2,
         minModelLaneWaitEvents: 0,
       },
     },
@@ -610,6 +701,7 @@ function capabilitySpecs(options: CliOptions): ServeRegressionSpec[] {
         minCompletionTokenRatio: 0.98,
         minStreamChunks: 1,
         minStreamBytes: 1,
+        expectEveryRequestStreamed: true,
         maxMeanTtftMs: 8_000,
         maxObservedStreamChunkGapMs: 1_000,
         expectedRoute: "continuous",
@@ -640,6 +732,7 @@ function capabilitySpecs(options: CliOptions): ServeRegressionSpec[] {
         minCompletionTokenRatio: 0.98,
         minStreamChunks: 1,
         minStreamBytes: 1,
+        expectEveryRequestStreamed: true,
         maxObservedStreamChunkGapMs: 2_000,
         expectedRoute: "continuous",
         expectedReason: "eligible",

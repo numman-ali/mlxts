@@ -110,7 +110,14 @@ function trial(overrides: Partial<TrialMetrics> = {}): TrialMetrics {
   };
 }
 
-function report(metrics: TrialMetrics = trial()): BenchmarkReport {
+function report(
+  metrics: TrialMetrics = trial(),
+  rung: { promptTokens: number; generationTokens: number; concurrency: number } = {
+    promptTokens: 1024,
+    generationTokens: 128,
+    concurrency: 1,
+  },
+): BenchmarkReport {
   return {
     createdAt: "2026-04-26T00:00:00.000Z",
     model: "model",
@@ -128,7 +135,7 @@ function report(metrics: TrialMetrics = trial()): BenchmarkReport {
     gpuMemoryUtilization: 0.9,
     rungs: [
       {
-        rung: { promptTokens: 1024, generationTokens: 128, concurrency: 1 },
+        rung,
         arrivalSpanMs: 0,
         trials: [metrics],
         averages: metrics,
@@ -145,6 +152,7 @@ const budget: ServeRegressionBudget = {
   minCompletionTokenRatio: 0.98,
   minStreamChunks: 1,
   minStreamBytes: 1,
+  expectEveryRequestStreamed: true,
   maxMeanTtftMs: 500,
   maxObservedStreamChunkGapMs: 100,
   expectedRoute: "single",
@@ -403,10 +411,156 @@ describe("serve regression matrix", () => {
     ).toThrow("continuous_admission_rows");
   });
 
-  test("fails on throughput, memory, token, stream, route, evidence, batch, and finish regressions", () => {
+  test("accepts concurrent streaming continuous reports with per-request SSE evidence", () => {
+    const baseRequest = trial().requests[0];
     const baseServerRequest = trial().serverRequests[0];
-    if (baseServerRequest === undefined) {
-      throw new Error("Expected trial fixture to include one server request.");
+    if (baseRequest === undefined || baseServerRequest === undefined) {
+      throw new Error("Expected trial fixture to include one request and one server request.");
+    }
+
+    const streamingBudget: ServeRegressionBudget = {
+      minCompletionTps: 20,
+      minPostTtftCompletionTps: 20,
+      maxPeakMemoryGb: 12,
+      maxActiveDeltaGb: 1,
+      minCompletionTokenRatio: 0.98,
+      minStreamChunks: 8,
+      minStreamBytes: 1,
+      expectEveryRequestStreamed: true,
+      expectedRoute: "continuous",
+      expectedReason: "eligible",
+      minRouteDecisions: 2,
+      minServerRequests: 2,
+      expectedAdmissionBatches: 0,
+      expectedStaticBatches: 0,
+      expectedContinuousAdmissions: 1,
+      expectedContinuousAdmissionRows: 2,
+      expectedContinuousSchedulerPhases: 7,
+      expectedMaxGenerationBatchSize: 2,
+      minModelLaneWaitEvents: 0,
+    };
+    const streamingMetrics = trial({
+      promptTokens: 256,
+      completionTokens: 64,
+      totalTokens: 320,
+      admissionBatches: 0,
+      admissionRows: 0,
+      maxAdmissionBatchSize: 0,
+      continuousAdmissions: 1,
+      continuousAdmissionRows: 2,
+      continuousSchedulerPhases: 7,
+      maxContinuousBatchSize: 2,
+      maxGenerationBatchSize: 2,
+      streamChunks: 16,
+      streamBytes: 200,
+      finishReasons: ["stop", "stop"],
+      routeDecisions: [
+        {
+          id: "request-a",
+          model: "local",
+          protocol: "openai.completions",
+          route: "continuous",
+          eligible: true,
+          reason: "eligible",
+          modelType: "qwen3_5_text",
+          maxBatchSize: 8,
+          stream: true,
+        },
+        {
+          id: "request-b",
+          model: "local",
+          protocol: "openai.completions",
+          route: "continuous",
+          eligible: true,
+          reason: "eligible",
+          modelType: "qwen3_5_text",
+          maxBatchSize: 8,
+          stream: true,
+        },
+      ],
+      routeSummary: [
+        { key: "continuous:eligible", route: "continuous", reason: "eligible", count: 2 },
+      ],
+      requests: [
+        {
+          ...baseRequest,
+          id: "request-a",
+          index: 0,
+          promptTokens: 128,
+          completionTokens: 32,
+          totalTokens: 160,
+          finishReason: "stop",
+          streamChunks: 8,
+          streamBytes: 100,
+        },
+        {
+          ...baseRequest,
+          id: "request-b",
+          index: 1,
+          promptTokens: 128,
+          completionTokens: 32,
+          totalTokens: 160,
+          finishReason: "stop",
+          streamChunks: 8,
+          streamBytes: 100,
+        },
+      ],
+      serverRequests: [
+        {
+          ...baseServerRequest,
+          id: "request-a",
+          route: "continuous",
+          routeReason: "eligible",
+          modelLaneWaitMs: null,
+          modelLaneQueuedAhead: null,
+          modelLaneInFlightAtQueue: null,
+          schedulerPhaseEvents: 3,
+          schedulerAdmittedBatchSize: 2,
+        },
+        {
+          ...baseServerRequest,
+          id: "request-b",
+          route: "continuous",
+          routeReason: "eligible",
+          modelLaneWaitMs: null,
+          modelLaneQueuedAhead: null,
+          modelLaneInFlightAtQueue: null,
+          schedulerPhaseEvents: 4,
+          schedulerAdmittedBatchSize: 2,
+        },
+      ],
+    });
+    const streamingRung = { promptTokens: 128, generationTokens: 32, concurrency: 2 };
+
+    expect(() =>
+      assertServeReportBudget(
+        "qwen-stream",
+        report(streamingMetrics, streamingRung),
+        streamingBudget,
+      ),
+    ).not.toThrow();
+    expect(() =>
+      assertServeReportBudget(
+        "qwen-stream",
+        report(
+          trial({
+            ...streamingMetrics,
+            requests: streamingMetrics.requests.map((request) =>
+              request.index === 1 ? { ...request, streamChunks: 0 } : request,
+            ),
+          }),
+          streamingRung,
+        ),
+        streamingBudget,
+      ),
+    ).toThrow("requests missing per-request SSE evidence");
+  });
+
+  test("fails on throughput, memory, token, stream, route, evidence, batch, and finish regressions", () => {
+    const baseRequest = trial().requests[0];
+    const baseServerRequest = trial().serverRequests[0];
+    if (baseRequest === undefined || baseServerRequest === undefined) {
+      throw new Error("Expected trial fixture to include one request and one server request.");
     }
 
     expect(() =>
@@ -427,6 +581,22 @@ describe("serve regression matrix", () => {
     expect(() =>
       assertServeReportBudget("qwen", report(trial({ streamBytes: 0 })), budget),
     ).toThrow("stream_bytes");
+    expect(() =>
+      assertServeReportBudget(
+        "qwen",
+        report(
+          trial({
+            requests: [
+              {
+                ...baseRequest,
+                streamBytes: 0,
+              },
+            ],
+          }),
+        ),
+        budget,
+      ),
+    ).toThrow("requests missing per-request SSE evidence");
     expect(() =>
       assertServeReportBudget("qwen", report(trial({ meanTtftMs: 1_000 })), budget),
     ).toThrow("mean_ttft_ms");
