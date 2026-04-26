@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { existsSync, mkdtempSync, readFileSync, rmSync } from "fs";
 import { join } from "path";
 
-import { writeBenchmarkReport } from "./benchmark-serve";
+import { serverRequestTimingReports, writeBenchmarkReport } from "./benchmark-serve";
 import { requestLaunchDelayMs } from "./benchmark-serve-options";
 
 describe("serve benchmark reports", () => {
@@ -42,5 +42,52 @@ describe("serve benchmark reports", () => {
     } finally {
       rmSync(directory, { recursive: true, force: true });
     }
+  });
+
+  test("keeps model-lane wait timing in server request reports", () => {
+    expect(
+      serverRequestTimingReports([
+        {
+          type: "generation_start",
+          id: "request",
+          protocol: "openai.completions",
+          model: "local",
+          inputKind: "text",
+          maxTokens: 8,
+          observedAtMs: 100,
+        },
+        {
+          type: "generation_model_lane_wait",
+          id: "request",
+          protocol: "openai.completions",
+          model: "local",
+          lane: "model",
+          waitMs: 12,
+          inFlightAtQueue: 1,
+          queuedAhead: 2,
+          inFlightAtDispatch: 1,
+          queuedAtDispatch: 0,
+          maxConcurrentJobs: 1,
+          observedAtMs: 112,
+        },
+        {
+          type: "generation_complete",
+          id: "request",
+          protocol: "openai.completions",
+          model: "local",
+          finishReason: "length",
+          completionTokens: 8,
+          durationMs: 40,
+          observedAtMs: 140,
+        },
+      ]),
+    ).toMatchObject([
+      {
+        id: "request",
+        modelLaneWaitMs: 12,
+        modelLaneQueuedAhead: 2,
+        modelLaneInFlightAtQueue: 1,
+      },
+    ]);
   });
 });

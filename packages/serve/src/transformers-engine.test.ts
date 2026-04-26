@@ -213,6 +213,26 @@ describe("transformers generation engine", () => {
     expect(prefillEvents).toEqual(["1/1:1"]);
   });
 
+  test("emits model lane queue timing for single-route requests", async () => {
+    using model = new TinyModel();
+    const tokenizer = new TinyTokenizer();
+    const events: ServeEvent[] = [];
+    const engine = createTransformersGenerationEngine({
+      model,
+      tokenizer,
+      onEvent(event) {
+        events.push(event);
+      },
+    });
+
+    await Promise.all([engine.generate(textRequest("one")), engine.generate(textRequest("two"))]);
+
+    const waits = events.filter((event) => event.type === "generation_model_lane_wait");
+    expect(waits.map((event) => event.id)).toEqual(["one", "two"]);
+    expect(waits.map((event) => event.inFlightAtQueue)).toEqual([0, 1]);
+    expect(waits.every((event) => event.waitMs >= 0)).toBe(true);
+  });
+
   test("applies text stop sequences above token-level EOS handling", async () => {
     using model = new TinyModel();
     const tokenizer = new TinyTokenizer();
@@ -718,7 +738,14 @@ describe("transformers generation engine", () => {
   test("streams generated text for text prompts", async () => {
     using model = new TinyModel();
     const tokenizer = new TinyTokenizer();
-    const engine = createTransformersGenerationEngine({ model, tokenizer });
+    const serveEvents: ServeEvent[] = [];
+    const engine = createTransformersGenerationEngine({
+      model,
+      tokenizer,
+      onEvent(event) {
+        serveEvents.push(event);
+      },
+    });
     const events: GenerationStreamEvent[] = [];
 
     for await (const event of (await engine.stream?.({
@@ -740,6 +767,7 @@ describe("transformers generation engine", () => {
         usage: { promptTokens: 2, completionTokens: 2, totalTokens: 4 },
       },
     ]);
+    expect(serveEvents.some((event) => event.type === "generation_model_lane_wait")).toBe(true);
   });
 
   test("streams prompt-open thinking as raw think-tagged text", async () => {

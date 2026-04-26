@@ -48,6 +48,9 @@ export type ServerRequestTimingReport = {
   route?: string;
   routeReason?: string;
   routeDecisionMs: number | null;
+  modelLaneWaitMs: number | null;
+  modelLaneQueuedAhead: number | null;
+  modelLaneInFlightAtQueue: number | null;
   firstPrefillProgressMs: number | null;
   lastPrefillProgressMs: number | null;
   prefillObservedMs: number | null;
@@ -128,7 +131,7 @@ export type BenchmarkReport = {
   rungs: RungReport[];
 };
 
-type RecordedServeEvent = ServeEvent & {
+export type RecordedServeEvent = ServeEvent & {
   observedAtMs: number;
 };
 
@@ -301,6 +304,7 @@ type RequestEventSlice = {
   sorted: RecordedServeEvent[];
   start: Extract<RecordedServeEvent, { type: "generation_start" }> | undefined;
   route: Extract<RecordedServeEvent, { type: "generation_route_decision" }> | undefined;
+  modelLaneWait: Extract<RecordedServeEvent, { type: "generation_model_lane_wait" }> | undefined;
   complete: Extract<RecordedServeEvent, { type: "generation_complete" }> | undefined;
   error: Extract<RecordedServeEvent, { type: "generation_error" }> | undefined;
   prefillEvents: Extract<RecordedServeEvent, { type: "generation_prefill_progress" }>[];
@@ -313,6 +317,7 @@ function requestEventSlice(group: readonly RecordedServeEvent[]): RequestEventSl
     sorted,
     start: sorted.find((event) => event.type === "generation_start"),
     route: sorted.find((event) => event.type === "generation_route_decision"),
+    modelLaneWait: sorted.find((event) => event.type === "generation_model_lane_wait"),
     complete: sorted.find((event) => event.type === "generation_complete"),
     error: sorted.find((event) => event.type === "generation_error"),
     prefillEvents: sorted.filter((event) => event.type === "generation_prefill_progress"),
@@ -371,6 +376,9 @@ function requestTimingReport(id: string, group: readonly RecordedServeEvent[]) {
       ? {}
       : { route: slice.route.route, routeReason: slice.route.reason }),
     routeDecisionMs: relativeMs(slice.route, startedAt),
+    modelLaneWaitMs: slice.modelLaneWait?.waitMs ?? null,
+    modelLaneQueuedAhead: slice.modelLaneWait?.queuedAhead ?? null,
+    modelLaneInFlightAtQueue: slice.modelLaneWait?.inFlightAtQueue ?? null,
     firstPrefillProgressMs: firstPrefillMs,
     lastPrefillProgressMs: lastPrefillMs,
     prefillObservedMs: prefillObservedMs(firstPrefillMs, lastPrefillMs),
@@ -386,7 +394,7 @@ function requestTimingReport(id: string, group: readonly RecordedServeEvent[]) {
   };
 }
 
-function serverRequestTimingReports(
+export function serverRequestTimingReports(
   events: readonly RecordedServeEvent[],
 ): ServerRequestTimingReport[] {
   return [...groupEventsByRequestId(events)]

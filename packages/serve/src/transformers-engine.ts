@@ -11,7 +11,7 @@ import {
   type InteractionProfile,
   type TokenGenerationEvent,
 } from "@mlxts/transformers";
-import { ModelExecutionLane } from "./model-execution-lane";
+import { ModelExecutionLane, type ModelExecutionLaneStats } from "./model-execution-lane";
 import { createContinuousTransformersGeneration } from "./transformers-engine-continuous";
 import {
   generateSinglePreparedRequest,
@@ -95,6 +95,60 @@ function shouldEmitProgress(
     completionTokens % PROGRESS_TOKEN_INTERVAL === 0 ||
     completionTokens === request.sampling.maxTokens
   );
+}
+
+function emitGenerationModelLaneWait(
+  options: TransformersGenerationEngineOptions,
+  request: NormalizedGenerationRequest,
+  queuedStats: ModelExecutionLaneStats,
+  dispatchStats: ModelExecutionLaneStats,
+  waitMs: number,
+): void {
+  options.onEvent?.({
+    type: "generation_model_lane_wait",
+    id: request.id,
+    protocol: request.protocol,
+    model: request.model,
+    lane: "model",
+    waitMs,
+    inFlightAtQueue: queuedStats.inFlight,
+    queuedAhead: queuedStats.queued,
+    inFlightAtDispatch: dispatchStats.inFlight,
+    queuedAtDispatch: dispatchStats.queued,
+    maxConcurrentJobs: queuedStats.maxConcurrentJobs,
+  });
+}
+
+async function acquireModelLane(
+  lane: ModelExecutionLane,
+  options: TransformersGenerationEngineOptions,
+  request: NormalizedGenerationRequest,
+): Promise<() => void> {
+  const queuedStats = lane.stats();
+  const queuedAt = performance.now();
+  const release = await lane.acquire(request.abortSignal);
+  emitGenerationModelLaneWait(
+    options,
+    request,
+    queuedStats,
+    lane.stats(),
+    performance.now() - queuedAt,
+  );
+  return release;
+}
+
+async function runOnModelLane<T>(
+  lane: ModelExecutionLane,
+  options: TransformersGenerationEngineOptions,
+  request: NormalizedGenerationRequest,
+  work: () => Promise<T>,
+): Promise<T> {
+  const release = await acquireModelLane(lane, options, request);
+  try {
+    return await work();
+  } finally {
+    release();
+  }
 }
 
 function streamTokenEventsForRequest(
@@ -219,7 +273,9 @@ export function createTransformersGenerationEngine(
       return scheduled;
     }
     const prepared = prepareGenerationRequest(request, options);
-    return lane.run(() => generateSinglePreparedRequest(prepared, options), request.abortSignal);
+    return runOnModelLane(lane, options, request, () =>
+      generateSinglePreparedRequest(prepared, options),
+    );
   }
 
   return {
@@ -231,7 +287,7 @@ export function createTransformersGenerationEngine(
       return generateTransformersBatch(requests, options);
     },
     async *stream(request) {
-      const release = await lane.acquire(request.abortSignal);
+      const release = await acquireModelLane(lane, options, request);
       try {
         emitGenerationRouteDecision(options, request, "single", false, "streaming");
         const prompt = compileMessagePrompt(request, options);

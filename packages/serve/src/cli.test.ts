@@ -339,6 +339,23 @@ describe("serve CLI args", () => {
     );
     expect(
       formatServeEvent({
+        type: "generation_model_lane_wait",
+        id: "cmpl-test",
+        protocol: "openai.chat_completions",
+        model: "qwen-local",
+        lane: "model",
+        waitMs: 1_234,
+        inFlightAtQueue: 1,
+        queuedAhead: 2,
+        inFlightAtDispatch: 1,
+        queuedAtDispatch: 0,
+        maxConcurrentJobs: 1,
+      }),
+    ).toBe(
+      "[queue] cmpl-test model=qwen-local lane=model wait=1.2s queued_ahead=2 in_flight_at_queue=1 in_flight_at_dispatch=1 max_in_flight=1",
+    );
+    expect(
+      formatServeEvent({
         type: "generation_prefill_progress",
         id: "cmpl-test",
         protocol: "openai.chat_completions",
@@ -445,6 +462,24 @@ describe("serve CLI args", () => {
           modelType: "qwen3_5_text",
           maxBatchSize: 32,
           stream: false,
+        },
+        false,
+      ),
+    ).toBe(true);
+    expect(
+      shouldLogServeEvent(
+        {
+          type: "generation_model_lane_wait",
+          id: "cmpl-test",
+          protocol: "openai.chat_completions",
+          model: "qwen-local",
+          lane: "model",
+          waitMs: 1,
+          inFlightAtQueue: 1,
+          queuedAhead: 0,
+          inFlightAtDispatch: 1,
+          queuedAtDispatch: 0,
+          maxConcurrentJobs: 1,
         },
         false,
       ),

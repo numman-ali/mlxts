@@ -134,6 +134,8 @@ export function formatServeEvent(event: ServeEvent): string {
       return `[generation] ${event.id} ${event.protocol} model=${event.model} input=${event.inputKind} max_tokens=${event.maxTokens} started`;
     case "generation_route_decision":
       return `[route] ${event.id} model=${event.model} route=${event.route} eligible=${event.eligible ? "yes" : "no"} reason=${event.reason} model_type=${event.modelType} max_batch_size=${event.maxBatchSize}`;
+    case "generation_model_lane_wait":
+      return `[queue] ${event.id} model=${event.model} lane=${event.lane} wait=${formatDuration(event.waitMs)} queued_ahead=${event.queuedAhead} in_flight_at_queue=${event.inFlightAtQueue} in_flight_at_dispatch=${event.inFlightAtDispatch} max_in_flight=${event.maxConcurrentJobs}`;
     case "generation_progress":
       return `[generation] ${event.id} progress prompt_tokens=${event.promptTokens} completion_tokens=${event.completionTokens}/${event.maxTokens}${formatMemoryUsage(event.memory)}`;
     case "generation_prefill_progress":
@@ -153,6 +155,7 @@ export function shouldLogServeEvent(event: ServeEvent, verbose: boolean): boolea
   switch (event.type) {
     case "generation_start":
     case "generation_route_decision":
+    case "generation_model_lane_wait":
     case "generation_progress":
     case "generation_prefill_progress":
     case "generation_batch_start":

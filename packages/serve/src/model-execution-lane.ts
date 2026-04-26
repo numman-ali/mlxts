@@ -13,6 +13,12 @@ type Waiter = {
   onAbort?: () => void;
 };
 
+export type ModelExecutionLaneStats = {
+  inFlight: number;
+  queued: number;
+  maxConcurrentJobs: number;
+};
+
 function cancellationError(): GenerationAbortError {
   return new GenerationAbortError("ModelExecutionLane: generation was cancelled before dispatch.");
 }
@@ -28,6 +34,14 @@ export class ModelExecutionLane {
       throw new Error("ModelExecutionLane: maxConcurrentJobs must be a positive integer.");
     }
     this.#maxConcurrentJobs = maxConcurrentJobs;
+  }
+
+  stats(): ModelExecutionLaneStats {
+    return {
+      inFlight: this.#inFlight,
+      queued: this.#waiters.length,
+      maxConcurrentJobs: this.#maxConcurrentJobs,
+    };
   }
 
   acquire(signal?: AbortSignal): Promise<Release> {

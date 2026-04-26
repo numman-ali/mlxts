@@ -140,6 +140,19 @@ export type ServeEvent =
       stream: boolean;
     }
   | {
+      type: "generation_model_lane_wait";
+      id: string;
+      protocol: GenerationProtocol;
+      model: string;
+      lane: "model";
+      waitMs: number;
+      inFlightAtQueue: number;
+      queuedAhead: number;
+      inFlightAtDispatch: number;
+      queuedAtDispatch: number;
+      maxConcurrentJobs: number;
+    }
+  | {
       type: "generation_progress";
       id: string;
       protocol: GenerationProtocol;

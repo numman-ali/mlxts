@@ -37,7 +37,9 @@ describe("model execution lane", () => {
     }
 
     const queued = lane.run(async () => "queued", controller.signal);
+    expect(lane.stats()).toEqual({ inFlight: 1, queued: 1, maxConcurrentJobs: 1 });
     controller.abort();
+    expect(lane.stats()).toEqual({ inFlight: 1, queued: 0, maxConcurrentJobs: 1 });
     releaseFirst?.();
 
     await expect(queued).rejects.toBeInstanceOf(GenerationAbortError);
