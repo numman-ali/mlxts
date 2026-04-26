@@ -531,6 +531,72 @@ describe("transformers generation engine", () => {
     expect(model.batchForwardCount).toBeGreaterThan(0);
   });
 
+  test("streams eligible greedy full-cache requests through the continuous scheduler", async () => {
+    using model = batchEligibleModel();
+    const tokenizer = new TinyTokenizer();
+    const events: ServeEvent[] = [];
+    const engine = createTransformersGenerationEngine({
+      model,
+      tokenizer,
+      maxBatchSize: 2,
+      batchWindowMs: 1,
+      onEvent(event) {
+        events.push(event);
+      },
+    });
+    const stream = engine.stream;
+    if (stream === undefined) {
+      throw new Error("Expected transformers engine to expose stream.");
+    }
+
+    async function collect(
+      streamRequest: NonNullable<typeof engine.stream>,
+      request: NormalizedGenerationRequest,
+    ): Promise<GenerationStreamEvent[]> {
+      const output: GenerationStreamEvent[] = [];
+      for await (const event of await streamRequest(request)) {
+        output.push(event);
+      }
+      return output;
+    }
+
+    const [first, second] = await Promise.all([
+      collect(stream, { ...textRequest("stream-one"), stream: true }),
+      collect(stream, { ...textRequest("stream-two"), stream: true }),
+    ]);
+
+    expect(first).toEqual([
+      { type: "text", text: "cc" },
+      {
+        type: "done",
+        finishReason: "length",
+        usage: { promptTokens: 2, completionTokens: 2, totalTokens: 4 },
+      },
+    ]);
+    expect(second).toEqual(first);
+    expect(events).toContainEqual({
+      type: "generation_route_decision",
+      id: "stream-one",
+      protocol: "openai.completions",
+      model: "tiny",
+      route: "continuous",
+      eligible: true,
+      reason: "eligible",
+      modelType: "llama",
+      maxBatchSize: 2,
+      stream: true,
+    });
+    expect(
+      events.some(
+        (event) =>
+          event.type === "generation_scheduler_phase" &&
+          event.phase === "admitted" &&
+          event.batchSize === 2,
+      ),
+    ).toBe(true);
+    expect(model.batchForwardCount).toBeGreaterThan(0);
+  });
+
   test("emits scheduler prefill phases for waiting continuous rows", async () => {
     using model = batchEligibleModel();
     const tokenizer = new TinyTokenizer();

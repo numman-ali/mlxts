@@ -44,6 +44,17 @@ async function* streamEvents(
   }
 }
 
+async function* closableStreamEvents(
+  onClose: () => void,
+  ...events: readonly GenerationStreamEvent[]
+): AsyncIterable<GenerationStreamEvent> {
+  try {
+    yield* streamEvents(...events);
+  } finally {
+    onClose();
+  }
+}
+
 describe("server streaming helpers", () => {
   test("returns SSE headers for Bun responses", () => {
     expect(sseHeaders()).toEqual({
@@ -64,6 +75,7 @@ describe("server streaming helpers", () => {
       { id: "cmpl-stop" },
     );
     const request = batch.requests[0];
+    let closed = false;
 
     expect(request).toBeDefined();
     if (request === undefined) {
@@ -73,7 +85,13 @@ describe("server streaming helpers", () => {
     const { text, summary } = await collectSse((controller) =>
       writeStreamEvents(
         controller,
-        streamEvents({ type: "text", text: "He sto" }, { type: "text", text: "p there" }),
+        closableStreamEvents(
+          () => {
+            closed = true;
+          },
+          { type: "text", text: "He sto" },
+          { type: "text", text: "p there" },
+        ),
         batch,
         request,
         { id: "cmpl-stop", created: 123 },
@@ -90,6 +108,7 @@ describe("server streaming helpers", () => {
     expect(text).toContain("data: [DONE]");
     expect(text).not.toContain('"usage"');
     expect(text).not.toContain("stop there");
+    expect(closed).toBe(true);
   });
 
   test("chat SSE preserves reasoning, stops visible content, and emits null usage when the stream ends early", async () => {
@@ -103,11 +122,15 @@ describe("server streaming helpers", () => {
       },
       { id: "chat-stop" },
     );
+    let closed = false;
 
     const { text, summary } = await collectSse((controller) =>
       writeChatStreamEvents(
         controller,
-        streamEvents(
+        closableStreamEvents(
+          () => {
+            closed = true;
+          },
           { type: "text", text: "<think>plan " },
           { type: "text", text: "more</think>Hello do" },
           { type: "text", text: "ne extra" },
@@ -147,6 +170,7 @@ describe("server streaming helpers", () => {
     expect(payloads.at(-2)?.choices[0]?.finish_reason).toBe("stop");
     expect(text).toContain("data: [DONE]");
     expect(text).not.toContain("done extra");
+    expect(closed).toBe(true);
   });
 
   test("chat SSE emits structured Qwen tool-call deltas without XML leakage", async () => {

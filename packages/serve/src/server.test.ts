@@ -539,6 +539,48 @@ describe("serve fetch handler", () => {
     expect(text).toContain('"incomplete_details":{"reason":"max_output_tokens"}');
   });
 
+  test("closes OpenAI response streams when stop sequences end generation early", async () => {
+    let streamClosed = false;
+    const engine: GenerationEngine = {
+      generate() {
+        throw new Error("generate should not be used");
+      },
+      async *stream() {
+        try {
+          yield { type: "text", text: "Hello stop there" };
+          await new Promise((resolve) => setTimeout(resolve, 10));
+          yield {
+            type: "done",
+            finishReason: "stop",
+            usage: { promptTokens: 2, completionTokens: 4, totalTokens: 6 },
+          };
+        } finally {
+          streamClosed = true;
+        }
+      },
+    };
+    const fetch = createFetchHandler({
+      engine,
+      idGenerator: () => "resp-stop",
+      now: () => new Date(123_000),
+    });
+
+    const response = await fetch(
+      request("/v1/responses", {
+        model: "tiny",
+        input: "Hello",
+        stream: true,
+        stop: ["stop"],
+      }),
+    );
+    const text = await response.text();
+
+    expect(text).toContain("event: response.completed");
+    expect(text).toContain('"output_text":"Hello "');
+    expect(text).not.toContain("there");
+    expect(streamClosed).toBe(true);
+  });
+
   test("flushes Responses stream chunks before a microtask-heavy generator drains", async () => {
     let drained = false;
     const engine: GenerationEngine = {

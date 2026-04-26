@@ -438,10 +438,7 @@ export async function writeStreamEvents(
     const next = await withSseHeartbeat(controller, () =>
       readStreamEvent(iterator, options.signal),
     );
-    if (next.type === "finished") {
-      break;
-    }
-    if (next.type === "cancelled") {
+    if (next.type === "finished" || next.type === "cancelled") {
       break;
     }
     const shouldStop = handleCompletionStreamEvent(
@@ -454,6 +451,7 @@ export async function writeStreamEvents(
     );
     await yieldToHttpWriter();
     if (shouldStop) {
+      await iterator.return?.();
       break;
     }
   }
@@ -483,15 +481,13 @@ export async function writeChatStreamEvents(
     const next = await withSseHeartbeat(controller, () =>
       readStreamEvent(iterator, options.signal),
     );
-    if (next.type === "finished") {
-      break;
-    }
-    if (next.type === "cancelled") {
+    if (next.type === "finished" || next.type === "cancelled") {
       break;
     }
     const shouldStop = handleChatStreamEvent(controller, state, chat, options, next.event);
     await yieldToHttpWriter();
     if (shouldStop) {
+      await iterator.return?.();
       break;
     }
   }

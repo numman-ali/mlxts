@@ -13,6 +13,10 @@ import type {
 
 const STATIC_BATCH_MODEL_TYPES = new Set(["gemma", "llama", "mistral", "mistral3", "phi3"]);
 
+type BatchRouteOptions = {
+  allowStreaming?: boolean;
+};
+
 function configHasSlidingWindow(model: CausalLM): boolean {
   const config = model.config;
   if (!("slidingWindow" in config)) {
@@ -38,8 +42,9 @@ function effectiveRepetitionPenalty(options: TransformersGenerationEngineOptions
 export function staticBatchIneligibilityReason(
   request: NormalizedGenerationRequest,
   options: TransformersGenerationEngineOptions,
+  routeOptions: BatchRouteOptions = {},
 ): GenerationRouteDecisionReason {
-  if (request.stream) {
+  if (request.stream && routeOptions.allowStreaming !== true) {
     return "streaming";
   }
   if (configHasSlidingWindow(options.model)) {
@@ -55,6 +60,13 @@ export function staticBatchIneligibilityReason(
     return "repetition_penalty";
   }
   return "eligible";
+}
+
+export function continuousBatchIneligibilityReason(
+  request: NormalizedGenerationRequest,
+  options: TransformersGenerationEngineOptions,
+): GenerationRouteDecisionReason {
+  return staticBatchIneligibilityReason(request, options, { allowStreaming: true });
 }
 
 export function canUseStaticBatchGeneration(

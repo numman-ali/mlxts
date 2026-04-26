@@ -9,6 +9,7 @@ import {
   createContinuousBatchTokenScheduler,
 } from "@mlxts/transformers";
 import type { ModelExecutionLane } from "./model-execution-lane";
+import { linkAbortSignals } from "./server-abort";
 import type { TransformersGenerationEngineOptions } from "./transformers-engine";
 import {
   batchOptionsKey,
@@ -17,7 +18,7 @@ import {
   prepareGenerationRequest,
 } from "./transformers-engine-generation";
 import {
-  canUseStaticBatchGeneration,
+  continuousBatchIneligibilityReason,
   emitGenerationRouteDecision,
   routeDecisionForRequest,
 } from "./transformers-engine-routing";
@@ -26,7 +27,17 @@ import {
   createProgressReporter,
   emitGenerationProgress,
 } from "./transformers-engine-shared";
-import type { NormalizedGenerationRequest, NormalizedGenerationResult } from "./types";
+import {
+  createStreamingDecodeState,
+  handleStreamingDone,
+  handleStreamingTokenDelta,
+  streamDecodeInterval,
+} from "./transformers-engine-streaming";
+import type {
+  GenerationStreamEvent,
+  NormalizedGenerationRequest,
+  NormalizedGenerationResult,
+} from "./types";
 
 type SchedulerEntry = {
   scheduler: ReturnType<typeof createContinuousBatchTokenScheduler>;
@@ -35,6 +46,7 @@ type SchedulerEntry = {
 
 export type ContinuousTransformersGeneration = {
   generate(request: NormalizedGenerationRequest): Promise<NormalizedGenerationResult> | null;
+  stream(request: NormalizedGenerationRequest): AsyncIterable<GenerationStreamEvent> | null;
 };
 
 function maxBatchSize(options: TransformersGenerationEngineOptions): number {
@@ -45,7 +57,9 @@ function canUseContinuousBatchGeneration(
   request: NormalizedGenerationRequest,
   options: TransformersGenerationEngineOptions,
 ): boolean {
-  return maxBatchSize(options) > 1 && canUseStaticBatchGeneration(request, options);
+  return (
+    maxBatchSize(options) > 1 && continuousBatchIneligibilityReason(request, options) === "eligible"
+  );
 }
 
 function schedulerOptions(
@@ -205,6 +219,51 @@ function schedulerKey(prepared: PreparedGenerationRequest): string {
   return batchOptionsKey(prepared.batchOptions);
 }
 
+type StreamQueueState = {
+  events: GenerationStreamEvent[];
+  notify: (() => void) | null;
+  done: boolean;
+  error: unknown;
+};
+
+function enqueueStreamEvent(state: StreamQueueState, event: GenerationStreamEvent): void {
+  state.events.push(event);
+  state.notify?.();
+  state.notify = null;
+}
+
+function finishStreamQueue(state: StreamQueueState, error?: unknown): void {
+  state.done = true;
+  if (error !== undefined) {
+    state.error = error;
+  }
+  state.notify?.();
+  state.notify = null;
+}
+
+function waitForStreamQueue(state: StreamQueueState): Promise<void> {
+  return new Promise((resolve) => {
+    state.notify = resolve;
+  });
+}
+
+async function* readStreamQueue(state: StreamQueueState): AsyncIterable<GenerationStreamEvent> {
+  while (true) {
+    const event = state.events.shift();
+    if (event !== undefined) {
+      yield event;
+      continue;
+    }
+    if (state.error !== undefined) {
+      throw state.error;
+    }
+    if (state.done) {
+      return;
+    }
+    await waitForStreamQueue(state);
+  }
+}
+
 /** Create the optional continuous-batching path for eligible transformer requests. */
 export function createContinuousTransformersGeneration(
   options: TransformersGenerationEngineOptions,
@@ -258,6 +317,76 @@ export function createContinuousTransformersGeneration(
     }
   }
 
+  async function* streamContinuous(
+    prepared: PreparedGenerationRequest,
+  ): AsyncIterable<GenerationStreamEvent> {
+    const entry = schedulerFor(prepared);
+    const abortScope = linkAbortSignals(prepared.request.abortSignal);
+    const state: StreamQueueState = {
+      events: [],
+      notify: null,
+      done: false,
+      error: undefined,
+    };
+    const decodeState = createStreamingDecodeState(prepared.prompt);
+    const decodeInterval = streamDecodeInterval(prepared.request.sampling.stop);
+    entry.modelsByRequestId.set(prepared.request.id, prepared.request.model);
+    emitGenerationProgress(options, prepared.request, prepared.promptTokens, 0);
+    const onPrefillProgress = createPrefillProgressReporter(
+      options,
+      prepared.request,
+      prepared.promptTokens,
+    );
+    const scheduled = entry.scheduler
+      .enqueue({
+        id: prepared.request.id,
+        promptTokenIds: prepared.tokenIds,
+        maxTokens: prepared.request.sampling.maxTokens,
+        abortSignal: abortScope.signal,
+        onPrefillProgress,
+        onToken(tokenId, generatedTokenIds) {
+          const text = handleStreamingTokenDelta(
+            prepared.request,
+            options,
+            prepared.promptTokens,
+            decodeInterval,
+            decodeState,
+            tokenId,
+            generatedTokenIds.length,
+          );
+          if (text !== undefined) {
+            enqueueStreamEvent(state, { type: "text", text });
+          }
+        },
+      })
+      .then((result) => {
+        const finished = handleStreamingDone(
+          options,
+          prepared.promptTokens,
+          decodeState,
+          result.tokenIds,
+          result.finishReason,
+        );
+        if (finished.text !== undefined) {
+          enqueueStreamEvent(state, { type: "text", text: finished.text });
+        }
+        enqueueStreamEvent(state, finished.done);
+        finishStreamQueue(state);
+      })
+      .catch((error) => finishStreamQueue(state, error));
+
+    try {
+      yield* readStreamQueue(state);
+    } finally {
+      if (!state.done) {
+        abortScope.abort();
+      }
+      await scheduled.catch(() => undefined);
+      abortScope.dispose();
+      entry.modelsByRequestId.delete(prepared.request.id);
+    }
+  }
+
   return {
     generate(request) {
       const decision = routeDecisionForRequest(request, options);
@@ -273,6 +402,21 @@ export function createContinuousTransformersGeneration(
       }
       emitGenerationRouteDecision(options, request, "continuous", true, "eligible");
       return generateContinuous(prepareGenerationRequest(request, options));
+    },
+    stream(request) {
+      const reason = continuousBatchIneligibilityReason(request, options);
+      if (reason !== "eligible" || maxBatchSize(options) <= 1) {
+        emitGenerationRouteDecision(
+          options,
+          request,
+          "single",
+          false,
+          reason === "eligible" ? "max_batch_size" : reason,
+        );
+        return null;
+      }
+      emitGenerationRouteDecision(options, request, "continuous", true, "eligible");
+      return streamContinuous(prepareGenerationRequest(request, options));
     },
   };
 }

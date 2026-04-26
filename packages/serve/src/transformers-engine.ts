@@ -9,7 +9,6 @@ import {
   generatePreparedTokenEvents,
   generateTokenEvents,
   type InteractionProfile,
-  type TokenGenerationEvent,
 } from "@mlxts/transformers";
 import { ModelExecutionLane, type ModelExecutionLaneStats } from "./model-execution-lane";
 import { createContinuousTransformersGeneration } from "./transformers-engine-continuous";
@@ -18,7 +17,6 @@ import {
   generateTransformersBatch,
   prepareGenerationRequest,
 } from "./transformers-engine-generation";
-import { emitGenerationRouteDecision } from "./transformers-engine-routing";
 import {
   compileMessagePrompt,
   createPrefillProgressReporter,
@@ -27,14 +25,17 @@ import {
   enforcePromptTokenLimit,
   enforceTotalTokenLimit,
   generationOptions,
-  promptHasOpenThinking,
   promptTokenCount,
   promptTokenIds,
-  THINK_OPEN,
 } from "./transformers-engine-shared";
+import {
+  createStreamingDecodeState,
+  handleStreamingDoneEvent,
+  handleStreamingTokenEvent,
+  streamDecodeInterval,
+} from "./transformers-engine-streaming";
 import type {
   GenerationEngine,
-  GenerationStreamEvent,
   NormalizedGenerationRequest,
   NormalizedGenerationResult,
   ServeEvent,
@@ -52,50 +53,6 @@ export type TransformersGenerationEngineOptions = {
   gpuMemoryUtilization?: number;
   onEvent?: (event: ServeEvent) => void;
 };
-
-const PROGRESS_TOKEN_INTERVAL = 64;
-const STREAM_DECODE_INTERVAL = 8;
-
-function commonPrefixLength(left: string, right: string): number {
-  const limit = Math.min(left.length, right.length);
-  let index = 0;
-  while (index < limit && left[index] === right[index]) {
-    index += 1;
-  }
-  return index;
-}
-
-function flushDecodedText(
-  tokenizer: Tokenizer,
-  tokenIds: readonly number[],
-  text: string,
-): { text: string; delta: string } {
-  const decoded = tokenizer.decode([...tokenIds], { skipSpecialTokens: true });
-  const delta = decoded.slice(commonPrefixLength(text, decoded));
-  return { text: decoded, delta };
-}
-
-function streamDecodeInterval(stop: readonly string[] | undefined): number {
-  return stop === undefined || stop.length === 0 ? STREAM_DECODE_INTERVAL : 1;
-}
-
-function streamUsage(promptTokens: number, completionTokens: number) {
-  return {
-    promptTokens,
-    completionTokens,
-    totalTokens: promptTokens + completionTokens,
-  };
-}
-
-function shouldEmitProgress(
-  request: NormalizedGenerationRequest,
-  completionTokens: number,
-): boolean {
-  return (
-    completionTokens % PROGRESS_TOKEN_INTERVAL === 0 ||
-    completionTokens === request.sampling.maxTokens
-  );
-}
 
 function emitGenerationModelLaneWait(
   options: TransformersGenerationEngineOptions,
@@ -177,87 +134,6 @@ function streamTokenEventsForRequest(
   );
 }
 
-function flushStreamDelta(
-  tokenizer: Tokenizer,
-  generatedTokenIds: readonly number[],
-  decodedText: string,
-  rawPrefix: string,
-): { decodedText: string; rawPrefix: string; text?: string } {
-  const flushed = flushDecodedText(tokenizer, generatedTokenIds, decodedText);
-  const text = rawPrefix === "" ? flushed.delta : `${rawPrefix}${flushed.delta}`;
-  return {
-    decodedText: flushed.text,
-    rawPrefix: "",
-    ...(text === "" ? {} : { text }),
-  };
-}
-
-type StreamingDecodeState = {
-  generatedTokenIds: number[];
-  decodedText: string;
-  rawPrefix: string;
-};
-
-function createStreamingDecodeState(prompt: { text: string } | null): StreamingDecodeState {
-  return {
-    generatedTokenIds: [],
-    decodedText: "",
-    rawPrefix: promptHasOpenThinking(prompt) ? THINK_OPEN : "",
-  };
-}
-
-function handleStreamingTokenEvent(
-  request: NormalizedGenerationRequest,
-  options: TransformersGenerationEngineOptions,
-  promptTokens: number,
-  decodeInterval: number,
-  state: StreamingDecodeState,
-  event: Extract<TokenGenerationEvent, { type: "token" }>,
-): string | undefined {
-  state.generatedTokenIds.push(event.tokenId);
-  if (shouldEmitProgress(request, event.completionTokens)) {
-    emitGenerationProgress(options, request, promptTokens, event.completionTokens);
-  }
-  if (event.completionTokens % decodeInterval !== 0) {
-    return undefined;
-  }
-
-  const flushed = flushStreamDelta(
-    options.tokenizer,
-    state.generatedTokenIds,
-    state.decodedText,
-    state.rawPrefix,
-  );
-  state.decodedText = flushed.decodedText;
-  state.rawPrefix = flushed.rawPrefix;
-  return flushed.text;
-}
-
-function handleStreamingDoneEvent(
-  options: TransformersGenerationEngineOptions,
-  promptTokens: number,
-  state: StreamingDecodeState,
-  event: Extract<TokenGenerationEvent, { type: "done" }>,
-): { text?: string; done: Extract<GenerationStreamEvent, { type: "done" }> } {
-  state.generatedTokenIds = [...event.tokenIds];
-  const flushed = flushStreamDelta(
-    options.tokenizer,
-    state.generatedTokenIds,
-    state.decodedText,
-    state.rawPrefix,
-  );
-  state.decodedText = flushed.decodedText;
-  state.rawPrefix = flushed.rawPrefix;
-  return {
-    ...(flushed.text === undefined ? {} : { text: flushed.text }),
-    done: {
-      type: "done",
-      finishReason: event.finishReason === "eos" ? "eos" : "length",
-      usage: streamUsage(promptTokens, state.generatedTokenIds.length),
-    },
-  };
-}
-
 /** Create a text-generation engine from an already loaded CausalLM and tokenizer. */
 export function createTransformersGenerationEngine(
   options: TransformersGenerationEngineOptions,
@@ -287,9 +163,13 @@ export function createTransformersGenerationEngine(
       return generateTransformersBatch(requests, options);
     },
     async *stream(request) {
+      const scheduled = continuous.stream(request);
+      if (scheduled !== null) {
+        yield* scheduled;
+        return;
+      }
       const release = await acquireModelLane(lane, options, request);
       try {
-        emitGenerationRouteDecision(options, request, "single", false, "streaming");
         const prompt = compileMessagePrompt(request, options);
         const promptTokens = promptTokenCount(request, options, prompt);
         enforcePromptTokenLimit(options, request, promptTokens);

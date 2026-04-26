@@ -397,15 +397,13 @@ export async function writeOpenAIResponseStreamEvents(
     const next = await withSseHeartbeat(controller, () =>
       readStreamEvent(iterator, options.signal),
     );
-    if (next.type === "finished") {
-      break;
-    }
-    if (next.type === "cancelled") {
+    if (next.type === "finished" || next.type === "cancelled") {
       break;
     }
     const shouldStop = handleStreamEvent(controller, state, options, next.event);
     await yieldToHttpWriter();
     if (shouldStop) {
+      await iterator.return?.();
       break;
     }
   }
