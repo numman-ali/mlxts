@@ -32,7 +32,11 @@ export type ServeRegressionBudget = {
   expectedAdmissionBatches?: number;
   expectedStaticBatches?: number;
   expectedStaticBatchRows?: number;
+  minContinuousAdmissions?: number;
   expectedContinuousAdmissions?: number;
+  minContinuousAdmissionRows?: number;
+  expectedContinuousAdmissionRows?: number;
+  minContinuousSchedulerPhases?: number;
   expectedContinuousSchedulerPhases?: number;
   expectedMaxGenerationBatchSize?: number;
   minModelLaneWaitEvents?: number;
@@ -46,6 +50,7 @@ type ServeRegressionSpec = {
   rungs: string;
   stream: boolean;
   ignoreEos: boolean;
+  requestStaggerMs?: number;
   budget: ServeRegressionBudget;
 };
 
@@ -328,69 +333,71 @@ function evidenceFailures(metrics: TrialMetrics, budget: ServeRegressionBudget):
   return failures;
 }
 
-function batchCounterFailures(metrics: TrialMetrics, budget: ServeRegressionBudget): string[] {
+type CounterExpectation = {
+  name: string;
+  value: number;
+  minimum?: number | undefined;
+  expected?: number | undefined;
+};
+
+function counterFailures(expectations: readonly CounterExpectation[]): string[] {
   const failures: string[] = [];
-  if (
-    budget.expectedAdmissionBatches !== undefined &&
-    metrics.admissionBatches !== budget.expectedAdmissionBatches
-  ) {
-    failures.push(
-      `admission_batches ${metrics.admissionBatches.toFixed(0)} != ${budget.expectedAdmissionBatches.toFixed(
-        0,
-      )}`,
-    );
-  }
-  if (
-    budget.expectedStaticBatches !== undefined &&
-    metrics.staticBatches !== budget.expectedStaticBatches
-  ) {
-    failures.push(
-      `static_batches ${metrics.staticBatches.toFixed(0)} != ${budget.expectedStaticBatches.toFixed(
-        0,
-      )}`,
-    );
-  }
-  if (
-    budget.expectedStaticBatchRows !== undefined &&
-    metrics.staticBatchRows !== budget.expectedStaticBatchRows
-  ) {
-    failures.push(
-      `static_batch_rows ${metrics.staticBatchRows.toFixed(0)} != ${budget.expectedStaticBatchRows.toFixed(
-        0,
-      )}`,
-    );
-  }
-  if (
-    budget.expectedContinuousAdmissions !== undefined &&
-    metrics.continuousAdmissions !== budget.expectedContinuousAdmissions
-  ) {
-    failures.push(
-      `continuous_admissions ${metrics.continuousAdmissions.toFixed(0)} != ${budget.expectedContinuousAdmissions.toFixed(
-        0,
-      )}`,
-    );
-  }
-  if (
-    budget.expectedContinuousSchedulerPhases !== undefined &&
-    metrics.continuousSchedulerPhases !== budget.expectedContinuousSchedulerPhases
-  ) {
-    failures.push(
-      `continuous_scheduler_phases ${metrics.continuousSchedulerPhases.toFixed(0)} != ${budget.expectedContinuousSchedulerPhases.toFixed(
-        0,
-      )}`,
-    );
-  }
-  if (
-    budget.expectedMaxGenerationBatchSize !== undefined &&
-    metrics.maxGenerationBatchSize !== budget.expectedMaxGenerationBatchSize
-  ) {
-    failures.push(
-      `max_generation_batch ${metrics.maxGenerationBatchSize.toFixed(0)} != ${budget.expectedMaxGenerationBatchSize.toFixed(
-        0,
-      )}`,
-    );
+  for (const expectation of expectations) {
+    if (expectation.minimum !== undefined && expectation.value < expectation.minimum) {
+      failures.push(
+        `${expectation.name} ${expectation.value.toFixed(0)} < ${expectation.minimum.toFixed(0)}`,
+      );
+    }
+    if (expectation.expected !== undefined && expectation.value !== expectation.expected) {
+      failures.push(
+        `${expectation.name} ${expectation.value.toFixed(0)} != ${expectation.expected.toFixed(0)}`,
+      );
+    }
   }
   return failures;
+}
+
+function batchCounterFailures(metrics: TrialMetrics, budget: ServeRegressionBudget): string[] {
+  return counterFailures([
+    {
+      name: "admission_batches",
+      value: metrics.admissionBatches,
+      expected: budget.expectedAdmissionBatches,
+    },
+    {
+      name: "static_batches",
+      value: metrics.staticBatches,
+      expected: budget.expectedStaticBatches,
+    },
+    {
+      name: "static_batch_rows",
+      value: metrics.staticBatchRows,
+      expected: budget.expectedStaticBatchRows,
+    },
+    {
+      name: "continuous_admissions",
+      value: metrics.continuousAdmissions,
+      minimum: budget.minContinuousAdmissions,
+      expected: budget.expectedContinuousAdmissions,
+    },
+    {
+      name: "continuous_admission_rows",
+      value: metrics.continuousAdmissionRows,
+      minimum: budget.minContinuousAdmissionRows,
+      expected: budget.expectedContinuousAdmissionRows,
+    },
+    {
+      name: "continuous_scheduler_phases",
+      value: metrics.continuousSchedulerPhases,
+      minimum: budget.minContinuousSchedulerPhases,
+      expected: budget.expectedContinuousSchedulerPhases,
+    },
+    {
+      name: "max_generation_batch",
+      value: metrics.maxGenerationBatchSize,
+      expected: budget.expectedMaxGenerationBatchSize,
+    },
+  ]);
 }
 
 function modelLaneWaitFailures(metrics: TrialMetrics, budget: ServeRegressionBudget): string[] {
@@ -494,8 +501,35 @@ function baseSpecs(options: CliOptions): ServeRegressionSpec[] {
         minServerRequests: 2,
         expectedAdmissionBatches: 0,
         expectedStaticBatches: 0,
-        expectedContinuousAdmissions: 1,
-        expectedContinuousSchedulerPhases: 7,
+        minContinuousAdmissions: 1,
+        minContinuousAdmissionRows: 2,
+        minContinuousSchedulerPhases: 7,
+        expectedMaxGenerationBatchSize: 2,
+        minModelLaneWaitEvents: 0,
+      },
+    },
+    {
+      label: "qwen36-completions-staggered-continuous",
+      model: options.qwenModel,
+      modelId: "qwen-local",
+      rungs: "128x32@2",
+      stream: false,
+      ignoreEos: true,
+      requestStaggerMs: 100,
+      budget: {
+        minCompletionTps: 8,
+        maxPeakMemoryGb: 22,
+        maxActiveDeltaGb: 1,
+        minCompletionTokenRatio: 0.98,
+        expectedRoute: "continuous",
+        expectedReason: "eligible",
+        minRouteDecisions: 2,
+        minServerRequests: 2,
+        expectedAdmissionBatches: 0,
+        expectedStaticBatches: 0,
+        expectedContinuousAdmissions: 2,
+        expectedContinuousAdmissionRows: 3,
+        expectedContinuousSchedulerPhases: 9,
         expectedMaxGenerationBatchSize: 2,
         minModelLaneWaitEvents: 0,
       },
@@ -642,6 +676,9 @@ async function runServeBenchmark(spec: ServeRegressionSpec, options: CliOptions)
     "2",
     "--greedy",
   ];
+  if (spec.requestStaggerMs !== undefined) {
+    args.push("--request-stagger-ms", String(spec.requestStaggerMs));
+  }
   if (spec.stream) {
     args.push("--stream");
   }

@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { array, MxArray } from "@mlxts/core";
+import { array, createStream, MxArray, withDefaultStream } from "@mlxts/core";
 
 import {
   canOmitLeftPaddedAttentionMask,
@@ -131,6 +131,19 @@ describe("causal masks", () => {
 
     expect(mask.shape).toEqual([2, 1, 1, 5]);
     expect(mask.toList()).toEqual([[[[0, 1, 1, 1, 1]]], [[[0, 0, 0, 1, 1]]]]);
+  });
+
+  test("creates single-token left-padded masks on a generation stream", () => {
+    using stream = createStream("gpu");
+    using leftPadding = array([0, 4], "int32");
+    using mask = withDefaultStream(stream, () =>
+      createLeftPaddedAttentionMask(1, 133, 132, leftPadding),
+    );
+
+    expect(mask.shape).toEqual([2, 1, 1, 133]);
+    const rows = mask.toList() as number[][][][];
+    expect(rows[0]?.[0]?.[0]?.slice(128)).toEqual([1, 1, 1, 1, 1]);
+    expect(rows[1]?.[0]?.[0]?.slice(128)).toEqual([1, 1, 1, 1, 1]);
   });
 
   test("can omit left-padded masks for unpadded single-token batch decode", () => {

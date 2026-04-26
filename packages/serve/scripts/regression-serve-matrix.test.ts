@@ -154,6 +154,7 @@ const budget: ServeRegressionBudget = {
   expectedAdmissionBatches: 1,
   expectedStaticBatches: 0,
   expectedContinuousAdmissions: 0,
+  expectedContinuousAdmissionRows: 0,
   expectedContinuousSchedulerPhases: 0,
   expectedMaxGenerationBatchSize: 1,
   minModelLaneWaitEvents: 1,
@@ -306,6 +307,102 @@ describe("serve regression matrix", () => {
     ).toThrow("continuous_scheduler_phases");
   });
 
+  test("accepts continuous reports with minimum scheduler evidence", () => {
+    const continuousBudget: ServeRegressionBudget = {
+      minCompletionTps: 20,
+      maxPeakMemoryGb: 12,
+      maxActiveDeltaGb: 1,
+      minCompletionTokenRatio: 0.98,
+      expectedRoute: "continuous",
+      expectedReason: "eligible",
+      minRouteDecisions: 2,
+      minServerRequests: 2,
+      expectedAdmissionBatches: 0,
+      expectedStaticBatches: 0,
+      minContinuousAdmissions: 1,
+      minContinuousAdmissionRows: 2,
+      minContinuousSchedulerPhases: 7,
+      expectedMaxGenerationBatchSize: 2,
+      minModelLaneWaitEvents: 0,
+    };
+    const baseServerRequest = trial().serverRequests[0];
+    if (baseServerRequest === undefined) {
+      throw new Error("Expected trial fixture to include one server request.");
+    }
+    const continuousMetrics = trial({
+      admissionBatches: 0,
+      admissionRows: 0,
+      maxAdmissionBatchSize: 0,
+      continuousAdmissions: 2,
+      continuousAdmissionRows: 3,
+      continuousSchedulerPhases: 9,
+      maxContinuousBatchSize: 2,
+      maxGenerationBatchSize: 2,
+      routeDecisions: [
+        {
+          id: "request-a",
+          model: "local",
+          protocol: "openai.completions",
+          route: "continuous",
+          eligible: true,
+          reason: "eligible",
+          modelType: "qwen3_5_text",
+          maxBatchSize: 8,
+          stream: false,
+        },
+        {
+          id: "request-b",
+          model: "local",
+          protocol: "openai.completions",
+          route: "continuous",
+          eligible: true,
+          reason: "eligible",
+          modelType: "qwen3_5_text",
+          maxBatchSize: 8,
+          stream: false,
+        },
+      ],
+      routeSummary: [
+        { key: "continuous:eligible", route: "continuous", reason: "eligible", count: 2 },
+      ],
+      serverRequests: [
+        {
+          ...baseServerRequest,
+          id: "request-a",
+          route: "continuous",
+          routeReason: "eligible",
+          modelLaneWaitMs: null,
+          modelLaneQueuedAhead: null,
+          modelLaneInFlightAtQueue: null,
+          schedulerPhaseEvents: 4,
+          schedulerAdmittedBatchSize: 1,
+        },
+        {
+          ...baseServerRequest,
+          id: "request-b",
+          route: "continuous",
+          routeReason: "eligible",
+          modelLaneWaitMs: null,
+          modelLaneQueuedAhead: null,
+          modelLaneInFlightAtQueue: null,
+          schedulerPhaseEvents: 5,
+          schedulerAdmittedBatchSize: 2,
+        },
+      ],
+    });
+
+    expect(() =>
+      assertServeReportBudget("qwen", report(continuousMetrics), continuousBudget),
+    ).not.toThrow();
+    expect(() =>
+      assertServeReportBudget(
+        "qwen",
+        report(trial({ ...continuousMetrics, continuousAdmissionRows: 1 })),
+        continuousBudget,
+      ),
+    ).toThrow("continuous_admission_rows");
+  });
+
   test("fails on throughput, memory, token, stream, route, evidence, batch, and finish regressions", () => {
     const baseServerRequest = trial().serverRequests[0];
     if (baseServerRequest === undefined) {
@@ -355,6 +452,9 @@ describe("serve regression matrix", () => {
     expect(() =>
       assertServeReportBudget("qwen", report(trial({ continuousAdmissions: 1 })), budget),
     ).toThrow("continuous_admissions");
+    expect(() =>
+      assertServeReportBudget("qwen", report(trial({ continuousAdmissionRows: 1 })), budget),
+    ).toThrow("continuous_admission_rows");
     expect(() =>
       assertServeReportBudget("qwen", report(trial({ continuousSchedulerPhases: 1 })), budget),
     ).toThrow("continuous_scheduler_phases");

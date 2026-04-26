@@ -6,6 +6,7 @@
 import {
   add,
   arange,
+  array,
   asType,
   type DType,
   expandDims,
@@ -48,6 +49,13 @@ function trimmedSlidingTotalKeyLength(
   return Math.min(fullLength, windowSize + queryLength - 1);
 }
 
+function positionRange(start: number, length: number): MxArray {
+  if (length === 1) {
+    return array([start], "int32");
+  }
+  return arange(start, start + length, 1, "int32");
+}
+
 /** Build an additive causal attention mask for a query block against total keys. */
 export function createCausalMask(
   queryLength: number,
@@ -73,7 +81,7 @@ export function createCausalMask(
   }
 
   if (windowSize !== undefined) {
-    using queryOffsets = arange(0, queryLength, 1, "int32");
+    using queryOffsets = positionRange(0, queryLength);
     using queryPositions = add(queryOffsets, pastLength);
     using keyPositions = arange(0, totalKeyLength, 1, "int32");
     using queryGrid = expandDims(queryPositions, 1);
@@ -119,7 +127,7 @@ function createBooleanCausalMask(
   pastLength: number,
   windowSize?: number,
 ): MxArray {
-  using queryOffsets = arange(0, queryLength, 1, "int32");
+  using queryOffsets = positionRange(0, queryLength);
   using queryPositions = add(queryOffsets, pastLength);
   using keyPositions = arange(0, totalKeyLength, 1, "int32");
   using queryGrid = expandDims(queryPositions, 1);
@@ -200,7 +208,7 @@ export function createLeftPaddedAttentionMask(
     );
   }
 
-  using queryOffsets = arange(pastLength, pastLength + queryLength, 1, "int32");
+  using queryOffsets = positionRange(pastLength, queryLength);
   using keyPositions = arange(0, totalKeyLength, 1, "int32");
   using queryBatch = expandDims(queryOffsets, 0);
   using keyBatch = expandDims(keyPositions, 0);
