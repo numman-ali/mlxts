@@ -134,6 +134,12 @@ const budget: ServeRegressionBudget = {
   minStreamBytes: 1,
   expectedRoute: "single",
   expectedReason: "streaming",
+  minRouteDecisions: 1,
+  minServerRequests: 1,
+  expectedAdmissionBatches: 1,
+  expectedStaticBatches: 0,
+  expectedContinuousAdmissions: 0,
+  expectedMaxGenerationBatchSize: 1,
 };
 
 describe("serve regression matrix", () => {
@@ -175,7 +181,7 @@ describe("serve regression matrix", () => {
     expect(() => assertServeReportBudget("qwen", report(), budget)).not.toThrow();
   });
 
-  test("fails on throughput, memory, token, stream, and finish regressions", () => {
+  test("fails on throughput, memory, token, stream, route, evidence, batch, and finish regressions", () => {
     expect(() =>
       assertServeReportBudget("qwen", report(trial({ completionTps: 10 })), budget),
     ).toThrow("completion_tps");
@@ -201,6 +207,21 @@ describe("serve regression matrix", () => {
         budget,
       ),
     ).toThrow("route_decisions");
+    expect(() =>
+      assertServeReportBudget("qwen", report(trial({ serverRequests: [] })), budget),
+    ).toThrow("server_requests");
+    expect(() =>
+      assertServeReportBudget("qwen", report(trial({ admissionBatches: 0 })), budget),
+    ).toThrow("admission_batches");
+    expect(() =>
+      assertServeReportBudget("qwen", report(trial({ staticBatches: 1 })), budget),
+    ).toThrow("static_batches");
+    expect(() =>
+      assertServeReportBudget("qwen", report(trial({ continuousAdmissions: 1 })), budget),
+    ).toThrow("continuous_admissions");
+    expect(() =>
+      assertServeReportBudget("qwen", report(trial({ maxGenerationBatchSize: 2 })), budget),
+    ).toThrow("max_generation_batch");
     expect(() =>
       assertServeReportBudget("qwen", report(trial({ finishReasons: ["unknown"] })), budget),
     ).toThrow("unexpected finish reasons");

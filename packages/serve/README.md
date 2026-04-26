@@ -276,8 +276,9 @@ bun run packages/serve/scripts/regression-serve-matrix.ts --real-models
 For heavier local proof work, add `--capability-smoke`; it includes longer Qwen
 output/context endpoint rungs and writes JSON reports under
 `.tmp/serve-regression/`. These commands are lock-guarded and intentionally
-sequential. They verify endpoint behavior and serving budgets, not unsupported
-claims such as Qwen/Gemma continuous batching.
+sequential. The real smoke also runs non-streaming greedy Qwen/Gemma fallback
+checks so route reasons, server-request evidence, and batch counters stay honest
+instead of accidentally implying unsupported continuous batching.
 
 ## Engine Primitives
 

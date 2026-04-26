@@ -25,6 +25,12 @@ export type ServeRegressionBudget = {
   minStreamBytes?: number;
   expectedRoute?: string;
   expectedReason?: string;
+  minRouteDecisions?: number;
+  minServerRequests?: number;
+  expectedAdmissionBatches?: number;
+  expectedStaticBatches?: number;
+  expectedContinuousAdmissions?: number;
+  expectedMaxGenerationBatchSize?: number;
 };
 
 type ServeRegressionSpec = {
@@ -262,6 +268,12 @@ function streamFailures(metrics: TrialMetrics, budget: ServeRegressionBudget): s
 
 function routeFailures(metrics: TrialMetrics, budget: ServeRegressionBudget): string[] {
   const failures: string[] = [];
+  if (
+    budget.minRouteDecisions !== undefined &&
+    metrics.routeDecisions.length < budget.minRouteDecisions
+  ) {
+    failures.push(`route_decisions ${metrics.routeDecisions.length} < ${budget.minRouteDecisions}`);
+  }
   if (budget.expectedRoute !== undefined) {
     const unexpectedRoutes = metrics.routeDecisions.filter(
       (decision) => decision.route !== budget.expectedRoute,
@@ -281,6 +293,62 @@ function routeFailures(metrics: TrialMetrics, budget: ServeRegressionBudget): st
   return failures;
 }
 
+function evidenceFailures(metrics: TrialMetrics, budget: ServeRegressionBudget): string[] {
+  const failures: string[] = [];
+  if (
+    budget.minServerRequests !== undefined &&
+    metrics.serverRequests.length < budget.minServerRequests
+  ) {
+    failures.push(`server_requests ${metrics.serverRequests.length} < ${budget.minServerRequests}`);
+  }
+  return failures;
+}
+
+function batchCounterFailures(metrics: TrialMetrics, budget: ServeRegressionBudget): string[] {
+  const failures: string[] = [];
+  if (
+    budget.expectedAdmissionBatches !== undefined &&
+    metrics.admissionBatches !== budget.expectedAdmissionBatches
+  ) {
+    failures.push(
+      `admission_batches ${metrics.admissionBatches.toFixed(0)} != ${budget.expectedAdmissionBatches.toFixed(
+        0,
+      )}`,
+    );
+  }
+  if (
+    budget.expectedStaticBatches !== undefined &&
+    metrics.staticBatches !== budget.expectedStaticBatches
+  ) {
+    failures.push(
+      `static_batches ${metrics.staticBatches.toFixed(0)} != ${budget.expectedStaticBatches.toFixed(
+        0,
+      )}`,
+    );
+  }
+  if (
+    budget.expectedContinuousAdmissions !== undefined &&
+    metrics.continuousAdmissions !== budget.expectedContinuousAdmissions
+  ) {
+    failures.push(
+      `continuous_admissions ${metrics.continuousAdmissions.toFixed(0)} != ${budget.expectedContinuousAdmissions.toFixed(
+        0,
+      )}`,
+    );
+  }
+  if (
+    budget.expectedMaxGenerationBatchSize !== undefined &&
+    metrics.maxGenerationBatchSize !== budget.expectedMaxGenerationBatchSize
+  ) {
+    failures.push(
+      `max_generation_batch ${metrics.maxGenerationBatchSize.toFixed(0)} != ${budget.expectedMaxGenerationBatchSize.toFixed(
+        0,
+      )}`,
+    );
+  }
+  return failures;
+}
+
 export function assertServeReportBudget(
   label: string,
   report: BenchmarkReport,
@@ -294,6 +362,8 @@ export function assertServeReportBudget(
       ...tokenFailures(averages, rung.generationTokens, rung.concurrency, budget),
       ...streamFailures(averages, budget),
       ...routeFailures(averages, budget),
+      ...evidenceFailures(averages, budget),
+      ...batchCounterFailures(averages, budget),
     ];
 
     assertFinishReasons(`${label} ${rung.promptTokens}x${rung.generationTokens}`, averages);
@@ -326,6 +396,33 @@ function baseSpecs(options: CliOptions): ServeRegressionSpec[] {
         minStreamBytes: 1,
         expectedRoute: "single",
         expectedReason: "streaming",
+        minRouteDecisions: 1,
+        minServerRequests: 1,
+        expectedStaticBatches: 0,
+        expectedContinuousAdmissions: 0,
+        expectedMaxGenerationBatchSize: 0,
+      },
+    },
+    {
+      label: "qwen36-completions-fallback",
+      model: options.qwenModel,
+      modelId: "qwen-local",
+      rungs: "128x32@2",
+      stream: false,
+      ignoreEos: true,
+      budget: {
+        minCompletionTps: 8,
+        maxPeakMemoryGb: 22,
+        maxActiveDeltaGb: 1,
+        minCompletionTokenRatio: 0.98,
+        expectedRoute: "single",
+        expectedReason: "unsupported_model_type",
+        minRouteDecisions: 2,
+        minServerRequests: 2,
+        expectedAdmissionBatches: 0,
+        expectedStaticBatches: 0,
+        expectedContinuousAdmissions: 0,
+        expectedMaxGenerationBatchSize: 0,
       },
     },
     {
@@ -345,6 +442,33 @@ function baseSpecs(options: CliOptions): ServeRegressionSpec[] {
         minStreamBytes: 1,
         expectedRoute: "single",
         expectedReason: "streaming",
+        minRouteDecisions: 1,
+        minServerRequests: 1,
+        expectedStaticBatches: 0,
+        expectedContinuousAdmissions: 0,
+        expectedMaxGenerationBatchSize: 0,
+      },
+    },
+    {
+      label: "gemma4-completions-fallback",
+      model: options.gemma4Model,
+      modelId: "gemma-local",
+      rungs: "128x32@2",
+      stream: false,
+      ignoreEos: true,
+      budget: {
+        minCompletionTps: 20,
+        maxPeakMemoryGb: 13,
+        maxActiveDeltaGb: 1,
+        minCompletionTokenRatio: 0.98,
+        expectedRoute: "single",
+        expectedReason: "sliding_window_cache",
+        minRouteDecisions: 2,
+        minServerRequests: 2,
+        expectedAdmissionBatches: 0,
+        expectedStaticBatches: 0,
+        expectedContinuousAdmissions: 0,
+        expectedMaxGenerationBatchSize: 0,
       },
     },
   ];
@@ -369,6 +493,11 @@ function capabilitySpecs(options: CliOptions): ServeRegressionSpec[] {
         minStreamBytes: 1,
         expectedRoute: "single",
         expectedReason: "streaming",
+        minRouteDecisions: 1,
+        minServerRequests: 1,
+        expectedStaticBatches: 0,
+        expectedContinuousAdmissions: 0,
+        expectedMaxGenerationBatchSize: 0,
       },
     },
     {
@@ -388,6 +517,11 @@ function capabilitySpecs(options: CliOptions): ServeRegressionSpec[] {
         minStreamBytes: 1,
         expectedRoute: "single",
         expectedReason: "streaming",
+        minRouteDecisions: 1,
+        minServerRequests: 1,
+        expectedStaticBatches: 0,
+        expectedContinuousAdmissions: 0,
+        expectedMaxGenerationBatchSize: 0,
       },
     },
   ];
