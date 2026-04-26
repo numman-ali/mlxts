@@ -1,6 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import { array, retainArray, zeros } from "@mlxts/core";
-import { generateBatchTokens, generateTokens } from "../../generation";
+import {
+  createContinuousBatchTokenScheduler,
+  generateBatchTokens,
+  generateTokens,
+} from "../../generation";
 import { Qwen3_5TextCache } from "./cache";
 import { Qwen3_5TextCausalLM } from "./model";
 import type { Qwen3_5TextConfig } from "./types";
@@ -163,5 +167,103 @@ describe("Qwen3_5TextCausalLM", () => {
     const batched = generateBatchTokens(model, prompts, options);
 
     expect(batched).toEqual(separate);
+  });
+
+  test("continuous greedy batch generation admits staggered hybrid-cache rows", async () => {
+    using model = new Qwen3_5TextCausalLM(qwen3_5TextConfig());
+    const firstPrompt = [1, 2, 3, 4];
+    const secondPrompt = [5, 6];
+    const firstSeparate = generateTokens(model, firstPrompt, {
+      maxTokens: 3,
+      temperature: 0,
+      eosTokenIds: [],
+    });
+    const secondSeparate = generateTokens(model, secondPrompt, {
+      maxTokens: 2,
+      temperature: 0,
+      eosTokenIds: [],
+    });
+    const admittedBatchSizes: number[] = [];
+    const scheduler = createContinuousBatchTokenScheduler(model, {
+      maxBatchSize: 2,
+      temperature: 0,
+      eosTokenIds: [],
+      onBatch(event) {
+        admittedBatchSizes.push(event.batchSize);
+      },
+    });
+    let second: Promise<unknown> | undefined;
+
+    const first = scheduler.enqueue({
+      id: "first",
+      promptTokenIds: firstPrompt,
+      maxTokens: 3,
+      onToken(_tokenId, tokenIds) {
+        if (tokenIds.length === 1 && second === undefined) {
+          second = scheduler.enqueue({
+            id: "second",
+            promptTokenIds: secondPrompt,
+            maxTokens: 2,
+          });
+        }
+      },
+    });
+
+    await expect(first).resolves.toEqual(firstSeparate);
+    await expect(second).resolves.toEqual(secondSeparate);
+    expect(admittedBatchSizes).toContain(2);
+  });
+
+  test("continuous greedy batch generation chunks Qwen waiting prompts", async () => {
+    using model = new Qwen3_5TextCausalLM(qwen3_5TextConfig());
+    const firstPrompt = [1];
+    const secondPrompt = [2, 3, 4, 5, 6, 7];
+    const firstSeparate = generateTokens(model, firstPrompt, {
+      maxTokens: 8,
+      temperature: 0,
+      eosTokenIds: [],
+    });
+    const secondSeparate = generateTokens(model, secondPrompt, {
+      maxTokens: 1,
+      temperature: 0,
+      eosTokenIds: [],
+    });
+    const prefillProgress: string[] = [];
+    const admittedBatchSizes: number[] = [];
+    const scheduler = createContinuousBatchTokenScheduler(model, {
+      maxBatchSize: 2,
+      prefillStepSize: 2,
+      temperature: 0,
+      eosTokenIds: [],
+      onBatch(event) {
+        admittedBatchSizes.push(event.batchSize);
+      },
+    });
+    let second: Promise<unknown> | undefined;
+
+    const first = scheduler.enqueue({
+      id: "first",
+      promptTokenIds: firstPrompt,
+      maxTokens: 8,
+      onToken(_tokenId, tokenIds) {
+        if (tokenIds.length === 1 && second === undefined) {
+          second = scheduler.enqueue({
+            id: "second",
+            promptTokenIds: secondPrompt,
+            maxTokens: 1,
+            onPrefillProgress(event) {
+              prefillProgress.push(
+                `${event.processedTokens}/${event.totalTokens}:${event.chunkTokens}`,
+              );
+            },
+          });
+        }
+      },
+    });
+
+    await expect(first).resolves.toEqual(firstSeparate);
+    await expect(second).resolves.toEqual(secondSeparate);
+    expect(prefillProgress).toEqual(["2/5:2", "4/5:2", "5/5:1"]);
+    expect(admittedBatchSizes).toContain(2);
   });
 });

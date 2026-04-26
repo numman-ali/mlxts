@@ -13,6 +13,7 @@ import type {
 
 const CONTINUOUS_BATCH_MODEL_TYPES = new Set(["gemma", "llama", "mistral", "mistral3", "phi3"]);
 const GEMMA_LAYER_PATTERN_BATCH_MODEL_TYPES = new Set(["gemma3_text", "gemma4_text", "gemma4"]);
+const QWEN_HYBRID_BATCH_MODEL_TYPES = new Set(["qwen3_5_text"]);
 const STATIC_BATCH_MODEL_TYPES = new Set([
   ...CONTINUOUS_BATCH_MODEL_TYPES,
   ...GEMMA_LAYER_PATTERN_BATCH_MODEL_TYPES,
@@ -60,6 +61,18 @@ function hasGemmaLayerPatternBatchCache(model: CausalLM): boolean {
   );
 }
 
+function hasModelOwnedBatchCache(model: CausalLM): boolean {
+  return typeof Reflect.get(model, "createBatchCache") === "function";
+}
+
+function hasQwenHybridBatchCache(model: CausalLM): boolean {
+  return (
+    model.config.family === "qwen" &&
+    QWEN_HYBRID_BATCH_MODEL_TYPES.has(model.config.modelType) &&
+    hasModelOwnedBatchCache(model)
+  );
+}
+
 export function staticBatchIneligibilityReason(
   request: NormalizedGenerationRequest,
   options: TransformersGenerationEngineOptions,
@@ -87,7 +100,11 @@ export function continuousBatchIneligibilityReason(
   options: TransformersGenerationEngineOptions,
 ): GenerationRouteDecisionReason {
   const hasLayerPatternBatchCache = hasGemmaLayerPatternBatchCache(options.model);
+  const hasHybridQwenBatchCache = hasQwenHybridBatchCache(options.model);
   if (hasLayerPatternBatchCache && request.stream) {
+    return "streaming";
+  }
+  if (hasHybridQwenBatchCache && request.stream) {
     return "streaming";
   }
   if (configHasSlidingWindow(options.model) && !hasLayerPatternBatchCache) {
@@ -95,7 +112,8 @@ export function continuousBatchIneligibilityReason(
   }
   if (
     !CONTINUOUS_BATCH_MODEL_TYPES.has(options.model.config.modelType) &&
-    !hasLayerPatternBatchCache
+    !hasLayerPatternBatchCache &&
+    !hasHybridQwenBatchCache
   ) {
     return "unsupported_model_type";
   }
