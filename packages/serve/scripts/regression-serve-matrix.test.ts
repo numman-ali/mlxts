@@ -101,6 +101,11 @@ function trial(overrides: Partial<TrialMetrics> = {}): TrialMetrics {
         schedulerFinishedMs: null,
         schedulerPhaseEvents: 0,
         schedulerAdmittedBatchSize: null,
+        schedulerWaitingTotalTokens: null,
+        schedulerPrefillingTotalTokens: null,
+        schedulerActiveTotalTokens: null,
+        schedulerScheduledTotalTokens: null,
+        schedulerMaxScheduledTotalTokens: null,
         firstPrefillProgressMs: null,
         lastPrefillProgressMs: null,
         prefillObservedMs: null,
@@ -354,6 +359,7 @@ describe("serve regression matrix", () => {
       minContinuousAdmissionRows: 2,
       minContinuousSchedulerPhases: 7,
       expectedMaxGenerationBatchSize: 2,
+      expectSchedulerTokenPressure: true,
       minModelLaneWaitEvents: 0,
     };
     const baseServerRequest = trial().serverRequests[0];
@@ -409,6 +415,8 @@ describe("serve regression matrix", () => {
           modelLaneInFlightAtQueue: null,
           schedulerPhaseEvents: 4,
           schedulerAdmittedBatchSize: 1,
+          schedulerScheduledTotalTokens: 16,
+          schedulerMaxScheduledTotalTokens: 32,
         },
         {
           ...baseServerRequest,
@@ -420,6 +428,8 @@ describe("serve regression matrix", () => {
           modelLaneInFlightAtQueue: null,
           schedulerPhaseEvents: 5,
           schedulerAdmittedBatchSize: 2,
+          schedulerScheduledTotalTokens: 16,
+          schedulerMaxScheduledTotalTokens: 32,
         },
       ],
     });
@@ -434,6 +444,21 @@ describe("serve regression matrix", () => {
         continuousBudget,
       ),
     ).toThrow("continuous_admission_rows");
+    expect(() =>
+      assertServeReportBudget(
+        "qwen",
+        report(
+          trial({
+            ...continuousMetrics,
+            serverRequests: continuousMetrics.serverRequests.map((request) => ({
+              ...request,
+              schedulerScheduledTotalTokens: null,
+            })),
+          }),
+        ),
+        continuousBudget,
+      ),
+    ).toThrow("scheduler token pressure");
   });
 
   test("accepts concurrent streaming continuous reports with per-request SSE evidence", () => {

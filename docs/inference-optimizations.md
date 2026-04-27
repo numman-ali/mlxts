@@ -244,8 +244,8 @@ All three share lineage — vLLM-MLX is the origin, Rapid-MLX and oMLX forked an
 
 These techniques are not all-or-nothing. The progression is:
 
-1. **Current serving baseline**: OpenAI-compatible completions/chat plus narrow text Responses, admission limits, cancellation, streaming, multi-model loading, endpoint benchmarks, and cache-generic continuous batching for eligible LLaMA-like, Qwen 3.6 text, and Gemma 3/4 layer-pattern requests.
-2. **Scheduler hardening**: token-budget admission, separate prefill/completion budgets, richer fairness controls, and higher-concurrency evidence for sampled/model-native defaults.
+1. **Current serving baseline**: OpenAI-compatible completions/chat plus narrow text Responses, admission limits, cancellation, streaming, multi-model loading, endpoint benchmarks, and cache-generic continuous batching for eligible LLaMA-like, Qwen 3.6 text, and Gemma 3/4 layer-pattern requests. Continuous routes now share a model-level scheduled-token reservation budget derived from configured total-token and batch-size limits.
+2. **Scheduler hardening**: separate prefill/completion budgets, richer fairness controls, and higher-concurrency evidence for sampled/model-native defaults.
 3. **Cache pass 1**: prefix cache with LCP matching and explicit Qwen non-trimmable-state handling; rotating/max-KV policy for long contexts.
 4. **Cache pass 2**: paged KV, quantized KV, model-aware memory policy, and production metrics for cache hits, tokens saved, evictions, and memory pressure.
 5. **Production serving pass**: `/metrics`, model pool/eviction, fuller Responses, Anthropic Messages, structured output/logprobs, and multimodal serving over the same normalized request model.

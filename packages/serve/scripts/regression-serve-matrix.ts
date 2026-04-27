@@ -41,6 +41,7 @@ export type ServeRegressionBudget = {
   minContinuousSchedulerPhases?: number;
   expectedContinuousSchedulerPhases?: number;
   expectedMaxGenerationBatchSize?: number;
+  expectSchedulerTokenPressure?: boolean;
   minModelLaneWaitEvents?: number;
   minModelLaneBusyWaitEvents?: number;
 };
@@ -399,6 +400,19 @@ function evidenceFailures(metrics: TrialMetrics, budget: ServeRegressionBudget):
   ) {
     failures.push(`server_requests ${metrics.serverRequests.length} < ${budget.minServerRequests}`);
   }
+  if (budget.expectSchedulerTokenPressure) {
+    const missing = metrics.serverRequests.filter(
+      (request) =>
+        request.route === "continuous" &&
+        (request.schedulerScheduledTotalTokens === null ||
+          request.schedulerMaxScheduledTotalTokens === null),
+    );
+    if (missing.length > 0) {
+      failures.push(
+        `server_requests missing scheduler token pressure: ${missing.map((request) => request.id).join(",")}`,
+      );
+    }
+  }
   return failures;
 }
 
@@ -553,6 +567,7 @@ function baseSpecs(options: CliOptions): ServeRegressionSpec[] {
         minContinuousAdmissionRows: 1,
         minContinuousSchedulerPhases: 4,
         expectedMaxGenerationBatchSize: 1,
+        expectSchedulerTokenPressure: true,
         minModelLaneWaitEvents: 0,
       },
     },
@@ -578,6 +593,7 @@ function baseSpecs(options: CliOptions): ServeRegressionSpec[] {
         minContinuousAdmissionRows: 2,
         minContinuousSchedulerPhases: 7,
         expectedMaxGenerationBatchSize: 2,
+        expectSchedulerTokenPressure: true,
         minModelLaneWaitEvents: 0,
       },
     },
@@ -610,6 +626,7 @@ function baseSpecs(options: CliOptions): ServeRegressionSpec[] {
         expectedContinuousAdmissionRows: 2,
         expectedContinuousSchedulerPhases: 7,
         expectedMaxGenerationBatchSize: 2,
+        expectSchedulerTokenPressure: true,
         minModelLaneWaitEvents: 0,
       },
     },
@@ -636,6 +653,7 @@ function baseSpecs(options: CliOptions): ServeRegressionSpec[] {
         expectedContinuousAdmissionRows: 3,
         expectedContinuousSchedulerPhases: 9,
         expectedMaxGenerationBatchSize: 2,
+        expectSchedulerTokenPressure: true,
         minModelLaneWaitEvents: 0,
       },
     },
@@ -662,6 +680,7 @@ function baseSpecs(options: CliOptions): ServeRegressionSpec[] {
         expectedContinuousAdmissionRows: 2,
         expectedContinuousSchedulerPhases: 7,
         expectedMaxGenerationBatchSize: 2,
+        expectSchedulerTokenPressure: true,
         minModelLaneWaitEvents: 0,
       },
     },
@@ -695,6 +714,7 @@ function baseSpecs(options: CliOptions): ServeRegressionSpec[] {
         expectedContinuousAdmissionRows: 2,
         expectedContinuousSchedulerPhases: 7,
         expectedMaxGenerationBatchSize: 2,
+        expectSchedulerTokenPressure: true,
         minModelLaneWaitEvents: 0,
       },
     },
@@ -727,6 +747,7 @@ function baseSpecs(options: CliOptions): ServeRegressionSpec[] {
         minContinuousAdmissionRows: 1,
         minContinuousSchedulerPhases: 4,
         expectedMaxGenerationBatchSize: 1,
+        expectSchedulerTokenPressure: true,
         minModelLaneWaitEvents: 0,
       },
     },
@@ -753,6 +774,7 @@ function baseSpecs(options: CliOptions): ServeRegressionSpec[] {
         expectedContinuousAdmissionRows: 2,
         expectedContinuousSchedulerPhases: 7,
         expectedMaxGenerationBatchSize: 2,
+        expectSchedulerTokenPressure: true,
         minModelLaneWaitEvents: 0,
       },
     },
@@ -786,6 +808,7 @@ function baseSpecs(options: CliOptions): ServeRegressionSpec[] {
         expectedContinuousAdmissionRows: 2,
         expectedContinuousSchedulerPhases: 7,
         expectedMaxGenerationBatchSize: 2,
+        expectSchedulerTokenPressure: true,
         minModelLaneWaitEvents: 0,
       },
     },
@@ -818,6 +841,7 @@ function baseSpecs(options: CliOptions): ServeRegressionSpec[] {
         expectedContinuousAdmissionRows: 2,
         expectedContinuousSchedulerPhases: 7,
         expectedMaxGenerationBatchSize: 2,
+        expectSchedulerTokenPressure: true,
         minModelLaneWaitEvents: 0,
       },
     },
@@ -842,6 +866,7 @@ function baseSpecs(options: CliOptions): ServeRegressionSpec[] {
         expectedContinuousAdmissions: 1,
         expectedContinuousSchedulerPhases: 7,
         expectedMaxGenerationBatchSize: 2,
+        expectSchedulerTokenPressure: true,
         minModelLaneWaitEvents: 0,
       },
     },
@@ -879,6 +904,7 @@ function capabilitySpecs(options: CliOptions): ServeRegressionSpec[] {
         minContinuousAdmissionRows: 1,
         minContinuousSchedulerPhases: 4,
         expectedMaxGenerationBatchSize: 1,
+        expectSchedulerTokenPressure: true,
         minModelLaneWaitEvents: 0,
       },
     },
@@ -910,6 +936,7 @@ function capabilitySpecs(options: CliOptions): ServeRegressionSpec[] {
         minContinuousAdmissionRows: 1,
         minContinuousSchedulerPhases: 4,
         expectedMaxGenerationBatchSize: 1,
+        expectSchedulerTokenPressure: true,
         minModelLaneWaitEvents: 0,
       },
     },

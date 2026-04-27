@@ -80,6 +80,7 @@ export function createScheduledRequest(
     generated: [],
     firstTokenEmitted: false,
     finishReason: "length",
+    admissionDeferred: false,
     ...(request.abortSignal === undefined ? {} : { abortSignal: request.abortSignal }),
     ...(request.onPrefillProgress === undefined
       ? {}

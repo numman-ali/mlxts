@@ -19,6 +19,14 @@ const ROUTE_STRATEGY = {
   decodingBackend: "model",
 } as const;
 
+const SCHEDULER_TOKENS = {
+  waitingTotalTokens: 0,
+  prefillingTotalTokens: 0,
+  activeTotalTokens: 128,
+  scheduledTotalTokens: 128,
+  maxScheduledTotalTokens: 512,
+};
+
 describe("serve CLI args", () => {
   test("parses defaults from a model source", () => {
     const parsed = parseServeArgs(["mlx-community/Qwen3.6-27B-4bit"]);
@@ -426,9 +434,32 @@ describe("serve CLI args", () => {
         prefilling: 1,
         active: 1,
         maxBatchSize: 8,
+        ...SCHEDULER_TOKENS,
       }),
     ).toBe(
-      "[scheduler] continuous cmpl-a prefill_start queued=2.0ms prompt_tokens=4096 max_tokens=64 waiting=0 prefilling=1 active=1/8",
+      "[scheduler] continuous cmpl-a prefill_start queued=2.0ms prompt_tokens=4096 max_tokens=64 waiting=0 prefilling=1 active=1/8 scheduled_tokens=128/512",
+    );
+    expect(
+      formatServeEvent({
+        type: "generation_scheduler_phase",
+        mode: "continuous",
+        phase: "deferred",
+        model: "qwen-local",
+        id: "cmpl-a",
+        ids: ["cmpl-a"],
+        reason: "scheduled_token_budget",
+        promptTokens: 4096,
+        maxTokens: 64,
+        queuedMs: 3,
+        schedulerMs: 3,
+        waiting: 1,
+        prefilling: 0,
+        active: 1,
+        maxBatchSize: 8,
+        ...SCHEDULER_TOKENS,
+      }),
+    ).toBe(
+      "[scheduler] continuous cmpl-a deferred reason=scheduled_token_budget queued=3.0ms prompt_tokens=4096 max_tokens=64 waiting=1 prefilling=0 active=1/8 scheduled_tokens=128/512",
     );
     expect(
       formatServeEvent({
@@ -446,9 +477,10 @@ describe("serve CLI args", () => {
         prefilling: 0,
         active: 2,
         maxBatchSize: 8,
+        ...SCHEDULER_TOKENS,
       }),
     ).toBe(
-      "[scheduler] continuous admitted size=2 wait_ms=1.5,2.5 max_tokens=64 per_request=32,64 ids=cmpl-a,cmpl-b waiting=0 prefilling=0 active=2/8",
+      "[scheduler] continuous admitted size=2 wait_ms=1.5,2.5 max_tokens=64 per_request=32,64 ids=cmpl-a,cmpl-b waiting=0 prefilling=0 active=2/8 scheduled_tokens=128/512",
     );
     expect(
       formatServeEvent({
@@ -465,9 +497,10 @@ describe("serve CLI args", () => {
         prefilling: 0,
         active: 2,
         maxBatchSize: 8,
+        ...SCHEDULER_TOKENS,
       }),
     ).toBe(
-      "[scheduler] continuous cmpl-a first_token at=4.0ms queued=4.0ms completion_tokens=1 waiting=0 prefilling=0 active=2/8",
+      "[scheduler] continuous cmpl-a first_token at=4.0ms queued=4.0ms completion_tokens=1 waiting=0 prefilling=0 active=2/8 scheduled_tokens=128/512",
     );
     expect(
       formatServeEvent({
@@ -485,9 +518,10 @@ describe("serve CLI args", () => {
         prefilling: 0,
         active: 0,
         maxBatchSize: 8,
+        ...SCHEDULER_TOKENS,
       }),
     ).toBe(
-      "[scheduler] continuous cmpl-a finished reason=length elapsed=12.0ms completion_tokens=64 waiting=0 prefilling=0 active=0/8",
+      "[scheduler] continuous cmpl-a finished reason=length elapsed=12.0ms completion_tokens=64 waiting=0 prefilling=0 active=0/8 scheduled_tokens=128/512",
     );
     expect(
       formatServeEvent({
@@ -504,9 +538,10 @@ describe("serve CLI args", () => {
         prefilling: 0,
         active: 0,
         maxBatchSize: 8,
+        ...SCHEDULER_TOKENS,
       }),
     ).toBe(
-      "[scheduler] continuous cmpl-a cancelled elapsed=3.0ms completion_tokens=0 waiting=0 prefilling=0 active=0/8",
+      "[scheduler] continuous cmpl-a cancelled elapsed=3.0ms completion_tokens=0 waiting=0 prefilling=0 active=0/8 scheduled_tokens=128/512",
     );
     expect(
       formatServeEvent({
@@ -571,6 +606,7 @@ describe("serve CLI args", () => {
           prefilling: 0,
           active: 0,
           maxBatchSize: 8,
+          ...SCHEDULER_TOKENS,
         },
         false,
       ),

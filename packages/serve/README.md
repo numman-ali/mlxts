@@ -63,6 +63,13 @@ transformer engine decodes generated tokens into SSE text; the default is `1`
 for interactive chat responsiveness, while larger values can reduce tokenizer
 work on long-output throughput runs.
 
+Eligible continuous-scheduler requests also share a model-level scheduled-token
+reservation budget derived from `max_total_tokens * max_batch_size`. This keeps
+multiple scheduler keys, for example different sampling defaults, from
+silently over-admitting more total prompt-plus-generation work than the model
+instance was configured to carry. The budget is internal and derived from
+existing limits; it is not a separate operator flag yet.
+
 `GET /info` is a lightweight operator endpoint for confirming the served model
 ids, enabled wire routes, configured request limits, per-model admission
 metadata, selected runtime strategy, and whether the current engine exposes
@@ -249,9 +256,10 @@ launch offset, streaming cadence, and finish reason. They also include
 benchmark-observed server event timelines per
 generation id, including route-decision timing, model-lane wait timing, prefill
 progress timing, first completion-progress timing, completion/error timing,
-server-side stream TTFT/result/chunk/byte evidence, and the largest silent gap
-between server events. Staggered or concurrent runs can therefore be inspected
-without relying only on trial averages.
+continuous-scheduler queue timing, scheduled-token pressure, server-side stream
+TTFT/result/chunk/byte evidence, and the largest silent gap between server
+events. Staggered or concurrent runs can therefore be inspected without relying
+only on trial averages.
 Use `--stream-decode-interval` on `mlxts-serve` or `streamDecodeInterval` in
 programmatic serving when you need an explicit tradeoff between per-token chat
 responsiveness and lower tokenizer overhead.

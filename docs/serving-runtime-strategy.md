@@ -186,9 +186,11 @@ The next work should stay ordered around architecture truth:
    scheduler `auto`, managed model-precision cache, attention `auto`,
    model-native decoding, streaming decode cadence, and admit-only memory
    preflight.
-4. Harden the scheduler: token-budget admission, separate prefill/completion
-   budgets, stronger fairness controls, and explicit per-row decode state for
-   sampler, stop, reasoning, and future logits processors.
+4. Harden the scheduler: the first model-level scheduled-token reservation
+   budget is landed for continuous routes, and the next passes should split
+   prefill/completion budgets, add stronger fairness controls, and keep
+   explicit per-row decode state for sampler, stop, reasoning, and future
+   logits processors.
 5. Build cache backends behind stable contracts: dense managed cache first,
    then prefix cache, rotating/max-KV policy, quantized KV, paged KV, and later
    TurboQuant or tiered SSD storage.

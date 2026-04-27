@@ -91,6 +91,11 @@ type ContinuousSchedulerCounts = {
   prefilling: number;
   active: number;
   maxBatchSize: number;
+  waitingTotalTokens: number;
+  prefillingTotalTokens: number;
+  activeTotalTokens: number;
+  scheduledTotalTokens: number;
+  maxScheduledTotalTokens: number | null;
 };
 
 type ContinuousSchedulerTiming = {
@@ -111,6 +116,18 @@ type ContinuousSchedulerServeEvent =
         id: string;
         ids: readonly string[];
         queuedAhead: number;
+        promptTokens: number;
+        maxTokens: number;
+      })
+  | (ContinuousSchedulerCounts &
+      ContinuousSchedulerRequestTiming & {
+        type: "generation_scheduler_phase";
+        mode: "continuous";
+        phase: "deferred";
+        model: string;
+        id: string;
+        ids: readonly string[];
+        reason: "scheduled_token_budget";
         promptTokens: number;
         maxTokens: number;
       })

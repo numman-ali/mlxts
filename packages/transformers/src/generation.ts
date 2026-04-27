@@ -6,10 +6,8 @@
 import type { MxArray } from "@mlxts/core";
 import type { Tokenizer } from "@mlxts/tokenizers";
 import { generateBatchTokensInternal } from "./infrastructure/generation/batch";
-import {
-  ContinuousBatchTokenScheduler,
-  type ContinuousBatchTokenSchedulerOptions,
-} from "./infrastructure/generation/continuous-batch";
+import { ContinuousBatchTokenScheduler } from "./infrastructure/generation/continuous-batch";
+import type { ContinuousBatchTokenSchedulerOptions } from "./infrastructure/generation/continuous-batch-types";
 import { resolveGenerationOptions } from "./infrastructure/generation/defaults";
 import {
   generatePreparedTokensInternal,
@@ -38,9 +36,16 @@ export { GenerationAbortError } from "./infrastructure/generation/cancellation";
 export type {
   ContinuousBatchEvent,
   ContinuousBatchSchedulerEvent,
+} from "./infrastructure/generation/continuous-batch-events";
+export type {
+  ContinuousBatchAdmissionBudgetSnapshot,
+  ContinuousBatchAdmissionController,
+  ContinuousBatchAdmissionDecision,
+  ContinuousBatchAdmissionRequest,
+  ContinuousBatchAdmissionReservation,
   ContinuousBatchTokenRequest,
   ContinuousBatchTokenSchedulerOptions,
-} from "./infrastructure/generation/continuous-batch";
+} from "./infrastructure/generation/continuous-batch-types";
 
 /** Create the default prompt cache for a decoder model. */
 export function makePromptCache(model: CausalLM): TransformerCache {

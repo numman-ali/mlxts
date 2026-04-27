@@ -5,6 +5,11 @@ export type ContinuousBatchQueueSnapshot = {
   prefilling: number;
   active: number;
   maxBatchSize: number;
+  waitingTotalTokens: number;
+  prefillingTotalTokens: number;
+  activeTotalTokens: number;
+  scheduledTotalTokens: number;
+  maxScheduledTotalTokens: number | null;
 };
 
 export type ContinuousBatchEvent = ContinuousBatchQueueSnapshot & {
@@ -28,6 +33,14 @@ export type ContinuousBatchSchedulerEvent =
         type: "queued";
         id: string;
         queuedAhead: number;
+        promptTokens: number;
+        maxTokens: number;
+      })
+  | (ContinuousBatchQueueSnapshot &
+      ContinuousBatchRequestTiming & {
+        type: "deferred";
+        id: string;
+        reason: "scheduled_token_budget";
         promptTokens: number;
         maxTokens: number;
       })

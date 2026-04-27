@@ -11,6 +11,11 @@ import type {
   TransformerCache,
 } from "../../types";
 import { BatchKVCache, KVCache } from "../cache";
+import type {
+  ContinuousBatchAdmissionController,
+  ContinuousBatchAdmissionRequest,
+  ContinuousBatchAdmissionReservation,
+} from "./continuous-batch-types";
 
 class TrackingBatchCache implements TransformerBatchCache {
   readonly inner: BatchKVCache;
@@ -205,6 +210,63 @@ class ThrowingPrefillModel extends DeterministicBatchModel {
     }
     return super.forward(inputIds, options);
   }
+}
+
+class TestTokenBudget implements ContinuousBatchAdmissionController {
+  readonly #maxScheduledTotalTokens: number;
+  readonly #listeners = new Set<() => void>();
+  #scheduledTotalTokens = 0;
+
+  constructor(maxScheduledTotalTokens: number) {
+    this.#maxScheduledTotalTokens = maxScheduledTotalTokens;
+  }
+
+  tryReserve(request: ContinuousBatchAdmissionRequest) {
+    if (request.totalTokens > this.#maxScheduledTotalTokens) {
+      return {
+        type: "rejected" as const,
+        message: `${request.id} exceeds test token budget`,
+      };
+    }
+    if (this.#scheduledTotalTokens + request.totalTokens > this.#maxScheduledTotalTokens) {
+      return {
+        type: "deferred" as const,
+        ...this.snapshot(),
+      };
+    }
+    this.#scheduledTotalTokens += request.totalTokens;
+    return {
+      type: "reserved" as const,
+      reservation: this.#reservation(request.totalTokens),
+    };
+  }
+
+  snapshot() {
+    return {
+      scheduledTotalTokens: this.#scheduledTotalTokens,
+      maxScheduledTotalTokens: this.#maxScheduledTotalTokens,
+    };
+  }
+
+  onRelease(listener: () => void) {
+    this.#listeners.add(listener);
+    return () => this.#listeners.delete(listener);
+  }
+
+  #reservation(totalTokens: number): ContinuousBatchAdmissionReservation {
+    return {
+      [Symbol.dispose]: () => {
+        this.#scheduledTotalTokens = Math.max(0, this.#scheduledTotalTokens - totalTokens);
+        for (const listener of this.#listeners) {
+          listener();
+        }
+      },
+    };
+  }
+}
+
+function tokenBudget(maxScheduledTotalTokens: number): ContinuousBatchAdmissionController {
+  return new TestTokenBudget(maxScheduledTotalTokens);
 }
 
 describe("continuous batch token scheduler", () => {
@@ -447,6 +509,35 @@ describe("continuous batch token scheduler", () => {
       { tokenIds: [2, 2, 2], finishReason: "length" },
     ]);
     expect(model.forwardBatchSizes).toContain(2);
+  });
+
+  test("defers rows that exceed the scheduled token budget until reservations release", async () => {
+    using model = new DeterministicBatchModel();
+    const phases: string[] = [];
+    const scheduledTokenSnapshots: number[] = [];
+    const scheduler = createContinuousBatchTokenScheduler(model, {
+      maxBatchSize: 2,
+      temperature: 0,
+      eosTokenIds: [],
+      admissionController: tokenBudget(4),
+      onSchedulerEvent(event) {
+        phases.push(event.type);
+        scheduledTokenSnapshots.push(event.scheduledTotalTokens);
+      },
+    });
+
+    const results = await Promise.all([
+      scheduler.enqueue({ id: "first", promptTokenIds: [0], maxTokens: 3 }),
+      scheduler.enqueue({ id: "second", promptTokenIds: [1], maxTokens: 3 }),
+    ]);
+
+    expect(results).toEqual([
+      { tokenIds: [2, 2, 2], finishReason: "length" },
+      { tokenIds: [2, 2, 2], finishReason: "length" },
+    ]);
+    expect(phases).toContain("deferred");
+    expect(scheduledTokenSnapshots).toContain(4);
+    expect(model.forwardBatchSizes).not.toContain(2);
   });
 
   test("samples rows after one batched forward pass", async () => {

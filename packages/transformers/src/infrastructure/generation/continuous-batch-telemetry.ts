@@ -61,6 +61,19 @@ export class ContinuousBatchTelemetry {
     });
   }
 
+  deferred(request: ContinuousBatchTelemetryRequest, snapshot: ContinuousBatchQueueSnapshot): void {
+    this.#onSchedulerEvent?.({
+      type: "deferred",
+      id: request.id,
+      reason: "scheduled_token_budget",
+      promptTokens: request.promptTokenIds.length,
+      maxTokens: request.maxTokens,
+      queuedMs: this.#elapsedMs(request),
+      schedulerMs: this.#elapsedMs(request),
+      ...snapshot,
+    });
+  }
+
   admitted(
     active: readonly ContinuousBatchTelemetryRequest[],
     snapshot: ContinuousBatchQueueSnapshot,

@@ -126,7 +126,9 @@ function formatMemoryUsage(memory: GenerationMemoryUsage | undefined): string {
 function formatSchedulerCounts(
   event: Extract<ServeEvent, { type: "generation_scheduler_phase" }>,
 ): string {
-  return `waiting=${event.waiting} prefilling=${event.prefilling} active=${event.active}/${event.maxBatchSize}`;
+  const maxTokens =
+    event.maxScheduledTotalTokens === null ? "unbounded" : event.maxScheduledTotalTokens;
+  return `waiting=${event.waiting} prefilling=${event.prefilling} active=${event.active}/${event.maxBatchSize} scheduled_tokens=${event.scheduledTotalTokens}/${maxTokens}`;
 }
 
 function formatSchedulerPhase(
@@ -135,6 +137,8 @@ function formatSchedulerPhase(
   switch (event.phase) {
     case "queued":
       return `[scheduler] ${event.mode} ${event.id} queued queued_ahead=${event.queuedAhead} prompt_tokens=${event.promptTokens} max_tokens=${event.maxTokens} ${formatSchedulerCounts(event)}`;
+    case "deferred":
+      return `[scheduler] ${event.mode} ${event.id} deferred reason=${event.reason} queued=${formatDuration(event.queuedMs)} prompt_tokens=${event.promptTokens} max_tokens=${event.maxTokens} ${formatSchedulerCounts(event)}`;
     case "prefill_start":
       return `[scheduler] ${event.mode} ${event.id} prefill_start queued=${formatDuration(event.queuedMs)} prompt_tokens=${event.promptTokens} max_tokens=${event.maxTokens} ${formatSchedulerCounts(event)}`;
     case "admitted":

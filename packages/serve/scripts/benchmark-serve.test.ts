@@ -5,6 +5,14 @@ import { join } from "path";
 import { serverRequestTimingReports, writeBenchmarkReport } from "./benchmark-serve";
 import { requestLaunchDelayMs } from "./benchmark-serve-options";
 
+const SCHEDULER_TOKENS = {
+  waitingTotalTokens: 0,
+  prefillingTotalTokens: 0,
+  activeTotalTokens: 12,
+  scheduledTotalTokens: 12,
+  maxScheduledTotalTokens: 32,
+};
+
 describe("serve benchmark reports", () => {
   test("computes staggered request launch offsets", () => {
     expect([0, 1, 2, 3].map((index) => requestLaunchDelayMs(index, 25))).toEqual([0, 25, 50, 75]);
@@ -199,6 +207,7 @@ describe("serve benchmark reports", () => {
           prefilling: 0,
           active: 0,
           maxBatchSize: 2,
+          ...SCHEDULER_TOKENS,
           observedAtMs: 101,
         },
         {
@@ -216,6 +225,7 @@ describe("serve benchmark reports", () => {
           prefilling: 0,
           active: 1,
           maxBatchSize: 2,
+          ...SCHEDULER_TOKENS,
           observedAtMs: 112,
         },
         {
@@ -232,6 +242,7 @@ describe("serve benchmark reports", () => {
           prefilling: 0,
           active: 1,
           maxBatchSize: 2,
+          ...SCHEDULER_TOKENS,
           observedAtMs: 115,
         },
         {
@@ -249,6 +260,7 @@ describe("serve benchmark reports", () => {
           prefilling: 0,
           active: 1,
           maxBatchSize: 2,
+          ...SCHEDULER_TOKENS,
           observedAtMs: 140,
         },
       ]),
@@ -261,6 +273,8 @@ describe("serve benchmark reports", () => {
         schedulerFinishedMs: 40,
         schedulerPhaseEvents: 4,
         schedulerAdmittedBatchSize: 1,
+        schedulerScheduledTotalTokens: 12,
+        schedulerMaxScheduledTotalTokens: 32,
       },
     ]);
   });

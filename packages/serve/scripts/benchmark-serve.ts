@@ -62,6 +62,11 @@ export type ServerRequestTimingReport = {
   schedulerFinishedMs: number | null;
   schedulerPhaseEvents: number;
   schedulerAdmittedBatchSize: number | null;
+  schedulerWaitingTotalTokens: number | null;
+  schedulerPrefillingTotalTokens: number | null;
+  schedulerActiveTotalTokens: number | null;
+  schedulerScheduledTotalTokens: number | null;
+  schedulerMaxScheduledTotalTokens: number | null;
   firstPrefillProgressMs: number | null;
   lastPrefillProgressMs: number | null;
   prefillObservedMs: number | null;
@@ -473,6 +478,26 @@ function serverStreamFields(slice: RequestEventSlice): Pick<
   };
 }
 
+function schedulerTokenFields(
+  slice: RequestEventSlice,
+): Pick<
+  ServerRequestTimingReport,
+  | "schedulerWaitingTotalTokens"
+  | "schedulerPrefillingTotalTokens"
+  | "schedulerActiveTotalTokens"
+  | "schedulerScheduledTotalTokens"
+  | "schedulerMaxScheduledTotalTokens"
+> {
+  const event = slice.schedulerEvents[slice.schedulerEvents.length - 1];
+  return {
+    schedulerWaitingTotalTokens: event?.waitingTotalTokens ?? null,
+    schedulerPrefillingTotalTokens: event?.prefillingTotalTokens ?? null,
+    schedulerActiveTotalTokens: event?.activeTotalTokens ?? null,
+    schedulerScheduledTotalTokens: event?.scheduledTotalTokens ?? null,
+    schedulerMaxScheduledTotalTokens: event?.maxScheduledTotalTokens ?? null,
+  };
+}
+
 function requestTimingReport(id: string, group: readonly RecordedServeEvent[]) {
   const slice = requestEventSlice(group);
   const startedAt = sliceStartMs(slice);
@@ -502,6 +527,7 @@ function requestTimingReport(id: string, group: readonly RecordedServeEvent[]) {
     schedulerFinishedMs: finished?.schedulerMs ?? null,
     schedulerPhaseEvents: slice.schedulerEvents.length,
     schedulerAdmittedBatchSize: admitted?.batchSize ?? null,
+    ...schedulerTokenFields(slice),
     firstPrefillProgressMs: firstPrefillMs,
     lastPrefillProgressMs: lastPrefillMs,
     prefillObservedMs: prefillObservedMs(firstPrefillMs, lastPrefillMs),

@@ -4,10 +4,12 @@
  */
 
 import {
+  type ContinuousBatchAdmissionController,
   type ContinuousBatchSchedulerEvent,
   type ContinuousBatchTokenSchedulerOptions,
   createContinuousBatchTokenScheduler,
 } from "@mlxts/transformers";
+import { createContinuousSchedulerTokenBudget } from "./continuous-scheduler-budget";
 import type { ModelExecutionLane } from "./model-execution-lane";
 import { transformersRuntimeStrategy } from "./serve-runtime-strategy";
 import { linkAbortSignals } from "./server-abort";
@@ -68,6 +70,7 @@ function schedulerOptions(
   options: TransformersGenerationEngineOptions,
   lane: ModelExecutionLane,
   modelsByRequestId: Map<string, string>,
+  admissionController: ContinuousBatchAdmissionController | undefined,
 ): ContinuousBatchTokenSchedulerOptions {
   const batchOptions = prepared.batchOptions;
   const strategy = transformersRuntimeStrategy(options);
@@ -89,6 +92,7 @@ function schedulerOptions(
     maxBatchSize: strategy.scheduler.maxBatchSize,
     batchWindowMs: strategy.scheduler.batchWindowMs,
     runExclusive: (work) => lane.run(work),
+    ...(admissionController === undefined ? {} : { admissionController }),
     onSchedulerEvent(event) {
       emitContinuousSchedulerPhase(options, prepared.request.model, modelsByRequestId, event);
     },
@@ -102,6 +106,20 @@ function schedulerEventModel(
 ): string {
   const id = "id" in event ? event.id : event.ids[0];
   return id === undefined ? fallbackModel : (modelsByRequestId.get(id) ?? fallbackModel);
+}
+
+function schedulerCounts(event: ContinuousBatchSchedulerEvent) {
+  return {
+    waiting: event.waiting,
+    prefilling: event.prefilling,
+    active: event.active,
+    maxBatchSize: event.maxBatchSize,
+    waitingTotalTokens: event.waitingTotalTokens,
+    prefillingTotalTokens: event.prefillingTotalTokens,
+    activeTotalTokens: event.activeTotalTokens,
+    scheduledTotalTokens: event.scheduledTotalTokens,
+    maxScheduledTotalTokens: event.maxScheduledTotalTokens,
+  };
 }
 
 function emitContinuousSchedulerPhase(
@@ -124,10 +142,23 @@ function emitContinuousSchedulerPhase(
         promptTokens: event.promptTokens,
         maxTokens: event.maxTokens,
         schedulerMs: event.schedulerMs,
-        waiting: event.waiting,
-        prefilling: event.prefilling,
-        active: event.active,
-        maxBatchSize: event.maxBatchSize,
+        ...schedulerCounts(event),
+      });
+      return;
+    case "deferred":
+      options.onEvent?.({
+        type: "generation_scheduler_phase",
+        mode: "continuous",
+        phase: event.type,
+        model,
+        id: event.id,
+        ids: [event.id],
+        reason: event.reason,
+        promptTokens: event.promptTokens,
+        maxTokens: event.maxTokens,
+        queuedMs: event.queuedMs,
+        schedulerMs: event.schedulerMs,
+        ...schedulerCounts(event),
       });
       return;
     case "prefill_start":
@@ -142,10 +173,7 @@ function emitContinuousSchedulerPhase(
         maxTokens: event.maxTokens,
         queuedMs: event.queuedMs,
         schedulerMs: event.schedulerMs,
-        waiting: event.waiting,
-        prefilling: event.prefilling,
-        active: event.active,
-        maxBatchSize: event.maxBatchSize,
+        ...schedulerCounts(event),
       });
       return;
     case "admitted":
@@ -160,10 +188,7 @@ function emitContinuousSchedulerPhase(
         maxTokensByRequest: event.maxTokensByRequest,
         queuedMsByRequest: event.queuedMsByRequest,
         schedulerMs: event.schedulerMs,
-        waiting: event.waiting,
-        prefilling: event.prefilling,
-        active: event.active,
-        maxBatchSize: event.maxBatchSize,
+        ...schedulerCounts(event),
       });
       return;
     case "first_token":
@@ -177,10 +202,7 @@ function emitContinuousSchedulerPhase(
         completionTokens: event.completionTokens,
         queuedMs: event.queuedMs,
         schedulerMs: event.schedulerMs,
-        waiting: event.waiting,
-        prefilling: event.prefilling,
-        active: event.active,
-        maxBatchSize: event.maxBatchSize,
+        ...schedulerCounts(event),
       });
       return;
     case "finished":
@@ -195,10 +217,7 @@ function emitContinuousSchedulerPhase(
         finishReason: event.finishReason,
         queuedMs: event.queuedMs,
         schedulerMs: event.schedulerMs,
-        waiting: event.waiting,
-        prefilling: event.prefilling,
-        active: event.active,
-        maxBatchSize: event.maxBatchSize,
+        ...schedulerCounts(event),
       });
       return;
     case "cancelled":
@@ -212,10 +231,7 @@ function emitContinuousSchedulerPhase(
         completionTokens: event.completionTokens,
         queuedMs: event.queuedMs,
         schedulerMs: event.schedulerMs,
-        waiting: event.waiting,
-        prefilling: event.prefilling,
-        active: event.active,
-        maxBatchSize: event.maxBatchSize,
+        ...schedulerCounts(event),
       });
   }
 }
@@ -275,6 +291,11 @@ export function createContinuousTransformersGeneration(
   lane: ModelExecutionLane,
 ): ContinuousTransformersGeneration {
   const schedulers = new Map<string, SchedulerEntry>();
+  const strategy = transformersRuntimeStrategy(options);
+  const admissionController = createContinuousSchedulerTokenBudget({
+    maxBatchSize: strategy.scheduler.maxBatchSize,
+    ...(options.maxTotalTokens === undefined ? {} : { maxTotalTokens: options.maxTotalTokens }),
+  });
 
   function schedulerFor(prepared: PreparedGenerationRequest): SchedulerEntry {
     const key = schedulerKey(prepared);
@@ -286,7 +307,7 @@ export function createContinuousTransformersGeneration(
     const modelsByRequestId = new Map<string, string>();
     const scheduler = createContinuousBatchTokenScheduler(
       options.model,
-      schedulerOptions(prepared, options, lane, modelsByRequestId),
+      schedulerOptions(prepared, options, lane, modelsByRequestId, admissionController),
     );
     const entry = { scheduler, modelsByRequestId };
     schedulers.set(key, entry);

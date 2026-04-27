@@ -4,6 +4,7 @@
  */
 
 import { HistogramMetric, metricKey, NumberMetric } from "./serve-metrics-registry";
+import { ServeSchedulerMetrics } from "./serve-scheduler-metrics";
 import { ServeStreamMetrics } from "./serve-stream-metrics";
 import type { GenerationMemoryUsage, GenerationProtocol, ServeEvent } from "./types";
 
@@ -163,27 +164,6 @@ export class ServeMetrics {
     type: "gauge",
     labelNames: ["model", "kind"],
   });
-  readonly #schedulerPhases = new NumberMetric({
-    name: "mlxts_serve_scheduler_phases_total",
-    help: "Continuous scheduler phase transitions.",
-    type: "counter",
-    labelNames: ["model", "mode", "phase"],
-  });
-  readonly #schedulerRequests = new NumberMetric({
-    name: "mlxts_serve_scheduler_requests",
-    help: "Latest continuous scheduler queue and active request counts.",
-    type: "gauge",
-    labelNames: ["model", "mode", "state"],
-  });
-  readonly #schedulerQueuedDurations = new HistogramMetric(
-    {
-      name: "mlxts_serve_scheduler_queue_duration_seconds",
-      help: "Request time spent waiting inside the continuous scheduler.",
-      type: "histogram",
-      labelNames: ["model", "mode"],
-    },
-    WAIT_DURATION_BUCKETS,
-  );
   readonly #batches = new NumberMetric({
     name: "mlxts_serve_generation_batches_total",
     help: "Generation batches started by scheduler mode.",
@@ -220,6 +200,7 @@ export class ServeMetrics {
     },
     WAIT_DURATION_BUCKETS,
   );
+  readonly #schedulerMetrics = new ServeSchedulerMetrics();
   readonly #streamMetrics = new ServeStreamMetrics();
 
   constructor(options: ServeMetricsOptions = {}) {
@@ -278,7 +259,7 @@ export class ServeMetrics {
         this.#recordBatch(event.model, event.mode, event.batchSize);
         break;
       case "generation_scheduler_phase":
-        this.#recordSchedulerPhase(event);
+        this.#schedulerMetrics.record(this.#modelLabel(event.model), event);
         break;
       case "generation_admission_batch":
         this.#admissionBatches.add(
@@ -317,9 +298,6 @@ export class ServeMetrics {
       this.#prefillTokens,
       this.#routeDecisions,
       this.#memoryBytes,
-      this.#schedulerPhases,
-      this.#schedulerRequests,
-      this.#schedulerQueuedDurations,
       this.#batches,
       this.#batchSizes,
       this.#admissionBatches,
@@ -327,6 +305,7 @@ export class ServeMetrics {
       this.#modelLaneWaitDurations,
     ];
     const lines = metrics.flatMap((metric) => metric.format());
+    lines.push(...this.#schedulerMetrics.format());
     lines.push(...this.#streamMetrics.format());
     return `${lines.join("\n")}\n`;
   }
@@ -433,24 +412,6 @@ export class ServeMetrics {
     const label = this.#modelLabel(model);
     this.#batches.add([label, mode], 1);
     this.#batchSizes.observe([label, mode], batchSize);
-  }
-
-  #recordSchedulerPhase(event: Extract<ServeEvent, { type: "generation_scheduler_phase" }>): void {
-    const model = this.#modelLabel(event.model);
-    this.#schedulerPhases.add([model, event.mode, event.phase], 1);
-    this.#schedulerRequests.set([model, event.mode, "waiting"], event.waiting);
-    this.#schedulerRequests.set([model, event.mode, "prefilling"], event.prefilling);
-    this.#schedulerRequests.set([model, event.mode, "active"], event.active);
-    this.#schedulerRequests.set([model, event.mode, "max_batch_size"], event.maxBatchSize);
-    if (event.phase === "admitted") {
-      for (const queuedMs of event.queuedMsByRequest) {
-        this.#schedulerQueuedDurations.observe([model, event.mode], seconds(queuedMs));
-      }
-      return;
-    }
-    if (event.phase !== "queued") {
-      this.#schedulerQueuedDurations.observe([model, event.mode], seconds(event.queuedMs));
-    }
   }
 
   #recordModelLaneWait(event: Extract<ServeEvent, { type: "generation_model_lane_wait" }>): void {

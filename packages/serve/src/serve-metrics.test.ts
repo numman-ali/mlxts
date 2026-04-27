@@ -94,6 +94,28 @@ describe("serve metrics", () => {
       queuedAtDispatch: 0,
       maxConcurrentJobs: 1,
     });
+    metrics.record({
+      type: "generation_scheduler_phase",
+      mode: "continuous",
+      phase: "deferred",
+      model: "known",
+      id: "cmpl-1",
+      ids: ["cmpl-1"],
+      reason: "scheduled_token_budget",
+      promptTokens: 5,
+      maxTokens: 8,
+      queuedMs: 3,
+      schedulerMs: 3,
+      waiting: 1,
+      prefilling: 0,
+      active: 1,
+      maxBatchSize: 2,
+      waitingTotalTokens: 13,
+      prefillingTotalTokens: 0,
+      activeTotalTokens: 13,
+      scheduledTotalTokens: 13,
+      maxScheduledTotalTokens: 16,
+    });
 
     const text = metrics.format();
 
@@ -124,6 +146,12 @@ describe("serve metrics", () => {
     expect(text).toContain('mlxts_serve_memory_bytes{model="known",kind="active"} 1');
     expect(text).toContain(
       'mlxts_serve_model_lane_requests{model="known",lane="model",state="max_concurrent_jobs"} 1',
+    );
+    expect(text).toContain(
+      'mlxts_serve_scheduler_phases_total{model="known",mode="continuous",phase="deferred"} 1',
+    );
+    expect(text).toContain(
+      'mlxts_serve_scheduler_tokens{model="known",mode="continuous",state="scheduled_total"} 13',
     );
     expect(text).toContain(
       'mlxts_serve_generation_route_decisions_total{model="__unknown__",protocol="openai.completions",route="single",eligible="false",reason="unsupported_model_type",model_type="odd\\"model",scheduler="auto",cache="managed",attention="auto",decoding="model",stream="false"} 1',

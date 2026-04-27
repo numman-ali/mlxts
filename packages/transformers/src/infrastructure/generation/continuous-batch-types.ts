@@ -15,6 +15,39 @@ export type RunExclusive = <T>(work: () => Promise<T>) => Promise<T>;
 
 export const defaultRunExclusive: RunExclusive = (work) => work();
 
+export type ContinuousBatchAdmissionRequest = {
+  id: string;
+  promptTokens: number;
+  maxTokens: number;
+  totalTokens: number;
+};
+
+export type ContinuousBatchAdmissionBudgetSnapshot = {
+  scheduledTotalTokens: number;
+  maxScheduledTotalTokens: number | null;
+};
+
+export type ContinuousBatchAdmissionReservation = Disposable;
+
+export type ContinuousBatchAdmissionDecision =
+  | {
+      type: "reserved";
+      reservation: ContinuousBatchAdmissionReservation;
+    }
+  | (ContinuousBatchAdmissionBudgetSnapshot & {
+      type: "deferred";
+    })
+  | {
+      type: "rejected";
+      message: string;
+    };
+
+export type ContinuousBatchAdmissionController = {
+  tryReserve(request: ContinuousBatchAdmissionRequest): ContinuousBatchAdmissionDecision;
+  snapshot(): ContinuousBatchAdmissionBudgetSnapshot;
+  onRelease(listener: () => void): () => void;
+};
+
 export type ScheduledRequest = {
   id: string;
   promptTokenIds: readonly number[];
@@ -25,6 +58,8 @@ export type ScheduledRequest = {
   generated: number[];
   firstTokenEmitted: boolean;
   finishReason: GenerationResult["finishReason"];
+  admissionDeferred: boolean;
+  admissionReservation?: ContinuousBatchAdmissionReservation;
   abortSignal?: AbortSignal;
   onAbort?: () => void;
   onPrefillProgress?: (event: PrefillProgressEvent) => void;
@@ -49,6 +84,8 @@ export type ContinuousBatchTokenSchedulerOptions = Omit<
   batchWindowMs?: number;
   /** Optional model-lane guard shared with fallback generation. */
   runExclusive?: RunExclusive;
+  /** Optional shared admission budget for model-wide continuous scheduling. */
+  admissionController?: ContinuousBatchAdmissionController;
   /** Emitted whenever the scheduler admits rows into the active decode batch. */
   onBatch?: (event: ContinuousBatchEvent) => void;
   /** Emitted for scheduler-owned queue, prefill, admission, decode, and finish phases. */
