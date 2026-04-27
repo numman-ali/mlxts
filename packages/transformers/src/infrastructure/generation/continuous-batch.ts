@@ -1,5 +1,4 @@
 import {
-  array,
   clearMemoryCache,
   createStream,
   getRecommendedWorkingSetBytes,
@@ -8,7 +7,6 @@ import {
   synchronize,
   withDefaultStream,
 } from "@mlxts/core";
-
 import type {
   CausalLM,
   GenerationResult,
@@ -36,11 +34,22 @@ import {
   sampleNextBatchToken,
   samplerOptionsFrom,
   shouldChunkInitialRows,
+  takeReadyPrefillingRow,
   tokenTensorToIds,
   validateContinuousBatchOptions,
   yieldToScheduler,
 } from "./continuous-batch-helpers";
-import { attachScheduledRequestAbort } from "./continuous-batch-lifecycle";
+import {
+  attachScheduledRequestAbort,
+  cleanupScheduledRequest,
+  failScheduledRequests,
+} from "./continuous-batch-lifecycle";
+import {
+  nextDecodeStepsSincePrefill,
+  resolveActiveDecodeStepsPerPrefillChunk,
+  resolveActivePrefillStepSize,
+  shouldPrioritizeActiveDecode,
+} from "./continuous-batch-policy";
 import { ContinuousBatchTelemetry } from "./continuous-batch-telemetry";
 import {
   type ContinuousBatchAdmissionController,
@@ -53,9 +62,7 @@ import {
 } from "./continuous-batch-types";
 import { AdmissionReleaseWakeup } from "./continuous-batch-wakeup";
 import { resolveGenerationOptions } from "./defaults";
-import { validatePrefillStepSize } from "./helpers";
 import { finishIfEos } from "./runtime";
-
 /** Scheduler-owned continuous decode loop for batch-cache-capable models. */
 export class ContinuousBatchTokenScheduler {
   readonly #model: CausalLM;
@@ -68,6 +75,8 @@ export class ContinuousBatchTokenScheduler {
   readonly #samplerOptions: SamplerOptions;
   readonly #padTokenId: number;
   readonly #prefillStepSize: number;
+  readonly #activePrefillStepSize: number;
+  readonly #activeDecodeStepsPerPrefillChunk: number;
   readonly #waiting: ScheduledRequest[] = [];
   readonly #prefilling: PrefillingRequest[] = [];
   #active: ScheduledRequest[] = [];
@@ -75,6 +84,7 @@ export class ContinuousBatchTokenScheduler {
   #currentToken: MxArray | null = null;
   #running = false;
   #startScheduled = false;
+  #decodeStepsSincePrefill = 0;
   readonly #admissionWakeup: AdmissionReleaseWakeup;
   #nextId = 0;
 
@@ -91,8 +101,14 @@ export class ContinuousBatchTokenScheduler {
     this.#eosTokenIds = new Set(resolved.eosTokenIds ?? []);
     this.#samplerOptions = samplerOptionsFrom(resolved);
     this.#padTokenId = options.padTokenId ?? 0;
-    this.#prefillStepSize = options.prefillStepSize ?? 2048;
-    validatePrefillStepSize(this.#prefillStepSize, "ContinuousBatchTokenScheduler");
+    this.#prefillStepSize = integerAtLeast(options.prefillStepSize ?? 2048, "prefillStepSize", 1);
+    this.#activePrefillStepSize = resolveActivePrefillStepSize(
+      this.#prefillStepSize,
+      options.activePrefillStepSize,
+    );
+    this.#activeDecodeStepsPerPrefillChunk = resolveActiveDecodeStepsPerPrefillChunk(
+      options.activeDecodeStepsPerPrefillChunk,
+    );
   }
 
   enqueue(request: ContinuousBatchTokenRequest): Promise<GenerationResult> {
@@ -125,23 +141,13 @@ export class ContinuousBatchTokenScheduler {
         prefilling: this.#prefilling,
         telemetry: this.#telemetry,
         snapshot: () => this.#snapshot(),
-        cleanup: (request) => this.#cleanup(request),
+        cleanup: cleanupScheduledRequest,
       });
       const queuedAhead = this.#waiting.length;
       this.#waiting.push(entry);
       this.#telemetry.queued(entry, queuedAhead, this.#snapshot());
       this.#schedule();
     });
-  }
-
-  #cleanup(entry: ScheduledRequest): void {
-    if (entry.onAbort !== undefined) {
-      entry.abortSignal?.removeEventListener("abort", entry.onAbort);
-      delete entry.onAbort;
-    }
-    entry.admissionReservation?.[Symbol.dispose]();
-    delete entry.admissionReservation;
-    entry.samplerState[Symbol.dispose]();
   }
 
   #schedule(): void {
@@ -184,12 +190,16 @@ export class ContinuousBatchTokenScheduler {
       while (this.#waiting.length > 0 || this.#prefilling.length > 0 || this.#active.length > 0) {
         let didWork = false;
         withDefaultStream(generationStream, () => {
-          rejectAbortedPrefillingRows(this.#prefilling, (request) => this.#cleanup(request));
+          rejectAbortedPrefillingRows(this.#prefilling, cleanupScheduledRequest);
           this.#dropAbortedActiveRows();
-          didWork = this.#admitWaitingRows() || didWork;
-          rejectAbortedPrefillingRows(this.#prefilling, (request) => this.#cleanup(request));
-          this.#dropAbortedActiveRows();
-          didWork = this.#decodeOneStep() || didWork;
+          if (this.#shouldPrioritizeActiveDecode()) {
+            didWork = this.#decodeOneStep();
+          } else {
+            didWork = this.#admitWaitingRows() || didWork;
+            rejectAbortedPrefillingRows(this.#prefilling, cleanupScheduledRequest);
+            this.#dropAbortedActiveRows();
+            didWork = this.#decodeOneStep() || didWork;
+          }
         });
         if (!didWork && this.#waiting.length > 0 && this.#prefilling.length === 0) {
           this.#admissionWakeup.pause(() => this.#schedule());
@@ -216,7 +226,7 @@ export class ContinuousBatchTokenScheduler {
 
   #dropAbortedActiveRows(): void {
     const next = dropAbortedActiveRows(this.#active, this.#currentToken, this.#cache, (request) => {
-      this.#cleanup(request);
+      cleanupScheduledRequest(request);
       this.#telemetry.cancelled(request, this.#snapshot());
       request.reject(
         new GenerationAbortError("ContinuousBatchTokenScheduler: generation was cancelled."),
@@ -234,7 +244,7 @@ export class ContinuousBatchTokenScheduler {
       this.#admissionController,
       () => this.#snapshot(),
       this.#telemetry,
-      (request) => this.#cleanup(request),
+      cleanupScheduledRequest,
     );
   }
 
@@ -329,38 +339,27 @@ export class ContinuousBatchTokenScheduler {
   }
 
   #prefillOneChunk(prefilling: PrefillingRequest, remainingPrefillTokens: number): void {
+    const prefillStepSize =
+      this.#active.length === 0 ? this.#prefillStepSize : this.#activePrefillStepSize;
     const progress = prefillPromptChunk(
       this.#model,
       prefilling.request.promptTokenIds,
       prefilling.cache,
       prefilling.cursor,
-      this.#prefillStepSize,
+      prefillStepSize,
       remainingPrefillTokens,
     );
     prefilling.cursor = progress.cursor;
+    this.#decodeStepsSincePrefill = 0;
     prefilling.request.onPrefillProgress?.(progress.event);
   }
 
   #finishPrefillingRow(index: number): boolean {
-    const prefilling = this.#prefilling[index];
-    if (prefilling === undefined) {
+    const ready = takeReadyPrefillingRow(this.#model, this.#prefilling, index);
+    if (ready === null) {
       return false;
     }
-    const tail = prefilling.request.promptTokenIds.slice(prefilling.cursor);
-    using tailInput = array([tail], "int32");
-    const nextToken = sampleNextBatchToken(
-      this.#model,
-      tailInput,
-      prefilling.cache,
-      [prefilling.request.samplerState],
-      prefilling.request.samplerOptions,
-    );
-    const [ready] = this.#prefilling.splice(index, 1);
-    if (ready === undefined) {
-      nextToken.free();
-      return false;
-    }
-    this.#mergeReadyRow(ready.request, ready.cache, nextToken);
+    this.#mergeReadyRow(ready.request, ready.cache, ready.nextToken);
     return true;
   }
 
@@ -390,6 +389,7 @@ export class ContinuousBatchTokenScheduler {
       return false;
     }
 
+    const hadPendingPrefillWork = this.#waiting.length > 0 || this.#prefilling.length > 0;
     const emittedToken = this.#currentToken;
     this.#currentToken = null;
     const tokenIds = tokenTensorToIds(emittedToken);
@@ -447,11 +447,28 @@ export class ContinuousBatchTokenScheduler {
     );
     emittedToken.free();
     this.#currentToken = nextToken;
+    this.#decodeStepsSincePrefill = nextDecodeStepsSincePrefill(
+      this.#decodeStepsSincePrefill,
+      hadPendingPrefillWork,
+    );
     return true;
   }
 
+  #shouldPrioritizeActiveDecode(): boolean {
+    return shouldPrioritizeActiveDecode({
+      activeCount: this.#active.length,
+      hasCurrentToken: this.#currentToken !== null,
+      waitingCapacity: this.#maxBatchSize - this.#active.length - this.#prefilling.length,
+      waiting: this.#waiting,
+      prefilling: this.#prefilling,
+      activePrefillStepSize: this.#activePrefillStepSize,
+      decodeStepsSincePrefill: this.#decodeStepsSincePrefill,
+      activeDecodeStepsPerPrefillChunk: this.#activeDecodeStepsPerPrefillChunk,
+    });
+  }
+
   #finishRequest(request: ScheduledRequest): void {
-    this.#cleanup(request);
+    cleanupScheduledRequest(request);
     this.#telemetry.finished(request, this.#snapshot());
     request.resolve({ tokenIds: [...request.generated], finishReason: request.finishReason });
   }
@@ -467,21 +484,16 @@ export class ContinuousBatchTokenScheduler {
   }
 
   #failAll(error: unknown): void {
-    this.#admissionWakeup.cancel();
-    for (const request of [
-      ...this.#waiting,
-      ...this.#prefilling.map((prefilling) => prefilling.request),
-      ...this.#active,
-    ]) {
-      this.#cleanup(request);
-      request.reject(error);
-    }
-    this.#waiting.length = 0;
-    disposePrefillingCaches(this.#prefilling.splice(0));
-    this.#active = [];
-    this.#currentToken?.free();
-    this.#currentToken = null;
-    this.#cache?.[Symbol.dispose]();
-    this.#cache = null;
+    const next = failScheduledRequests(error, {
+      cancelAdmissionWakeup: () => this.#admissionWakeup.cancel(),
+      waiting: this.#waiting,
+      prefilling: this.#prefilling,
+      active: this.#active,
+      currentToken: this.#currentToken,
+      cache: this.#cache,
+    });
+    this.#active = next.active;
+    this.#currentToken = next.currentToken;
+    this.#cache = next.cache;
   }
 }

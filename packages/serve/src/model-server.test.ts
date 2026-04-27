@@ -180,6 +180,8 @@ describe("serveLoadedModel", () => {
       maxTotalTokens: 256,
       maxBatchSize: 4,
       batchWindowMs: 2,
+      activePrefillStepSize: 64,
+      activeDecodeStepsPerPrefillChunk: 7,
       maxConcurrentRequests: 1,
       gpuMemoryUtilization: 0.75,
       disposeModelOnStop: true,
@@ -203,6 +205,8 @@ describe("serveLoadedModel", () => {
           max_total_tokens: 256,
           max_client_batch_size: 4,
           batch_window_ms: 2,
+          active_prefill_step_size: 64,
+          active_decode_steps_per_prefill_chunk: 7,
           stream_decode_interval: 1,
           max_concurrent_requests: 1,
           gpu_memory_utilization: 0.75,
@@ -212,6 +216,8 @@ describe("serveLoadedModel", () => {
             mode: "auto",
             max_batch_size: 4,
             batch_window_ms: 2,
+            active_prefill_step_size: 64,
+            active_decode_steps_per_prefill_chunk: 7,
             max_concurrent_requests: 1,
           },
           cache: {
@@ -543,6 +549,22 @@ describe("serveLoadedModel", () => {
       serveLoadedModel({
         model,
         tokenizer,
+        modelId: "bad-active-prefill-step",
+        activePrefillStepSize: 0,
+      }),
+    ).toThrow("activePrefillStepSize must be a positive integer.");
+    expect(() =>
+      serveLoadedModel({
+        model,
+        tokenizer,
+        modelId: "bad-active-decode-quantum",
+        activeDecodeStepsPerPrefillChunk: 0,
+      }),
+    ).toThrow("activeDecodeStepsPerPrefillChunk must be a positive integer.");
+    expect(() =>
+      serveLoadedModel({
+        model,
+        tokenizer,
         modelId: "bad-stream-decode",
         streamDecodeInterval: 0,
       }),
@@ -591,7 +613,7 @@ describe("serveLoadedModel", () => {
       },
       serveLoadedModel(options) {
         calls.push(
-          `serve:${options.modelId}:${options.apiKey}:${options.maxPromptTokens}:${options.maxTotalTokens}:${options.maxBatchSize}:${options.batchWindowMs}:${options.streamDecodeInterval}:${options.maxConcurrentRequests}:${options.gpuMemoryUtilization}:${options.disposeModelOnStop}`,
+          `serve:${options.modelId}:${options.apiKey}:${options.maxPromptTokens}:${options.maxTotalTokens}:${options.maxBatchSize}:${options.batchWindowMs}:${options.activePrefillStepSize}:${options.activeDecodeStepsPerPrefillChunk}:${options.streamDecodeInterval}:${options.maxConcurrentRequests}:${options.gpuMemoryUtilization}:${options.disposeModelOnStop}`,
         );
         return fakeRunningServer(options.modelId);
       },
@@ -606,6 +628,8 @@ describe("serveLoadedModel", () => {
         localFilesOnly: true,
         maxBatchSize: 16,
         batchWindowMs: 3,
+        activePrefillStepSize: 64,
+        activeDecodeStepsPerPrefillChunk: 7,
         streamDecodeInterval: 2,
         maxConcurrentRequests: 2,
         gpuMemoryUtilization: 0.8,
@@ -619,7 +643,7 @@ describe("serveLoadedModel", () => {
       "model:/snapshots/qwen",
       "tokenizer:/snapshots/qwen",
       "profile:/snapshots/qwen",
-      "serve:qwen-local:secret:4096:4096:16:3:2:2:0.8:true",
+      "serve:qwen-local:secret:4096:4096:16:3:64:7:2:2:0.8:true",
     ]);
     expect(model.disposeCount).toBe(0);
     running.stop();

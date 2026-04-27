@@ -159,6 +159,8 @@ function report(
     ignoreEos: true,
     maxBatchSize: 8,
     batchWindowMs: 2,
+    activePrefillStepSize: 128,
+    activeDecodeStepsPerPrefillChunk: 16,
     streamDecodeInterval: 1,
     requestStaggerMs: 0,
     maxConcurrentRequests: 1,

@@ -55,6 +55,8 @@ export type TransformersGenerationEngineOptions = {
   maxTotalTokens?: number;
   maxBatchSize?: number;
   batchWindowMs?: number;
+  activePrefillStepSize?: number;
+  activeDecodeStepsPerPrefillChunk?: number;
   streamDecodeInterval?: number;
   maxConcurrentRequests?: number;
   gpuMemoryUtilization?: number;

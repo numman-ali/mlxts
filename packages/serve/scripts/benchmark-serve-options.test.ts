@@ -37,6 +37,8 @@ describe("serve benchmark options", () => {
       port: 0,
       maxBatchSize: 32,
       batchWindowMs: 1,
+      activePrefillStepSize: 128,
+      activeDecodeStepsPerPrefillChunk: 16,
       streamDecodeInterval: 1,
       maxConcurrentRequests: 1,
       requestTimeoutMs: 3_600_000,
@@ -74,6 +76,10 @@ describe("serve benchmark options", () => {
       "8",
       "--batch-window-ms",
       "2",
+      "--active-prefill-step-size",
+      "256",
+      "--active-decode-steps-per-prefill-chunk",
+      "24",
       "--stream-decode-interval",
       "4",
       "--max-concurrent-requests",
@@ -115,6 +121,8 @@ describe("serve benchmark options", () => {
       port: 8081,
       maxBatchSize: 8,
       batchWindowMs: 2,
+      activePrefillStepSize: 256,
+      activeDecodeStepsPerPrefillChunk: 24,
       streamDecodeInterval: 4,
       maxConcurrentRequests: 2,
       requestTimeoutMs: 7_200_000,
@@ -276,6 +284,12 @@ describe("serve benchmark options", () => {
     expect(() => parseServeBenchmarkArgs(["model", "--stream-decode-interval", "0"])).toThrow(
       "--stream-decode-interval expects a positive integer",
     );
+    expect(() => parseServeBenchmarkArgs(["model", "--active-prefill-step-size", "0"])).toThrow(
+      "--active-prefill-step-size expects a positive integer",
+    );
+    expect(() =>
+      parseServeBenchmarkArgs(["model", "--active-decode-steps-per-prefill-chunk", "0"]),
+    ).toThrow("--active-decode-steps-per-prefill-chunk expects a positive integer");
     expect(() =>
       parseServeBenchmarkArgs(["model", "--rungs", "128x32", "--mixed-rungs", "128x32+64x16"]),
     ).toThrow("use either --rungs or --mixed-rungs");

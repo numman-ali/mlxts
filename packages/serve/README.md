@@ -63,6 +63,11 @@ generation at a time. `--stream-decode-interval <n>` controls how often the
 transformer engine decodes generated tokens into SSE text; the default is `1`
 for interactive chat responsiveness, while larger values can reduce tokenizer
 work on long-output throughput runs.
+`--active-prefill-step-size <n>` and
+`--active-decode-steps-per-prefill-chunk <n>` tune the continuous scheduler's
+long-prefill fairness policy: active rows keep decoding for a bounded quantum,
+then long prompt-prefill work resumes in smaller chunks so short streamed
+requests do not wait behind multi-second prefill slices.
 
 Eligible continuous-scheduler requests also share a model-level scheduled-token
 reservation budget derived from `max_total_tokens * max_batch_size`. This keeps
@@ -274,6 +279,11 @@ only on trial averages.
 Use `--stream-decode-interval` on `mlxts-serve` or `streamDecodeInterval` in
 programmatic serving when you need an explicit tradeoff between per-token chat
 responsiveness and lower tokenizer overhead.
+Use `--active-prefill-step-size` and
+`--active-decode-steps-per-prefill-chunk` when debugging mixed long-prefill and
+short-output workloads; lower prefill chunks improve visible stream cadence,
+while a larger decode quantum favors active output latency over long-prompt
+TTFT.
 Pass `--request-stagger-ms <n>` to launch concurrent requests at deliberate
 offsets rather than all at once. That is the benchmark shape for testing
 waiting-row scheduler fairness instead of only admission-window coalescing.

@@ -174,7 +174,7 @@ describe("Qwen3_5TextCausalLM", () => {
     const firstPrompt = [1, 2, 3, 4];
     const secondPrompt = [5, 6];
     const firstSeparate = generateTokens(model, firstPrompt, {
-      maxTokens: 3,
+      maxTokens: 4,
       temperature: 0,
       eosTokenIds: [],
     });
@@ -186,6 +186,7 @@ describe("Qwen3_5TextCausalLM", () => {
     const admittedBatchSizes: number[] = [];
     const scheduler = createContinuousBatchTokenScheduler(model, {
       maxBatchSize: 2,
+      activeDecodeStepsPerPrefillChunk: 1,
       temperature: 0,
       eosTokenIds: [],
       onBatch(event) {
@@ -197,7 +198,7 @@ describe("Qwen3_5TextCausalLM", () => {
     const first = scheduler.enqueue({
       id: "first",
       promptTokenIds: firstPrompt,
-      maxTokens: 3,
+      maxTokens: 4,
       onToken(_tokenId, tokenIds) {
         if (tokenIds.length === 1 && second === undefined) {
           second = scheduler.enqueue({
@@ -233,6 +234,7 @@ describe("Qwen3_5TextCausalLM", () => {
     const scheduler = createContinuousBatchTokenScheduler(model, {
       maxBatchSize: 2,
       prefillStepSize: 2,
+      activeDecodeStepsPerPrefillChunk: 1,
       temperature: 0,
       eosTokenIds: [],
       onBatch(event) {

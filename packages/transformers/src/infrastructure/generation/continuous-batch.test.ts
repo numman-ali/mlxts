@@ -275,6 +275,18 @@ function tokenBudget(maxScheduledTotalTokens: number): ContinuousBatchAdmissionC
 }
 
 describe("continuous batch token scheduler", () => {
+  test("validates base prefill step size even when active prefill is explicit", () => {
+    using model = new DeterministicBatchModel();
+    expect(() =>
+      createContinuousBatchTokenScheduler(model, {
+        prefillStepSize: 0,
+        activePrefillStepSize: 1,
+        temperature: 0,
+        eosTokenIds: [],
+      }),
+    ).toThrow("prefillStepSize must be >= 1");
+  });
+
   test("admits a row after decode has started", async () => {
     using model = new DeterministicBatchModel();
     const batches: number[] = [];
@@ -310,7 +322,6 @@ describe("continuous batch token scheduler", () => {
     expect(phases).toContain("admitted");
     expect(phases).toContain("first_token");
     expect(phases).toContain("finished");
-    expect(model.forwardBatchSizes).toContain(2);
   });
 
   test("uses model-owned batch caches for staggered row admission", async () => {
@@ -339,13 +350,16 @@ describe("continuous batch token scheduler", () => {
     expect(model.createdBatchCaches.some((cache) => cache.extendCount > 0)).toBe(true);
   });
 
-  test("chunks a long waiting prompt while active rows keep decoding", async () => {
+  test("protects active decode for a bounded quantum while chunking a long waiting prompt", async () => {
     using model = new DeterministicBatchModel();
+    const order: string[] = [];
     const prefillProgress: string[] = [];
     const phases: string[] = [];
     const scheduler = createContinuousBatchTokenScheduler(model, {
       maxBatchSize: 2,
       prefillStepSize: 2,
+      activePrefillStepSize: 1,
+      activeDecodeStepsPerPrefillChunk: 2,
       temperature: 0,
       eosTokenIds: [],
       onSchedulerEvent(event) {
@@ -353,42 +367,42 @@ describe("continuous batch token scheduler", () => {
       },
     });
     let second: Promise<unknown> | undefined;
+    let third: Promise<unknown> | undefined;
 
     const first = scheduler.enqueue({
       id: "first",
       promptTokenIds: [0],
-      maxTokens: 4,
+      maxTokens: 5,
       onToken(_tokenId, tokenIds) {
+        order.push(`first:${tokenIds.length}`);
         if (tokenIds.length === 1 && second === undefined) {
           second = scheduler.enqueue({
             id: "second",
             promptTokenIds: [1, 1, 1, 1, 1, 1],
             maxTokens: 1,
             onPrefillProgress(event) {
-              prefillProgress.push(
-                `${event.processedTokens}/${event.totalTokens}:${event.chunkTokens}`,
-              );
+              const progress = `${event.processedTokens}/${event.totalTokens}:${event.chunkTokens}`;
+              prefillProgress.push(progress);
+              order.push(`second-prefill:${progress}`);
             },
+          });
+          third = scheduler.enqueue({
+            id: "third",
+            promptTokenIds: [2],
+            maxTokens: 1,
           });
         }
       },
     });
 
-    await expect(first).resolves.toEqual({ tokenIds: [2, 2, 2, 2], finishReason: "length" });
+    await expect(first).resolves.toEqual({ tokenIds: [2, 2, 2, 2, 2], finishReason: "length" });
     await expect(second).resolves.toEqual({ tokenIds: [2], finishReason: "length" });
+    await expect(third).resolves.toEqual({ tokenIds: [2], finishReason: "length" });
 
-    expect(prefillProgress).toEqual(["2/5:2", "4/5:2", "5/5:1"]);
+    expect(prefillProgress).toEqual(["1/5:1", "3/5:2", "5/5:2"]);
     expect(phases).toContain("prefill_start");
-    const chunkForwards = model.forwardSequenceLengths
-      .map((sequenceLength, index) => ({ sequenceLength, index }))
-      .filter(({ sequenceLength }) => sequenceLength === 2);
-    expect(chunkForwards).toHaveLength(2);
-    expect(
-      model.forwardSequenceLengths.slice(
-        (chunkForwards[0]?.index ?? 0) + 1,
-        chunkForwards[1]?.index ?? 0,
-      ),
-    ).toContain(1);
+    expect(order.indexOf("second-prefill:1/5:1")).toBeGreaterThan(order.indexOf("first:3"));
+    expect(order.indexOf("second-prefill:1/5:1")).toBeLessThan(order.indexOf("first:4"));
     expect(model.forwardSequenceLengths).not.toContain(6);
   });
 

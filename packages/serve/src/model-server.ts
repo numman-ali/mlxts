@@ -35,6 +35,8 @@ export const DEFAULT_MODEL_SERVER_MAX_PROMPT_TOKENS = 4096;
 export const DEFAULT_MODEL_SERVER_MAX_TOTAL_TOKENS = 4096;
 export const DEFAULT_MODEL_SERVER_MAX_BATCH_SIZE = 32;
 export const DEFAULT_MODEL_SERVER_BATCH_WINDOW_MS = 1;
+export const DEFAULT_MODEL_SERVER_ACTIVE_PREFILL_STEP_SIZE = 128;
+export const DEFAULT_MODEL_SERVER_ACTIVE_DECODE_STEPS_PER_PREFILL_CHUNK = 16;
 export const DEFAULT_MODEL_SERVER_STREAM_DECODE_INTERVAL = DEFAULT_STREAM_DECODE_INTERVAL;
 export const DEFAULT_MODEL_SERVER_MAX_CONCURRENT_REQUESTS = 1;
 export const DEFAULT_MODEL_SERVER_GPU_MEMORY_UTILIZATION = 0.9;
@@ -46,6 +48,8 @@ export type ModelServerRuntimeOptions = {
   maxTotalTokens?: number;
   maxBatchSize?: number;
   batchWindowMs?: number;
+  activePrefillStepSize?: number;
+  activeDecodeStepsPerPrefillChunk?: number;
   streamDecodeInterval?: number;
   maxConcurrentRequests?: number;
   gpuMemoryUtilization?: number;
@@ -107,6 +111,8 @@ type ResolvedRuntimeOptions = {
   maxTotalTokens: number;
   maxBatchSize: number;
   batchWindowMs: number;
+  activePrefillStepSize: number;
+  activeDecodeStepsPerPrefillChunk: number;
   streamDecodeInterval: number;
   maxConcurrentRequests: number;
   gpuMemoryUtilization: number;
@@ -160,6 +166,15 @@ function resolveRuntimeOptions(options: ModelServerRuntimeOptions): ResolvedRunt
     "batchWindowMs",
     options.batchWindowMs ?? DEFAULT_MODEL_SERVER_BATCH_WINDOW_MS,
   );
+  const activePrefillStepSize = requirePositiveInteger(
+    "activePrefillStepSize",
+    options.activePrefillStepSize ?? DEFAULT_MODEL_SERVER_ACTIVE_PREFILL_STEP_SIZE,
+  );
+  const activeDecodeStepsPerPrefillChunk = requirePositiveInteger(
+    "activeDecodeStepsPerPrefillChunk",
+    options.activeDecodeStepsPerPrefillChunk ??
+      DEFAULT_MODEL_SERVER_ACTIVE_DECODE_STEPS_PER_PREFILL_CHUNK,
+  );
   const streamDecodeInterval = requirePositiveInteger(
     "streamDecodeInterval",
     options.streamDecodeInterval ?? DEFAULT_MODEL_SERVER_STREAM_DECODE_INTERVAL,
@@ -189,6 +204,8 @@ function resolveRuntimeOptions(options: ModelServerRuntimeOptions): ResolvedRunt
     ),
     maxBatchSize,
     batchWindowMs,
+    activePrefillStepSize,
+    activeDecodeStepsPerPrefillChunk,
     streamDecodeInterval,
     maxConcurrentRequests,
     gpuMemoryUtilization,
@@ -275,6 +292,25 @@ function snapshotOptions(options: ResolvedServeModelOptions): LoadSourceOptions 
   };
 }
 
+function runtimeServeOptions(options: ResolvedRuntimeOptions): ModelServerRuntimeOptions {
+  return {
+    hostname: options.hostname,
+    port: options.port,
+    maxGeneratedTokens: options.maxGeneratedTokens,
+    maxPromptTokens: options.maxPromptTokens,
+    maxTotalTokens: options.maxTotalTokens,
+    maxBatchSize: options.maxBatchSize,
+    batchWindowMs: options.batchWindowMs,
+    activePrefillStepSize: options.activePrefillStepSize,
+    activeDecodeStepsPerPrefillChunk: options.activeDecodeStepsPerPrefillChunk,
+    streamDecodeInterval: options.streamDecodeInterval,
+    maxConcurrentRequests: options.maxConcurrentRequests,
+    gpuMemoryUtilization: options.gpuMemoryUtilization,
+    ...(options.apiKey === undefined ? {} : { apiKey: options.apiKey }),
+    ...(options.onEvent === undefined ? {} : { onEvent: options.onEvent }),
+  };
+}
+
 function endpointFor(server: ReturnType<typeof Bun.serve>): string {
   return `http://${server.hostname}:${server.port}`;
 }
@@ -291,6 +327,8 @@ function createLoadedModelEngine(
     maxTotalTokens: options.maxTotalTokens,
     maxBatchSize: options.maxBatchSize,
     batchWindowMs: options.batchWindowMs,
+    activePrefillStepSize: options.activePrefillStepSize,
+    activeDecodeStepsPerPrefillChunk: options.activeDecodeStepsPerPrefillChunk,
     streamDecodeInterval: options.streamDecodeInterval,
     maxConcurrentRequests: options.maxConcurrentRequests,
     gpuMemoryUtilization: options.gpuMemoryUtilization,
@@ -384,6 +422,8 @@ export function serveLoadedModels(options: ServeLoadedModelsOptions): RunningMod
       maxTotalTokens: resolved.maxTotalTokens,
       maxBatchSize: resolved.maxBatchSize,
       batchWindowMs: resolved.batchWindowMs,
+      activePrefillStepSize: resolved.activePrefillStepSize,
+      activeDecodeStepsPerPrefillChunk: resolved.activeDecodeStepsPerPrefillChunk,
       streamDecodeInterval: resolved.streamDecodeInterval,
       maxConcurrentRequests: resolved.maxConcurrentRequests,
       gpuMemoryUtilization: resolved.gpuMemoryUtilization,
@@ -412,19 +452,8 @@ export function serveLoadedModel(options: ServeLoadedModelOptions): RunningModel
         modelId: resolved.modelId,
       },
     ],
-    hostname: resolved.hostname,
-    port: resolved.port,
-    maxGeneratedTokens: resolved.maxGeneratedTokens,
-    maxPromptTokens: resolved.maxPromptTokens,
-    maxTotalTokens: resolved.maxTotalTokens,
-    maxBatchSize: resolved.maxBatchSize,
-    batchWindowMs: resolved.batchWindowMs,
-    streamDecodeInterval: resolved.streamDecodeInterval,
-    maxConcurrentRequests: resolved.maxConcurrentRequests,
-    gpuMemoryUtilization: resolved.gpuMemoryUtilization,
-    ...(resolved.apiKey === undefined ? {} : { apiKey: resolved.apiKey }),
+    ...runtimeServeOptions(resolved),
     disposeModelsOnStop: resolved.disposeModelOnStop,
-    ...(resolved.onEvent === undefined ? {} : { onEvent: resolved.onEvent }),
   });
 }
 
@@ -455,18 +484,7 @@ export async function serveModelWithRuntime(
       tokenizer,
       interactionProfile,
       modelId: resolved.modelId,
-      hostname: resolved.hostname,
-      port: resolved.port,
-      maxGeneratedTokens: resolved.maxGeneratedTokens,
-      maxPromptTokens: resolved.maxPromptTokens,
-      maxTotalTokens: resolved.maxTotalTokens,
-      maxBatchSize: resolved.maxBatchSize,
-      batchWindowMs: resolved.batchWindowMs,
-      streamDecodeInterval: resolved.streamDecodeInterval,
-      maxConcurrentRequests: resolved.maxConcurrentRequests,
-      gpuMemoryUtilization: resolved.gpuMemoryUtilization,
-      ...(resolved.apiKey === undefined ? {} : { apiKey: resolved.apiKey }),
-      ...(resolved.onEvent === undefined ? {} : { onEvent: resolved.onEvent }),
+      ...runtimeServeOptions(resolved),
       disposeModelOnStop: true,
     });
   } catch (error) {

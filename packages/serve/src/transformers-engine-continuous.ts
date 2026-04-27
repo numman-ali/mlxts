@@ -91,6 +91,8 @@ function schedulerOptions(
     ...(batchOptions.padTokenId === undefined ? {} : { padTokenId: batchOptions.padTokenId }),
     maxBatchSize: strategy.scheduler.maxBatchSize,
     batchWindowMs: strategy.scheduler.batchWindowMs,
+    activePrefillStepSize: strategy.scheduler.activePrefillStepSize,
+    activeDecodeStepsPerPrefillChunk: strategy.scheduler.activeDecodeStepsPerPrefillChunk,
     runExclusive: (work) => lane.run(work),
     ...(admissionController === undefined ? {} : { admissionController }),
     onSchedulerEvent(event) {

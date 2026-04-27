@@ -87,6 +87,10 @@ export type ContinuousBatchTokenSchedulerOptions = Omit<
   maxBatchSize?: number;
   /** Delay before starting a fresh scheduler loop so nearby requests can join. */
   batchWindowMs?: number;
+  /** Maximum prompt-prefill chunk size while another row is actively decoding. */
+  activePrefillStepSize?: number;
+  /** Active decode steps allowed between long prompt-prefill chunks. */
+  activeDecodeStepsPerPrefillChunk?: number;
   /** Optional model-lane guard shared with fallback generation. */
   runExclusive?: RunExclusive;
   /** Optional shared admission budget for model-wide continuous scheduling. */

@@ -684,6 +684,7 @@ describe("transformers generation engine", () => {
       model,
       tokenizer,
       maxBatchSize: 2,
+      activeDecodeStepsPerPrefillChunk: 1,
       onEvent(event) {
         events.push(event);
       },

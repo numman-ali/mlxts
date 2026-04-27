@@ -53,6 +53,8 @@ describe("serve CLI args", () => {
         maxTotalTokens: 4096,
         maxBatchSize: 32,
         batchWindowMs: 1,
+        activePrefillStepSize: 128,
+        activeDecodeStepsPerPrefillChunk: 16,
         streamDecodeInterval: 1,
         maxConcurrentRequests: 1,
         gpuMemoryUtilization: 0.9,
@@ -81,6 +83,10 @@ describe("serve CLI args", () => {
       "16",
       "--batch-window-ms",
       "4",
+      "--active-prefill-step-size",
+      "256",
+      "--active-decode-steps-per-prefill-chunk",
+      "24",
       "--stream-decode-interval",
       "2",
       "--max-concurrent-requests",
@@ -112,6 +118,8 @@ describe("serve CLI args", () => {
         maxTotalTokens: 1536,
         maxBatchSize: 16,
         batchWindowMs: 4,
+        activePrefillStepSize: 256,
+        activeDecodeStepsPerPrefillChunk: 24,
         streamDecodeInterval: 2,
         maxConcurrentRequests: 2,
         gpuMemoryUtilization: 0.75,
@@ -177,6 +185,19 @@ describe("serve CLI args", () => {
       exitCode: 1,
       message: 'Expected --batch-window-ms to be a non-negative integer, got "-1".',
     });
+    expect(parseServeArgs(["model", "--active-prefill-step-size", "0"])).toMatchObject({
+      kind: "help",
+      exitCode: 1,
+      message: 'Expected --active-prefill-step-size to be a positive integer, got "0".',
+    });
+    expect(parseServeArgs(["model", "--active-decode-steps-per-prefill-chunk", "0"])).toMatchObject(
+      {
+        kind: "help",
+        exitCode: 1,
+        message:
+          'Expected --active-decode-steps-per-prefill-chunk to be a positive integer, got "0".',
+      },
+    );
     expect(parseServeArgs(["model", "--stream-decode-interval", "0"])).toMatchObject({
       kind: "help",
       exitCode: 1,
@@ -291,6 +312,8 @@ describe("serve CLI args", () => {
       maxTotalTokens: 256,
       maxBatchSize: 8,
       batchWindowMs: 2,
+      activePrefillStepSize: 128,
+      activeDecodeStepsPerPrefillChunk: 16,
       streamDecodeInterval: 1,
       maxConcurrentRequests: 1,
       gpuMemoryUtilization: 0.75,
@@ -302,7 +325,7 @@ describe("serve CLI args", () => {
     expect(formatServeReady("http://127.0.0.1:8000", options)).not.toContain("temperature");
     expect(formatServeReady("http://127.0.0.1:8000", options)).toContain("Prompt-token limit: 128");
     expect(formatServeReady("http://127.0.0.1:8000", options)).toContain(
-      "Batch scheduler: max_batch=8 window_ms=2",
+      "Batch scheduler: max_batch=8 window_ms=2 active_prefill=128 active_decode_quantum=16",
     );
     expect(formatServeReady("http://127.0.0.1:8000", options)).toContain(
       "Streaming decode interval: 1 token(s)",
@@ -737,6 +760,8 @@ describe("serve CLI args", () => {
         expect(options.maxPromptTokens).toBe(4096);
         expect(options.maxBatchSize).toBe(32);
         expect(options.batchWindowMs).toBe(1);
+        expect(options.activePrefillStepSize).toBe(128);
+        expect(options.activeDecodeStepsPerPrefillChunk).toBe(16);
         expect(options.streamDecodeInterval).toBe(1);
         expect(options.maxConcurrentRequests).toBe(1);
         expect(options.gpuMemoryUtilization).toBe(0.9);

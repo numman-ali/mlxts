@@ -6,6 +6,8 @@
 export type ServeRuntimeKnobs = {
   maxBatchSize?: number;
   batchWindowMs?: number;
+  activePrefillStepSize?: number;
+  activeDecodeStepsPerPrefillChunk?: number;
   streamDecodeInterval?: number;
   maxConcurrentRequests?: number;
   gpuMemoryUtilization?: number;
@@ -14,6 +16,8 @@ export type ServeRuntimeKnobs = {
 export type ServeRuntimeDefaults = {
   maxBatchSize: number;
   batchWindowMs: number;
+  activePrefillStepSize: number;
+  activeDecodeStepsPerPrefillChunk: number;
   streamDecodeInterval: number;
   maxConcurrentRequests: number;
   gpuMemoryUtilization?: number;
@@ -23,6 +27,8 @@ export type ServeSchedulerStrategy = {
   mode: "auto";
   maxBatchSize: number;
   batchWindowMs: number;
+  activePrefillStepSize: number;
+  activeDecodeStepsPerPrefillChunk: number;
   maxConcurrentRequests: number;
 };
 
@@ -66,6 +72,8 @@ export type ServeRuntimeStrategyInfo = {
     mode: "auto";
     max_batch_size: number;
     batch_window_ms: number;
+    active_prefill_step_size: number;
+    active_decode_steps_per_prefill_chunk: number;
     max_concurrent_requests: number;
   };
   cache: {
@@ -95,6 +103,8 @@ export type ServeRuntimeStrategyInfo = {
 export const TRANSFORMERS_ENGINE_RUNTIME_DEFAULTS: ServeRuntimeDefaults = {
   maxBatchSize: 1,
   batchWindowMs: 0,
+  activePrefillStepSize: 128,
+  activeDecodeStepsPerPrefillChunk: 16,
   streamDecodeInterval: 1,
   maxConcurrentRequests: 1,
 };
@@ -158,6 +168,18 @@ export function resolveServeRuntimeStrategy(
       requireNonNegativeInteger,
       "batchWindowMs",
     ),
+    activePrefillStepSize: runtimeValue(
+      options.activePrefillStepSize,
+      defaults.activePrefillStepSize,
+      requirePositiveInteger,
+      "activePrefillStepSize",
+    ),
+    activeDecodeStepsPerPrefillChunk: runtimeValue(
+      options.activeDecodeStepsPerPrefillChunk,
+      defaults.activeDecodeStepsPerPrefillChunk,
+      requirePositiveInteger,
+      "activeDecodeStepsPerPrefillChunk",
+    ),
     maxConcurrentRequests: runtimeValue(
       options.maxConcurrentRequests,
       defaults.maxConcurrentRequests,
@@ -204,6 +226,8 @@ export function formatServeRuntimeStrategyInfo(
       mode: strategy.scheduler.mode,
       max_batch_size: strategy.scheduler.maxBatchSize,
       batch_window_ms: strategy.scheduler.batchWindowMs,
+      active_prefill_step_size: strategy.scheduler.activePrefillStepSize,
+      active_decode_steps_per_prefill_chunk: strategy.scheduler.activeDecodeStepsPerPrefillChunk,
       max_concurrent_requests: strategy.scheduler.maxConcurrentRequests,
     },
     cache: {

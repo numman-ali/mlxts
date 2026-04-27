@@ -127,6 +127,8 @@ describe("serve fetch handler", () => {
         max_total_tokens: 4096,
         max_client_batch_size: 32,
         batch_window_ms: 1,
+        active_prefill_step_size: null,
+        active_decode_steps_per_prefill_chunk: null,
         stream_decode_interval: 1,
         max_concurrent_requests: 1,
         gpu_memory_utilization: 0.9,
@@ -162,6 +164,8 @@ describe("serve fetch handler", () => {
           mode: "auto",
           max_batch_size: 32,
           batch_window_ms: 1,
+          active_prefill_step_size: 128,
+          active_decode_steps_per_prefill_chunk: 16,
           max_concurrent_requests: 1,
         },
         cache: {

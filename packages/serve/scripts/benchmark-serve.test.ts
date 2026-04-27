@@ -38,6 +38,8 @@ describe("serve benchmark reports", () => {
         ignoreEos: true,
         maxBatchSize: 8,
         batchWindowMs: 2,
+        activePrefillStepSize: 128,
+        activeDecodeStepsPerPrefillChunk: 16,
         streamDecodeInterval: 1,
         requestStaggerMs: 25,
         maxConcurrentRequests: 1,

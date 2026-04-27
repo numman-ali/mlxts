@@ -21,7 +21,11 @@ import type {
 import { SamplerState } from "../sampling";
 import { createBatchCacheForModel } from "./batch-cache-factory";
 import { GenerationAbortError } from "./cancellation";
-import type { ContinuousBatchTokenRequest, ScheduledRequest } from "./continuous-batch-types";
+import type {
+  ContinuousBatchTokenRequest,
+  PrefillingRequest,
+  ScheduledRequest,
+} from "./continuous-batch-types";
 import { takeLastLogits } from "./helpers";
 
 type AbortablePrefillRequest = {
@@ -33,7 +37,6 @@ type AbortablePrefillRow<Request extends AbortablePrefillRequest> = {
   request: Request;
   cache: TransformerBatchCache;
 };
-
 export function integerAtLeast(value: number, name: string, minimum: number): number {
   if (!Number.isInteger(value) || value < minimum) {
     throw new Error(`ContinuousBatchTokenScheduler: ${name} must be >= ${minimum}.`);
@@ -90,7 +93,6 @@ export function createScheduledRequest(
     reject,
   };
 }
-
 export function remainingPrefillTokens(prefilling: {
   request: { promptTokenIds: readonly number[] };
   cursor: number;
@@ -219,6 +221,32 @@ export function prefillReadyBatch(
     options,
   );
   return { cache, nextToken };
+}
+
+export function takeReadyPrefillingRow(
+  model: CausalLM,
+  prefilling: PrefillingRequest[],
+  index: number,
+): { request: ScheduledRequest; cache: TransformerBatchCache; nextToken: MxArray } | null {
+  const prefillingRow = prefilling[index];
+  if (prefillingRow === undefined) {
+    return null;
+  }
+  const tail = prefillingRow.request.promptTokenIds.slice(prefillingRow.cursor);
+  using tailInput = array([tail], "int32");
+  const nextToken = sampleNextBatchToken(
+    model,
+    tailInput,
+    prefillingRow.cache,
+    [prefillingRow.request.samplerState],
+    prefillingRow.request.samplerOptions,
+  );
+  const [ready] = prefilling.splice(index, 1);
+  if (ready === undefined) {
+    nextToken.free();
+    return null;
+  }
+  return { request: ready.request, cache: ready.cache, nextToken };
 }
 
 function sampleGreedyBatchTokenTensor(logits: MxArray, context: string): MxArray {

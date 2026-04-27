@@ -23,6 +23,8 @@ export type ServeBenchmarkOptions = {
   port: number;
   maxBatchSize: number;
   batchWindowMs: number;
+  activePrefillStepSize: number;
+  activeDecodeStepsPerPrefillChunk: number;
   streamDecodeInterval: number;
   maxConcurrentRequests: number;
   requestTimeoutMs: number;
@@ -77,6 +79,8 @@ function usage(): never {
       "  --max-concurrent-requests <n>   Server-side in-flight generation limit, default 1",
       "  --max-batch-size <n>            Admission micro-batch size, default 32",
       "  --batch-window-ms <n>           Admission micro-batch window, default 1",
+      "  --active-prefill-step-size <n>  Prefill chunk size while rows are decoding, default 128",
+      "  --active-decode-steps-per-prefill-chunk <n>  Decode quantum before prefill resumes, default 16",
       "  --stream-decode-interval <n>    Streaming text flush interval, default 1",
       "  --gpu-memory-utilization <f>    Serving memory preflight budget, default 0.9",
       "  --request-timeout-ms <n>        Client fetch timeout per request, default 3600000",
@@ -225,6 +229,8 @@ type ParseState = {
   port: number;
   maxBatchSize: number;
   batchWindowMs: number;
+  activePrefillStepSize: number;
+  activeDecodeStepsPerPrefillChunk: number;
   streamDecodeInterval: number;
   maxConcurrentRequests: number;
   requestTimeoutMs: number;
@@ -250,6 +256,8 @@ function defaultParseState(): ParseState {
     port: 0,
     maxBatchSize: 32,
     batchWindowMs: 1,
+    activePrefillStepSize: 128,
+    activeDecodeStepsPerPrefillChunk: 16,
     streamDecodeInterval: DEFAULT_STREAM_DECODE_INTERVAL,
     maxConcurrentRequests: 1,
     requestTimeoutMs: 3_600_000,
@@ -337,6 +345,12 @@ function readServerValueArg(state: ParseState, arg: string, value: string | unde
       return true;
     case "--batch-window-ms":
       state.batchWindowMs = readNonNegativeInteger(arg, value);
+      return true;
+    case "--active-prefill-step-size":
+      state.activePrefillStepSize = readPositiveInteger(arg, value);
+      return true;
+    case "--active-decode-steps-per-prefill-chunk":
+      state.activeDecodeStepsPerPrefillChunk = readPositiveInteger(arg, value);
       return true;
     case "--stream-decode-interval":
       state.streamDecodeInterval = readPositiveInteger(arg, value);
@@ -448,6 +462,8 @@ export function parseServeBenchmarkArgs(argv: readonly string[]): ServeBenchmark
     port: state.port,
     maxBatchSize: state.maxBatchSize,
     batchWindowMs: state.batchWindowMs,
+    activePrefillStepSize: state.activePrefillStepSize,
+    activeDecodeStepsPerPrefillChunk: state.activeDecodeStepsPerPrefillChunk,
     streamDecodeInterval: state.streamDecodeInterval,
     maxConcurrentRequests: state.maxConcurrentRequests,
     requestTimeoutMs: state.requestTimeoutMs,

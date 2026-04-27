@@ -1,4 +1,6 @@
 import {
+  DEFAULT_MODEL_SERVER_ACTIVE_DECODE_STEPS_PER_PREFILL_CHUNK,
+  DEFAULT_MODEL_SERVER_ACTIVE_PREFILL_STEP_SIZE,
   DEFAULT_MODEL_SERVER_BATCH_WINDOW_MS,
   DEFAULT_MODEL_SERVER_GPU_MEMORY_UTILIZATION,
   DEFAULT_MODEL_SERVER_HOSTNAME,
@@ -27,6 +29,8 @@ export type ServeCliOptions = {
   maxTotalTokens: number;
   maxBatchSize: number;
   batchWindowMs: number;
+  activePrefillStepSize: number;
+  activeDecodeStepsPerPrefillChunk: number;
   streamDecodeInterval: number;
   maxConcurrentRequests: number;
   gpuMemoryUtilization: number;
@@ -60,6 +64,8 @@ type ParseState = {
   maxTotalTokens: number;
   maxBatchSize: number;
   batchWindowMs: number;
+  activePrefillStepSize: number;
+  activeDecodeStepsPerPrefillChunk: number;
   streamDecodeInterval: number;
   maxConcurrentRequests: number;
   gpuMemoryUtilization: number;
@@ -138,6 +144,8 @@ function createParseState(): ParseState {
     maxTotalTokens: DEFAULT_MODEL_SERVER_MAX_TOTAL_TOKENS,
     maxBatchSize: DEFAULT_MODEL_SERVER_MAX_BATCH_SIZE,
     batchWindowMs: DEFAULT_MODEL_SERVER_BATCH_WINDOW_MS,
+    activePrefillStepSize: DEFAULT_MODEL_SERVER_ACTIVE_PREFILL_STEP_SIZE,
+    activeDecodeStepsPerPrefillChunk: DEFAULT_MODEL_SERVER_ACTIVE_DECODE_STEPS_PER_PREFILL_CHUNK,
     streamDecodeInterval: DEFAULT_MODEL_SERVER_STREAM_DECODE_INTERVAL,
     maxConcurrentRequests: DEFAULT_MODEL_SERVER_MAX_CONCURRENT_REQUESTS,
     gpuMemoryUtilization: DEFAULT_MODEL_SERVER_GPU_MEMORY_UTILIZATION,
@@ -212,6 +220,22 @@ function applyFlag(state: ParseState, argv: readonly string[], index: number): n
         argv[index + 1],
         (value) => value >= 0,
         "a non-negative integer",
+      );
+      return index + 1;
+    case "--active-prefill-step-size":
+      state.activePrefillStepSize = readIntegerFlag(
+        arg,
+        argv[index + 1],
+        (value) => value > 0,
+        "a positive integer",
+      );
+      return index + 1;
+    case "--active-decode-steps-per-prefill-chunk":
+      state.activeDecodeStepsPerPrefillChunk = readIntegerFlag(
+        arg,
+        argv[index + 1],
+        (value) => value > 0,
+        "a positive integer",
       );
       return index + 1;
     case "--stream-decode-interval":
@@ -333,6 +357,8 @@ function stateToOptions(state: ParseState): ServeCliParseResult {
       maxTotalTokens: state.maxTotalTokens,
       maxBatchSize: state.maxBatchSize,
       batchWindowMs: state.batchWindowMs,
+      activePrefillStepSize: state.activePrefillStepSize,
+      activeDecodeStepsPerPrefillChunk: state.activeDecodeStepsPerPrefillChunk,
       streamDecodeInterval: state.streamDecodeInterval,
       maxConcurrentRequests: state.maxConcurrentRequests,
       gpuMemoryUtilization: state.gpuMemoryUtilization,
@@ -366,6 +392,14 @@ export function formatServeUsage(): string {
     `  --max-total-tokens <n>      Reject prompt_tokens + max_tokens above this cap (default: ${DEFAULT_MODEL_SERVER_MAX_TOTAL_TOKENS})`,
     `  --max-batch-size <n>        Admission micro-batch size per model instance (default: ${DEFAULT_MODEL_SERVER_MAX_BATCH_SIZE})`,
     `  --batch-window-ms <n>       Wait window before flushing a micro-batch (default: ${DEFAULT_MODEL_SERVER_BATCH_WINDOW_MS})`,
+    [
+      "  --active-prefill-step-size <n>",
+      `Prompt-prefill chunk size while rows are decoding (default: ${DEFAULT_MODEL_SERVER_ACTIVE_PREFILL_STEP_SIZE})`,
+    ].join("  "),
+    [
+      "  --active-decode-steps-per-prefill-chunk <n>",
+      `Decode-step quantum before long prompt-prefill work resumes (default: ${DEFAULT_MODEL_SERVER_ACTIVE_DECODE_STEPS_PER_PREFILL_CHUNK})`,
+    ].join("  "),
     `  --stream-decode-interval <n>  Decode/flush streaming text every n generated token(s) (default: ${DEFAULT_MODEL_SERVER_STREAM_DECODE_INTERVAL})`,
     `  --max-concurrent-requests <n>  Max in-flight jobs per served model (default: ${DEFAULT_MODEL_SERVER_MAX_CONCURRENT_REQUESTS})`,
     `  --gpu-memory-utilization <f>   Reject estimated requests above this fraction of MLX memory limit (default: ${DEFAULT_MODEL_SERVER_GPU_MEMORY_UTILIZATION})`,

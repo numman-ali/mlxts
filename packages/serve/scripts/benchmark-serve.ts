@@ -166,6 +166,8 @@ export type BenchmarkReport = {
   ignoreEos: boolean;
   maxBatchSize: number;
   batchWindowMs: number;
+  activePrefillStepSize: number;
+  activeDecodeStepsPerPrefillChunk: number;
   streamDecodeInterval: number;
   requestStaggerMs: number;
   maxConcurrentRequests: number;
@@ -889,6 +891,8 @@ async function main(): Promise<void> {
       `ignore_eos=${options.ignoreEos}`,
       `max_batch_size=${options.maxBatchSize}`,
       `batch_window_ms=${options.batchWindowMs}`,
+      `active_prefill_step_size=${options.activePrefillStepSize}`,
+      `active_decode_steps_per_prefill_chunk=${options.activeDecodeStepsPerPrefillChunk}`,
       `stream_decode_interval=${options.streamDecodeInterval}`,
       `request_stagger_ms=${options.requestStaggerMs}`,
       `max_concurrent_requests=${options.maxConcurrentRequests}`,
@@ -915,6 +919,8 @@ async function main(): Promise<void> {
     maxTotalTokens: options.maxTotalTokens ?? maximum(rungs.map(maxTotalTokensForRung)),
     maxBatchSize: options.maxBatchSize,
     batchWindowMs: options.batchWindowMs,
+    activePrefillStepSize: options.activePrefillStepSize,
+    activeDecodeStepsPerPrefillChunk: options.activeDecodeStepsPerPrefillChunk,
     streamDecodeInterval: options.streamDecodeInterval,
     maxConcurrentRequests: options.maxConcurrentRequests,
     gpuMemoryUtilization: options.gpuMemoryUtilization,
@@ -950,6 +956,8 @@ async function main(): Promise<void> {
         ignoreEos: options.ignoreEos,
         maxBatchSize: options.maxBatchSize,
         batchWindowMs: options.batchWindowMs,
+        activePrefillStepSize: options.activePrefillStepSize,
+        activeDecodeStepsPerPrefillChunk: options.activeDecodeStepsPerPrefillChunk,
         streamDecodeInterval: options.streamDecodeInterval,
         requestStaggerMs: options.requestStaggerMs,
         maxConcurrentRequests: options.maxConcurrentRequests,
