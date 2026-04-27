@@ -19,6 +19,7 @@ import {
   continuousBatchQueueSnapshot,
   takeAdmittableWaitingRows,
 } from "./continuous-batch-admission";
+import { decodeContinuousBatchStep } from "./continuous-batch-decode";
 import type { ContinuousBatchQueueSnapshot } from "./continuous-batch-events";
 import {
   combineCurrentTokens,
@@ -26,16 +27,13 @@ import {
   disposePrefillingCaches,
   dropAbortedActiveRows,
   integerAtLeast,
-  nextInputTensor,
   prefillPromptChunk,
   prefillReadyBatch,
   rejectAbortedPrefillingRows,
   remainingPrefillTokens,
-  sampleNextBatchToken,
   samplerOptionsFrom,
   shouldChunkInitialRows,
   takeReadyPrefillingRow,
-  tokenTensorToIds,
   validateContinuousBatchOptions,
   yieldToScheduler,
 } from "./continuous-batch-helpers";
@@ -45,7 +43,6 @@ import {
   failScheduledRequests,
 } from "./continuous-batch-lifecycle";
 import {
-  nextDecodeStepsSincePrefill,
   resolveActiveDecodeStepsPerPrefillChunk,
   resolveActivePrefillStepSize,
   shouldPrioritizeActiveDecode,
@@ -62,7 +59,6 @@ import {
 } from "./continuous-batch-types";
 import { AdmissionReleaseWakeup } from "./continuous-batch-wakeup";
 import { resolveGenerationOptions } from "./defaults";
-import { finishIfEos } from "./runtime";
 /** Scheduler-owned continuous decode loop for batch-cache-capable models. */
 export class ContinuousBatchTokenScheduler {
   readonly #model: CausalLM;
@@ -390,67 +386,25 @@ export class ContinuousBatchTokenScheduler {
     }
 
     const hadPendingPrefillWork = this.#waiting.length > 0 || this.#prefilling.length > 0;
-    const emittedToken = this.#currentToken;
+    const currentToken = this.#currentToken;
+    const cache = this.#cache;
     this.#currentToken = null;
-    const tokenIds = tokenTensorToIds(emittedToken);
-    const keepPositions: number[] = [];
-    const nextActive: ScheduledRequest[] = [];
-
-    for (let position = 0; position < this.#active.length; position += 1) {
-      const request = this.#active[position];
-      const tokenId = tokenIds[position];
-      if (request === undefined || tokenId === undefined) {
-        continue;
-      }
-
-      request.generated.push(tokenId);
-      request.onToken?.(tokenId, request.generated);
-      if (!request.firstTokenEmitted) {
-        request.firstTokenEmitted = true;
-        this.#telemetry.firstToken(request, this.#snapshot());
-      }
-      const eosFinishReason = finishIfEos(this.#eosTokenIds, tokenId);
-      if (eosFinishReason !== null) {
-        request.finishReason = eosFinishReason;
-        this.#finishRequest(request);
-        continue;
-      }
-      if (request.generated.length >= request.maxTokens) {
-        this.#finishRequest(request);
-        continue;
-      }
-
-      request.samplerState.appendToken(tokenId);
-      keepPositions.push(position);
-      nextActive.push(request);
-    }
-
-    if (keepPositions.length === 0) {
-      emittedToken.free();
-      this.#active = [];
-      this.#cache[Symbol.dispose]();
-      this.#cache = null;
-      return true;
-    }
-
-    if (keepPositions.length !== this.#active.length) {
-      this.#cache.filter(keepPositions);
-    }
-    this.#active = nextActive;
-    using nextInput = nextInputTensor(emittedToken, keepPositions);
-    const nextToken = sampleNextBatchToken(
-      this.#model,
-      nextInput,
-      this.#cache,
-      this.#active.map((request) => request.samplerState),
-      this.#samplerOptions,
-    );
-    emittedToken.free();
-    this.#currentToken = nextToken;
-    this.#decodeStepsSincePrefill = nextDecodeStepsSincePrefill(
-      this.#decodeStepsSincePrefill,
+    const next = decodeContinuousBatchStep({
+      model: this.#model,
+      active: this.#active,
+      cache,
+      currentToken,
+      samplerOptions: this.#samplerOptions,
+      eosTokenIds: this.#eosTokenIds,
       hadPendingPrefillWork,
-    );
+      decodeStepsSincePrefill: this.#decodeStepsSincePrefill,
+      onFirstToken: (request) => this.#telemetry.firstToken(request, this.#snapshot()),
+      finishRequest: (request) => this.#finishRequest(request),
+    });
+    this.#active = next.active;
+    this.#cache = next.cache;
+    this.#currentToken = next.currentToken;
+    this.#decodeStepsSincePrefill = next.decodeStepsSincePrefill;
     return true;
   }
 

@@ -749,6 +749,61 @@ describe("serve fetch handler", () => {
     ]);
   });
 
+  test("flushes Anthropic stream chunks before a microtask-heavy generator drains", async () => {
+    let drained = false;
+    const engine: GenerationEngine = {
+      generate() {
+        return { text: "", finishReason: "stop" };
+      },
+      async *stream() {
+        for (let index = 0; index < 50; index += 1) {
+          await Promise.resolve();
+          yield { type: "text", text: `${index} ` };
+        }
+        drained = true;
+        yield {
+          type: "done",
+          finishReason: "stop",
+          usage: { promptTokens: 1, completionTokens: 50, totalTokens: 51 },
+        };
+      },
+    };
+    const server = Bun.serve({
+      port: 0,
+      fetch: createFetchHandler({ engine }),
+    });
+
+    try {
+      const response = await fetch(`${endpointFor(server)}/v1/messages`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          model: "tiny",
+          messages: [{ role: "user", content: "Hello" }],
+          max_tokens: 50,
+          stream: true,
+        }),
+      });
+      const reader = response.body?.getReader();
+      expect(reader).toBeDefined();
+      if (reader === undefined) {
+        throw new Error("expected a response body reader");
+      }
+
+      const firstChunk = await Promise.race([
+        reader.read(),
+        new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error("timed out waiting for streamed bytes")), 1000),
+        ),
+      ]);
+      expect(firstChunk.done).toBe(false);
+      expect(drained).toBe(false);
+      await reader.cancel();
+    } finally {
+      server.stop(true);
+    }
+  });
+
   test("streams Anthropic stop_sequences as stop_sequence terminal events", async () => {
     let streamClosed = false;
     const engine: GenerationEngine = {

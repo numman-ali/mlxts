@@ -7,6 +7,7 @@ import type { BenchmarkReport, TrialMetrics } from "./benchmark-serve";
 import {
   expectedCompletionTokensForRung,
   formatServeBenchmarkRung,
+  type ProtocolMode,
   rungConcurrency,
 } from "./benchmark-serve-options";
 
@@ -77,6 +78,9 @@ type ServeRegressionSpec = {
   modelId: string;
   rungs?: string;
   mixedRungs?: string;
+  protocol?: ProtocolMode;
+  maxPromptTokens?: number;
+  maxTotalTokens?: number;
   stream: boolean;
   ignoreEos: boolean;
   greedy?: boolean;
@@ -93,6 +97,7 @@ const FOCUSED_TESTS = [
   "packages/serve/src/protocols/openai-completions.test.ts",
   "packages/serve/src/protocols/openai-chat-completions.test.ts",
   "packages/serve/src/protocols/openai-responses.test.ts",
+  "packages/serve/src/protocols/anthropic-messages.test.ts",
   "packages/serve/scripts/benchmark-serve-options.test.ts",
   "packages/serve/scripts/benchmark-serve-completions.test.ts",
   "packages/serve/scripts/benchmark-serve.test.ts",
@@ -233,9 +238,23 @@ function readBenchmarkReport(path: string): BenchmarkReport {
   return parsed as BenchmarkReport;
 }
 
-function assertFinishReasons(label: string, metrics: TrialMetrics): void {
+function isAllowedFinishReason(reason: string | undefined, protocolMode: ProtocolMode): boolean {
+  if (reason === "length" || reason === "stop" || reason === "eos") {
+    return true;
+  }
+  if (protocolMode !== "anthropic") {
+    return false;
+  }
+  return reason === "end_turn" || reason === "max_tokens" || reason === "stop_sequence";
+}
+
+function assertFinishReasons(
+  label: string,
+  metrics: TrialMetrics,
+  protocolMode: ProtocolMode,
+): void {
   const badReasons = metrics.finishReasons.filter(
-    (reason) => reason !== "length" && reason !== "stop",
+    (reason) => !isAllowedFinishReason(reason, protocolMode),
   );
   if (badReasons.length > 0) {
     throw new Error(
@@ -297,11 +316,11 @@ function tokenFailures(
     : [];
 }
 
-function isAllowedStreamFinishReason(reason: string | undefined): boolean {
-  return reason === "length" || reason === "stop" || reason === "eos";
-}
-
-function perRequestStreamLifecycleFailures(metrics: TrialMetrics, concurrency: number): string[] {
+function perRequestStreamLifecycleFailures(
+  metrics: TrialMetrics,
+  concurrency: number,
+  protocolMode: ProtocolMode,
+): string[] {
   const failures: string[] = [];
   if (metrics.requests.length < concurrency) {
     failures.push(`requests ${metrics.requests.length} < concurrency ${concurrency}`);
@@ -310,7 +329,7 @@ function perRequestStreamLifecycleFailures(metrics: TrialMetrics, concurrency: n
     (request) =>
       request.streamBytes <= 0 ||
       request.completionTokens <= 0 ||
-      !isAllowedStreamFinishReason(request.finishReason),
+      !isAllowedFinishReason(request.finishReason, protocolMode),
   );
   if (nonStreamingRequests.length > 0) {
     const ids = nonStreamingRequests.map((request) => request.id ?? `index:${request.index}`);
@@ -333,6 +352,7 @@ function perRequestOutputStreamFailures(metrics: TrialMetrics): string[] {
 function serverRequestStreamLifecycleFailures(
   metrics: TrialMetrics,
   concurrency: number,
+  protocolMode: ProtocolMode,
 ): string[] {
   const failures: string[] = [];
   if (metrics.serverRequests.length < concurrency) {
@@ -345,7 +365,7 @@ function serverRequestStreamLifecycleFailures(
       (request.serverStreamBytes ?? 0) <= 0 ||
       request.serverStreamDurationMs === null ||
       request.serverStreamResult !== "completed" ||
-      !isAllowedStreamFinishReason(request.serverStreamFinishReason),
+      !isAllowedFinishReason(request.serverStreamFinishReason, protocolMode),
   );
   if (missingLifecycleEvidence.length > 0) {
     const ids = missingLifecycleEvidence.map((request) => request.id);
@@ -425,19 +445,20 @@ function streamFailures(
   metrics: TrialMetrics,
   concurrency: number,
   budget: ServeRegressionBudget,
+  protocolMode: ProtocolMode,
 ): string[] {
   const failures = [
     ...aggregateStreamFailures(metrics, budget),
     ...streamTimingFailures(metrics, budget),
   ];
   if (budget.expectEveryRequestStreamed) {
-    failures.push(...perRequestStreamLifecycleFailures(metrics, concurrency));
+    failures.push(...perRequestStreamLifecycleFailures(metrics, concurrency, protocolMode));
   }
   if (budget.expectEveryRequestOutputStreamed) {
     failures.push(...perRequestOutputStreamFailures(metrics));
   }
   if (budget.expectEveryServerRequestStreamed) {
-    failures.push(...serverRequestStreamLifecycleFailures(metrics, concurrency));
+    failures.push(...serverRequestStreamLifecycleFailures(metrics, concurrency, protocolMode));
   }
   if (budget.expectEveryServerRequestOutputStreamed) {
     failures.push(...serverRequestOutputStreamFailures(metrics));
@@ -801,7 +822,7 @@ export function assertServeReportBudget(
       ...throughputFailures(averages, budget),
       ...memoryFailures(averages, budget),
       ...tokenFailures(averages, expectedCompletionTokensForRung(rung), budget),
-      ...streamFailures(averages, concurrency, budget),
+      ...streamFailures(averages, concurrency, budget, report.protocolMode),
       ...routeFailures(averages, budget),
       ...evidenceFailures(averages, budget),
       ...batchCounterFailures(averages, budget),
@@ -809,7 +830,7 @@ export function assertServeReportBudget(
       ...requestBudgetFailures(averages, budget),
     ];
 
-    assertFinishReasons(`${label} ${rungLabel}`, averages);
+    assertFinishReasons(`${label} ${rungLabel}`, averages, report.protocolMode);
     if (failures.length > 0) {
       throw new Error(`[serve-regression] ${label} ${rungLabel} failed: ${failures.join("; ")}.`);
     }
@@ -1309,6 +1330,65 @@ function baseSpecs(options: CliOptions): ServeRegressionSpec[] {
   ];
 }
 
+function protocolHealthBudget(model: "qwen" | "gemma"): ServeRegressionBudget {
+  return {
+    minCompletionTps: model === "qwen" ? 0.5 : 2,
+    maxPeakMemoryGb: model === "qwen" ? 22 : 13,
+    maxActiveDeltaGb: 1,
+    minCompletionTokenRatio: 0.05,
+    minStreamChunks: 1,
+    minStreamBytes: 1,
+    expectEveryRequestStreamed: true,
+    expectEveryServerRequestStreamed: true,
+    maxMeanTtftMs: model === "qwen" ? 8_000 : 2_000,
+    maxObservedStreamChunkGapMs: 1_500,
+    expectedRoute: "continuous",
+    expectedReason: "eligible",
+    minRouteDecisions: 1,
+    minServerRequests: 1,
+    expectedAdmissionBatches: 0,
+    expectedStaticBatches: 0,
+    minContinuousAdmissions: 1,
+    minContinuousAdmissionRows: 1,
+    minContinuousSchedulerPhases: 4,
+    expectedMaxGenerationBatchSize: 1,
+    expectSchedulerTokenPressure: true,
+    minModelLaneWaitEvents: 0,
+  };
+}
+
+function protocolHealthSpecs(options: CliOptions): ServeRegressionSpec[] {
+  const protocols: Array<Exclude<ProtocolMode, "completions">> = ["chat", "responses", "anthropic"];
+  const textProtocolAdmission = {
+    maxPromptTokens: 512,
+    maxTotalTokens: 1024,
+  };
+  return [
+    ...protocols.map((protocol) => ({
+      label: `qwen36-${protocol}-stream`,
+      model: options.qwenModel,
+      modelId: "qwen-local",
+      protocol,
+      ...textProtocolAdmission,
+      rungs: "128x16@1",
+      stream: true,
+      ignoreEos: false,
+      budget: protocolHealthBudget("qwen"),
+    })),
+    ...protocols.map((protocol) => ({
+      label: `gemma4-${protocol}-stream`,
+      model: options.gemma4Model,
+      modelId: "gemma-local",
+      protocol,
+      ...textProtocolAdmission,
+      rungs: "128x16@1",
+      stream: true,
+      ignoreEos: false,
+      budget: protocolHealthBudget("gemma"),
+    })),
+  ];
+}
+
 function capabilitySpecs(options: CliOptions): ServeRegressionSpec[] {
   return [
     {
@@ -1536,6 +1616,15 @@ async function runServeBenchmark(spec: ServeRegressionSpec, options: CliOptions)
     "--batch-window-ms",
     "2",
   ];
+  if (spec.protocol !== undefined) {
+    args.push("--protocol", spec.protocol);
+  }
+  if (spec.maxPromptTokens !== undefined) {
+    args.push("--max-prompt-tokens", String(spec.maxPromptTokens));
+  }
+  if (spec.maxTotalTokens !== undefined) {
+    args.push("--max-total-tokens", String(spec.maxTotalTokens));
+  }
   if (spec.greedy ?? true) {
     args.push("--greedy");
   }
@@ -1563,6 +1652,7 @@ async function runServeBenchmark(spec: ServeRegressionSpec, options: CliOptions)
 async function runRealModelSmoke(options: CliOptions): Promise<void> {
   const specs = [
     ...baseSpecs(options),
+    ...protocolHealthSpecs(options),
     ...(options.fairnessSmoke ? fairnessSpecs(options) : []),
     ...(options.capabilitySmoke ? capabilitySpecs(options) : []),
   ];

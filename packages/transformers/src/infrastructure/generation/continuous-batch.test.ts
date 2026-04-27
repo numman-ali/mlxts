@@ -212,6 +212,18 @@ class ThrowingPrefillModel extends DeterministicBatchModel {
   }
 }
 
+class ThrowingLookaheadModel extends DeterministicBatchModel {
+  #thrown = false;
+
+  override forward(inputIds: MxArray, options?: ForwardOptions): MxArray {
+    if (!this.#thrown && this.forwardSequenceLengths.length === 1) {
+      this.#thrown = true;
+      throw new Error("lookahead failed");
+    }
+    return super.forward(inputIds, options);
+  }
+}
+
 class TestTokenBudget implements ContinuousBatchAdmissionController {
   readonly #maxScheduledTotalTokens: number;
   readonly #listeners = new Set<() => void>();
@@ -322,6 +334,94 @@ describe("continuous batch token scheduler", () => {
     expect(phases).toContain("admitted");
     expect(phases).toContain("first_token");
     expect(phases).toContain("finished");
+  });
+
+  test("schedules the next greedy token before token callbacks when rows must continue", async () => {
+    using model = new DeterministicBatchModel();
+    const forwardCountsAtCallback: number[] = [];
+    const scheduler = createContinuousBatchTokenScheduler(model, {
+      maxBatchSize: 1,
+      temperature: 0,
+      eosTokenIds: [],
+    });
+
+    const result = await scheduler.enqueue({
+      promptTokenIds: [0],
+      maxTokens: 2,
+      onToken() {
+        forwardCountsAtCallback.push(model.forwardSequenceLengths.length);
+      },
+    });
+
+    expect(result).toEqual({ tokenIds: [2, 2], finishReason: "length" });
+    expect(forwardCountsAtCallback).toEqual([2, 2]);
+    expect(model.forwardSequenceLengths).toEqual([1, 1]);
+  });
+
+  test("keeps EOS-capable rows on the conservative decode path", async () => {
+    using model = new DeterministicBatchModel();
+    const forwardCountsAtCallback: number[] = [];
+    const scheduler = createContinuousBatchTokenScheduler(model, {
+      maxBatchSize: 1,
+      temperature: 0,
+      eosTokenIds: [2],
+    });
+
+    const result = await scheduler.enqueue({
+      promptTokenIds: [0],
+      maxTokens: 2,
+      onToken() {
+        forwardCountsAtCallback.push(model.forwardSequenceLengths.length);
+      },
+    });
+
+    expect(result).toEqual({ tokenIds: [2], finishReason: "eos" });
+    expect(forwardCountsAtCallback).toEqual([1]);
+    expect(model.forwardSequenceLengths).toEqual([1]);
+  });
+
+  test("recovers when a token callback fails after greedy lookahead is scheduled", async () => {
+    using model = new DeterministicBatchModel();
+    const scheduler = createContinuousBatchTokenScheduler(model, {
+      maxBatchSize: 1,
+      temperature: 0,
+      eosTokenIds: [],
+    });
+
+    await expect(
+      scheduler.enqueue({
+        promptTokenIds: [0],
+        maxTokens: 2,
+        onToken() {
+          throw new Error("token callback failed");
+        },
+      }),
+    ).rejects.toThrow("token callback failed");
+
+    expect(model.forwardSequenceLengths).toEqual([1, 1]);
+    await expect(scheduler.enqueue({ promptTokenIds: [0], maxTokens: 1 })).resolves.toEqual({
+      tokenIds: [2],
+      finishReason: "length",
+    });
+  });
+
+  test("recovers when greedy lookahead scheduling fails", async () => {
+    using model = new ThrowingLookaheadModel();
+    const scheduler = createContinuousBatchTokenScheduler(model, {
+      maxBatchSize: 1,
+      temperature: 0,
+      eosTokenIds: [],
+    });
+
+    await expect(scheduler.enqueue({ promptTokenIds: [0], maxTokens: 2 })).rejects.toThrow(
+      "lookahead failed",
+    );
+
+    expect(model.forwardSequenceLengths).toEqual([1]);
+    await expect(scheduler.enqueue({ promptTokenIds: [0], maxTokens: 1 })).resolves.toEqual({
+      tokenIds: [2],
+      finishReason: "length",
+    });
   });
 
   test("uses model-owned batch caches for staggered row admission", async () => {

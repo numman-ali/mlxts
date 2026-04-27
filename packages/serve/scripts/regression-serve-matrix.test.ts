@@ -251,6 +251,36 @@ describe("serve regression matrix", () => {
     expect(() => assertServeReportBudget("qwen", report(), budget)).not.toThrow();
   });
 
+  test("accepts Anthropic finish reasons in protocol health reports", () => {
+    const baseTrial = trial();
+    const request = baseTrial.requests[0];
+    if (request === undefined) {
+      throw new Error("Expected trial fixture to include one client request.");
+    }
+
+    const anthropicReport = report(
+      trial({
+        finishReasons: ["max_tokens"],
+        requests: [{ ...request, finishReason: "max_tokens" }],
+      }),
+    );
+    anthropicReport.protocolMode = "anthropic";
+
+    expect(() => assertServeReportBudget("anthropic", anthropicReport, budget)).not.toThrow();
+    expect(() =>
+      assertServeReportBudget(
+        "completions",
+        report(
+          trial({
+            finishReasons: ["max_tokens"],
+            requests: [{ ...request, finishReason: "max_tokens" }],
+          }),
+        ),
+        budget,
+      ),
+    ).toThrow("unexpected finish reasons");
+  });
+
   test("accepts static-batch reports while guarding continuous counters", () => {
     const baseServerRequest = trial().serverRequests[0];
     if (baseServerRequest === undefined) {
