@@ -178,7 +178,9 @@ const budget: ServeRegressionBudget = {
   minStreamChunks: 1,
   minStreamBytes: 1,
   expectEveryRequestStreamed: true,
+  expectEveryRequestOutputStreamed: true,
   expectEveryServerRequestStreamed: true,
+  expectEveryServerRequestOutputStreamed: true,
   maxMeanTtftMs: 500,
   maxObservedStreamChunkGapMs: 100,
   expectedRoute: "single",
@@ -477,7 +479,9 @@ describe("serve regression matrix", () => {
       minStreamChunks: 8,
       minStreamBytes: 1,
       expectEveryRequestStreamed: true,
+      expectEveryRequestOutputStreamed: true,
       expectEveryServerRequestStreamed: true,
+      expectEveryServerRequestOutputStreamed: true,
       expectedRoute: "continuous",
       expectedReason: "eligible",
       minRouteDecisions: 2,
@@ -606,7 +610,7 @@ describe("serve regression matrix", () => {
         ),
         streamingBudget,
       ),
-    ).toThrow("requests missing per-request SSE evidence");
+    ).toThrow("requests missing per-request output SSE evidence");
     expect(() =>
       assertServeReportBudget(
         "qwen-stream",
@@ -621,7 +625,168 @@ describe("serve regression matrix", () => {
         ),
         streamingBudget,
       ),
-    ).toThrow("server_requests missing server-side stream evidence");
+    ).toThrow("server_requests missing server-side output stream evidence");
+  });
+
+  test("accepts terminal-only sampled streams when lifecycle evidence is present", () => {
+    const baseRequest = trial().requests[0];
+    const baseServerRequest = trial().serverRequests[0];
+    if (baseRequest === undefined || baseServerRequest === undefined) {
+      throw new Error("Expected trial fixture to include one request and one server request.");
+    }
+
+    const lifecycleBudget: ServeRegressionBudget = {
+      minCompletionTps: 10,
+      maxPeakMemoryGb: 12,
+      maxActiveDeltaGb: 1,
+      minCompletionTokenRatio: 0.98,
+      minStreamChunks: 1,
+      minStreamBytes: 1,
+      expectEveryRequestStreamed: true,
+      expectEveryServerRequestStreamed: true,
+      expectedRoute: "continuous",
+      expectedReason: "eligible",
+      minRouteDecisions: 2,
+      minServerRequests: 2,
+      expectedAdmissionBatches: 0,
+      expectedStaticBatches: 0,
+      expectedContinuousAdmissions: 1,
+      expectedContinuousAdmissionRows: 2,
+      expectedContinuousSchedulerPhases: 7,
+      expectedMaxGenerationBatchSize: 2,
+      minModelLaneWaitEvents: 0,
+    };
+    const terminalOnlyMetrics = trial({
+      promptTokens: 256,
+      completionTokens: 32,
+      totalTokens: 288,
+      admissionBatches: 0,
+      admissionRows: 0,
+      maxAdmissionBatchSize: 0,
+      continuousAdmissions: 1,
+      continuousAdmissionRows: 2,
+      continuousSchedulerPhases: 7,
+      maxContinuousBatchSize: 2,
+      maxGenerationBatchSize: 2,
+      streamChunks: 4,
+      streamBytes: 240,
+      meanTtftMs: 120,
+      meanPromptToFirstTokenTps: 10,
+      meanPostTtftCompletionTps: 25,
+      finishReasons: ["stop", "stop"],
+      routeDecisions: [
+        {
+          id: "request-a",
+          model: "local",
+          protocol: "openai.completions",
+          route: "continuous",
+          eligible: true,
+          reason: "eligible",
+          modelType: "gemma4_text",
+          maxBatchSize: 8,
+          ...ROUTE_STRATEGY,
+          stream: true,
+        },
+        {
+          id: "request-b",
+          model: "local",
+          protocol: "openai.completions",
+          route: "continuous",
+          eligible: true,
+          reason: "eligible",
+          modelType: "gemma4_text",
+          maxBatchSize: 8,
+          ...ROUTE_STRATEGY,
+          stream: true,
+        },
+      ],
+      routeSummary: [
+        { key: "continuous:eligible", route: "continuous", reason: "eligible", count: 2 },
+      ],
+      requests: [
+        {
+          ...baseRequest,
+          id: "request-a",
+          index: 0,
+          promptTokens: 128,
+          completionTokens: 16,
+          totalTokens: 144,
+          finishReason: "stop",
+          streamChunks: 4,
+          streamBytes: 160,
+          ttftMs: 120,
+        },
+        {
+          ...baseRequest,
+          id: "request-b",
+          index: 1,
+          promptTokens: 128,
+          completionTokens: 16,
+          totalTokens: 144,
+          finishReason: "stop",
+          streamChunks: 0,
+          streamBytes: 80,
+          ttftMs: null,
+          promptToFirstTokenTps: null,
+          postTtftCompletionTps: null,
+          meanStreamChunkGapMs: null,
+          maxStreamChunkGapMs: null,
+        },
+      ],
+      serverRequests: [
+        {
+          ...baseServerRequest,
+          id: "request-a",
+          route: "continuous",
+          routeReason: "eligible",
+          modelLaneWaitMs: null,
+          modelLaneQueuedAhead: null,
+          modelLaneInFlightAtQueue: null,
+          schedulerPhaseEvents: 3,
+          schedulerAdmittedBatchSize: 2,
+          serverStreamFinishReason: "stop",
+        },
+        {
+          ...baseServerRequest,
+          id: "request-b",
+          route: "continuous",
+          routeReason: "eligible",
+          modelLaneWaitMs: null,
+          modelLaneQueuedAhead: null,
+          modelLaneInFlightAtQueue: null,
+          schedulerPhaseEvents: 4,
+          schedulerAdmittedBatchSize: 2,
+          serverStreamChunkEvents: 0,
+          serverStreamChunks: 4,
+          serverStreamBytes: 80,
+          serverStreamOutputChunks: 0,
+          serverStreamOutputBytes: 0,
+          serverStreamTtftMs: null,
+          serverStreamDurationMs: 500,
+          serverStreamResult: "completed",
+          serverStreamFinishReason: "eos",
+        },
+      ],
+    });
+
+    expect(() =>
+      assertServeReportBudget(
+        "gemma-sampled-stream",
+        report(terminalOnlyMetrics, { promptTokens: 128, generationTokens: 16, concurrency: 2 }),
+        lifecycleBudget,
+      ),
+    ).not.toThrow();
+    expect(() =>
+      assertServeReportBudget(
+        "gemma-sampled-stream",
+        report(terminalOnlyMetrics, { promptTokens: 128, generationTokens: 16, concurrency: 2 }),
+        {
+          ...lifecycleBudget,
+          expectEveryRequestOutputStreamed: true,
+          expectEveryServerRequestOutputStreamed: true,
+        },
+      ),
+    ).toThrow("output");
   });
 
   test("fails on throughput, memory, token, stream, route, evidence, batch, and finish regressions", () => {
@@ -664,7 +829,7 @@ describe("serve regression matrix", () => {
         ),
         budget,
       ),
-    ).toThrow("requests missing per-request SSE evidence");
+    ).toThrow("requests missing per-request SSE lifecycle evidence");
     expect(() =>
       assertServeReportBudget("qwen", report(trial({ meanTtftMs: 1_000 })), budget),
     ).toThrow("mean_ttft_ms");

@@ -24,7 +24,9 @@ export type ServeRegressionBudget = {
   minStreamChunks?: number;
   minStreamBytes?: number;
   expectEveryRequestStreamed?: boolean;
+  expectEveryRequestOutputStreamed?: boolean;
   expectEveryServerRequestStreamed?: boolean;
+  expectEveryServerRequestOutputStreamed?: boolean;
   maxMeanTtftMs?: number;
   maxObservedStreamChunkGapMs?: number;
   expectedRoute?: string;
@@ -266,47 +268,78 @@ function tokenFailures(
     : [];
 }
 
-function perRequestStreamFailures(metrics: TrialMetrics, concurrency: number): string[] {
+function isAllowedStreamFinishReason(reason: string | undefined): boolean {
+  return reason === "length" || reason === "stop" || reason === "eos";
+}
+
+function perRequestStreamLifecycleFailures(metrics: TrialMetrics, concurrency: number): string[] {
   const failures: string[] = [];
   if (metrics.requests.length < concurrency) {
     failures.push(`requests ${metrics.requests.length} < concurrency ${concurrency}`);
   }
   const nonStreamingRequests = metrics.requests.filter(
     (request) =>
-      request.streamChunks <= 0 ||
       request.streamBytes <= 0 ||
-      request.ttftMs === null ||
-      (request.finishReason !== "length" && request.finishReason !== "stop"),
+      request.completionTokens <= 0 ||
+      !isAllowedStreamFinishReason(request.finishReason),
   );
   if (nonStreamingRequests.length > 0) {
     const ids = nonStreamingRequests.map((request) => request.id ?? `index:${request.index}`);
-    failures.push(`requests missing per-request SSE evidence: ${ids.join(",")}`);
+    failures.push(`requests missing per-request SSE lifecycle evidence: ${ids.join(",")}`);
   }
   return failures;
 }
 
-function serverRequestStreamFailures(metrics: TrialMetrics, concurrency: number): string[] {
+function perRequestOutputStreamFailures(metrics: TrialMetrics): string[] {
+  const missingOutput = metrics.requests.filter(
+    (request) => request.streamChunks <= 0 || request.ttftMs === null,
+  );
+  if (missingOutput.length === 0) {
+    return [];
+  }
+  const ids = missingOutput.map((request) => request.id ?? `index:${request.index}`);
+  return [`requests missing per-request output SSE evidence: ${ids.join(",")}`];
+}
+
+function serverRequestStreamLifecycleFailures(
+  metrics: TrialMetrics,
+  concurrency: number,
+): string[] {
   const failures: string[] = [];
   if (metrics.serverRequests.length < concurrency) {
     failures.push(`server_requests ${metrics.serverRequests.length} < concurrency ${concurrency}`);
   }
-  const missingStreamEvidence = metrics.serverRequests.filter(
+  const missingLifecycleEvidence = metrics.serverRequests.filter(
     (request) =>
-      request.serverStreamChunkEvents <= 0 ||
       request.serverStreamEndEvents !== 1 ||
-      (request.serverStreamOutputChunks ?? 0) <= 0 ||
-      (request.serverStreamOutputBytes ?? 0) <= 0 ||
-      request.serverStreamTtftMs === null ||
+      (request.serverStreamChunks ?? 0) <= 0 ||
+      (request.serverStreamBytes ?? 0) <= 0 ||
       request.serverStreamDurationMs === null ||
       request.serverStreamResult !== "completed" ||
-      (request.serverStreamFinishReason !== "length" &&
-        request.serverStreamFinishReason !== "stop"),
+      !isAllowedStreamFinishReason(request.serverStreamFinishReason),
   );
-  if (missingStreamEvidence.length > 0) {
-    const ids = missingStreamEvidence.map((request) => request.id);
-    failures.push(`server_requests missing server-side stream evidence: ${ids.join(",")}`);
+  if (missingLifecycleEvidence.length > 0) {
+    const ids = missingLifecycleEvidence.map((request) => request.id);
+    failures.push(
+      `server_requests missing server-side stream lifecycle evidence: ${ids.join(",")}`,
+    );
   }
   return failures;
+}
+
+function serverRequestOutputStreamFailures(metrics: TrialMetrics): string[] {
+  const missingOutputEvidence = metrics.serverRequests.filter(
+    (request) =>
+      request.serverStreamChunkEvents <= 0 ||
+      (request.serverStreamOutputChunks ?? 0) <= 0 ||
+      (request.serverStreamOutputBytes ?? 0) <= 0 ||
+      request.serverStreamTtftMs === null,
+  );
+  if (missingOutputEvidence.length === 0) {
+    return [];
+  }
+  const ids = missingOutputEvidence.map((request) => request.id);
+  return [`server_requests missing server-side output stream evidence: ${ids.join(",")}`];
 }
 
 function aggregateStreamFailures(metrics: TrialMetrics, budget: ServeRegressionBudget): string[] {
@@ -357,10 +390,16 @@ function streamFailures(
     ...streamTimingFailures(metrics, budget),
   ];
   if (budget.expectEveryRequestStreamed) {
-    failures.push(...perRequestStreamFailures(metrics, concurrency));
+    failures.push(...perRequestStreamLifecycleFailures(metrics, concurrency));
+  }
+  if (budget.expectEveryRequestOutputStreamed) {
+    failures.push(...perRequestOutputStreamFailures(metrics));
   }
   if (budget.expectEveryServerRequestStreamed) {
-    failures.push(...serverRequestStreamFailures(metrics, concurrency));
+    failures.push(...serverRequestStreamLifecycleFailures(metrics, concurrency));
+  }
+  if (budget.expectEveryServerRequestOutputStreamed) {
+    failures.push(...serverRequestOutputStreamFailures(metrics));
   }
   return failures;
 }
@@ -554,7 +593,9 @@ function baseSpecs(options: CliOptions): ServeRegressionSpec[] {
         minStreamChunks: 1,
         minStreamBytes: 1,
         expectEveryRequestStreamed: true,
+        expectEveryRequestOutputStreamed: true,
         expectEveryServerRequestStreamed: true,
+        expectEveryServerRequestOutputStreamed: true,
         maxMeanTtftMs: 8_000,
         maxObservedStreamChunkGapMs: 1_000,
         expectedRoute: "continuous",
@@ -613,7 +654,9 @@ function baseSpecs(options: CliOptions): ServeRegressionSpec[] {
         minStreamChunks: 8,
         minStreamBytes: 1,
         expectEveryRequestStreamed: true,
+        expectEveryRequestOutputStreamed: true,
         expectEveryServerRequestStreamed: true,
+        expectEveryServerRequestOutputStreamed: true,
         maxMeanTtftMs: 5_000,
         maxObservedStreamChunkGapMs: 1_000,
         expectedRoute: "continuous",
@@ -734,7 +777,9 @@ function baseSpecs(options: CliOptions): ServeRegressionSpec[] {
         minStreamChunks: 1,
         minStreamBytes: 1,
         expectEveryRequestStreamed: true,
+        expectEveryRequestOutputStreamed: true,
         expectEveryServerRequestStreamed: true,
+        expectEveryServerRequestOutputStreamed: true,
         maxMeanTtftMs: 1_000,
         maxObservedStreamChunkGapMs: 1_000,
         expectedRoute: "continuous",
@@ -828,7 +873,9 @@ function baseSpecs(options: CliOptions): ServeRegressionSpec[] {
         minStreamChunks: 8,
         minStreamBytes: 1,
         expectEveryRequestStreamed: true,
+        expectEveryRequestOutputStreamed: true,
         expectEveryServerRequestStreamed: true,
+        expectEveryServerRequestOutputStreamed: true,
         maxMeanTtftMs: 1_000,
         maxObservedStreamChunkGapMs: 1_000,
         expectedRoute: "continuous",
@@ -891,7 +938,9 @@ function capabilitySpecs(options: CliOptions): ServeRegressionSpec[] {
         minStreamChunks: 1,
         minStreamBytes: 1,
         expectEveryRequestStreamed: true,
+        expectEveryRequestOutputStreamed: true,
         expectEveryServerRequestStreamed: true,
+        expectEveryServerRequestOutputStreamed: true,
         maxMeanTtftMs: 8_000,
         maxObservedStreamChunkGapMs: 1_000,
         expectedRoute: "continuous",
@@ -924,7 +973,9 @@ function capabilitySpecs(options: CliOptions): ServeRegressionSpec[] {
         minStreamChunks: 1,
         minStreamBytes: 1,
         expectEveryRequestStreamed: true,
+        expectEveryRequestOutputStreamed: true,
         expectEveryServerRequestStreamed: true,
+        expectEveryServerRequestOutputStreamed: true,
         maxObservedStreamChunkGapMs: 2_000,
         expectedRoute: "continuous",
         expectedReason: "eligible",
