@@ -28,7 +28,7 @@ export type CompiledPrompt = {
 export const THINK_OPEN = "<think>";
 const THINK_CLOSE = "</think>";
 const PROGRESS_TOKEN_INTERVAL = 64;
-const DEFAULT_PREFILL_STEP_SIZE = 2048;
+const DEFAULT_PREFILL_STEP_SIZE = 512;
 
 /** Convert a normalized serving request into transformer generation options. */
 export function generationOptions(
@@ -46,6 +46,7 @@ export function generationOptions(
     ...(request.sampling.ignoreEos === true ? { eosTokenIds: [] } : {}),
     ...(request.abortSignal === undefined ? {} : { abortSignal: request.abortSignal }),
     ...(onPrefillProgress === undefined ? {} : { onPrefillProgress }),
+    prefillStepSize: DEFAULT_PREFILL_STEP_SIZE,
   };
 }
 

@@ -442,6 +442,51 @@ describe("continuous batch token scheduler", () => {
     expect(model.forwardBatchSizes[0]).toBe(1);
   });
 
+  test("starts newly waiting rows while an initial long prompt is still prefilling", async () => {
+    using model = new DeterministicBatchModel();
+    const order: string[] = [];
+    const scheduler = createContinuousBatchTokenScheduler(model, {
+      maxBatchSize: 2,
+      prefillStepSize: 2,
+      temperature: 0,
+      eosTokenIds: [],
+    });
+    let short: Promise<unknown> | undefined;
+
+    const long = scheduler.enqueue({
+      id: "long",
+      promptTokenIds: [0, 0, 0, 0, 0, 0],
+      maxTokens: 1,
+      onPrefillProgress(event) {
+        const progress = `${event.processedTokens}/${event.totalTokens}:${event.chunkTokens}`;
+        order.push(`long-prefill:${progress}`);
+        if (event.processedTokens === 2 && short === undefined) {
+          short = scheduler.enqueue({
+            id: "short",
+            promptTokenIds: [1],
+            maxTokens: 1,
+            onToken() {
+              order.push("short-token");
+            },
+          });
+        }
+      },
+      onToken() {
+        order.push("long-token");
+      },
+    });
+
+    await expect(long).resolves.toEqual({ tokenIds: [2], finishReason: "length" });
+    if (short === undefined) {
+      throw new Error("Expected the short request to be enqueued during long prefill.");
+    }
+    await expect(short).resolves.toEqual({ tokenIds: [2], finishReason: "length" });
+
+    expect(order.indexOf("short-token")).toBeGreaterThan(order.indexOf("long-prefill:2/5:2"));
+    expect(order.indexOf("short-token")).toBeLessThan(order.indexOf("long-prefill:4/5:2"));
+    expect(model.forwardSequenceLengths).not.toContain(6);
+  });
+
   test("rejects rows aborted during partial prefill", async () => {
     using model = new DeterministicBatchModel();
     const controller = new AbortController();

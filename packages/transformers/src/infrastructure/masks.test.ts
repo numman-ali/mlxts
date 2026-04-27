@@ -146,6 +146,18 @@ describe("causal masks", () => {
     expect(rows[1]?.[0]?.[0]?.slice(128)).toEqual([1, 1, 1, 1, 1]);
   });
 
+  test("keeps repeated chunked left-padded masks stable without native range churn", () => {
+    for (let index = 0; index < 40; index += 1) {
+      using leftPadding = array([0], "int32");
+      using mask = createLeftPaddedAttentionMask(512, 512, 0, leftPadding, 512);
+      expect(mask.shape).toEqual([1, 1, 512, 512]);
+    }
+
+    using leftPadding = array([0], "int32");
+    using mask = createLeftPaddedAttentionMask(512, 1023, 511, leftPadding, 512);
+    expect(mask.shape).toEqual([1, 1, 512, 1023]);
+  });
+
   test("can omit left-padded masks for unpadded single-token batch decode", () => {
     expect(canOmitLeftPaddedAttentionMask(1, [0, 0])).toBe(true);
     expect(canOmitLeftPaddedAttentionMask(1, [0, 2])).toBe(false);

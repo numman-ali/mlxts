@@ -509,6 +509,135 @@ describe("serve regression matrix", () => {
     ).toThrow("completion_tokens");
   });
 
+  test("budgets mixed rung short-request fairness by client/server request id", () => {
+    const baseRequest = trial().requests[0];
+    const baseServerRequest = trial().serverRequests[0];
+    if (baseRequest === undefined || baseServerRequest === undefined) {
+      throw new Error("Expected trial fixture to include one request and one server request.");
+    }
+
+    const mixedRung: ServeBenchmarkRung = {
+      promptTokens: 32768,
+      generationTokens: 128,
+      concurrency: 2,
+      requestShapes: [
+        { promptTokens: 32768, generationTokens: 128 },
+        { promptTokens: 128, generationTokens: 32 },
+      ],
+    };
+    const fairnessBudget: ServeRegressionBudget = {
+      minCompletionTps: 20,
+      maxPeakMemoryGb: 12,
+      maxActiveDeltaGb: 1,
+      minCompletionTokenRatio: 0.98,
+      requestBudgets: [
+        {
+          label: "short 128x32",
+          promptTokens: 128,
+          completionTokens: 32,
+          maxClientTtftMs: 1_000,
+          maxClientStreamChunkGapMs: 500,
+          maxServerSchedulerQueuedMs: 500,
+          maxServerStreamTtftMs: 600,
+          maxServerSilentEventGapMs: 700,
+        },
+      ],
+    };
+    const fairMetrics = trial({
+      completionTokens: 160,
+      finishReasons: ["length", "length"],
+      requests: [
+        {
+          ...baseRequest,
+          id: "long",
+          index: 0,
+          promptTokens: 32768,
+          completionTokens: 128,
+          totalTokens: 32896,
+          ttftMs: 150_000,
+          maxStreamChunkGapMs: 100,
+        },
+        {
+          ...baseRequest,
+          id: "short",
+          index: 1,
+          promptTokens: 128,
+          completionTokens: 32,
+          totalTokens: 160,
+          ttftMs: 700,
+          maxStreamChunkGapMs: 400,
+        },
+      ],
+      serverRequests: [
+        {
+          ...baseServerRequest,
+          id: "short",
+          route: "continuous",
+          routeReason: "eligible",
+          schedulerQueuedMs: 300,
+          serverStreamTtftMs: 500,
+          maxSilentEventGapMs: 450,
+        },
+        {
+          ...baseServerRequest,
+          id: "long",
+          route: "continuous",
+          routeReason: "eligible",
+          schedulerQueuedMs: 150_000,
+          serverStreamTtftMs: 150_000,
+          maxSilentEventGapMs: 600,
+        },
+      ],
+    });
+
+    expect(() =>
+      assertServeReportBudget("mixed", report(fairMetrics, mixedRung), fairnessBudget),
+    ).not.toThrow();
+    expect(() =>
+      assertServeReportBudget(
+        "mixed",
+        report(
+          trial({
+            ...fairMetrics,
+            requests: fairMetrics.requests.map((request) =>
+              request.id === "short" ? { ...request, ttftMs: 1_500 } : request,
+            ),
+          }),
+          mixedRung,
+        ),
+        fairnessBudget,
+      ),
+    ).toThrow("request_budget short 128x32 client ttft");
+    expect(() =>
+      assertServeReportBudget(
+        "mixed",
+        report(
+          trial({
+            ...fairMetrics,
+            serverRequests: fairMetrics.serverRequests.map((request) =>
+              request.id === "short" ? { ...request, schedulerQueuedMs: 900 } : request,
+            ),
+          }),
+          mixedRung,
+        ),
+        fairnessBudget,
+      ),
+    ).toThrow("request_budget short 128x32 server scheduler queued");
+    expect(() =>
+      assertServeReportBudget(
+        "mixed",
+        report(
+          trial({
+            ...fairMetrics,
+            serverRequests: fairMetrics.serverRequests.filter((request) => request.id !== "short"),
+          }),
+          mixedRung,
+        ),
+        fairnessBudget,
+      ),
+    ).toThrow("request_budget short 128x32 found no matching server request");
+  });
+
   test("accepts concurrent streaming continuous reports with per-request SSE evidence", () => {
     const baseRequest = trial().requests[0];
     const baseServerRequest = trial().serverRequests[0];

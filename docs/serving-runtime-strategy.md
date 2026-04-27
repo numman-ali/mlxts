@@ -182,17 +182,21 @@ The next work should stay ordered around architecture truth:
    short/long output rungs, and separate client-observed plus server-side
    stream evidence. The real matrix now includes `@4` and `@8` Qwen/Gemma
    streaming continuous rungs with per-request TTFT and scheduler-queued-time
-   budgets, so higher concurrency has explicit fairness evidence instead of
-   aggregate-throughput-only proof.
+   budgets, plus mixed long-prefill/short-arrival capability rungs with
+   short-request-specific TTFT, stream-cadence, and scheduler queue budgets.
+   Higher concurrency and heterogeneous prompt fairness now have explicit
+   evidence instead of aggregate-throughput-only proof.
 3. Keep the typed internal serving/runtime strategy seam as the path for new
    backend choices. The current seam reports implemented behavior only:
    scheduler `auto`, managed model-precision cache, attention `auto`,
    model-native decoding, streaming decode cadence, and admit-only memory
    preflight.
 4. Harden the scheduler: continuous routes now use one model-level reservation
-   budget with separate prompt, completion, and aggregate total caps. The next
-   passes should add stronger fairness controls and keep explicit per-row
-   decode state for sampler, stop, reasoning, and future logits processors.
+   budget with separate prompt, completion, and aggregate total caps. Serving
+   uses a fairness-biased `512` token prefill chunk so short arrivals can get
+   admitted between long-prefill chunks. The next passes should add stronger
+   fairness controls and keep explicit per-row decode state for sampler, stop,
+   reasoning, and future logits processors.
 5. Build cache backends behind stable contracts: dense managed cache first,
    then prefix cache, rotating/max-KV policy, quantized KV, paged KV, and later
    TurboQuant or tiered SSD storage.

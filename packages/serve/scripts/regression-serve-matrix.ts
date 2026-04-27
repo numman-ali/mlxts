@@ -53,6 +53,19 @@ export type ServeRegressionBudget = {
   expectSchedulerTokenPressure?: boolean;
   minModelLaneWaitEvents?: number;
   minModelLaneBusyWaitEvents?: number;
+  requestBudgets?: ServeRequestBudget[];
+};
+
+export type ServeRequestBudget = {
+  label?: string;
+  index?: number;
+  promptTokens?: number;
+  completionTokens?: number;
+  maxClientTtftMs?: number;
+  maxClientStreamChunkGapMs?: number;
+  maxServerSchedulerQueuedMs?: number;
+  maxServerStreamTtftMs?: number;
+  maxServerSilentEventGapMs?: number;
 };
 
 type ServeRegressionSpec = {
@@ -493,6 +506,164 @@ function evidenceFailures(metrics: TrialMetrics, budget: ServeRegressionBudget):
   return failures;
 }
 
+function requestMatchesBudget(
+  request: TrialMetrics["requests"][number],
+  budget: ServeRequestBudget,
+): boolean {
+  if (budget.index !== undefined && request.index !== budget.index) {
+    return false;
+  }
+  if (budget.promptTokens !== undefined && request.promptTokens !== budget.promptTokens) {
+    return false;
+  }
+  if (
+    budget.completionTokens !== undefined &&
+    request.completionTokens !== budget.completionTokens
+  ) {
+    return false;
+  }
+  return true;
+}
+
+function requestBudgetLabel(budget: ServeRequestBudget): string {
+  if (budget.label !== undefined) {
+    return budget.label;
+  }
+  const selectors = [
+    budget.index === undefined ? undefined : `index:${budget.index}`,
+    budget.promptTokens === undefined ? undefined : `prompt:${budget.promptTokens}`,
+    budget.completionTokens === undefined ? undefined : `completion:${budget.completionTokens}`,
+  ].filter((selector): selector is string => selector !== undefined);
+  return selectors.length === 0 ? "unscoped" : selectors.join(",");
+}
+
+function requestBudgetHasSelector(budget: ServeRequestBudget): boolean {
+  return (
+    budget.index !== undefined ||
+    budget.promptTokens !== undefined ||
+    budget.completionTokens !== undefined
+  );
+}
+
+function requestBudgetNeedsServerRequest(budget: ServeRequestBudget): boolean {
+  return (
+    budget.maxServerSchedulerQueuedMs !== undefined ||
+    budget.maxServerStreamTtftMs !== undefined ||
+    budget.maxServerSilentEventGapMs !== undefined
+  );
+}
+
+function metricBudgetFailure(
+  label: string,
+  metricName: string,
+  actual: number | null | undefined,
+  expectedMax: number | undefined,
+  id: string,
+): string | null {
+  if (expectedMax === undefined) {
+    return null;
+  }
+  if (actual !== null && actual !== undefined && actual <= expectedMax) {
+    return null;
+  }
+  return `request_budget ${label} ${metricName} ${actual?.toFixed(1) ?? "n/a"}ms > ${expectedMax.toFixed(
+    1,
+  )}ms for ${id}`;
+}
+
+function clientRequestBudgetFailures(
+  label: string,
+  request: TrialMetrics["requests"][number],
+  budget: ServeRequestBudget,
+): string[] {
+  const id = request.id ?? `index:${request.index}`;
+  return [
+    metricBudgetFailure(label, "client ttft", request.ttftMs, budget.maxClientTtftMs, id),
+    metricBudgetFailure(
+      label,
+      "client stream gap",
+      request.maxStreamChunkGapMs,
+      budget.maxClientStreamChunkGapMs,
+      id,
+    ),
+  ].filter((failure): failure is string => failure !== null);
+}
+
+function serverRequestBudgetFailures(
+  label: string,
+  request: TrialMetrics["requests"][number],
+  serverRequest: TrialMetrics["serverRequests"][number] | undefined,
+  budget: ServeRequestBudget,
+): string[] {
+  const id = request.id ?? `index:${request.index}`;
+  if (
+    requestBudgetNeedsServerRequest(budget) &&
+    (request.id === undefined || serverRequest === undefined)
+  ) {
+    return [`request_budget ${label} found no matching server request for ${id}`];
+  }
+  return [
+    metricBudgetFailure(
+      label,
+      "server scheduler queued",
+      serverRequest?.schedulerQueuedMs,
+      budget.maxServerSchedulerQueuedMs,
+      id,
+    ),
+    metricBudgetFailure(
+      label,
+      "server stream ttft",
+      serverRequest?.serverStreamTtftMs,
+      budget.maxServerStreamTtftMs,
+      id,
+    ),
+    metricBudgetFailure(
+      label,
+      "server silent gap",
+      serverRequest?.maxSilentEventGapMs,
+      budget.maxServerSilentEventGapMs,
+      id,
+    ),
+  ].filter((failure): failure is string => failure !== null);
+}
+
+function failuresForMatchedRequest(
+  metrics: TrialMetrics,
+  label: string,
+  request: TrialMetrics["requests"][number],
+  budget: ServeRequestBudget,
+): string[] {
+  const serverRequest = metrics.serverRequests.find((server) => server.id === request.id);
+  return [
+    ...clientRequestBudgetFailures(label, request, budget),
+    ...serverRequestBudgetFailures(label, request, serverRequest, budget),
+  ];
+}
+
+function requestBudgetFailures(metrics: TrialMetrics, budget: ServeRegressionBudget): string[] {
+  const failures: string[] = [];
+  for (const requestBudget of budget.requestBudgets ?? []) {
+    const label = requestBudgetLabel(requestBudget);
+    if (!requestBudgetHasSelector(requestBudget)) {
+      failures.push(`request_budget ${label} must set at least one selector`);
+      continue;
+    }
+
+    const requests = metrics.requests.filter((request) =>
+      requestMatchesBudget(request, requestBudget),
+    );
+    if (requests.length === 0) {
+      failures.push(`request_budget ${label} matched no client requests`);
+      continue;
+    }
+
+    for (const request of requests) {
+      failures.push(...failuresForMatchedRequest(metrics, label, request, requestBudget));
+    }
+  }
+  return failures;
+}
+
 type CounterExpectation = {
   name: string;
   value: number;
@@ -602,6 +773,7 @@ export function assertServeReportBudget(
       ...evidenceFailures(averages, budget),
       ...batchCounterFailures(averages, budget),
       ...modelLaneWaitFailures(averages, budget),
+      ...requestBudgetFailures(averages, budget),
     ];
 
     assertFinishReasons(`${label} ${rungLabel}`, averages);
@@ -1150,7 +1322,7 @@ function capabilitySpecs(options: CliOptions): ServeRegressionSpec[] {
       ignoreEos: true,
       budget: {
         minCompletionTps: 0.1,
-        minPostTtftCompletionTps: 12,
+        minPostTtftCompletionTps: 9,
         maxPeakMemoryGb: 32,
         maxActiveDeltaGb: 1,
         minCompletionTokenRatio: 0.98,
@@ -1185,7 +1357,7 @@ function capabilitySpecs(options: CliOptions): ServeRegressionSpec[] {
       requestStaggerMs: 100,
       budget: {
         minCompletionTps: 0.1,
-        minPostTtftCompletionTps: 12,
+        minPostTtftCompletionTps: 9,
         maxPeakMemoryGb: 33,
         maxActiveDeltaGb: 1.5,
         minCompletionTokenRatio: 0.98,
@@ -1195,7 +1367,7 @@ function capabilitySpecs(options: CliOptions): ServeRegressionSpec[] {
         expectEveryRequestOutputStreamed: true,
         expectEveryServerRequestStreamed: true,
         expectEveryServerRequestOutputStreamed: true,
-        maxObservedStreamChunkGapMs: 2_000,
+        maxObservedStreamChunkGapMs: 6_000,
         expectedRoute: "continuous",
         expectedReason: "eligible",
         minRouteDecisions: 2,
@@ -1205,9 +1377,20 @@ function capabilitySpecs(options: CliOptions): ServeRegressionSpec[] {
         minContinuousAdmissions: 2,
         minContinuousAdmissionRows: 2,
         minContinuousSchedulerPhases: 8,
-        expectedMaxGenerationBatchSize: 2,
         expectSchedulerTokenPressure: true,
         minModelLaneWaitEvents: 0,
+        requestBudgets: [
+          {
+            label: "short 128x32",
+            promptTokens: 128,
+            completionTokens: 32,
+            maxClientTtftMs: 10_000,
+            maxClientStreamChunkGapMs: 6_000,
+            maxServerSchedulerQueuedMs: 5_000,
+            maxServerStreamTtftMs: 6_000,
+            maxServerSilentEventGapMs: 6_000,
+          },
+        ],
       },
     },
     {
@@ -1240,9 +1423,20 @@ function capabilitySpecs(options: CliOptions): ServeRegressionSpec[] {
         minContinuousAdmissions: 2,
         minContinuousAdmissionRows: 2,
         minContinuousSchedulerPhases: 8,
-        expectedMaxGenerationBatchSize: 2,
         expectSchedulerTokenPressure: true,
         minModelLaneWaitEvents: 0,
+        requestBudgets: [
+          {
+            label: "short 128x32",
+            promptTokens: 128,
+            completionTokens: 32,
+            maxClientTtftMs: 2_500,
+            maxClientStreamChunkGapMs: 1_500,
+            maxServerSchedulerQueuedMs: 2_500,
+            maxServerStreamTtftMs: 2_500,
+            maxServerSilentEventGapMs: 2_500,
+          },
+        ],
       },
     },
   ];

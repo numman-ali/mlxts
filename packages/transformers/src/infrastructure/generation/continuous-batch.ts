@@ -255,7 +255,7 @@ export class ContinuousBatchTokenScheduler {
       return this.#admitFullRows(count);
     }
     let didWork = false;
-    if (capacity > 0 && this.#prefilling.length === 0 && this.#waiting.length > 0) {
+    if (capacity > 0 && this.#waiting.length > 0) {
       didWork = this.#startPrefillingRow();
     }
     return this.#advancePrefillingRow() || didWork;

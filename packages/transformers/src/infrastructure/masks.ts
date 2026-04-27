@@ -5,7 +5,6 @@
 
 import {
   add,
-  arange,
   array,
   asType,
   type DType,
@@ -50,10 +49,11 @@ function trimmedSlidingTotalKeyLength(
 }
 
 function positionRange(start: number, length: number): MxArray {
-  if (length === 1) {
-    return array([start], "int32");
+  const values = new Int32Array(length);
+  for (let index = 0; index < length; index += 1) {
+    values[index] = start + index;
   }
-  return arange(start, start + length, 1, "int32");
+  return array(values);
 }
 
 /** Build an additive causal attention mask for a query block against total keys. */
@@ -83,7 +83,7 @@ export function createCausalMask(
   if (windowSize !== undefined) {
     using queryOffsets = positionRange(0, queryLength);
     using queryPositions = add(queryOffsets, pastLength);
-    using keyPositions = arange(0, totalKeyLength, 1, "int32");
+    using keyPositions = positionRange(0, totalKeyLength);
     using queryGrid = expandDims(queryPositions, 1);
     using keyGrid = expandDims(keyPositions, 0);
     using futureMask = greater(keyGrid, queryGrid);
@@ -129,7 +129,7 @@ function createBooleanCausalMask(
 ): MxArray {
   using queryOffsets = positionRange(0, queryLength);
   using queryPositions = add(queryOffsets, pastLength);
-  using keyPositions = arange(0, totalKeyLength, 1, "int32");
+  using keyPositions = positionRange(0, totalKeyLength);
   using queryGrid = expandDims(queryPositions, 1);
   using keyGrid = expandDims(keyPositions, 0);
 
@@ -209,7 +209,7 @@ export function createLeftPaddedAttentionMask(
   }
 
   using queryOffsets = positionRange(pastLength, queryLength);
-  using keyPositions = arange(0, totalKeyLength, 1, "int32");
+  using keyPositions = positionRange(0, totalKeyLength);
   using queryBatch = expandDims(queryOffsets, 0);
   using keyBatch = expandDims(keyPositions, 0);
   using leftPaddingBatch = expandDims(leftPadding, 1);
