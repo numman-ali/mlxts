@@ -263,6 +263,29 @@ export type ServeEvent =
       memory?: GenerationMemoryUsage;
     }
   | {
+      type: "generation_stream_chunk";
+      id: string;
+      protocol: GenerationProtocol;
+      model: string;
+      chunkIndex: number;
+      elapsedMs: number;
+      bytes: number;
+    }
+  | {
+      type: "generation_stream_end";
+      id: string;
+      protocol: GenerationProtocol;
+      model: string;
+      result: "completed" | "cancelled" | "error";
+      finishReason: NormalizedFinishReason;
+      chunks: number;
+      bytes: number;
+      outputChunks: number;
+      outputBytes: number;
+      ttftMs?: number;
+      durationMs: number;
+    }
+  | {
       type: "generation_batch_start";
       mode: "static" | "continuous";
       model: string;

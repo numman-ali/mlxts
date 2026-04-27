@@ -15,6 +15,7 @@ import {
   serveErrorDetails,
 } from "./server-events";
 import { writeOpenAIResponseStreamEvents } from "./server-responses-streaming";
+import { createGenerationStreamObserver } from "./server-stream-observability";
 import { closeStreamEvents, sseHeaders } from "./server-streaming";
 import type {
   GenerationEngine,
@@ -33,7 +34,8 @@ export type OpenAIResponsesRouteOptions = {
 type ResponseStreamControl = {
   id: string;
   created: number;
-  startedAt: number;
+  generationStartedAt: number;
+  requestStartedAt: number;
   signal: AbortSignal;
   abort(): void;
   dispose(): void;
@@ -65,6 +67,11 @@ function responseStreamBody(
   generationRequest: NormalizedGenerationRequest,
 ): ReadableStream<Uint8Array> {
   const iterator = stream[Symbol.asyncIterator]();
+  const streamObserver = createGenerationStreamObserver(
+    options,
+    generationRequest,
+    control.generationStartedAt,
+  );
   let cancelled = false;
   return new ReadableStream<Uint8Array>({
     start(controller) {
@@ -72,20 +79,22 @@ function responseStreamBody(
         id: control.id,
         created: control.created,
         signal: control.signal,
+        observer: streamObserver,
       }).then(
         (summary) => {
           control.dispose();
+          const durationMs = performance.now() - control.generationStartedAt;
+          streamObserver.end(
+            summary.finishReason === "cancelled" ? "cancelled" : "completed",
+            summary.finishReason,
+            durationMs,
+          );
           const result: NormalizedGenerationResult = {
             text: "",
             finishReason: summary.finishReason,
             ...(summary.usage === undefined ? {} : { usage: summary.usage }),
           };
-          emitGenerationComplete(
-            options,
-            generationRequest,
-            result,
-            performance.now() - control.startedAt,
-          );
+          emitGenerationComplete(options, generationRequest, result, durationMs);
           if (summary.finishReason === "cancelled") {
             emitRequestError(
               options,
@@ -95,10 +104,10 @@ function responseStreamBody(
                 code: "client_cancelled",
                 status: 499,
               },
-              control.startedAt,
+              control.requestStartedAt,
             );
           } else {
-            emitRequestComplete(options, request, 200, control.startedAt);
+            emitRequestComplete(options, request, 200, control.requestStartedAt);
           }
           if (!cancelled) {
             controller.close();
@@ -106,13 +115,10 @@ function responseStreamBody(
         },
         (error: unknown) => {
           control.dispose();
-          emitGenerationError(
-            options,
-            generationRequest,
-            error,
-            performance.now() - control.startedAt,
-          );
-          emitRequestError(options, request, serveErrorDetails(error), control.startedAt);
+          const durationMs = performance.now() - control.generationStartedAt;
+          streamObserver.end("error", "error", durationMs);
+          emitGenerationError(options, generationRequest, error, durationMs);
+          emitRequestError(options, request, serveErrorDetails(error), control.requestStartedAt);
           if (!cancelled) {
             controller.error(error);
           }
@@ -179,7 +185,8 @@ export async function openAIResponsesRouteResponse(
       {
         id: responseOptions.id,
         created: responseOptions.created,
-        startedAt: responseOptions.startedAt,
+        generationStartedAt: startedAt,
+        requestStartedAt: responseOptions.startedAt,
         signal: abortScope.signal,
         abort: abortScope.abort,
         dispose: abortScope.dispose,

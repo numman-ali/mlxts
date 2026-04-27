@@ -613,7 +613,13 @@ describe("serve fetch handler", () => {
     expect(text).toContain("data: [DONE]");
     expect(
       events.filter((event) => event.type.startsWith("generation_")).map((event) => event.type),
-    ).toEqual(["generation_start", "generation_complete"]);
+    ).toEqual([
+      "generation_start",
+      "generation_stream_chunk",
+      "generation_stream_chunk",
+      "generation_stream_end",
+      "generation_complete",
+    ]);
   });
 
   test("streams OpenAI responses length stops as incomplete terminal events", async () => {
@@ -1053,7 +1059,27 @@ describe("serve fetch handler", () => {
     expect(text).toContain("data: [DONE]");
     expect(
       events.filter((event) => event.type.startsWith("generation_")).map((event) => event.type),
-    ).toEqual(["generation_start", "generation_complete"]);
+    ).toEqual([
+      "generation_start",
+      "generation_stream_chunk",
+      "generation_stream_chunk",
+      "generation_stream_end",
+      "generation_complete",
+    ]);
+    expect(events.find((event) => event.type === "generation_stream_end")).toMatchObject({
+      result: "completed",
+      finishReason: "stop",
+      outputChunks: 2,
+    });
+
+    const metrics = await fetch(new Request("http://localhost/metrics"));
+    const metricsText = await metrics.text();
+    expect(metricsText).toContain(
+      'mlxts_serve_generation_streams_total{model="tiny",protocol="openai.completions",result="completed",finish_reason="stop"} 1',
+    );
+    expect(metricsText).toContain(
+      'mlxts_serve_generation_stream_chunks_total{model="tiny",protocol="openai.completions",kind="output"} 2',
+    );
   });
 
   test("flushes completion stream chunks before a microtask-heavy generator drains", async () => {

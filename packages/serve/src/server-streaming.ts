@@ -10,19 +10,27 @@ import {
   formatOpenAICompletionUsageStreamChunk,
   type normalizeOpenAICompletionRequest,
 } from "./protocols/openai-completions";
-import { enqueueSseComment, withSseHeartbeat } from "./server-sse-heartbeat";
+import { withSseHeartbeat } from "./server-sse-heartbeat";
 import { createStopSequenceFilter } from "./server-stop-filter";
+import {
+  enqueueObservedSse,
+  enqueueSseJson,
+  readStreamEvent,
+  type StreamControlOptions,
+  type StreamObserverChunkKind,
+  type StreamSummary,
+  streamSummary,
+  streamWasCancelled,
+  toAsyncIterator,
+  yieldToHttpWriter,
+} from "./server-stream-runtime";
 import type { GenerationStreamEvent, GenerationUsage, NormalizedFinishReason } from "./types";
 
-type StreamControlOptions = {
-  id: string;
-  created: number;
-  signal?: AbortSignal;
-};
+export { closeStreamEvents } from "./server-stream-runtime";
 
-function encodeSse(payload: string): Uint8Array {
-  return new TextEncoder().encode(payload);
-}
+type ChatChunkOptions = Parameters<typeof formatOpenAIChatCompletionStreamChunk>[2] & {
+  observer?: StreamControlOptions["observer"];
+};
 
 export function sseHeaders(): HeadersInit {
   return {
@@ -32,15 +40,6 @@ export function sseHeaders(): HeadersInit {
   };
 }
 
-function enqueueSseJson(
-  controller: ReadableStreamDefaultController<Uint8Array>,
-  payload: unknown,
-): void {
-  controller.enqueue(encodeSse(`data: ${JSON.stringify(payload)}\n\n`));
-}
-
-const yieldToHttpWriter = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
-
 type CompletionStreamState = {
   stopFilter: ReturnType<typeof createStopSequenceFilter>;
   finalUsage: GenerationUsage | undefined;
@@ -48,23 +47,36 @@ type CompletionStreamState = {
   sentTerminalChunk: boolean;
 };
 
+function enqueueCompletionStreamChunk(
+  controller: ReadableStreamDefaultController<Uint8Array>,
+  batch: ReturnType<typeof normalizeOpenAICompletionRequest>,
+  request: ReturnType<typeof normalizeOpenAICompletionRequest>["requests"][number],
+  options: StreamControlOptions & { finishReason?: NormalizedFinishReason },
+  text: string,
+  kind: StreamObserverChunkKind,
+): void {
+  enqueueSseJson(
+    controller,
+    formatOpenAICompletionStreamChunk(request, text, {
+      ...options,
+      includeUsage: batch.streamOptions.includeUsage,
+    }),
+    options,
+    kind,
+  );
+}
+
 function handleCompletionTextStreamEvent(
   controller: ReadableStreamDefaultController<Uint8Array>,
   state: CompletionStreamState,
   batch: ReturnType<typeof normalizeOpenAICompletionRequest>,
   request: ReturnType<typeof normalizeOpenAICompletionRequest>["requests"][number],
-  options: { id: string; created: number },
+  options: StreamControlOptions,
   text: string,
 ): boolean {
   const filtered = state.stopFilter.push(text);
   if (filtered.text !== "") {
-    enqueueSseJson(
-      controller,
-      formatOpenAICompletionStreamChunk(request, filtered.text, {
-        ...options,
-        includeUsage: batch.streamOptions.includeUsage,
-      }),
-    );
+    enqueueCompletionStreamChunk(controller, batch, request, options, filtered.text, "output");
   }
   if (filtered.stopped) {
     state.finalFinishReason = "stop";
@@ -73,44 +85,16 @@ function handleCompletionTextStreamEvent(
   return false;
 }
 
-function handleCompletionDoneStreamEvent(
-  controller: ReadableStreamDefaultController<Uint8Array>,
-  state: CompletionStreamState,
-  batch: ReturnType<typeof normalizeOpenAICompletionRequest>,
-  request: ReturnType<typeof normalizeOpenAICompletionRequest>["requests"][number],
-  options: { id: string; created: number },
-  event: Extract<GenerationStreamEvent, { type: "done" }>,
-): void {
-  flushCompletionTail(controller, state, batch, request, options);
-  state.finalUsage = event.usage;
-  state.finalFinishReason = state.finalFinishReason === "stop" ? "stop" : event.finishReason;
-  enqueueSseJson(
-    controller,
-    formatOpenAICompletionStreamChunk(request, "", {
-      ...options,
-      finishReason: state.finalFinishReason,
-      includeUsage: batch.streamOptions.includeUsage,
-    }),
-  );
-  state.sentTerminalChunk = true;
-}
-
 function flushCompletionTail(
   controller: ReadableStreamDefaultController<Uint8Array>,
   state: CompletionStreamState,
   batch: ReturnType<typeof normalizeOpenAICompletionRequest>,
   request: ReturnType<typeof normalizeOpenAICompletionRequest>["requests"][number],
-  options: { id: string; created: number },
+  options: StreamControlOptions,
 ): void {
   const tail = state.stopFilter.finish();
   if (tail.text !== "") {
-    enqueueSseJson(
-      controller,
-      formatOpenAICompletionStreamChunk(request, tail.text, {
-        ...options,
-        includeUsage: batch.streamOptions.includeUsage,
-      }),
-    );
+    enqueueCompletionStreamChunk(controller, batch, request, options, tail.text, "output");
   }
   if (tail.stopped) {
     state.finalFinishReason = "stop";
@@ -122,19 +106,34 @@ function emitCompletionTerminalChunk(
   state: CompletionStreamState,
   batch: ReturnType<typeof normalizeOpenAICompletionRequest>,
   request: ReturnType<typeof normalizeOpenAICompletionRequest>["requests"][number],
-  options: { id: string; created: number },
+  options: StreamControlOptions,
 ): void {
   if (state.sentTerminalChunk) {
     return;
   }
-  enqueueSseJson(
+  enqueueCompletionStreamChunk(
     controller,
-    formatOpenAICompletionStreamChunk(request, "", {
-      ...options,
-      finishReason: state.finalFinishReason,
-      includeUsage: batch.streamOptions.includeUsage,
-    }),
+    batch,
+    request,
+    { ...options, finishReason: state.finalFinishReason },
+    "",
+    "protocol",
   );
+}
+
+function handleCompletionDoneStreamEvent(
+  controller: ReadableStreamDefaultController<Uint8Array>,
+  state: CompletionStreamState,
+  batch: ReturnType<typeof normalizeOpenAICompletionRequest>,
+  request: ReturnType<typeof normalizeOpenAICompletionRequest>["requests"][number],
+  options: StreamControlOptions,
+  event: Extract<GenerationStreamEvent, { type: "done" }>,
+): void {
+  flushCompletionTail(controller, state, batch, request, options);
+  state.finalUsage = event.usage;
+  state.finalFinishReason = state.finalFinishReason === "stop" ? "stop" : event.finishReason;
+  emitCompletionTerminalChunk(controller, state, batch, request, options);
+  state.sentTerminalChunk = true;
 }
 
 type ChatStreamState = {
@@ -152,36 +151,22 @@ function emitChatStreamChunk(
   controller: ReadableStreamDefaultController<Uint8Array>,
   chat: ReturnType<typeof normalizeOpenAIChatCompletionRequest>,
   delta: Parameters<typeof formatOpenAIChatCompletionStreamChunk>[1],
-  options: Parameters<typeof formatOpenAIChatCompletionStreamChunk>[2],
+  options: ChatChunkOptions,
+  kind: StreamObserverChunkKind = "output",
 ): void {
-  enqueueSseJson(controller, formatOpenAIChatCompletionStreamChunk(chat, delta, options));
-}
-
-function processChatDelta(
-  controller: ReadableStreamDefaultController<Uint8Array>,
-  state: ChatStreamState,
-  chat: ReturnType<typeof normalizeOpenAIChatCompletionRequest>,
-  options: { id: string; created: number },
-  delta: { content?: string; reasoningContent?: string },
-): void {
-  if (delta.reasoningContent !== undefined) {
-    emitChatStreamChunk(controller, chat, delta, options);
-    return;
-  }
-
-  for (const parsed of state.toolCalls.push(delta.content ?? "")) {
-    processParsedChatDelta(controller, state, chat, options, parsed);
-    if (state.stoppedByStopSequence) {
-      return;
-    }
-  }
+  enqueueSseJson(
+    controller,
+    formatOpenAIChatCompletionStreamChunk(chat, delta, options),
+    options,
+    kind,
+  );
 }
 
 function processParsedChatDelta(
   controller: ReadableStreamDefaultController<Uint8Array>,
   state: ChatStreamState,
   chat: ReturnType<typeof normalizeOpenAIChatCompletionRequest>,
-  options: { id: string; created: number },
+  options: StreamControlOptions,
   delta: Parameters<typeof formatOpenAIChatCompletionStreamChunk>[1],
 ): void {
   if (delta.reasoningContent !== undefined || delta.toolCalls !== undefined) {
@@ -202,11 +187,31 @@ function processParsedChatDelta(
   }
 }
 
+function processChatDelta(
+  controller: ReadableStreamDefaultController<Uint8Array>,
+  state: ChatStreamState,
+  chat: ReturnType<typeof normalizeOpenAIChatCompletionRequest>,
+  options: StreamControlOptions,
+  delta: { content?: string; reasoningContent?: string },
+): void {
+  if (delta.reasoningContent !== undefined) {
+    emitChatStreamChunk(controller, chat, delta, options);
+    return;
+  }
+
+  for (const parsed of state.toolCalls.push(delta.content ?? "")) {
+    processParsedChatDelta(controller, state, chat, options, parsed);
+    if (state.stoppedByStopSequence) {
+      return;
+    }
+  }
+}
+
 function handleChatTextStreamEvent(
   controller: ReadableStreamDefaultController<Uint8Array>,
   state: ChatStreamState,
   chat: ReturnType<typeof normalizeOpenAIChatCompletionRequest>,
-  options: { id: string; created: number },
+  options: StreamControlOptions,
   text: string,
 ): boolean {
   for (const delta of state.reasoning.push(text)) {
@@ -218,25 +223,11 @@ function handleChatTextStreamEvent(
   return false;
 }
 
-function handleChatDoneStreamEvent(
-  controller: ReadableStreamDefaultController<Uint8Array>,
-  state: ChatStreamState,
-  chat: ReturnType<typeof normalizeOpenAIChatCompletionRequest>,
-  options: { id: string; created: number },
-  event: Extract<GenerationStreamEvent, { type: "done" }>,
-): void {
-  flushChatTail(controller, state, chat, options);
-  state.finalUsage = event.usage;
-  state.finalFinishReason = state.finalFinishReason === "stop" ? "stop" : event.finishReason;
-  emitChatTerminalChunk(controller, state, chat, options);
-  state.sentTerminalChunk = true;
-}
-
 function flushChatTail(
   controller: ReadableStreamDefaultController<Uint8Array>,
   state: ChatStreamState,
   chat: ReturnType<typeof normalizeOpenAIChatCompletionRequest>,
-  options: { id: string; created: number },
+  options: StreamControlOptions,
 ): void {
   for (const delta of state.reasoning.finish()) {
     processChatDelta(controller, state, chat, options, delta);
@@ -266,7 +257,7 @@ function emitChatTerminalChunk(
   controller: ReadableStreamDefaultController<Uint8Array>,
   state: ChatStreamState,
   chat: ReturnType<typeof normalizeOpenAIChatCompletionRequest>,
-  options: { id: string; created: number },
+  options: StreamControlOptions,
 ): void {
   if (state.sentTerminalChunk) {
     return;
@@ -279,7 +270,22 @@ function emitChatTerminalChunk(
       ...options,
       finishReason: state.emittedToolCall ? "tool_calls" : state.finalFinishReason,
     },
+    "protocol",
   );
+}
+
+function handleChatDoneStreamEvent(
+  controller: ReadableStreamDefaultController<Uint8Array>,
+  state: ChatStreamState,
+  chat: ReturnType<typeof normalizeOpenAIChatCompletionRequest>,
+  options: StreamControlOptions,
+  event: Extract<GenerationStreamEvent, { type: "done" }>,
+): void {
+  flushChatTail(controller, state, chat, options);
+  state.finalUsage = event.usage;
+  state.finalFinishReason = state.finalFinishReason === "stop" ? "stop" : event.finishReason;
+  emitChatTerminalChunk(controller, state, chat, options);
+  state.sentTerminalChunk = true;
 }
 
 function hasStreamingToolOutput(chat: ReturnType<typeof normalizeOpenAIChatCompletionRequest>) {
@@ -290,66 +296,17 @@ function hasStreamingToolOutput(chat: ReturnType<typeof normalizeOpenAIChatCompl
   );
 }
 
-function toAsyncIterator(
-  stream: AsyncIterable<GenerationStreamEvent> | AsyncIterator<GenerationStreamEvent>,
-): AsyncIterator<GenerationStreamEvent> {
-  return Symbol.asyncIterator in stream ? stream[Symbol.asyncIterator]() : stream;
-}
-
-function streamWasCancelled(signal: AbortSignal | undefined): boolean {
-  return signal?.aborted ?? false;
-}
-
-export async function closeStreamEvents(
-  stream: AsyncIterable<GenerationStreamEvent> | AsyncIterator<GenerationStreamEvent>,
-): Promise<void> {
-  const iterator = toAsyncIterator(stream);
-  await iterator.return?.();
-}
-
-type StreamReadResult =
-  | { type: "finished" }
-  | { type: "cancelled" }
-  | { type: "event"; event: GenerationStreamEvent };
-
-async function readStreamEvent(
-  iterator: AsyncIterator<GenerationStreamEvent>,
-  signal: AbortSignal | undefined,
-): Promise<StreamReadResult> {
-  if (streamWasCancelled(signal)) {
-    await iterator.return?.();
-    return { type: "cancelled" };
-  }
-  const next = await iterator.next();
-  if (next.done) {
-    return { type: "finished" };
-  }
-  if (streamWasCancelled(signal)) {
-    await iterator.return?.();
-    return { type: "cancelled" };
-  }
-  return { type: "event", event: next.value };
-}
-
-function streamSummary(
-  finishReason: NormalizedFinishReason,
-  usage: GenerationUsage | undefined,
-): { finishReason: NormalizedFinishReason; usage?: GenerationUsage } {
-  return usage === undefined ? { finishReason } : { finishReason, usage };
-}
-
 function handleCompletionStreamEvent(
   controller: ReadableStreamDefaultController<Uint8Array>,
   state: CompletionStreamState,
   batch: ReturnType<typeof normalizeOpenAICompletionRequest>,
   request: ReturnType<typeof normalizeOpenAICompletionRequest>["requests"][number],
-  options: { id: string; created: number },
+  options: StreamControlOptions,
   event: GenerationStreamEvent,
 ): boolean {
   if (event.type === "text") {
     return handleCompletionTextStreamEvent(controller, state, batch, request, options, event.text);
   }
-
   handleCompletionDoneStreamEvent(controller, state, batch, request, options, event);
   return false;
 }
@@ -360,7 +317,7 @@ function finalizeCompletionStream(
   batch: ReturnType<typeof normalizeOpenAICompletionRequest>,
   request: ReturnType<typeof normalizeOpenAICompletionRequest>["requests"][number],
   options: StreamControlOptions,
-): { finishReason: NormalizedFinishReason; usage?: GenerationUsage } {
+): StreamSummary {
   state.finalFinishReason = streamWasCancelled(options.signal)
     ? "cancelled"
     : state.finalFinishReason;
@@ -375,9 +332,11 @@ function finalizeCompletionStream(
     enqueueSseJson(
       controller,
       formatOpenAICompletionUsageStreamChunk(batch, state.finalUsage, options),
+      options,
+      "protocol",
     );
   }
-  controller.enqueue(encodeSse("data: [DONE]\n\n"));
+  enqueueObservedSse(controller, "data: [DONE]\n\n", options, "protocol");
   return streamSummary(state.finalFinishReason, state.finalUsage);
 }
 
@@ -385,13 +344,12 @@ function handleChatStreamEvent(
   controller: ReadableStreamDefaultController<Uint8Array>,
   state: ChatStreamState,
   chat: ReturnType<typeof normalizeOpenAIChatCompletionRequest>,
-  options: { id: string; created: number },
+  options: StreamControlOptions,
   event: GenerationStreamEvent,
 ): boolean {
   if (event.type === "text") {
     return handleChatTextStreamEvent(controller, state, chat, options, event.text);
   }
-
   handleChatDoneStreamEvent(controller, state, chat, options, event);
   return state.stoppedByStopSequence;
 }
@@ -401,7 +359,7 @@ function finalizeChatStream(
   state: ChatStreamState,
   chat: ReturnType<typeof normalizeOpenAIChatCompletionRequest>,
   options: StreamControlOptions,
-): { finishReason: NormalizedFinishReason; usage?: GenerationUsage } {
+): StreamSummary {
   state.finalFinishReason = streamWasCancelled(options.signal)
     ? "cancelled"
     : state.finalFinishReason;
@@ -416,9 +374,11 @@ function finalizeChatStream(
     enqueueSseJson(
       controller,
       formatOpenAIChatCompletionUsageStreamChunk(chat, state.finalUsage, options),
+      options,
+      "protocol",
     );
   }
-  controller.enqueue(encodeSse("data: [DONE]\n\n"));
+  enqueueObservedSse(controller, "data: [DONE]\n\n", options, "protocol");
   return streamSummary(state.finalFinishReason, state.finalUsage);
 }
 
@@ -428,7 +388,7 @@ export async function writeStreamEvents(
   batch: ReturnType<typeof normalizeOpenAICompletionRequest>,
   request: ReturnType<typeof normalizeOpenAICompletionRequest>["requests"][number],
   options: StreamControlOptions,
-): Promise<{ finishReason: NormalizedFinishReason; usage?: GenerationUsage }> {
+): Promise<StreamSummary> {
   const state: CompletionStreamState = {
     stopFilter: createStopSequenceFilter(request.sampling.stop),
     finalUsage: undefined,
@@ -436,7 +396,7 @@ export async function writeStreamEvents(
     sentTerminalChunk: false,
   };
   const iterator = toAsyncIterator(stream);
-  enqueueSseComment(controller, "mlxts-serve stream started");
+  enqueueObservedSse(controller, ": mlxts-serve stream started\n\n", options, "protocol");
   await yieldToHttpWriter();
   while (true) {
     const next = await withSseHeartbeat(controller, () =>
@@ -467,7 +427,7 @@ export async function writeChatStreamEvents(
   stream: AsyncIterable<GenerationStreamEvent> | AsyncIterator<GenerationStreamEvent>,
   chat: ReturnType<typeof normalizeOpenAIChatCompletionRequest>,
   options: StreamControlOptions,
-): Promise<{ finishReason: NormalizedFinishReason; usage?: GenerationUsage }> {
+): Promise<StreamSummary> {
   const state: ChatStreamState = {
     reasoning: createOpenAIChatCompletionReasoningStream(),
     toolCalls: createOpenAIChatCompletionToolCallStream(hasStreamingToolOutput(chat)),
@@ -478,7 +438,7 @@ export async function writeChatStreamEvents(
     stoppedByStopSequence: false,
     emittedToolCall: false,
   };
-  emitChatStreamChunk(controller, chat, {}, { ...options, includeRole: true });
+  emitChatStreamChunk(controller, chat, {}, { ...options, includeRole: true }, "protocol");
 
   const iterator = toAsyncIterator(stream);
   while (true) {

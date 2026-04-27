@@ -166,6 +166,10 @@ export function formatServeEvent(event: ServeEvent): string {
       return `[generation] ${event.id} progress prompt_tokens=${event.promptTokens} completion_tokens=${event.completionTokens}/${event.maxTokens}${formatMemoryUsage(event.memory)}`;
     case "generation_prefill_progress":
       return `[generation] ${event.id} prefill prompt_tokens=${event.promptTokens} prefill_tokens=${event.processedPrefillTokens}/${event.totalPrefillTokens} chunk_tokens=${event.chunkTokens}${formatMemoryUsage(event.memory)}`;
+    case "generation_stream_chunk":
+      return `[stream] ${event.id} chunk=${event.chunkIndex} bytes=${event.bytes} at=${formatDuration(event.elapsedMs)}`;
+    case "generation_stream_end":
+      return `[stream] ${event.id} ${event.result} reason=${event.finishReason} chunks=${event.chunks} output_chunks=${event.outputChunks} bytes=${event.bytes} output_bytes=${event.outputBytes}${event.ttftMs === undefined ? "" : ` ttft=${formatDuration(event.ttftMs)}`} in ${formatDuration(event.durationMs)}`;
     case "generation_batch_start":
       return `[batch] ${event.mode} model=${event.model} size=${event.batchSize} max_tokens=${event.maxTokens} per_request=${event.maxTokensByRequest.join(",")} ids=${event.ids.join(",")} started`;
     case "generation_scheduler_phase":
@@ -186,9 +190,12 @@ export function shouldLogServeEvent(event: ServeEvent, verbose: boolean): boolea
     case "generation_model_lane_wait":
     case "generation_progress":
     case "generation_prefill_progress":
+    case "generation_stream_end":
     case "generation_batch_start":
     case "generation_scheduler_phase":
       return true;
+    case "generation_stream_chunk":
+      return verbose;
     case "generation_admission_batch":
     case "generation_complete":
     case "generation_error":

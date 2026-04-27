@@ -11,18 +11,24 @@ import {
 } from "./protocols/openai-responses";
 import { withSseHeartbeat } from "./server-sse-heartbeat";
 import { createStopSequenceFilter } from "./server-stop-filter";
+import {
+  enqueueObservedSse,
+  readStreamEvent,
+  type StreamControlOptions,
+  type StreamObserver,
+  type StreamObserverChunkKind,
+  type StreamSummary,
+  streamSummary,
+  streamWasCancelled,
+  toAsyncIterator,
+  yieldToHttpWriter,
+} from "./server-stream-runtime";
 import type {
   GenerationStreamEvent,
   GenerationUsage,
   NormalizedFinishReason,
   NormalizedGenerationResult,
 } from "./types";
-
-type StreamControlOptions = {
-  id: string;
-  created: number;
-  signal?: AbortSignal;
-};
 
 type OutputState = {
   id: string;
@@ -41,22 +47,26 @@ type ResponseStreamState = {
   stoppedByStopSequence: boolean;
   messageItem?: OutputState;
   reasoningItem?: OutputState;
+  observer?: StreamObserver;
 };
 
-function encodeSse(payload: string): Uint8Array {
-  return new TextEncoder().encode(payload);
+function observerOptions(state: ResponseStreamState): { observer: StreamObserver } | undefined {
+  return state.observer === undefined ? undefined : { observer: state.observer };
 }
 
 function enqueueSseEvent(
   controller: ReadableStreamDefaultController<Uint8Array>,
+  state: ResponseStreamState,
   event: string,
   data: unknown,
+  kind: StreamObserverChunkKind,
 ): void {
-  controller.enqueue(encodeSse(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`));
-}
-
-async function yieldToHttpWriter(): Promise<void> {
-  await new Promise<void>((resolve) => setTimeout(resolve, 0));
+  enqueueObservedSse(
+    controller,
+    `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`,
+    observerOptions(state),
+    kind,
+  );
 }
 
 function emitResponseEvent(
@@ -64,10 +74,11 @@ function emitResponseEvent(
   state: ResponseStreamState,
   event: string,
   payload: Record<string, unknown>,
+  kind: StreamObserverChunkKind = "protocol",
 ): void {
   const data = { type: event, ...payload, sequence_number: state.sequenceNumber };
   state.sequenceNumber += 1;
-  enqueueSseEvent(controller, event, data);
+  enqueueSseEvent(controller, state, event, data, kind);
 }
 
 function ensureReasoningItem(
@@ -135,12 +146,18 @@ function emitReasoningDelta(
   }
   const item = ensureReasoningItem(controller, state, options);
   state.reasoningText += text;
-  emitResponseEvent(controller, state, "response.reasoning_text.delta", {
-    item_id: item.id,
-    output_index: item.outputIndex,
-    content_index: 0,
-    delta: text,
-  });
+  emitResponseEvent(
+    controller,
+    state,
+    "response.reasoning_text.delta",
+    {
+      item_id: item.id,
+      output_index: item.outputIndex,
+      content_index: 0,
+      delta: text,
+    },
+    "output",
+  );
 }
 
 function emitTextDelta(
@@ -154,12 +171,18 @@ function emitTextDelta(
   }
   const item = ensureMessageItem(controller, state, options);
   state.visibleText += text;
-  emitResponseEvent(controller, state, "response.output_text.delta", {
-    item_id: item.id,
-    output_index: item.outputIndex,
-    content_index: 0,
-    delta: text,
-  });
+  emitResponseEvent(
+    controller,
+    state,
+    "response.output_text.delta",
+    {
+      item_id: item.id,
+      output_index: item.outputIndex,
+      content_index: 0,
+      delta: text,
+    },
+    "output",
+  );
 }
 
 function processDelta(
@@ -273,22 +296,11 @@ function emitMessageDone(
   });
 }
 
-function streamWasCancelled(signal: AbortSignal | undefined): boolean {
-  return signal?.aborted ?? false;
-}
-
 function markCancelled(
   finishReason: NormalizedFinishReason,
   signal: AbortSignal | undefined,
 ): NormalizedFinishReason {
   return streamWasCancelled(signal) ? "cancelled" : finishReason;
-}
-
-function streamSummary(
-  finishReason: NormalizedFinishReason,
-  usage: GenerationUsage | undefined,
-): { finishReason: NormalizedFinishReason; usage?: GenerationUsage } {
-  return usage === undefined ? { finishReason } : { finishReason, usage };
 }
 
 function finalResult(state: ResponseStreamState): NormalizedGenerationResult {
@@ -311,7 +323,7 @@ function finalizeResponseStream(
   state: ResponseStreamState,
   response: NormalizedOpenAIResponse,
   options: StreamControlOptions,
-): { finishReason: NormalizedFinishReason; usage?: GenerationUsage } {
+): StreamSummary {
   state.finalFinishReason = markCancelled(state.finalFinishReason, options.signal);
   if (streamWasCancelled(options.signal)) {
     return streamSummary(state.finalFinishReason, state.finalUsage);
@@ -325,38 +337,8 @@ function finalizeResponseStream(
   emitResponseEvent(controller, state, terminalType, {
     response: formatOpenAIResponse(response, finalResult(state), options),
   });
-  controller.enqueue(encodeSse("data: [DONE]\n\n"));
+  enqueueObservedSse(controller, "data: [DONE]\n\n", observerOptions(state), "protocol");
   return streamSummary(state.finalFinishReason, state.finalUsage);
-}
-
-function toAsyncIterator(
-  stream: AsyncIterable<GenerationStreamEvent> | AsyncIterator<GenerationStreamEvent>,
-): AsyncIterator<GenerationStreamEvent> {
-  return Symbol.asyncIterator in stream ? stream[Symbol.asyncIterator]() : stream;
-}
-
-type StreamReadResult =
-  | { type: "finished" }
-  | { type: "cancelled" }
-  | { type: "event"; event: GenerationStreamEvent };
-
-async function readStreamEvent(
-  iterator: AsyncIterator<GenerationStreamEvent>,
-  signal: AbortSignal | undefined,
-): Promise<StreamReadResult> {
-  if (streamWasCancelled(signal)) {
-    await iterator.return?.();
-    return { type: "cancelled" };
-  }
-  const next = await iterator.next();
-  if (next.done) {
-    return { type: "finished" };
-  }
-  if (streamWasCancelled(signal)) {
-    await iterator.return?.();
-    return { type: "cancelled" };
-  }
-  return { type: "event", event: next.value };
 }
 
 function handleStreamEvent(
@@ -380,7 +362,7 @@ export async function writeOpenAIResponseStreamEvents(
   stream: AsyncIterable<GenerationStreamEvent> | AsyncIterator<GenerationStreamEvent>,
   response: NormalizedOpenAIResponse,
   options: StreamControlOptions,
-): Promise<{ finishReason: NormalizedFinishReason; usage?: GenerationUsage }> {
+): Promise<StreamSummary> {
   const state: ResponseStreamState = {
     reasoningParser: createOpenAIChatCompletionReasoningStream(),
     stopFilter: createStopSequenceFilter(response.request.sampling.stop),
@@ -392,6 +374,9 @@ export async function writeOpenAIResponseStreamEvents(
     finalFinishReason: "stop",
     stoppedByStopSequence: false,
   };
+  if (options.observer !== undefined) {
+    state.observer = options.observer;
+  }
   const pending = formatOpenAIResponsePending(response, options);
   emitResponseEvent(controller, state, "response.created", { response: pending });
   emitResponseEvent(controller, state, "response.in_progress", { response: pending });

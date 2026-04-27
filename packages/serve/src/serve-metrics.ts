@@ -4,6 +4,7 @@
  */
 
 import { HistogramMetric, metricKey, NumberMetric } from "./serve-metrics-registry";
+import { ServeStreamMetrics } from "./serve-stream-metrics";
 import type { GenerationMemoryUsage, GenerationProtocol, ServeEvent } from "./types";
 
 export const SERVE_METRICS_CONTENT_TYPE = "text/plain; version=0.0.4; charset=utf-8";
@@ -219,6 +220,7 @@ export class ServeMetrics {
     },
     WAIT_DURATION_BUCKETS,
   );
+  readonly #streamMetrics = new ServeStreamMetrics();
 
   constructor(options: ServeMetricsOptions = {}) {
     this.#knownModelIds =
@@ -266,6 +268,11 @@ export class ServeMetrics {
       case "generation_prefill_progress":
         this.#prefillTokens.add([this.#modelLabel(event.model), event.protocol], event.chunkTokens);
         this.#recordMemory(this.#modelLabel(event.model), event.memory);
+        break;
+      case "generation_stream_chunk":
+        break;
+      case "generation_stream_end":
+        this.#streamMetrics.recordEnd(this.#modelLabel(event.model), event);
         break;
       case "generation_batch_start":
         this.#recordBatch(event.model, event.mode, event.batchSize);
@@ -319,7 +326,9 @@ export class ServeMetrics {
       this.#modelLaneRequests,
       this.#modelLaneWaitDurations,
     ];
-    return `${metrics.flatMap((metric) => metric.format()).join("\n")}\n`;
+    const lines = metrics.flatMap((metric) => metric.format());
+    lines.push(...this.#streamMetrics.format());
+    return `${lines.join("\n")}\n`;
   }
 
   #modelLabel(model: string): string {

@@ -68,6 +68,20 @@ describe("serve metrics", () => {
       durationMs: 40,
     });
     metrics.record({
+      type: "generation_stream_end",
+      id: "cmpl-1",
+      protocol: "openai.completions",
+      model: "known",
+      result: "completed",
+      finishReason: "stop",
+      chunks: 4,
+      bytes: 512,
+      outputChunks: 2,
+      outputBytes: 64,
+      ttftMs: 11,
+      durationMs: 40,
+    });
+    metrics.record({
       type: "generation_model_lane_wait",
       id: "cmpl-1",
       protocol: "openai.completions",
@@ -97,6 +111,15 @@ describe("serve metrics", () => {
     );
     expect(text).toContain(
       'mlxts_serve_generation_prefill_tokens_total{model="known",protocol="openai.completions"} 5',
+    );
+    expect(text).toContain(
+      'mlxts_serve_generation_streams_total{model="known",protocol="openai.completions",result="completed",finish_reason="stop"} 1',
+    );
+    expect(text).toContain(
+      'mlxts_serve_generation_stream_chunks_total{model="known",protocol="openai.completions",kind="output"} 2',
+    );
+    expect(text).toContain(
+      'mlxts_serve_generation_stream_bytes_total{model="known",protocol="openai.completions",kind="sse"} 512',
     );
     expect(text).toContain('mlxts_serve_memory_bytes{model="known",kind="active"} 1');
     expect(text).toContain(

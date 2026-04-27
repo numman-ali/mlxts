@@ -83,9 +83,12 @@ served model ids collapse to `__unknown__` when the model list is known, and
 request ids/prompts/errors are not labels. The surface currently covers HTTP
 request counts/latency/in-flight gauges, generation starts/completions/errors,
 token totals and histograms, route decisions, model-lane waits, scheduler
-phases, batch sizes, prefill chunks, and latest MLX allocator memory gauges.
-Scraping `/metrics` is excluded from HTTP counters so Prometheus polling does
-not dominate local operator signals.
+phases, batch sizes, prefill chunks, stream terminal results, server-side TTFT,
+SSE frame/byte counts, output frame counts, and latest MLX allocator memory
+gauges. Stream TTFT is measured inside the server from generation start to the
+first output-bearing SSE frame; benchmark TTFT remains client-observed and is
+kept separate. Scraping `/metrics` is excluded from HTTP counters so Prometheus
+polling does not dominate local operator signals.
 
 Generation start, admission micro-batch, static batch start, completion, and
 errors are logged by default so native generation failures leave a useful last

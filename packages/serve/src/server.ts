@@ -36,18 +36,15 @@ import {
   serveInfoResponse,
 } from "./server-info";
 import { openAIResponsesRouteResponse } from "./server-responses";
+import { completeGenerationStream, failGenerationStream } from "./server-stream-lifecycle";
+import { createGenerationStreamObserver } from "./server-stream-observability";
 import {
   closeStreamEvents,
   sseHeaders,
   writeChatStreamEvents,
   writeStreamEvents,
 } from "./server-streaming";
-import type {
-  GenerationEngine,
-  GenerationStreamEvent,
-  NormalizedGenerationResult,
-  ServeEvent,
-} from "./types";
+import type { GenerationEngine, GenerationStreamEvent, ServeEvent } from "./types";
 
 export type ServeAppOptions = {
   engine: GenerationEngine;
@@ -113,7 +110,11 @@ function authorize(request: Request, apiKey: string | undefined): void {
   }
 }
 
-async function completionResponse(request: Request, options: ServeAppOptions): Promise<Response> {
+async function completionResponse(
+  request: Request,
+  options: ServeAppOptions,
+  requestStartedAt: number,
+): Promise<Response> {
   const id = options.idGenerator?.() ?? defaultId();
   const created = unixSeconds(options.now?.() ?? new Date());
   const batch = normalizeOpenAICompletionRequest(await readJson(request), { id });
@@ -141,6 +142,7 @@ async function completionResponse(request: Request, options: ServeAppOptions): P
     const normalized = withAbortSignal(normalizedBase, streamAbort.signal);
     const startedAt = performance.now();
     emitGenerationStart(options, normalized);
+    const streamObserver = createGenerationStreamObserver(options, normalized, startedAt);
     let stream: AsyncIterable<GenerationStreamEvent>;
     try {
       stream = await options.engine.stream(normalized);
@@ -158,40 +160,40 @@ async function completionResponse(request: Request, options: ServeAppOptions): P
             id,
             created,
             signal: streamAbort.signal,
+            observer: streamObserver,
           }).then(
             (summary) => {
-              streamAbort.dispose();
-              const result: NormalizedGenerationResult = {
-                text: "",
-                finishReason: summary.finishReason,
-                ...(summary.usage === undefined ? {} : { usage: summary.usage }),
-              };
-              emitGenerationComplete(options, normalized, result, performance.now() - startedAt);
-              if (summary.finishReason === "cancelled") {
-                emitRequestError(
+              completeGenerationStream(
+                {
                   options,
                   request,
-                  {
-                    message: "Client disconnected during streaming completion output.",
-                    code: "client_cancelled",
-                    status: 499,
-                  },
-                  startedAt,
-                );
-              } else {
-                emitRequestComplete(options, request, 200, startedAt);
-              }
-              if (!cancelled) {
-                controller.close();
-              }
+                  generationRequest: normalized,
+                  abortScope: streamAbort,
+                  observer: streamObserver,
+                  generationStartedAt: startedAt,
+                  requestStartedAt,
+                  controller,
+                  isCancelled: () => cancelled,
+                },
+                summary,
+                "Client disconnected during streaming completion output.",
+              );
             },
             (error: unknown) => {
-              streamAbort.dispose();
-              emitGenerationError(options, normalized, error, performance.now() - startedAt);
-              emitRequestError(options, request, serveErrorDetails(error), startedAt);
-              if (!cancelled) {
-                controller.error(error);
-              }
+              failGenerationStream(
+                {
+                  options,
+                  request,
+                  generationRequest: normalized,
+                  abortScope: streamAbort,
+                  observer: streamObserver,
+                  generationStartedAt: startedAt,
+                  requestStartedAt,
+                  controller,
+                  isCancelled: () => cancelled,
+                },
+                error,
+              );
             },
           );
         },
@@ -220,6 +222,7 @@ async function completionResponse(request: Request, options: ServeAppOptions): P
 async function chatCompletionResponse(
   request: Request,
   options: ServeAppOptions,
+  requestStartedAt: number,
 ): Promise<Response> {
   const id = options.idGenerator?.() ?? defaultId();
   const created = unixSeconds(options.now?.() ?? new Date());
@@ -236,6 +239,7 @@ async function chatCompletionResponse(
     const chatRequest = withAbortSignal(chat.request, streamAbort.signal);
     const startedAt = performance.now();
     emitGenerationStart(options, chatRequest);
+    const streamObserver = createGenerationStreamObserver(options, chatRequest, startedAt);
     let stream: AsyncIterable<GenerationStreamEvent>;
     try {
       stream = await options.engine.stream(chatRequest);
@@ -253,40 +257,40 @@ async function chatCompletionResponse(
             id,
             created,
             signal: streamAbort.signal,
+            observer: streamObserver,
           }).then(
             (summary) => {
-              streamAbort.dispose();
-              const result: NormalizedGenerationResult = {
-                text: "",
-                finishReason: summary.finishReason,
-                ...(summary.usage === undefined ? {} : { usage: summary.usage }),
-              };
-              emitGenerationComplete(options, chatRequest, result, performance.now() - startedAt);
-              if (summary.finishReason === "cancelled") {
-                emitRequestError(
+              completeGenerationStream(
+                {
                   options,
                   request,
-                  {
-                    message: "Client disconnected during streaming chat output.",
-                    code: "client_cancelled",
-                    status: 499,
-                  },
-                  startedAt,
-                );
-              } else {
-                emitRequestComplete(options, request, 200, startedAt);
-              }
-              if (!cancelled) {
-                controller.close();
-              }
+                  generationRequest: chatRequest,
+                  abortScope: streamAbort,
+                  observer: streamObserver,
+                  generationStartedAt: startedAt,
+                  requestStartedAt,
+                  controller,
+                  isCancelled: () => cancelled,
+                },
+                summary,
+                "Client disconnected during streaming chat output.",
+              );
             },
             (error: unknown) => {
-              streamAbort.dispose();
-              emitGenerationError(options, chatRequest, error, performance.now() - startedAt);
-              emitRequestError(options, request, serveErrorDetails(error), startedAt);
-              if (!cancelled) {
-                controller.error(error);
-              }
+              failGenerationStream(
+                {
+                  options,
+                  request,
+                  generationRequest: chatRequest,
+                  abortScope: streamAbort,
+                  observer: streamObserver,
+                  generationStartedAt: startedAt,
+                  requestStartedAt,
+                  controller,
+                  isCancelled: () => cancelled,
+                },
+                error,
+              );
             },
           );
         },
@@ -332,11 +336,11 @@ async function openAIRouteResponse(
   }
 
   if (request.method === "POST" && pathname === "/v1/completions") {
-    return await completionResponse(request, options);
+    return await completionResponse(request, options, startedAt);
   }
 
   if (request.method === "POST" && pathname === "/v1/chat/completions") {
-    return await chatCompletionResponse(request, options);
+    return await chatCompletionResponse(request, options, startedAt);
   }
 
   if (request.method === "POST" && pathname === "/v1/responses") {
