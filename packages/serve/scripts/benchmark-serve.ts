@@ -14,9 +14,16 @@ import type { ServeEvent } from "../src/types";
 import { type RequestMetrics, runCompletionRequest } from "./benchmark-serve-completions";
 import {
   buildServeBenchmarkRungs,
+  formatServeBenchmarkRung,
+  maxGenerationTokensForRung,
+  maxPromptTokensForRung,
+  maxTotalTokensForRung,
   parseServeBenchmarkArgs,
   requestLaunchDelayMs,
+  requestShapesForRung,
+  rungConcurrency,
   type ServeBenchmarkOptions,
+  type ServeBenchmarkRequestShape,
   type ServeBenchmarkRung,
 } from "./benchmark-serve-options";
 import { createBenchmarkPrompt } from "./benchmark-serve-prompts";
@@ -164,6 +171,11 @@ export type BenchmarkReport = {
 
 export type RecordedServeEvent = ServeEvent & {
   observedAtMs: number;
+};
+
+type PreparedBenchmarkRequest = {
+  shape: ServeBenchmarkRequestShape;
+  prompt: { tokenIds: readonly number[]; text: string };
 };
 
 function mean(values: readonly number[]): number {
@@ -577,14 +589,33 @@ function sum(values: readonly number[]): number {
 }
 
 function arrivalSpanMs(rung: ServeBenchmarkRung, options: ServeBenchmarkOptions): number {
-  return requestLaunchDelayMs(rung.concurrency - 1, options.requestStaggerMs);
+  return requestLaunchDelayMs(rungConcurrency(rung) - 1, options.requestStaggerMs);
+}
+
+function requestRung(shape: ServeBenchmarkRequestShape): ServeBenchmarkRung {
+  return { ...shape, concurrency: 1 };
+}
+
+function uniquePreparedRequests(
+  requests: readonly PreparedBenchmarkRequest[],
+): PreparedBenchmarkRequest[] {
+  const seen = new Set<string>();
+  const unique: PreparedBenchmarkRequest[] = [];
+  for (const request of requests) {
+    const key = `${request.shape.promptTokens}x${request.shape.generationTokens}`;
+    if (seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    unique.push(request);
+  }
+  return unique;
 }
 
 async function runTrial(
   endpoint: string,
   modelId: string,
-  prompt: { tokenIds: readonly number[]; text: string },
-  rung: ServeBenchmarkRung,
+  preparedRequests: readonly PreparedBenchmarkRequest[],
   options: ServeBenchmarkOptions,
   serveEvents: readonly RecordedServeEvent[],
 ): Promise<TrialMetrics> {
@@ -593,12 +624,18 @@ async function runTrial(
   const memoryBefore = getMemoryStats();
   const eventStart = serveEvents.length;
   const started = performance.now();
-  const requests = Array.from({ length: rung.concurrency }, async (_, requestIndex) => {
+  const requests = preparedRequests.map(async (prepared, requestIndex) => {
     const delayMs = requestLaunchDelayMs(requestIndex, options.requestStaggerMs);
     if (delayMs > 0) {
       await Bun.sleep(delayMs);
     }
-    const metrics = await runCompletionRequest(endpoint, modelId, prompt, rung, options);
+    const metrics = await runCompletionRequest(
+      endpoint,
+      modelId,
+      prepared.prompt,
+      requestRung(prepared.shape),
+      options,
+    );
     return {
       index: requestIndex,
       launchDelayMs: delayMs,
@@ -625,7 +662,7 @@ async function runTrial(
 
   return {
     wallMs,
-    requestTps: rung.concurrency / wallSeconds,
+    requestTps: preparedRequests.length / wallSeconds,
     completionTps: completionTokens / wallSeconds,
     totalTps: totalTokens / wallSeconds,
     meanTtftMs: meanPresent(results.map((result) => result.ttftMs)),
@@ -756,10 +793,6 @@ function printMetrics(prefix: string, metrics: TrialMetrics): void {
   );
 }
 
-function formatRung(rung: ServeBenchmarkRung): string {
-  return `${rung.promptTokens}x${rung.generationTokens}@${rung.concurrency}`;
-}
-
 export async function writeBenchmarkReport(path: string, report: BenchmarkReport): Promise<void> {
   mkdirSync(dirname(path), { recursive: true });
   await Bun.write(path, `${JSON.stringify(report, null, 2)}\n`);
@@ -774,17 +807,19 @@ async function benchmarkRung(
   options: ServeBenchmarkOptions,
   serveEvents: readonly RecordedServeEvent[],
 ): Promise<RungReport> {
-  const prompt = createBenchmarkPrompt(
-    rung.promptTokens,
-    modelVocabSize,
-    tokenizer,
-    options.protocolMode,
-  );
+  const preparedRequests = requestShapesForRung(rung).map((shape) => ({
+    shape,
+    prompt: createBenchmarkPrompt(
+      shape.promptTokens,
+      modelVocabSize,
+      tokenizer,
+      options.protocolMode,
+    ),
+  }));
   console.log(
     [
-      `rung prompt_tokens=${rung.promptTokens}`,
-      `generation_tokens=${rung.generationTokens}`,
-      `concurrency=${rung.concurrency}`,
+      `rung=${formatServeBenchmarkRung(rung)}`,
+      `concurrency=${rungConcurrency(rung)}`,
       `sampling=${options.samplingMode}`,
       `transport=${options.transportMode}`,
       `protocol=${options.protocolMode}`,
@@ -794,13 +829,21 @@ async function benchmarkRung(
   );
 
   if (options.warmup) {
-    await runCompletionRequest(endpoint, modelId, prompt, rung, options);
+    for (const prepared of uniquePreparedRequests(preparedRequests)) {
+      await runCompletionRequest(
+        endpoint,
+        modelId,
+        prepared.prompt,
+        requestRung(prepared.shape),
+        options,
+      );
+    }
     clearMemoryCache();
   }
 
   const trials: TrialMetrics[] = [];
   for (let index = 0; index < options.trials; index += 1) {
-    const metrics = await runTrial(endpoint, modelId, prompt, rung, options, serveEvents);
+    const metrics = await runTrial(endpoint, modelId, preparedRequests, options, serveEvents);
     trials.push(metrics);
     printMetrics(`Trial ${index + 1}:  `, metrics);
     clearMemoryCache();
@@ -826,7 +869,7 @@ async function main(): Promise<void> {
   console.log(`Benchmarking serve completions for ${snapshotPath}`);
   console.log(
     [
-      `rungs=${rungs.map(formatRung).join(",")}`,
+      `rungs=${rungs.map(formatServeBenchmarkRung).join(",")}`,
       `matrix=${options.matrix}`,
       `transport=${options.transportMode}`,
       `protocol=${options.protocolMode}`,
@@ -855,11 +898,9 @@ async function main(): Promise<void> {
     interactionProfile,
     modelId: options.modelId,
     port: options.port,
-    maxGeneratedTokens: maximum(rungs.map((rung) => rung.generationTokens)),
-    maxPromptTokens: options.maxPromptTokens ?? maximum(rungs.map((rung) => rung.promptTokens)),
-    maxTotalTokens:
-      options.maxTotalTokens ??
-      maximum(rungs.map((rung) => rung.promptTokens + rung.generationTokens)),
+    maxGeneratedTokens: maximum(rungs.map(maxGenerationTokensForRung)),
+    maxPromptTokens: options.maxPromptTokens ?? maximum(rungs.map(maxPromptTokensForRung)),
+    maxTotalTokens: options.maxTotalTokens ?? maximum(rungs.map(maxTotalTokensForRung)),
     maxBatchSize: options.maxBatchSize,
     batchWindowMs: options.batchWindowMs,
     streamDecodeInterval: options.streamDecodeInterval,

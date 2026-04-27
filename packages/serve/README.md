@@ -266,6 +266,11 @@ responsiveness and lower tokenizer overhead.
 Pass `--request-stagger-ms <n>` to launch concurrent requests at deliberate
 offsets rather than all at once. That is the benchmark shape for testing
 waiting-row scheduler fairness instead of only admission-window coalescing.
+Use `--mixed-rungs` when each concurrent request should have a different shape,
+for example `32768x128+128x32` to launch a long-prefill request followed by a
+short request in the same trial. This is the preferred evidence shape for
+long-prefill plus short-arrival fairness because plain `--rungs ...@2` repeats
+the same prompt/output shape for every request.
 For huge prompt rungs, prefer streaming: the server sends SSE keepalive comments
 and uses cooperative streaming prefill so long prefill phases do not leave the
 client connection silent until the first generated token.
@@ -276,11 +281,12 @@ hour so long-context prefill does not get mislabeled as a model failure.
 Use comma lists with the default cartesian matrix for broad serving sweeps,
 `--matrix zip` for paired prompt/output rungs, or `--rungs` for a deliberate
 capability ladder such as `128x128@1,1024x512@1,10000x128@2`. Add
-`--report-json <path>` for overnight evidence that can be compared later. The
-batch row counters are important: eligible Qwen and Gemma 3/4 requests now
-report continuous scheduler admissions for both buffered and streaming
-completions, including sampled/model-native-default requests. Endpoint benchmark
-output should be used to separate real batch execution from admission coalescing.
+`--mixed-rungs` for heterogeneous concurrent trials and `--report-json <path>`
+for overnight evidence that can be compared later. The batch row counters are
+important: eligible Qwen and Gemma 3/4 requests now report continuous scheduler
+admissions for both buffered and streaming completions, including
+sampled/model-native-default requests. Endpoint benchmark output should be used
+to separate real batch execution from admission coalescing.
 This harness measures completions serving over token-array prompts; use `--protocol chat` or
 `--protocol responses` when the thing under test is the wire adapter and
 chat-template path. Completions remains the exact-token throughput mode; chat
@@ -307,7 +313,8 @@ bun run packages/serve/scripts/regression-serve-matrix.ts --real-models
 ```
 
 For heavier local proof work, add `--capability-smoke`; it includes longer Qwen
-output/context endpoint rungs and writes JSON reports under
+output/context endpoint rungs, mixed long-prefill plus short-arrival streaming
+rungs for Qwen/Gemma, and writes JSON reports under
 `.tmp/serve-regression/`. These commands are lock-guarded and intentionally
 sequential. The real smoke asserts Qwen/Gemma route reasons, server-request
 evidence, client-observed streaming responsiveness, server-side stream writer

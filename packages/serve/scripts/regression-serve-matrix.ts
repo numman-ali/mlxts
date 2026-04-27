@@ -4,6 +4,11 @@ import { existsSync, mkdirSync, readFileSync } from "fs";
 import { join } from "path";
 import { acquireRuntimeCommandLock } from "../../../scripts/runtime-command-lock";
 import type { BenchmarkReport, TrialMetrics } from "./benchmark-serve";
+import {
+  expectedCompletionTokensForRung,
+  formatServeBenchmarkRung,
+  rungConcurrency,
+} from "./benchmark-serve-options";
 
 type CliOptions = {
   realModels: boolean;
@@ -52,7 +57,8 @@ type ServeRegressionSpec = {
   label: string;
   model: string;
   modelId: string;
-  rungs: string;
+  rungs?: string;
+  mixedRungs?: string;
   stream: boolean;
   ignoreEos: boolean;
   greedy?: boolean;
@@ -253,11 +259,9 @@ function memoryFailures(metrics: TrialMetrics, budget: ServeRegressionBudget): s
 
 function tokenFailures(
   metrics: TrialMetrics,
-  generationTokens: number,
-  concurrency: number,
+  expectedCompletionTokens: number,
   budget: ServeRegressionBudget,
 ): string[] {
-  const expectedCompletionTokens = generationTokens * concurrency;
   const minCompletionTokens = expectedCompletionTokens * budget.minCompletionTokenRatio;
   return metrics.completionTokens < minCompletionTokens
     ? [
@@ -553,24 +557,22 @@ export function assertServeReportBudget(
 ): void {
   for (const rungReport of report.rungs) {
     const { rung, averages } = rungReport;
+    const rungLabel = formatServeBenchmarkRung(rung);
+    const concurrency = rungConcurrency(rung);
     const failures = [
       ...throughputFailures(averages, budget),
       ...memoryFailures(averages, budget),
-      ...tokenFailures(averages, rung.generationTokens, rung.concurrency, budget),
-      ...streamFailures(averages, rung.concurrency, budget),
+      ...tokenFailures(averages, expectedCompletionTokensForRung(rung), budget),
+      ...streamFailures(averages, concurrency, budget),
       ...routeFailures(averages, budget),
       ...evidenceFailures(averages, budget),
       ...batchCounterFailures(averages, budget),
       ...modelLaneWaitFailures(averages, budget),
     ];
 
-    assertFinishReasons(`${label} ${rung.promptTokens}x${rung.generationTokens}`, averages);
+    assertFinishReasons(`${label} ${rungLabel}`, averages);
     if (failures.length > 0) {
-      throw new Error(
-        `[serve-regression] ${label} ${rung.promptTokens}x${rung.generationTokens}@${
-          rung.concurrency
-        } failed: ${failures.join("; ")}.`,
-      );
+      throw new Error(`[serve-regression] ${label} ${rungLabel} failed: ${failures.join("; ")}.`);
     }
   }
 }
@@ -991,12 +993,96 @@ function capabilitySpecs(options: CliOptions): ServeRegressionSpec[] {
         minModelLaneWaitEvents: 0,
       },
     },
+    {
+      label: "qwen36-mixed-long-short-staggered-stream",
+      model: options.qwenModel,
+      modelId: "qwen-local",
+      mixedRungs: "32768x128+128x32",
+      stream: true,
+      ignoreEos: true,
+      requestStaggerMs: 100,
+      budget: {
+        minCompletionTps: 0.1,
+        minPostTtftCompletionTps: 12,
+        maxPeakMemoryGb: 33,
+        maxActiveDeltaGb: 1.5,
+        minCompletionTokenRatio: 0.98,
+        minStreamChunks: 2,
+        minStreamBytes: 1,
+        expectEveryRequestStreamed: true,
+        expectEveryRequestOutputStreamed: true,
+        expectEveryServerRequestStreamed: true,
+        expectEveryServerRequestOutputStreamed: true,
+        maxObservedStreamChunkGapMs: 2_000,
+        expectedRoute: "continuous",
+        expectedReason: "eligible",
+        minRouteDecisions: 2,
+        minServerRequests: 2,
+        expectedAdmissionBatches: 0,
+        expectedStaticBatches: 0,
+        minContinuousAdmissions: 2,
+        minContinuousAdmissionRows: 2,
+        minContinuousSchedulerPhases: 8,
+        expectedMaxGenerationBatchSize: 2,
+        expectSchedulerTokenPressure: true,
+        minModelLaneWaitEvents: 0,
+      },
+    },
+    {
+      label: "gemma4-mixed-long-short-staggered-stream",
+      model: options.gemma4Model,
+      modelId: "gemma-local",
+      mixedRungs: "5000x128+128x32",
+      stream: true,
+      ignoreEos: true,
+      requestStaggerMs: 100,
+      budget: {
+        minCompletionTps: 2,
+        minPostTtftCompletionTps: 20,
+        maxPeakMemoryGb: 14,
+        maxActiveDeltaGb: 1.5,
+        minCompletionTokenRatio: 0.98,
+        minStreamChunks: 2,
+        minStreamBytes: 1,
+        expectEveryRequestStreamed: true,
+        expectEveryRequestOutputStreamed: true,
+        expectEveryServerRequestStreamed: true,
+        expectEveryServerRequestOutputStreamed: true,
+        maxObservedStreamChunkGapMs: 1_500,
+        expectedRoute: "continuous",
+        expectedReason: "eligible",
+        minRouteDecisions: 2,
+        minServerRequests: 2,
+        expectedAdmissionBatches: 0,
+        expectedStaticBatches: 0,
+        minContinuousAdmissions: 2,
+        minContinuousAdmissionRows: 2,
+        minContinuousSchedulerPhases: 8,
+        expectedMaxGenerationBatchSize: 2,
+        expectSchedulerTokenPressure: true,
+        minModelLaneWaitEvents: 0,
+      },
+    },
   ];
+}
+
+function benchmarkRungArgs(spec: ServeRegressionSpec): [string, string] {
+  if (spec.rungs !== undefined && spec.mixedRungs !== undefined) {
+    throw new Error(`[serve-regression] ${spec.label} cannot set both rungs and mixedRungs.`);
+  }
+  if (spec.mixedRungs !== undefined) {
+    return ["--mixed-rungs", spec.mixedRungs];
+  }
+  if (spec.rungs !== undefined) {
+    return ["--rungs", spec.rungs];
+  }
+  throw new Error(`[serve-regression] ${spec.label} must set rungs or mixedRungs.`);
 }
 
 async function runServeBenchmark(spec: ServeRegressionSpec, options: CliOptions): Promise<void> {
   mkdirSync(options.reportDir, { recursive: true });
   const reportPath = join(options.reportDir, `${sanitizeLabel(spec.label)}.json`);
+  const [rungFlag, rungSpec] = benchmarkRungArgs(spec);
   const args = [
     "bun",
     "run",
@@ -1005,8 +1091,8 @@ async function runServeBenchmark(spec: ServeRegressionSpec, options: CliOptions)
     spec.model,
     "--model-id",
     spec.modelId,
-    "--rungs",
-    spec.rungs,
+    rungFlag,
+    rungSpec,
     "--trials",
     "1",
     "--report-json",

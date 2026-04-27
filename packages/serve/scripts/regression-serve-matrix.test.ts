@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
 import type { BenchmarkReport, TrialMetrics } from "./benchmark-serve";
+import type { ServeBenchmarkRung } from "./benchmark-serve-options";
 import {
   assertServeReportBudget,
   parseServeRegressionArgs,
@@ -137,7 +138,7 @@ function trial(overrides: Partial<TrialMetrics> = {}): TrialMetrics {
 
 function report(
   metrics: TrialMetrics = trial(),
-  rung: { promptTokens: number; generationTokens: number; concurrency: number } = {
+  rung: ServeBenchmarkRung = {
     promptTokens: 1024,
     generationTokens: 128,
     concurrency: 1,
@@ -461,6 +462,39 @@ describe("serve regression matrix", () => {
         continuousBudget,
       ),
     ).toThrow("scheduler token pressure");
+  });
+
+  test("budgets mixed rungs against per-request generation targets", () => {
+    const mixedRung: ServeBenchmarkRung = {
+      promptTokens: 32768,
+      generationTokens: 128,
+      concurrency: 2,
+      requestShapes: [
+        { promptTokens: 32768, generationTokens: 128 },
+        { promptTokens: 128, generationTokens: 32 },
+      ],
+    };
+    const mixedBudget: ServeRegressionBudget = {
+      minCompletionTps: 20,
+      maxPeakMemoryGb: 12,
+      maxActiveDeltaGb: 1,
+      minCompletionTokenRatio: 0.98,
+    };
+
+    expect(() =>
+      assertServeReportBudget(
+        "mixed",
+        report(trial({ completionTokens: 160, finishReasons: ["length", "length"] }), mixedRung),
+        mixedBudget,
+      ),
+    ).not.toThrow();
+    expect(() =>
+      assertServeReportBudget(
+        "mixed",
+        report(trial({ completionTokens: 128, finishReasons: ["length", "length"] }), mixedRung),
+        mixedBudget,
+      ),
+    ).toThrow("completion_tokens");
   });
 
   test("accepts concurrent streaming continuous reports with per-request SSE evidence", () => {

@@ -2,9 +2,17 @@ import { describe, expect, test } from "bun:test";
 
 import {
   buildServeBenchmarkRungs,
+  expectedCompletionTokensForRung,
+  formatServeBenchmarkRung,
+  maxGenerationTokensForRung,
+  maxPromptTokensForRung,
+  maxTotalTokensForRung,
   parsePositiveIntegerList,
   parseServeBenchmarkArgs,
+  parseServeBenchmarkMixedRungs,
   parseServeBenchmarkRungs,
+  requestShapesForRung,
+  rungConcurrency,
 } from "./benchmark-serve-options";
 
 describe("serve benchmark options", () => {
@@ -132,6 +140,55 @@ describe("serve benchmark options", () => {
     );
   });
 
+  test("parses mixed per-request benchmark rungs", () => {
+    const mixed = parseServeBenchmarkMixedRungs(
+      "--mixed-rungs",
+      "32768x128+128x32,5000x128+128x32",
+    );
+
+    expect(mixed).toEqual([
+      {
+        promptTokens: 32768,
+        generationTokens: 128,
+        concurrency: 2,
+        requestShapes: [
+          { promptTokens: 32768, generationTokens: 128 },
+          { promptTokens: 128, generationTokens: 32 },
+        ],
+      },
+      {
+        promptTokens: 5000,
+        generationTokens: 128,
+        concurrency: 2,
+        requestShapes: [
+          { promptTokens: 5000, generationTokens: 128 },
+          { promptTokens: 128, generationTokens: 32 },
+        ],
+      },
+    ]);
+
+    const first = mixed[0];
+    if (first === undefined) {
+      throw new Error("Expected mixed rung.");
+    }
+    expect(requestShapesForRung(first)).toEqual([
+      { promptTokens: 32768, generationTokens: 128 },
+      { promptTokens: 128, generationTokens: 32 },
+    ]);
+    expect(rungConcurrency(first)).toBe(2);
+    expect(expectedCompletionTokensForRung(first)).toBe(160);
+    expect(maxPromptTokensForRung(first)).toBe(32768);
+    expect(maxGenerationTokensForRung(first)).toBe(128);
+    expect(maxTotalTokensForRung(first)).toBe(32896);
+    expect(formatServeBenchmarkRung(first)).toBe("32768x128+128x32@2");
+    expect(() => parseServeBenchmarkMixedRungs("--mixed-rungs", "128x32")).toThrow(
+      "need at least two request shapes",
+    );
+    expect(() => parseServeBenchmarkMixedRungs("--mixed-rungs", "128/32+64x16")).toThrow(
+      "entries must look like 32768x128+128x32",
+    );
+  });
+
   test("builds cartesian and zip benchmark rungs", () => {
     const base = parseServeBenchmarkArgs([
       "model",
@@ -176,6 +233,19 @@ describe("serve benchmark options", () => {
       { promptTokens: 128, generationTokens: 128, concurrency: 1 },
       { promptTokens: 1024, generationTokens: 512, concurrency: 2 },
     ]);
+
+    const mixed = parseServeBenchmarkArgs(["model", "--mixed-rungs", "32768x128+128x32"]);
+    expect(buildServeBenchmarkRungs(mixed)).toEqual([
+      {
+        promptTokens: 32768,
+        generationTokens: 128,
+        concurrency: 2,
+        requestShapes: [
+          { promptTokens: 32768, generationTokens: 128 },
+          { promptTokens: 128, generationTokens: 32 },
+        ],
+      },
+    ]);
   });
 
   test("rejects malformed values before a benchmark starts", () => {
@@ -200,6 +270,9 @@ describe("serve benchmark options", () => {
     expect(() => parseServeBenchmarkArgs(["model", "--stream-decode-interval", "0"])).toThrow(
       "--stream-decode-interval expects a positive integer",
     );
+    expect(() =>
+      parseServeBenchmarkArgs(["model", "--rungs", "128x32", "--mixed-rungs", "128x32+64x16"]),
+    ).toThrow("use either --rungs or --mixed-rungs");
     expect(() =>
       buildServeBenchmarkRungs(
         parseServeBenchmarkArgs([

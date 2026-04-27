@@ -35,6 +35,12 @@ export type ServeBenchmarkRung = {
   promptTokens: number;
   generationTokens: number;
   concurrency: number;
+  requestShapes?: ServeBenchmarkRequestShape[];
+};
+
+export type ServeBenchmarkRequestShape = {
+  promptTokens: number;
+  generationTokens: number;
 };
 
 export function requestLaunchDelayMs(requestIndex: number, requestStaggerMs: number): number {
@@ -58,6 +64,7 @@ function usage(): never {
       "  --generation-tokens <list>      Comma-separated max_tokens targets, default 128",
       "  --concurrency <list>            Comma-separated parallel request counts, default 1",
       "  --rungs <spec>                  Explicit rungs like 128x128@1,1024x512@2",
+      "  --mixed-rungs <spec>            Per-request rungs like 32768x128+128x32",
       "  --request-stagger-ms <n>        Delay each request launch by index*n ms, default 0",
       "  --matrix <cartesian|zip>        Pair prompt/output rungs, default cartesian",
       "  --trials <n>                    Trials per rung, default 1",
@@ -134,6 +141,18 @@ function parseServeBenchmarkRung(flag: string, value: string): ServeBenchmarkRun
   };
 }
 
+function parseServeBenchmarkRequestShape(flag: string, value: string): ServeBenchmarkRequestShape {
+  const match = /^(\d+)x(\d+)$/.exec(value);
+  if (match === null) {
+    throw new Error(`benchmark-serve: ${flag} entries must look like 32768x128+128x32.`);
+  }
+  const [, promptTokensText, generationTokensText] = match;
+  return {
+    promptTokens: readPositiveInteger(flag, promptTokensText),
+    generationTokens: readPositiveInteger(flag, generationTokensText),
+  };
+}
+
 export function parseServeBenchmarkRungs(
   flag: string,
   value: string | undefined,
@@ -143,6 +162,30 @@ export function parseServeBenchmarkRungs(
     throw new Error(`benchmark-serve: ${flag} expects comma-separated rungs.`);
   }
   return requiredValue.split(",").map((entry) => parseServeBenchmarkRung(flag, entry.trim()));
+}
+
+export function parseServeBenchmarkMixedRungs(
+  flag: string,
+  value: string | undefined,
+): ServeBenchmarkRung[] {
+  const requiredValue = readRequiredValue(flag, value);
+  if (requiredValue.trim() === "") {
+    throw new Error(`benchmark-serve: ${flag} expects comma-separated mixed rungs.`);
+  }
+  return requiredValue.split(",").map((entry) => {
+    const requestShapes = entry
+      .split("+")
+      .map((shape) => parseServeBenchmarkRequestShape(flag, shape.trim()));
+    if (requestShapes.length < 2) {
+      throw new Error(`benchmark-serve: ${flag} mixed rungs need at least two request shapes.`);
+    }
+    return {
+      promptTokens: Math.max(...requestShapes.map((shape) => shape.promptTokens)),
+      generationTokens: Math.max(...requestShapes.map((shape) => shape.generationTokens)),
+      concurrency: requestShapes.length,
+      requestShapes,
+    };
+  });
 }
 
 function parseMatrixMode(value: string | undefined): MatrixMode {
@@ -169,6 +212,7 @@ type ParseState = {
   concurrency: number[];
   requestStaggerMs: number;
   rungs?: ServeBenchmarkRung[];
+  rungSource?: "--rungs" | "--mixed-rungs";
   reportJson?: string;
   trials: number;
   warmup: boolean;
@@ -225,6 +269,18 @@ function parseProtocolMode(value: string | undefined): ProtocolMode {
   throw new Error('benchmark-serve: --protocol must be "completions", "chat", or "responses".');
 }
 
+function setBenchmarkRungs(
+  state: ParseState,
+  flag: "--rungs" | "--mixed-rungs",
+  rungs: ServeBenchmarkRung[],
+): void {
+  if (state.rungSource !== undefined && state.rungSource !== flag) {
+    throw new Error("benchmark-serve: use either --rungs or --mixed-rungs, not both.");
+  }
+  state.rungSource = flag;
+  state.rungs = rungs;
+}
+
 function readBenchmarkValueArg(state: ParseState, arg: string, value: string | undefined): boolean {
   switch (arg) {
     case "--model":
@@ -246,7 +302,10 @@ function readBenchmarkValueArg(state: ParseState, arg: string, value: string | u
       state.requestStaggerMs = readNonNegativeInteger(arg, value);
       return true;
     case "--rungs":
-      state.rungs = parseServeBenchmarkRungs(arg, value);
+      setBenchmarkRungs(state, arg, parseServeBenchmarkRungs(arg, value));
+      return true;
+    case "--mixed-rungs":
+      setBenchmarkRungs(state, arg, parseServeBenchmarkMixedRungs(arg, value));
       return true;
     case "--trials":
       state.trials = readPositiveInteger(arg, value);
@@ -426,4 +485,49 @@ export function buildServeBenchmarkRungs(options: ServeBenchmarkOptions): ServeB
   return buildPromptOutputPairs(options).flatMap((pair) =>
     options.concurrency.map((concurrency) => ({ ...pair, concurrency })),
   );
+}
+
+export function requestShapesForRung(
+  rung: ServeBenchmarkRung,
+): readonly ServeBenchmarkRequestShape[] {
+  if (rung.requestShapes !== undefined) {
+    return rung.requestShapes;
+  }
+  return Array.from({ length: rung.concurrency }, () => ({
+    promptTokens: rung.promptTokens,
+    generationTokens: rung.generationTokens,
+  }));
+}
+
+export function rungConcurrency(rung: ServeBenchmarkRung): number {
+  return requestShapesForRung(rung).length;
+}
+
+export function expectedCompletionTokensForRung(rung: ServeBenchmarkRung): number {
+  return requestShapesForRung(rung).reduce((total, shape) => total + shape.generationTokens, 0);
+}
+
+export function maxPromptTokensForRung(rung: ServeBenchmarkRung): number {
+  return Math.max(...requestShapesForRung(rung).map((shape) => shape.promptTokens));
+}
+
+export function maxGenerationTokensForRung(rung: ServeBenchmarkRung): number {
+  return Math.max(...requestShapesForRung(rung).map((shape) => shape.generationTokens));
+}
+
+export function maxTotalTokensForRung(rung: ServeBenchmarkRung): number {
+  return Math.max(
+    ...requestShapesForRung(rung).map((shape) => shape.promptTokens + shape.generationTokens),
+  );
+}
+
+export function formatServeBenchmarkRung(rung: ServeBenchmarkRung): string {
+  const shapes = rung.requestShapes;
+  if (shapes === undefined) {
+    return `${rung.promptTokens}x${rung.generationTokens}@${rung.concurrency}`;
+  }
+  const shapeText = shapes
+    .map((shape) => `${shape.promptTokens}x${shape.generationTokens}`)
+    .join("+");
+  return `${shapeText}@${shapes.length}`;
 }
