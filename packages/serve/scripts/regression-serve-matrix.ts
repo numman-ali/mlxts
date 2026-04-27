@@ -24,6 +24,7 @@ export type ServeRegressionBudget = {
   minStreamChunks?: number;
   minStreamBytes?: number;
   expectEveryRequestStreamed?: boolean;
+  expectEveryServerRequestStreamed?: boolean;
   maxMeanTtftMs?: number;
   maxObservedStreamChunkGapMs?: number;
   expectedRoute?: string;
@@ -283,11 +284,31 @@ function perRequestStreamFailures(metrics: TrialMetrics, concurrency: number): s
   return failures;
 }
 
-function streamFailures(
-  metrics: TrialMetrics,
-  concurrency: number,
-  budget: ServeRegressionBudget,
-): string[] {
+function serverRequestStreamFailures(metrics: TrialMetrics, concurrency: number): string[] {
+  const failures: string[] = [];
+  if (metrics.serverRequests.length < concurrency) {
+    failures.push(`server_requests ${metrics.serverRequests.length} < concurrency ${concurrency}`);
+  }
+  const missingStreamEvidence = metrics.serverRequests.filter(
+    (request) =>
+      request.serverStreamChunkEvents <= 0 ||
+      request.serverStreamEndEvents !== 1 ||
+      (request.serverStreamOutputChunks ?? 0) <= 0 ||
+      (request.serverStreamOutputBytes ?? 0) <= 0 ||
+      request.serverStreamTtftMs === null ||
+      request.serverStreamDurationMs === null ||
+      request.serverStreamResult !== "completed" ||
+      (request.serverStreamFinishReason !== "length" &&
+        request.serverStreamFinishReason !== "stop"),
+  );
+  if (missingStreamEvidence.length > 0) {
+    const ids = missingStreamEvidence.map((request) => request.id);
+    failures.push(`server_requests missing server-side stream evidence: ${ids.join(",")}`);
+  }
+  return failures;
+}
+
+function aggregateStreamFailures(metrics: TrialMetrics, budget: ServeRegressionBudget): string[] {
   const failures: string[] = [];
   if (budget.minStreamChunks !== undefined && metrics.streamChunks < budget.minStreamChunks) {
     failures.push(
@@ -299,6 +320,11 @@ function streamFailures(
       `stream_bytes ${metrics.streamBytes.toFixed(0)} < ${budget.minStreamBytes.toFixed(0)}`,
     );
   }
+  return failures;
+}
+
+function streamTimingFailures(metrics: TrialMetrics, budget: ServeRegressionBudget): string[] {
+  const failures: string[] = [];
   if (budget.maxMeanTtftMs !== undefined) {
     const ttftMs = metrics.meanTtftMs;
     if (ttftMs === null || ttftMs > budget.maxMeanTtftMs) {
@@ -317,8 +343,23 @@ function streamFailures(
       );
     }
   }
+  return failures;
+}
+
+function streamFailures(
+  metrics: TrialMetrics,
+  concurrency: number,
+  budget: ServeRegressionBudget,
+): string[] {
+  const failures = [
+    ...aggregateStreamFailures(metrics, budget),
+    ...streamTimingFailures(metrics, budget),
+  ];
   if (budget.expectEveryRequestStreamed) {
     failures.push(...perRequestStreamFailures(metrics, concurrency));
+  }
+  if (budget.expectEveryServerRequestStreamed) {
+    failures.push(...serverRequestStreamFailures(metrics, concurrency));
   }
   return failures;
 }
@@ -499,6 +540,7 @@ function baseSpecs(options: CliOptions): ServeRegressionSpec[] {
         minStreamChunks: 1,
         minStreamBytes: 1,
         expectEveryRequestStreamed: true,
+        expectEveryServerRequestStreamed: true,
         maxMeanTtftMs: 8_000,
         maxObservedStreamChunkGapMs: 1_000,
         expectedRoute: "continuous",
@@ -555,6 +597,7 @@ function baseSpecs(options: CliOptions): ServeRegressionSpec[] {
         minStreamChunks: 8,
         minStreamBytes: 1,
         expectEveryRequestStreamed: true,
+        expectEveryServerRequestStreamed: true,
         maxMeanTtftMs: 5_000,
         maxObservedStreamChunkGapMs: 1_000,
         expectedRoute: "continuous",
@@ -639,6 +682,7 @@ function baseSpecs(options: CliOptions): ServeRegressionSpec[] {
         minStreamChunks: 1,
         minStreamBytes: 1,
         expectEveryRequestStreamed: true,
+        expectEveryServerRequestStreamed: true,
         maxMeanTtftMs: 5_000,
         maxObservedStreamChunkGapMs: 1_000,
         expectedRoute: "continuous",
@@ -670,6 +714,7 @@ function baseSpecs(options: CliOptions): ServeRegressionSpec[] {
         minStreamChunks: 1,
         minStreamBytes: 1,
         expectEveryRequestStreamed: true,
+        expectEveryServerRequestStreamed: true,
         maxMeanTtftMs: 1_000,
         maxObservedStreamChunkGapMs: 1_000,
         expectedRoute: "continuous",
@@ -727,6 +772,8 @@ function baseSpecs(options: CliOptions): ServeRegressionSpec[] {
         minCompletionTokenRatio: 0.98,
         minStreamChunks: 1,
         minStreamBytes: 1,
+        expectEveryRequestStreamed: true,
+        expectEveryServerRequestStreamed: true,
         maxMeanTtftMs: 1_000,
         maxObservedStreamChunkGapMs: 1_000,
         expectedRoute: "continuous",
@@ -758,6 +805,7 @@ function baseSpecs(options: CliOptions): ServeRegressionSpec[] {
         minStreamChunks: 8,
         minStreamBytes: 1,
         expectEveryRequestStreamed: true,
+        expectEveryServerRequestStreamed: true,
         maxMeanTtftMs: 1_000,
         maxObservedStreamChunkGapMs: 1_000,
         expectedRoute: "continuous",
@@ -818,6 +866,7 @@ function capabilitySpecs(options: CliOptions): ServeRegressionSpec[] {
         minStreamChunks: 1,
         minStreamBytes: 1,
         expectEveryRequestStreamed: true,
+        expectEveryServerRequestStreamed: true,
         maxMeanTtftMs: 8_000,
         maxObservedStreamChunkGapMs: 1_000,
         expectedRoute: "continuous",
@@ -849,6 +898,7 @@ function capabilitySpecs(options: CliOptions): ServeRegressionSpec[] {
         minStreamChunks: 1,
         minStreamBytes: 1,
         expectEveryRequestStreamed: true,
+        expectEveryServerRequestStreamed: true,
         maxObservedStreamChunkGapMs: 2_000,
         expectedRoute: "continuous",
         expectedReason: "eligible",

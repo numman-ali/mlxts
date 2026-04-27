@@ -72,6 +72,18 @@ export type ServerRequestTimingReport = {
   prefillEvents: number;
   progressEvents: number;
   maxCompletionTokens: number;
+  serverStreamChunkEvents: number;
+  serverStreamEndEvents: number;
+  serverStreamFirstChunkMs: number | null;
+  serverStreamLastChunkMs: number | null;
+  serverStreamChunks: number | null;
+  serverStreamBytes: number | null;
+  serverStreamOutputChunks: number | null;
+  serverStreamOutputBytes: number | null;
+  serverStreamTtftMs: number | null;
+  serverStreamDurationMs: number | null;
+  serverStreamResult?: "completed" | "cancelled" | "error";
+  serverStreamFinishReason?: string;
   finishReason?: string;
   errorCode?: string;
 };
@@ -351,6 +363,8 @@ type RequestEventSlice = {
   schedulerEvents: Extract<RecordedServeEvent, { type: "generation_scheduler_phase" }>[];
   prefillEvents: Extract<RecordedServeEvent, { type: "generation_prefill_progress" }>[];
   progressEvents: Extract<RecordedServeEvent, { type: "generation_progress" }>[];
+  streamChunkEvents: Extract<RecordedServeEvent, { type: "generation_stream_chunk" }>[];
+  streamEndEvents: Extract<RecordedServeEvent, { type: "generation_stream_end" }>[];
 };
 
 function requestEventSlice(group: readonly RecordedServeEvent[]): RequestEventSlice {
@@ -365,6 +379,8 @@ function requestEventSlice(group: readonly RecordedServeEvent[]): RequestEventSl
     schedulerEvents: sorted.filter((event) => event.type === "generation_scheduler_phase"),
     prefillEvents: sorted.filter((event) => event.type === "generation_prefill_progress"),
     progressEvents: sorted.filter((event) => event.type === "generation_progress"),
+    streamChunkEvents: sorted.filter((event) => event.type === "generation_stream_chunk"),
+    streamEndEvents: sorted.filter((event) => event.type === "generation_stream_end"),
   };
 }
 
@@ -389,6 +405,7 @@ function requestModel(slice: RequestEventSlice): string {
     slice.route?.model ??
     slice.complete?.model ??
     slice.error?.model ??
+    slice.streamEndEvents[slice.streamEndEvents.length - 1]?.model ??
     "unknown"
   );
 }
@@ -399,8 +416,61 @@ function requestProtocol(slice: RequestEventSlice): string {
     slice.route?.protocol ??
     slice.complete?.protocol ??
     slice.error?.protocol ??
+    slice.streamEndEvents[slice.streamEndEvents.length - 1]?.protocol ??
     "unknown"
   );
+}
+
+function inputKindField(slice: RequestEventSlice): { inputKind?: string } {
+  return slice.start === undefined ? {} : { inputKind: slice.start.inputKind };
+}
+
+function routeFields(slice: RequestEventSlice): { route?: string; routeReason?: string } {
+  return slice.route === undefined
+    ? {}
+    : { route: slice.route.route, routeReason: slice.route.reason };
+}
+
+function terminalFields(slice: RequestEventSlice): { finishReason?: string; errorCode?: string } {
+  return {
+    ...(slice.complete === undefined ? {} : { finishReason: slice.complete.finishReason }),
+    ...(slice.error === undefined ? {} : { errorCode: slice.error.code }),
+  };
+}
+
+function serverStreamFields(slice: RequestEventSlice): Pick<
+  ServerRequestTimingReport,
+  | "serverStreamChunkEvents"
+  | "serverStreamEndEvents"
+  | "serverStreamFirstChunkMs"
+  | "serverStreamLastChunkMs"
+  | "serverStreamChunks"
+  | "serverStreamBytes"
+  | "serverStreamOutputChunks"
+  | "serverStreamOutputBytes"
+  | "serverStreamTtftMs"
+  | "serverStreamDurationMs"
+> & {
+  serverStreamResult?: "completed" | "cancelled" | "error";
+  serverStreamFinishReason?: string;
+} {
+  const streamEnd = slice.streamEndEvents[slice.streamEndEvents.length - 1];
+  const firstStreamChunk = slice.streamChunkEvents[0];
+  const lastStreamChunk = slice.streamChunkEvents[slice.streamChunkEvents.length - 1];
+  return {
+    serverStreamChunkEvents: slice.streamChunkEvents.length,
+    serverStreamEndEvents: slice.streamEndEvents.length,
+    serverStreamFirstChunkMs: firstStreamChunk?.elapsedMs ?? null,
+    serverStreamLastChunkMs: lastStreamChunk?.elapsedMs ?? null,
+    serverStreamChunks: streamEnd?.chunks ?? null,
+    serverStreamBytes: streamEnd?.bytes ?? null,
+    serverStreamOutputChunks: streamEnd?.outputChunks ?? null,
+    serverStreamOutputBytes: streamEnd?.outputBytes ?? null,
+    serverStreamTtftMs: streamEnd?.ttftMs ?? null,
+    serverStreamDurationMs: streamEnd?.durationMs ?? null,
+    ...(streamEnd === undefined ? {} : { serverStreamResult: streamEnd.result }),
+    ...(streamEnd === undefined ? {} : { serverStreamFinishReason: streamEnd.finishReason }),
+  };
 }
 
 function requestTimingReport(id: string, group: readonly RecordedServeEvent[]) {
@@ -418,10 +488,8 @@ function requestTimingReport(id: string, group: readonly RecordedServeEvent[]) {
     id,
     model: requestModel(slice),
     protocol: requestProtocol(slice),
-    ...(slice.start === undefined ? {} : { inputKind: slice.start.inputKind }),
-    ...(slice.route === undefined
-      ? {}
-      : { route: slice.route.route, routeReason: slice.route.reason }),
+    ...inputKindField(slice),
+    ...routeFields(slice),
     routeDecisionMs: relativeMs(slice.route, startedAt),
     modelLaneWaitMs: slice.modelLaneWait?.waitMs ?? null,
     modelLaneQueuedAhead: slice.modelLaneWait?.queuedAhead ?? null,
@@ -444,8 +512,8 @@ function requestTimingReport(id: string, group: readonly RecordedServeEvent[]) {
     prefillEvents: slice.prefillEvents.length,
     progressEvents: slice.progressEvents.length,
     maxCompletionTokens: maxCompletionTokens(slice.sorted),
-    ...(slice.complete === undefined ? {} : { finishReason: slice.complete.finishReason }),
-    ...(slice.error === undefined ? {} : { errorCode: slice.error.code }),
+    ...serverStreamFields(slice),
+    ...terminalFields(slice),
   };
 }
 

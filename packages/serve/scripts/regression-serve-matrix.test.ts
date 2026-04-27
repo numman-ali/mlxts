@@ -111,6 +111,18 @@ function trial(overrides: Partial<TrialMetrics> = {}): TrialMetrics {
         prefillEvents: 0,
         progressEvents: 2,
         maxCompletionTokens: 128,
+        serverStreamChunkEvents: 4,
+        serverStreamEndEvents: 1,
+        serverStreamFirstChunkMs: 100,
+        serverStreamLastChunkMs: 180,
+        serverStreamChunks: 4,
+        serverStreamBytes: 100,
+        serverStreamOutputChunks: 4,
+        serverStreamOutputBytes: 100,
+        serverStreamTtftMs: 100,
+        serverStreamDurationMs: 1000,
+        serverStreamResult: "completed",
+        serverStreamFinishReason: "length",
         finishReason: "length",
       },
     ],
@@ -161,6 +173,7 @@ const budget: ServeRegressionBudget = {
   minStreamChunks: 1,
   minStreamBytes: 1,
   expectEveryRequestStreamed: true,
+  expectEveryServerRequestStreamed: true,
   maxMeanTtftMs: 500,
   maxObservedStreamChunkGapMs: 100,
   expectedRoute: "single",
@@ -439,6 +452,7 @@ describe("serve regression matrix", () => {
       minStreamChunks: 8,
       minStreamBytes: 1,
       expectEveryRequestStreamed: true,
+      expectEveryServerRequestStreamed: true,
       expectedRoute: "continuous",
       expectedReason: "eligible",
       minRouteDecisions: 2,
@@ -568,6 +582,21 @@ describe("serve regression matrix", () => {
         streamingBudget,
       ),
     ).toThrow("requests missing per-request SSE evidence");
+    expect(() =>
+      assertServeReportBudget(
+        "qwen-stream",
+        report(
+          trial({
+            ...streamingMetrics,
+            serverRequests: streamingMetrics.serverRequests.map((request) =>
+              request.id === "request-b" ? { ...request, serverStreamChunkEvents: 0 } : request,
+            ),
+          }),
+          streamingRung,
+        ),
+        streamingBudget,
+      ),
+    ).toThrow("server_requests missing server-side stream evidence");
   });
 
   test("fails on throughput, memory, token, stream, route, evidence, batch, and finish regressions", () => {

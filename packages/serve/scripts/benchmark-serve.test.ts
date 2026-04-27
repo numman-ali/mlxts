@@ -93,6 +93,84 @@ describe("serve benchmark reports", () => {
     ]);
   });
 
+  test("keeps server-side stream timing in server request reports", () => {
+    expect(
+      serverRequestTimingReports([
+        {
+          type: "generation_start",
+          id: "request",
+          protocol: "openai.completions",
+          model: "local",
+          inputKind: "text",
+          maxTokens: 8,
+          stream: true,
+          observedAtMs: 100,
+        },
+        {
+          type: "generation_stream_chunk",
+          id: "request",
+          protocol: "openai.completions",
+          model: "local",
+          chunkIndex: 1,
+          elapsedMs: 25,
+          bytes: 64,
+          observedAtMs: 125,
+        },
+        {
+          type: "generation_stream_chunk",
+          id: "request",
+          protocol: "openai.completions",
+          model: "local",
+          chunkIndex: 2,
+          elapsedMs: 40,
+          bytes: 32,
+          observedAtMs: 140,
+        },
+        {
+          type: "generation_stream_end",
+          id: "request",
+          protocol: "openai.completions",
+          model: "local",
+          result: "completed",
+          finishReason: "length",
+          chunks: 4,
+          bytes: 160,
+          outputChunks: 2,
+          outputBytes: 96,
+          ttftMs: 25,
+          durationMs: 80,
+          observedAtMs: 180,
+        },
+        {
+          type: "generation_complete",
+          id: "request",
+          protocol: "openai.completions",
+          model: "local",
+          finishReason: "length",
+          completionTokens: 8,
+          durationMs: 82,
+          observedAtMs: 182,
+        },
+      ]),
+    ).toMatchObject([
+      {
+        id: "request",
+        serverStreamChunkEvents: 2,
+        serverStreamEndEvents: 1,
+        serverStreamFirstChunkMs: 25,
+        serverStreamLastChunkMs: 40,
+        serverStreamChunks: 4,
+        serverStreamBytes: 160,
+        serverStreamOutputChunks: 2,
+        serverStreamOutputBytes: 96,
+        serverStreamTtftMs: 25,
+        serverStreamDurationMs: 80,
+        serverStreamResult: "completed",
+        serverStreamFinishReason: "length",
+      },
+    ]);
+  });
+
   test("keeps continuous scheduler phase timing in server request reports", () => {
     expect(
       serverRequestTimingReports([

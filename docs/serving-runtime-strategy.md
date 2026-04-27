@@ -179,7 +179,8 @@ The next work should stay ordered around architecture truth:
    a real engineering hazard.
 2. Lock serving baselines for Qwen/Gemma across greedy and model-default
    sampled generation, buffered and streaming output, `@1/@2/@4/@8`
-   concurrency, staggered arrivals, and short/long output rungs.
+   concurrency, staggered arrivals, short/long output rungs, and separate
+   client-observed plus server-side stream evidence.
 3. Keep the typed internal serving/runtime strategy seam as the path for new
    backend choices. The current seam reports implemented behavior only:
    scheduler `auto`, managed model-precision cache, attention `auto`,
