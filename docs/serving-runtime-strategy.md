@@ -127,8 +127,9 @@ Decoding strategies need an explicit cache-trim or cache-restore contract before
 speculative decoding, MTP, or prompt-lookup drafting can be correct.
 
 Protocol adapters need one internal request model. OpenAI completions, chat
-completions, Responses, and Anthropic Messages should normalize into it
-directly, not through each other.
+completions, text Responses, and text Anthropic Messages now normalize into it
+directly, not through each other. Broader modality/tool semantics should extend
+the adapters without forking model execution.
 
 Training strategies need the same discipline. SFT, DPO, LoRA, QLoRA, and future
 recipe helpers should compose batch, loss, gradients, optimizer, checkpointing,
@@ -207,7 +208,7 @@ The next work should stay ordered around architecture truth:
    request, generation, scheduler, batch, memory, and streaming lifecycle
    signals; deepen it as cache backends, cancellation state, and scheduler
    fairness gain more first-class state.
-7. Expand protocols through the shared request model: fuller Responses,
+7. Expand protocols through the shared request model: fuller Responses and
    Anthropic Messages, structured output/logprobs, then multimodal serving.
 
 That order protects the thing that matters most: every new capability should

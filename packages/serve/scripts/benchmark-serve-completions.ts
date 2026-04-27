@@ -47,6 +47,25 @@ type ResponseApiBody = {
   response?: ResponseApiBody;
 };
 
+type AnthropicUsage = {
+  input_tokens?: number;
+  output_tokens?: number;
+};
+
+type AnthropicMessageBody = {
+  id?: string;
+  type?: string;
+  content?: Array<
+    | { type?: "text"; text?: string }
+    | { type?: "thinking"; thinking?: string }
+    | Record<string, unknown>
+  >;
+  stop_reason?: string | null;
+  usage?: AnthropicUsage | null;
+  message?: AnthropicMessageBody;
+  delta?: { stop_reason?: string | null };
+};
+
 export type BenchmarkPrompt = {
   tokenIds: readonly number[];
   text: string;
@@ -126,6 +145,22 @@ function responsesRequestBody(
   };
 }
 
+function anthropicRequestBody(
+  modelId: string,
+  prompt: BenchmarkPrompt,
+  generationTokens: number,
+  samplingMode: SamplingMode,
+  transportMode: TransportMode,
+) {
+  return {
+    model: modelId,
+    messages: [{ role: "user", content: prompt.text }],
+    max_tokens: generationTokens,
+    ...(transportMode === "streaming" ? { stream: true } : {}),
+    ...(samplingMode === "greedy" ? { temperature: 0 } : {}),
+  };
+}
+
 function requestPath(options: ServeBenchmarkOptions): string {
   switch (options.protocolMode) {
     case "completions":
@@ -134,6 +169,8 @@ function requestPath(options: ServeBenchmarkOptions): string {
       return "/v1/chat/completions";
     case "responses":
       return "/v1/responses";
+    case "anthropic":
+      return "/v1/messages";
   }
 }
 
@@ -164,6 +201,14 @@ function requestBody(
       );
     case "responses":
       return responsesRequestBody(
+        modelId,
+        prompt,
+        rung.generationTokens,
+        options.samplingMode,
+        options.transportMode,
+      );
+    case "anthropic":
+      return anthropicRequestBody(
         modelId,
         prompt,
         rung.generationTokens,
@@ -202,10 +247,27 @@ function responsesUsage(body: ResponseApiBody): Required<CompletionUsage> {
   };
 }
 
+function anthropicUsage(body: AnthropicMessageBody): Required<CompletionUsage> {
+  const usage = body.usage ?? {};
+  const promptTokens = usage.input_tokens ?? 0;
+  const completionTokens = usage.output_tokens ?? 0;
+  return {
+    prompt_tokens: promptTokens,
+    completion_tokens: completionTokens,
+    total_tokens: promptTokens + completionTokens,
+  };
+}
+
 function isResponseApiBody(
-  body: CompletionResponseBody | ChatResponseBody | ResponseApiBody,
+  body: CompletionResponseBody | ChatResponseBody | ResponseApiBody | AnthropicMessageBody,
 ): body is ResponseApiBody {
   return "output_text" in body || "response" in body || "status" in body;
+}
+
+function isAnthropicMessageBody(
+  body: CompletionResponseBody | ChatResponseBody | ResponseApiBody | AnthropicMessageBody,
+): body is AnthropicMessageBody {
+  return ("type" in body && body.type === "message") || "stop_reason" in body || "message" in body;
 }
 
 function responseApiFinishReason(body: ResponseApiBody): string {
@@ -218,25 +280,41 @@ function responseApiFinishReason(body: ResponseApiBody): string {
   return body.status ?? "unknown";
 }
 
-function responseUsage(body: CompletionResponseBody | ChatResponseBody | ResponseApiBody) {
-  return isResponseApiBody(body) ? responsesUsage(body) : completionUsage(body);
+function responseUsage(
+  body: CompletionResponseBody | ChatResponseBody | ResponseApiBody | AnthropicMessageBody,
+) {
+  if (isResponseApiBody(body)) {
+    return responsesUsage(body);
+  }
+  if (isAnthropicMessageBody(body)) {
+    return anthropicUsage(body);
+  }
+  return completionUsage(body);
 }
 
-function responseFinishReason(body: CompletionResponseBody | ChatResponseBody | ResponseApiBody) {
+function responseFinishReason(
+  body: CompletionResponseBody | ChatResponseBody | ResponseApiBody | AnthropicMessageBody,
+) {
   if (isResponseApiBody(body)) {
     return responseApiFinishReason(body);
+  }
+  if (isAnthropicMessageBody(body)) {
+    return body.stop_reason ?? "unknown";
   }
   return completionFinishReason(body);
 }
 
 function responseId(
-  body: CompletionResponseBody | ChatResponseBody | ResponseApiBody,
+  body: CompletionResponseBody | ChatResponseBody | ResponseApiBody | AnthropicMessageBody,
 ): string | undefined {
   if (typeof body.id === "string") {
     return body.id;
   }
   if (isResponseApiBody(body) && typeof body.response?.id === "string") {
     return body.response.id;
+  }
+  if (isAnthropicMessageBody(body) && typeof body.message?.id === "string") {
+    return body.message.id;
   }
   return undefined;
 }
@@ -258,7 +336,8 @@ async function runBufferedCompletionRequest(
   const body = (await response.json()) as
     | CompletionResponseBody
     | ChatResponseBody
-    | ResponseApiBody;
+    | ResponseApiBody
+    | AnthropicMessageBody;
   const durationMs = performance.now() - started;
   if (!response.ok) {
     throw new Error(
@@ -331,12 +410,25 @@ function recordTextChunk(metrics: StreamingCompletionMetrics, started: number): 
 
 function retainResponseId(
   metrics: StreamingCompletionMetrics,
-  body: CompletionResponseBody | ChatResponseBody | ResponseApiBody,
+  body: CompletionResponseBody | ChatResponseBody | ResponseApiBody | AnthropicMessageBody,
 ): void {
   const id = responseId(body);
   if (metrics.id === undefined && id !== undefined) {
     metrics.id = id;
   }
+}
+
+function mergeAnthropicUsage(
+  previous: Required<CompletionUsage>,
+  usage: AnthropicUsage | undefined | null,
+): Required<CompletionUsage> {
+  const promptTokens = usage?.input_tokens ?? previous.prompt_tokens;
+  const completionTokens = usage?.output_tokens ?? previous.completion_tokens;
+  return {
+    prompt_tokens: promptTokens,
+    completion_tokens: completionTokens,
+    total_tokens: promptTokens + completionTokens,
+  };
 }
 
 function updateStreamingCompletionMetrics(
@@ -388,6 +480,30 @@ function updateStreamingResponseMetrics(
     delta !== ""
   ) {
     recordTextChunk(metrics, started);
+  }
+}
+
+function updateStreamingAnthropicMetrics(
+  metrics: StreamingCompletionMetrics,
+  body: AnthropicMessageBody,
+  event: string | null,
+  started: number,
+): void {
+  retainResponseId(metrics, body);
+  if (event === "message_start" && body.message !== undefined) {
+    retainResponseId(metrics, body.message);
+    metrics.usage = mergeAnthropicUsage(metrics.usage, body.message.usage);
+  }
+  if (event === "message_delta") {
+    metrics.usage = mergeAnthropicUsage(metrics.usage, body.usage);
+    metrics.finishReason = body.delta?.stop_reason ?? metrics.finishReason;
+  }
+  if (event === "content_block_delta") {
+    const delta = (body as { delta?: { text?: string; thinking?: string } }).delta;
+    const text = delta?.text ?? delta?.thinking;
+    if (typeof text === "string" && text !== "") {
+      recordTextChunk(metrics, started);
+    }
   }
 }
 
@@ -443,6 +559,15 @@ function handleSsePayload(
     updateStreamingResponseMetrics(metrics, JSON.parse(payload) as ResponseApiBody, event, started);
     return;
   }
+  if (options.protocolMode === "anthropic") {
+    updateStreamingAnthropicMetrics(
+      metrics,
+      JSON.parse(payload) as AnthropicMessageBody,
+      event,
+      started,
+    );
+    return;
+  }
   updateStreamingCompletionMetrics(
     metrics,
     JSON.parse(payload) as CompletionResponseBody | ChatResponseBody,
@@ -468,7 +593,8 @@ async function runStreamingCompletionRequest(
     const body = (await response.json()) as
       | CompletionResponseBody
       | ChatResponseBody
-      | ResponseApiBody;
+      | ResponseApiBody
+      | AnthropicMessageBody;
     throw new Error(
       `benchmark-serve: request failed (${response.status}): ${JSON.stringify(body)}`,
     );

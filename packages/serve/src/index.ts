@@ -53,6 +53,17 @@ export {
   serveModelsWithRuntime,
 } from "./model-sources";
 export {
+  type AnthropicContentBlock,
+  type AnthropicMessageResponse,
+  type AnthropicStopReason,
+  type AnthropicTextBlock,
+  type AnthropicThinkingBlock,
+  type AnthropicUsage,
+  formatAnthropicMessageResponse,
+  type NormalizedAnthropicMessage,
+  normalizeAnthropicMessageRequest,
+} from "./protocols/anthropic-messages";
+export {
   createOpenAIChatCompletionReasoningStream,
   formatOpenAIChatCompletionResponse,
   formatOpenAIChatCompletionStreamChunk,

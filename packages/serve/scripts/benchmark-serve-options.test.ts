@@ -255,12 +255,18 @@ describe("serve benchmark options", () => {
     expect(() => parseServeBenchmarkArgs(["model", "--matrix", "diagonal"])).toThrow(
       '--matrix must be "cartesian" or "zip"',
     );
-    expect(() => parseServeBenchmarkArgs(["model", "--protocol", "anthropic"])).toThrow(
-      '--protocol must be "completions", "chat", or "responses"',
+    expect(parseServeBenchmarkArgs(["model", "--protocol", "anthropic"]).protocolMode).toBe(
+      "anthropic",
+    );
+    expect(() => parseServeBenchmarkArgs(["model", "--protocol", "invalid"])).toThrow(
+      '--protocol must be "completions", "chat", "responses", or "anthropic"',
     );
     expect(() =>
       parseServeBenchmarkArgs(["model", "--protocol", "responses", "--ignore-eos"]),
     ).toThrow("--ignore-eos is not supported with --protocol responses");
+    expect(() =>
+      parseServeBenchmarkArgs(["model", "--protocol", "anthropic", "--ignore-eos"]),
+    ).toThrow("--ignore-eos is not supported with --protocol anthropic");
     expect(() => parsePositiveIntegerList("--concurrency", "1,0")).toThrow(
       "--concurrency expects a positive integer",
     );

@@ -743,7 +743,7 @@ and minimal serving are in place.
 
 **Goal**: Production-quality inference server. Quantized inference. Any OpenAI-compatible client can connect. Architecturally flexible enough that new optimization techniques (from papers or upstream projects) slot in without rewiring the stack.
 
-**Current status**: Phase 9 now contains both landed serving tranches and future production tranches. Treat the existing `@mlxts/serve` endpoint, streaming, admission, cancellation, multi-model loading, benchmark/regression harnesses, and cache-generic continuous scheduler as real surfaces to preserve. The scheduler now covers eligible LLaMA-like, Qwen 3.6 text, and Gemma 3/4 layer-pattern requests for buffered and streaming generation, including model-native sampled defaults. The real Qwen/Gemma serving matrix includes `@4` and `@8` streaming continuous guardrails with per-request TTFT, scheduler-queued-time, SSE lifecycle, and max-generation-batch evidence, plus mixed long-prefill/short-arrival fairness guardrails that assert short-request fairness and long-request prefill cadence separately from aggregate throughput. Keep paged/prefix cache, richer scheduler policy, production metrics, multimodal serving, embeddings, Anthropic compatibility, and advanced optimization hooks as future work.
+**Current status**: Phase 9 now contains both landed serving tranches and future production tranches. Treat the existing `@mlxts/serve` endpoint, streaming, admission, cancellation, multi-model loading, metrics, benchmark/regression harnesses, and cache-generic continuous scheduler as real surfaces to preserve. The scheduler now covers eligible LLaMA-like, Qwen 3.6 text, and Gemma 3/4 layer-pattern requests for buffered and streaming generation, including model-native sampled defaults. The real Qwen/Gemma serving matrix includes `@4` and `@8` streaming continuous guardrails with per-request TTFT, scheduler-queued-time, SSE lifecycle, and max-generation-batch evidence, plus mixed long-prefill/short-arrival fairness guardrails that assert short-request fairness and long-request prefill cadence separately from aggregate throughput. Keep paged/prefix cache, richer scheduler policy, multimodal serving, embeddings, broader Anthropic/Responses compatibility, and advanced optimization hooks as future work.
 
 **Research basis**: Deep analysis of three MLX inference servers — Rapid-MLX (speed-focused), vLLM-MLX (foundational batching/paging), oMLX (production serving/memory management). These share lineage (vLLM-MLX → forks) but diverged into complementary specializations. Key findings are documented in [docs/inference-optimizations.md](./docs/inference-optimizations.md). Reference repos at `.reference/rapid-mlx`, `.reference/vllm-mlx`, `.reference/omlx`.
 
@@ -806,8 +806,9 @@ KV cache is the critical infrastructure for both single-user generation and mult
 
 - Landed shared internal request model and prompt compiler inherited from Phase 7 interaction profiles; endpoint handlers are protocol adapters, not model-specific prompt logic
 - Landed OpenAI-compatible API slices: `/v1/chat/completions`, `/v1/completions`, `/v1/responses` text support, `/v1/models`, `/health`, and `/info`
+- Landed bounded Anthropic Messages-compatible text support at `/v1/messages`, including Anthropic SSE event framing and reasoning/thinking separation
 - Future OpenAI `/v1/embeddings` support maps into the same internal request model
-- Future Anthropic-compatible API adapter maps into the same internal request model
+- Future Anthropic tools, images, and broader content-block support map into the same internal request model
 - `Bun.serve()` — no Express, no Node HTTP
 - Server-sent events for token streaming, cancellation, long-context heartbeats, and cooperative prefill progress
 - Landed cache-generic continuous batching for eligible LLaMA-like, Qwen 3.6 text, and Gemma 3/4 layer-pattern requests, including streaming and model-native sampled defaults

@@ -151,6 +151,7 @@ describe("serve fetch handler", () => {
         completions: true,
         chat_completions: true,
         responses: "text_only",
+        anthropic_messages: "text_only",
         sse_streaming: true,
         batch_generation: true,
         reasoning_content: true,
@@ -183,6 +184,7 @@ describe("serve fetch handler", () => {
       },
     });
     expect(body.endpoints).toContain("/v1/responses");
+    expect(body.endpoints).toContain("/v1/messages");
     expect(body.endpoints).toContain("/metrics");
   });
 
@@ -558,6 +560,71 @@ describe("serve fetch handler", () => {
     });
   });
 
+  test("routes Anthropic messages through message input", async () => {
+    const events: ServeEvent[] = [];
+    const seen: NormalizedGenerationRequest[] = [];
+    const engine: GenerationEngine = {
+      generate(normalized) {
+        seen.push(normalized);
+        return {
+          text: "<think>Reason briefly.</think>Hello",
+          finishReason: "stop",
+          usage: { promptTokens: 5, completionTokens: 3, totalTokens: 8 },
+        };
+      },
+    };
+    const fetch = createFetchHandler({
+      engine,
+      idGenerator: () => "msg-test",
+      now: () => new Date(123_000),
+      onEvent: (event) => events.push(event),
+    });
+
+    const response = await fetch(
+      request("/v1/messages", {
+        model: "tiny",
+        system: "Be concise.",
+        messages: [{ role: "user", content: [{ type: "text", text: "Hello" }] }],
+        max_tokens: 4,
+        temperature: 0,
+      }),
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(seen[0]).toMatchObject({
+      id: "msg-test",
+      model: "tiny",
+      input: {
+        kind: "messages",
+        messages: [
+          { role: "system", content: "Be concise." },
+          { role: "user", content: "Hello" },
+        ],
+      },
+      sampling: { maxTokens: 4, temperature: 0 },
+      protocol: "anthropic.messages",
+    });
+    expect(seen[0]?.abortSignal).toBeDefined();
+    expect(body).toMatchObject({
+      id: "msg-test",
+      type: "message",
+      role: "assistant",
+      model: "tiny",
+      stop_reason: "end_turn",
+      content: [
+        { type: "thinking", thinking: "Reason briefly.", signature: "" },
+        { type: "text", text: "Hello" },
+      ],
+      usage: { input_tokens: 5, output_tokens: 3 },
+    });
+    expect(events.find((event) => event.type === "generation_start")).toMatchObject({
+      model: "tiny",
+      protocol: "anthropic.messages",
+      maxTokens: 4,
+    });
+  });
+
   test("streams OpenAI responses as semantic SSE events with reasoning separation", async () => {
     const events: ServeEvent[] = [];
     const seen: NormalizedGenerationRequest[] = [];
@@ -620,6 +687,105 @@ describe("serve fetch handler", () => {
       "generation_stream_end",
       "generation_complete",
     ]);
+  });
+
+  test("streams Anthropic messages as semantic SSE events with reasoning separation", async () => {
+    const events: ServeEvent[] = [];
+    const engine: GenerationEngine = {
+      generate() {
+        throw new Error("generate should not be used");
+      },
+      async *stream() {
+        yield { type: "text", text: "<think>I should greet.</think>Hel" };
+        yield { type: "text", text: "lo" };
+        yield {
+          type: "done",
+          finishReason: "stop",
+          usage: { promptTokens: 2, completionTokens: 4, totalTokens: 6 },
+        };
+      },
+    };
+    const fetch = createFetchHandler({
+      engine,
+      idGenerator: () => "msg-stream",
+      now: () => new Date(123_000),
+      onEvent: (event) => events.push(event),
+    });
+
+    const response = await fetch(
+      request("/v1/messages", {
+        model: "tiny",
+        messages: [{ role: "user", content: "Hello" }],
+        max_tokens: 4,
+        stream: true,
+      }),
+    );
+    const text = await response.text();
+
+    expect(response.headers.get("content-type")).toContain("text/event-stream");
+    expect(text).toContain("event: message_start");
+    expect(text).toContain('"type":"message_start"');
+    expect(text).toContain('"content_block":{"type":"thinking"');
+    expect(text).toContain('"delta":{"type":"thinking_delta","thinking":"I should greet."}');
+    expect(text).toContain('"content_block":{"type":"text"');
+    expect(text).toContain('"delta":{"type":"text_delta","text":"Hello"}');
+    expect(text).toContain("event: message_delta");
+    expect(text).toContain('"stop_reason":"end_turn"');
+    expect(text).toContain('"output_tokens":4');
+    expect(text).toContain("event: message_stop");
+    expect(text).not.toContain("[DONE]");
+    expect(
+      events.filter((event) => event.type.startsWith("generation_")).map((event) => event.type),
+    ).toEqual([
+      "generation_start",
+      "generation_stream_chunk",
+      "generation_stream_chunk",
+      "generation_stream_end",
+      "generation_complete",
+    ]);
+  });
+
+  test("streams Anthropic stop_sequences as stop_sequence terminal events", async () => {
+    let streamClosed = false;
+    const engine: GenerationEngine = {
+      generate() {
+        throw new Error("generate should not be used");
+      },
+      async *stream() {
+        try {
+          yield { type: "text", text: "Hello STOP hidden" };
+          await new Promise((resolve) => setTimeout(resolve, 10));
+          yield {
+            type: "done",
+            finishReason: "stop",
+            usage: { promptTokens: 2, completionTokens: 4, totalTokens: 6 },
+          };
+        } finally {
+          streamClosed = true;
+        }
+      },
+    };
+    const fetch = createFetchHandler({
+      engine,
+      idGenerator: () => "msg-stop",
+      now: () => new Date(123_000),
+    });
+
+    const response = await fetch(
+      request("/v1/messages", {
+        model: "tiny",
+        messages: [{ role: "user", content: "Hello" }],
+        max_tokens: 8,
+        stream: true,
+        stop_sequences: ["STOP"],
+      }),
+    );
+    const text = await response.text();
+
+    expect(text).toContain('"text":"Hello "');
+    expect(text).not.toContain("hidden");
+    expect(text).toContain('"stop_reason":"stop_sequence"');
+    expect(streamClosed).toBe(true);
   });
 
   test("streams OpenAI responses length stops as incomplete terminal events", async () => {
@@ -925,6 +1091,103 @@ describe("serve fetch handler", () => {
         id: "resp-stream-error",
         model: "broken-local",
         protocol: "openai.responses",
+        code: "stream_failed",
+      },
+    ]);
+  });
+
+  test("returns Anthropic-shaped errors with normalized request context", async () => {
+    const events: ServeEvent[] = [];
+    const fetch = createFetchHandler({
+      engine: {
+        generate(normalized) {
+          throw new ServeError(`Model "${normalized.model}" is not served by this endpoint.`, {
+            code: "model_not_found",
+            param: "model",
+            status: 404,
+          });
+        },
+      },
+      idGenerator: () => "msg-error",
+      onEvent: (event) => events.push(event),
+    });
+
+    const response = await fetch(
+      request("/v1/messages", {
+        model: "missing-local",
+        messages: [{ role: "user", content: "Hello" }],
+        max_tokens: 4,
+      }),
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(404);
+    expect(body).toEqual({
+      type: "error",
+      error: {
+        type: "not_found_error",
+        message: 'Model "missing-local" is not served by this endpoint.',
+      },
+    });
+    expect(events.filter((event) => event.type.startsWith("generation_"))).toMatchObject([
+      {
+        type: "generation_start",
+        id: "msg-error",
+        model: "missing-local",
+        protocol: "anthropic.messages",
+      },
+      {
+        type: "generation_error",
+        id: "msg-error",
+        model: "missing-local",
+        protocol: "anthropic.messages",
+        code: "model_not_found",
+      },
+    ]);
+  });
+
+  test("emits generation errors when Anthropic streaming startup fails", async () => {
+    const events: ServeEvent[] = [];
+    const fetch = createFetchHandler({
+      engine: {
+        generate() {
+          throw new Error("generate should not be called");
+        },
+        stream(normalized) {
+          throw new ServeError(`Model "${normalized.model}" could not stream.`, {
+            code: "stream_failed",
+            status: 503,
+          });
+        },
+      },
+      idGenerator: () => "msg-stream-error",
+      onEvent: (event) => events.push(event),
+    });
+
+    const response = await fetch(
+      request("/v1/messages", {
+        model: "broken-local",
+        messages: [{ role: "user", content: "Hello" }],
+        max_tokens: 4,
+        stream: true,
+      }),
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(503);
+    expect(body.error.type).toBe("api_error");
+    expect(events.filter((event) => event.type.startsWith("generation_"))).toMatchObject([
+      {
+        type: "generation_start",
+        id: "msg-stream-error",
+        model: "broken-local",
+        protocol: "anthropic.messages",
+      },
+      {
+        type: "generation_error",
+        id: "msg-stream-error",
+        model: "broken-local",
+        protocol: "anthropic.messages",
         code: "stream_failed",
       },
     ]);
@@ -1305,6 +1568,70 @@ describe("serve fetch handler", () => {
     expect(events.find((event) => event.type === "request_complete")).toBeUndefined();
   });
 
+  test("cancels streaming Anthropic messages when the client disconnects", async () => {
+    const events: ServeEvent[] = [];
+    let streamClosed = false;
+    let seenSignal: AbortSignal | undefined;
+    const engine: GenerationEngine = {
+      generate() {
+        throw new Error("generate should not be used");
+      },
+      async *stream(normalized) {
+        seenSignal = normalized.abortSignal;
+        try {
+          yield { type: "text", text: "Hello" };
+          await new Promise((resolve) => setTimeout(resolve, 10));
+          yield {
+            type: "done",
+            finishReason: "stop",
+            usage: { promptTokens: 2, completionTokens: 1, totalTokens: 3 },
+          };
+        } finally {
+          streamClosed = true;
+        }
+      },
+    };
+    const fetch = createFetchHandler({
+      engine,
+      idGenerator: () => "msg-cancel",
+      now: () => new Date(123_000),
+      onEvent: (event) => events.push(event),
+    });
+
+    const response = await fetch(
+      request("/v1/messages", {
+        model: "tiny",
+        messages: [{ role: "user", content: "Hello" }],
+        max_tokens: 4,
+        stream: true,
+      }),
+    );
+
+    expect(events.map((event) => event.type)).toEqual(["request_start", "generation_start"]);
+
+    const reader = response.body?.getReader();
+    expect(reader).toBeDefined();
+    if (reader === undefined) {
+      throw new Error("expected a response body reader");
+    }
+
+    const firstChunk = await reader.read();
+    expect(firstChunk.done).toBe(false);
+    await reader.cancel();
+    await new Promise((resolve) => setTimeout(resolve, 25));
+
+    expect(streamClosed).toBe(true);
+    expect(seenSignal?.aborted).toBe(true);
+    expect(events.find((event) => event.type === "generation_complete")).toMatchObject({
+      finishReason: "cancelled",
+    });
+    expect(events.find((event) => event.type === "request_error")).toMatchObject({
+      code: "client_cancelled",
+      status: 499,
+    });
+    expect(events.find((event) => event.type === "request_complete")).toBeUndefined();
+  });
+
   test("rejects unsupported streaming shapes and unknown routes", async () => {
     const fetch = createFetchHandler({
       engine: {
@@ -1342,6 +1669,14 @@ describe("serve fetch handler", () => {
         stream: true,
       }),
     );
+    const missingAnthropicStream = await fetch(
+      request("/v1/messages", {
+        model: "tiny",
+        messages: [{ role: "user", content: "Hello" }],
+        max_tokens: 1,
+        stream: true,
+      }),
+    );
     const notFound = await fetch(new Request("http://localhost/v1/chat/completions"));
 
     expect(missingStream.status).toBe(400);
@@ -1352,6 +1687,8 @@ describe("serve fetch handler", () => {
     expect((await missingChatStream.json()).error.code).toBe("stream_not_supported");
     expect(missingResponseStream.status).toBe(400);
     expect((await missingResponseStream.json()).error.code).toBe("stream_not_supported");
+    expect(missingAnthropicStream.status).toBe(400);
+    expect((await missingAnthropicStream.json()).error.type).toBe("invalid_request_error");
     expect(notFound.status).toBe(404);
   });
 
@@ -1387,6 +1724,18 @@ describe("serve fetch handler", () => {
 
     expect(responseBody.status).toBe(400);
     expect(parsedResponseBody.error.code).toBe("invalid_json");
+
+    const anthropicBody = await fetch(
+      new Request("http://localhost/v1/messages", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: "{",
+      }),
+    );
+    const parsedAnthropicBody = await anthropicBody.json();
+
+    expect(anthropicBody.status).toBe(400);
+    expect(parsedAnthropicBody.error.type).toBe("invalid_request_error");
   });
 
   test("starts a Bun server with the shared fetch handler", () => {

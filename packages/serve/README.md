@@ -1,6 +1,6 @@
 # @mlxts/serve
 
-OpenAI-compatible serving for mlxts.
+OpenAI- and Anthropic-compatible serving for mlxts.
 
 `@mlxts/serve` is the first-class way to put a local or Hugging Face model behind
 an endpoint. Examples can demonstrate patterns, but model serving itself belongs
@@ -31,7 +31,8 @@ mlxts-serve \
 ```
 
 The server exposes `/health`, `/info`, `/metrics`, `/v1/models`,
-`/v1/completions`, `/v1/chat/completions`, and `/v1/responses`:
+`/v1/completions`, `/v1/chat/completions`, `/v1/responses`, and
+`/v1/messages`:
 
 ```bash
 curl -s http://127.0.0.1:8000/v1/completions \
@@ -139,6 +140,15 @@ Stateful continuation, background jobs, tools, files/images, prompt templates,
 truncation, and non-text output formats are rejected explicitly until those
 semantics are implemented for real.
 
+`/v1/messages` starts with a bounded Anthropic Messages-compatible text path.
+It accepts top-level `system`, text-only `messages`, required `max_tokens`,
+`stop_sequences`, model-native sampling fields, and Qwen-style thinking controls
+through `thinking` or `chat_template_kwargs`. Non-streaming responses return
+Anthropic `message` objects with `text` and `thinking` content blocks; streaming
+uses Anthropic SSE events such as `message_start`, `content_block_delta`,
+`message_delta`, and `message_stop`. Images, tools, tool choice, and other
+non-text blocks are rejected explicitly until the model/runtime support exists.
+
 ## Programmatic Serving
 
 ```ts
@@ -243,7 +253,8 @@ total-token throughput, mean/p95/max latency, memory, finish reasons, admission
 micro-batch rows, real static batch rows, and continuous scheduler admission
 rows.
 Completions benchmarks use deterministic token-array prompts for exact token
-counts; chat and Responses synthesize text prompts for protocol health runs.
+counts; chat, Responses, and Anthropic Messages synthesize text prompts for
+protocol health runs.
 Use `--ignore-eos` for exact-length throughput ladders when comparing against
 in-process benchmarks that intentionally decode the full requested token count;
 normal serving behavior still honors EOS unless this extension is explicit.
@@ -287,13 +298,14 @@ important: eligible Qwen and Gemma 3/4 requests now report continuous scheduler
 admissions for both buffered and streaming completions, including
 sampled/model-native-default requests. Endpoint benchmark output should be used
 to separate real batch execution from admission coalescing.
-This harness measures completions serving over token-array prompts; use `--protocol chat` or
-`--protocol responses` when the thing under test is the wire adapter and
-chat-template path. Completions remains the exact-token throughput mode; chat
-and Responses use deterministic text prompts and should be reported as protocol
-health, not exact token-array parity. `--ignore-eos` is rejected with
-`--protocol responses` because the current Responses benchmark does not expose
-that nonstandard serving extension. Tool quality still needs its own benchmark.
+This harness measures completions serving over token-array prompts; use
+`--protocol chat`, `--protocol responses`, or `--protocol anthropic` when the
+thing under test is the wire adapter and chat-template path. Completions remains
+the exact-token throughput mode; chat, Responses, and Anthropic Messages use
+deterministic text prompts and should be reported as protocol health, not exact
+token-array parity. `--ignore-eos` is rejected with `--protocol responses` and
+`--protocol anthropic` because those benchmark modes do not expose that
+nonstandard serving extension. Tool quality still needs its own benchmark.
 
 ## Regression Matrix
 
@@ -323,10 +335,10 @@ completions, so batching claims stay tied to observed endpoint behavior.
 
 ## Engine Primitives
 
-The package starts with the OpenAI completions, chat completions, and narrow
-Responses APIs, but the internal shape is protocol-neutral: wire requests
-normalize into one `NormalizedGenerationRequest` before they reach a generation
-engine. Anthropic Messages and broader OpenAI Responses capabilities should be
+The package starts with OpenAI completions, chat completions, narrow Responses,
+and bounded Anthropic Messages APIs, but the internal shape is protocol-neutral:
+wire requests normalize into one `NormalizedGenerationRequest` before they reach
+a generation engine. Broader Responses and Anthropic capabilities should be
 added as protocol adapters over the same core path, not as copied serving stacks.
 
 ```ts

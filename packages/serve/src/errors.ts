@@ -67,3 +67,34 @@ export function openAIErrorResponse(error: unknown): Response {
     serveError.status,
   );
 }
+
+function anthropicErrorType(error: ServeError): string {
+  if (error.status === 401) {
+    return "authentication_error";
+  }
+  if (error.status === 404) {
+    return "not_found_error";
+  }
+  if (error.status === 429) {
+    return "rate_limit_error";
+  }
+  if (error.status >= 500) {
+    return "api_error";
+  }
+  return "invalid_request_error";
+}
+
+export function anthropicErrorResponse(error: unknown): Response {
+  const serveError = toServeError(error);
+
+  return jsonResponse(
+    {
+      type: "error",
+      error: {
+        type: anthropicErrorType(serveError),
+        message: serveError.message,
+      },
+    },
+    serveError.status,
+  );
+}

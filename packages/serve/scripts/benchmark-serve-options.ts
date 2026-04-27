@@ -1,7 +1,7 @@
 export type MatrixMode = "cartesian" | "zip";
 export type SamplingMode = "model-defaults" | "greedy";
 export type TransportMode = "non-streaming" | "streaming";
-export type ProtocolMode = "completions" | "chat" | "responses";
+export type ProtocolMode = "completions" | "chat" | "responses" | "anthropic";
 
 export type ServeBenchmarkOptions = {
   model: string;
@@ -69,7 +69,7 @@ function usage(): never {
       "  --matrix <cartesian|zip>        Pair prompt/output rungs, default cartesian",
       "  --trials <n>                    Trials per rung, default 1",
       "  --report-json <path>            Write a structured JSON report at the end",
-      "  --protocol <name>               completions, chat, or responses; default completions",
+      "  --protocol <name>               completions, chat, responses, or anthropic; default completions",
       "  --stream                        Measure SSE streaming and time-to-first-token",
       "  --ignore-eos                    Request exact max_tokens for throughput ladders",
       "  --greedy                        Send temperature=0 for deterministic throughput",
@@ -262,11 +262,14 @@ function parseProtocolMode(value: string | undefined): ProtocolMode {
   if (
     requiredValue === "completions" ||
     requiredValue === "chat" ||
-    requiredValue === "responses"
+    requiredValue === "responses" ||
+    requiredValue === "anthropic"
   ) {
     return requiredValue;
   }
-  throw new Error('benchmark-serve: --protocol must be "completions", "chat", or "responses".');
+  throw new Error(
+    'benchmark-serve: --protocol must be "completions", "chat", "responses", or "anthropic".',
+  );
 }
 
 function setBenchmarkRungs(
@@ -416,8 +419,13 @@ export function parseServeBenchmarkArgs(argv: readonly string[]): ServeBenchmark
     usage();
   }
 
-  if (state.protocolMode === "responses" && state.ignoreEos) {
-    throw new Error("benchmark-serve: --ignore-eos is not supported with --protocol responses.");
+  if (
+    (state.protocolMode === "responses" || state.protocolMode === "anthropic") &&
+    state.ignoreEos
+  ) {
+    throw new Error(
+      `benchmark-serve: --ignore-eos is not supported with --protocol ${state.protocolMode}.`,
+    );
   }
 
   return {

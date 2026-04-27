@@ -60,6 +60,7 @@ export type ServeInfoResponse = {
     completions: true;
     chat_completions: true;
     responses: "text_only";
+    anthropic_messages: "text_only";
     sse_streaming: boolean;
     batch_generation: boolean;
     reasoning_content: true;
@@ -82,6 +83,7 @@ const SERVE_ENDPOINTS = [
   "/v1/completions",
   "/v1/chat/completions",
   "/v1/responses",
+  "/v1/messages",
 ];
 
 function numberOrNull(value: number | undefined): number | null {
@@ -150,6 +152,7 @@ export function formatServeInfoResponse(options: ServeInfoOptions): ServeInfoRes
       completions: true,
       chat_completions: true,
       responses: "text_only",
+      anthropic_messages: "text_only",
       sse_streaming: options.engine.stream !== undefined,
       batch_generation: options.engine.generateBatch !== undefined,
       reasoning_content: true,

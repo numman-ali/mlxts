@@ -175,6 +175,46 @@ describe("serve benchmark completion requests", () => {
     }
   });
 
+  test("measures buffered Anthropic messages responses", async () => {
+    const server = Bun.serve({
+      port: 0,
+      async fetch(request) {
+        expect(new URL(request.url).pathname).toBe("/v1/messages");
+        const body = (await request.json()) as Record<string, unknown>;
+        expect(body.messages).toEqual([{ role: "user", content: "Hello benchmark" }]);
+        expect(body.max_tokens).toBe(3);
+        expect(body.temperature).toBe(0);
+        return Response.json({
+          id: "msg-buffered",
+          type: "message",
+          content: [{ type: "text", text: "ok" }],
+          stop_reason: "max_tokens",
+          usage: { input_tokens: 4, output_tokens: 3 },
+        });
+      },
+    });
+
+    try {
+      const metrics = await runCompletionRequest(
+        endpointFor(server),
+        "tiny",
+        prompt,
+        { promptTokens: 2, generationTokens: 3, concurrency: 1 },
+        options(["--protocol", "anthropic"]),
+      );
+
+      expect(metrics).toMatchObject({
+        id: "msg-buffered",
+        promptTokens: 4,
+        completionTokens: 3,
+        totalTokens: 7,
+        finishReason: "max_tokens",
+      });
+    } finally {
+      server.stop(true);
+    }
+  });
+
   test("measures streaming responses API events", async () => {
     const encoder = new TextEncoder();
     const frames = [
@@ -223,6 +263,77 @@ describe("serve benchmark completion requests", () => {
         completionTokens: 3,
         totalTokens: 8,
         finishReason: "length",
+        streamChunks: 2,
+      });
+      expect(metrics.ttftMs).not.toBeNull();
+    } finally {
+      server.stop(true);
+    }
+  });
+
+  test("measures streaming Anthropic Messages events", async () => {
+    const encoder = new TextEncoder();
+    const frames = [
+      eventSseFrame("message_start", {
+        type: "message_start",
+        message: {
+          id: "msg-stream",
+          type: "message",
+          usage: { input_tokens: 5, output_tokens: 0 },
+        },
+      }),
+      eventSseFrame("content_block_delta", {
+        type: "content_block_delta",
+        index: 0,
+        delta: { type: "thinking_delta", thinking: "a" },
+      }),
+      eventSseFrame("content_block_delta", {
+        type: "content_block_delta",
+        index: 1,
+        delta: { type: "text_delta", text: "b" },
+      }),
+      eventSseFrame("message_delta", {
+        type: "message_delta",
+        delta: { stop_reason: "max_tokens", stop_sequence: null },
+        usage: { output_tokens: 3 },
+      }),
+      eventSseFrame("message_stop", { type: "message_stop" }),
+    ].join("");
+
+    const server = Bun.serve({
+      port: 0,
+      async fetch(request) {
+        expect(new URL(request.url).pathname).toBe("/v1/messages");
+        const body = (await request.json()) as Record<string, unknown>;
+        expect(body.messages).toEqual([{ role: "user", content: "Hello benchmark" }]);
+        expect(body.stream).toBe(true);
+        return new Response(
+          new ReadableStream<Uint8Array>({
+            start(controller) {
+              controller.enqueue(encoder.encode(frames));
+              controller.close();
+            },
+          }),
+          { headers: { "content-type": "text/event-stream" } },
+        );
+      },
+    });
+
+    try {
+      const metrics = await runCompletionRequest(
+        endpointFor(server),
+        "tiny",
+        prompt,
+        { promptTokens: 2, generationTokens: 3, concurrency: 1 },
+        options(["--protocol", "anthropic", "--stream"]),
+      );
+
+      expect(metrics).toMatchObject({
+        id: "msg-stream",
+        promptTokens: 5,
+        completionTokens: 3,
+        totalTokens: 8,
+        finishReason: "max_tokens",
         streamChunks: 2,
       });
       expect(metrics.ttftMs).not.toBeNull();

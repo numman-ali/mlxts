@@ -3,7 +3,7 @@
  * @module
  */
 
-import { jsonResponse, openAIErrorResponse, ServeError } from "./errors";
+import { anthropicErrorResponse, jsonResponse, openAIErrorResponse, ServeError } from "./errors";
 import {
   formatOpenAIChatCompletionResponse,
   normalizeOpenAIChatCompletionRequest,
@@ -20,6 +20,7 @@ import {
   serveMetricsResponse,
 } from "./serve-metrics";
 import { linkAbortSignals, withAbortSignal } from "./server-abort";
+import { anthropicMessagesRouteResponse } from "./server-anthropic-messages";
 import {
   emitGenerationComplete,
   emitGenerationError,
@@ -76,11 +77,15 @@ function defaultResponseId(): string {
   return `resp-${crypto.randomUUID()}`;
 }
 
+function defaultAnthropicMessageId(): string {
+  return `msg_${crypto.randomUUID()}`;
+}
+
 function unixSeconds(date: Date): number {
   return Math.floor(date.getTime() / 1000);
 }
 
-const GENERATION_ROUTE_PATTERN = /^\/v1\/(?:completions|chat\/completions|responses)$/;
+const GENERATION_ROUTE_PATTERN = /^\/v1\/(?:completions|chat\/completions|responses|messages)$/;
 
 function routeMayRunGeneration(method: string, pathname: string): boolean {
   return method === "POST" && GENERATION_ROUTE_PATTERN.test(pathname);
@@ -354,6 +359,28 @@ async function openAIRouteResponse(
   return null;
 }
 
+async function generationRouteResponse(
+  request: Request,
+  options: ServeAppOptions,
+  pathname: string,
+  startedAt: number,
+): Promise<Response | null> {
+  const openAIResponse = await openAIRouteResponse(request, options, pathname, startedAt);
+  if (openAIResponse !== null) {
+    return openAIResponse;
+  }
+
+  authorize(request, options.apiKey);
+  if (request.method === "POST" && pathname === "/v1/messages") {
+    return await anthropicMessagesRouteResponse(request, options, {
+      id: options.idGenerator?.() ?? defaultAnthropicMessageId(),
+      startedAt,
+    });
+  }
+
+  return null;
+}
+
 function lightweightGetResponse(
   request: Request,
   options: ServeAppOptions,
@@ -424,7 +451,12 @@ export function createFetchHandler(
       if (routeMayRunGeneration(request.method, url.pathname)) {
         server?.timeout(request, 0);
       }
-      const response = await openAIRouteResponse(request, observedOptions, url.pathname, startedAt);
+      const response = await generationRouteResponse(
+        request,
+        observedOptions,
+        url.pathname,
+        startedAt,
+      );
       if (response !== null) {
         const isStreaming = response.headers.get("content-type")?.startsWith("text/event-stream");
         if (isStreaming !== true) {
@@ -434,7 +466,9 @@ export function createFetchHandler(
       }
     } catch (error) {
       emitRequestError(observedOptions, request, serveErrorDetails(error), startedAt);
-      return openAIErrorResponse(error);
+      return url.pathname === "/v1/messages"
+        ? anthropicErrorResponse(error)
+        : openAIErrorResponse(error);
     }
 
     const response = jsonResponse({ error: { message: "Not found" } }, 404);
