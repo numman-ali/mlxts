@@ -13,6 +13,12 @@ import {
   normalizeOpenAICompletionRequest,
 } from "./protocols/openai-completions";
 import type { ServedModelInfo } from "./protocols/openai-models";
+import {
+  createServeMetrics,
+  createServeMetricsSink,
+  type ServeMetrics,
+  serveMetricsResponse,
+} from "./serve-metrics";
 import { linkAbortSignals, withAbortSignal } from "./server-abort";
 import {
   emitGenerationComplete,
@@ -23,6 +29,7 @@ import {
   emitServeEvent,
   serveErrorDetails,
 } from "./server-events";
+import { generateCompletionBatch } from "./server-generation";
 import {
   openAIModelRouteResponse,
   type ServeRuntimeLimits,
@@ -51,6 +58,8 @@ export type ServeAppOptions = {
   idGenerator?: () => string;
   now?: () => Date;
   onEvent?: (event: ServeEvent) => void;
+  /** @internal Reuse one collector when engines and the HTTP router share metrics. */
+  metrics?: ServeMetrics;
 };
 
 export type ServeServerOptions = ServeAppOptions & {
@@ -61,8 +70,6 @@ export type ServeServerOptions = ServeAppOptions & {
 type ServerRequestControls = {
   timeout(request: Request, seconds: number): void;
 };
-
-type CompletionRequests = ReturnType<typeof normalizeOpenAICompletionRequest>["requests"];
 
 function defaultId(): string {
   return `cmpl-${crypto.randomUUID()}`;
@@ -104,99 +111,6 @@ function authorize(request: Request, apiKey: string | undefined): void {
       status: 401,
     });
   }
-}
-
-function assertBatchResultCount(
-  results: readonly NormalizedGenerationResult[],
-  requests: CompletionRequests,
-): void {
-  if (results.length !== requests.length) {
-    throw new ServeError("Generation engine returned the wrong number of batch results.", {
-      code: "invalid_engine_result",
-      status: 500,
-    });
-  }
-}
-
-function emitBatchGenerationErrors(
-  options: ServeAppOptions,
-  requests: CompletionRequests,
-  error: unknown,
-  startedAt: number,
-): void {
-  const durationMs = performance.now() - startedAt;
-  for (const normalized of requests) {
-    emitGenerationError(options, normalized, error, durationMs);
-  }
-}
-
-function emitBatchGenerationComplete(
-  options: ServeAppOptions,
-  requests: CompletionRequests,
-  results: readonly NormalizedGenerationResult[],
-  durationMs: number,
-): void {
-  for (let index = 0; index < requests.length; index += 1) {
-    const normalized = requests[index];
-    const result = results[index];
-    if (normalized !== undefined && result !== undefined) {
-      emitGenerationComplete(options, normalized, result, durationMs);
-    }
-  }
-}
-
-async function generateWithBatchEngine(
-  options: ServeAppOptions,
-  requests: CompletionRequests,
-): Promise<NormalizedGenerationResult[]> {
-  const generateBatch = options.engine.generateBatch;
-  if (generateBatch === undefined) {
-    throw new Error("generateWithBatchEngine requires an engine batch function.");
-  }
-
-  const startedAt = performance.now();
-  for (const normalized of requests) {
-    emitGenerationStart(options, normalized);
-  }
-  try {
-    const results = await generateBatch(requests);
-    assertBatchResultCount(results, requests);
-    emitBatchGenerationComplete(options, requests, results, performance.now() - startedAt);
-    return [...results];
-  } catch (error) {
-    emitBatchGenerationErrors(options, requests, error, startedAt);
-    throw error;
-  }
-}
-
-async function generateSequentially(
-  options: ServeAppOptions,
-  requests: CompletionRequests,
-): Promise<NormalizedGenerationResult[]> {
-  const results: NormalizedGenerationResult[] = [];
-  for (const normalized of requests) {
-    const startedAt = performance.now();
-    emitGenerationStart(options, normalized);
-    try {
-      const result = await options.engine.generate(normalized);
-      emitGenerationComplete(options, normalized, result, performance.now() - startedAt);
-      results.push(result);
-    } catch (error) {
-      emitGenerationError(options, normalized, error, performance.now() - startedAt);
-      throw error;
-    }
-  }
-  return results;
-}
-
-async function generateBatch(
-  options: ServeAppOptions,
-  requests: CompletionRequests,
-): Promise<NormalizedGenerationResult[]> {
-  if (requests.length > 1 && options.engine.generateBatch !== undefined) {
-    return await generateWithBatchEngine(options, requests);
-  }
-  return await generateSequentially(options, requests);
 }
 
 async function completionResponse(request: Request, options: ServeAppOptions): Promise<Response> {
@@ -293,7 +207,7 @@ async function completionResponse(request: Request, options: ServeAppOptions): P
 
   const abortScope = linkAbortSignals(request.signal, options.abortSignal);
   try {
-    const results = await generateBatch(
+    const results = await generateCompletionBatch(
       options,
       batch.requests.map((normalized) => withAbortSignal(normalized, abortScope.signal)),
     );
@@ -436,46 +350,91 @@ async function openAIRouteResponse(
   return null;
 }
 
+function lightweightGetResponse(
+  request: Request,
+  options: ServeAppOptions,
+  metrics: ServeMetrics,
+  pathname: string,
+  startedAt: number,
+): Response | null {
+  if (request.method !== "GET") {
+    return null;
+  }
+  if (pathname === "/health") {
+    const response = jsonResponse({ status: "ok" });
+    emitRequestComplete(options, request, response.status, startedAt);
+    return response;
+  }
+  if (pathname === "/metrics") {
+    authorize(request, options.apiKey);
+    const response = serveMetricsResponse(metrics);
+    emitRequestComplete(options, request, response.status, startedAt);
+    return response;
+  }
+  if (pathname === "/info") {
+    authorize(request, options.apiKey);
+    const response = serveInfoResponse(options);
+    emitRequestComplete(options, request, response.status, startedAt);
+    return response;
+  }
+  return null;
+}
+
 /** Create a Bun-compatible fetch handler for the serving API. */
 export function createFetchHandler(
   options: ServeAppOptions,
 ): (request: Request, server?: ServerRequestControls) => Promise<Response> {
+  const metrics =
+    options.metrics ??
+    createServeMetrics({
+      ...(options.models === undefined
+        ? {}
+        : { modelIds: options.models.map((model) => model.id) }),
+    });
+  const observedOptions: ServeAppOptions = {
+    ...options,
+    metrics,
+    onEvent: createServeMetricsSink(metrics, options.onEvent),
+  };
   return async (request, server) => {
     const url = new URL(request.url);
     const startedAt = performance.now();
-    emitServeEvent(options, { type: "request_start", method: request.method, path: url.pathname });
-    if (request.method === "GET" && url.pathname === "/health") {
-      const response = jsonResponse({ status: "ok" });
-      emitRequestComplete(options, request, response.status, startedAt);
-      return response;
-    }
+    emitServeEvent(observedOptions, {
+      type: "request_start",
+      method: request.method,
+      path: url.pathname,
+    });
 
     try {
-      if (request.method === "GET" && url.pathname === "/info") {
-        authorize(request, options.apiKey);
-        const response = serveInfoResponse(options);
-        emitRequestComplete(options, request, response.status, startedAt);
-        return response;
+      const lightweightResponse = lightweightGetResponse(
+        request,
+        observedOptions,
+        metrics,
+        url.pathname,
+        startedAt,
+      );
+      if (lightweightResponse !== null) {
+        return lightweightResponse;
       }
 
       if (routeMayRunGeneration(request.method, url.pathname)) {
         server?.timeout(request, 0);
       }
-      const response = await openAIRouteResponse(request, options, url.pathname, startedAt);
+      const response = await openAIRouteResponse(request, observedOptions, url.pathname, startedAt);
       if (response !== null) {
         const isStreaming = response.headers.get("content-type")?.startsWith("text/event-stream");
         if (isStreaming !== true) {
-          emitRequestComplete(options, request, response.status, startedAt);
+          emitRequestComplete(observedOptions, request, response.status, startedAt);
         }
         return response;
       }
     } catch (error) {
-      emitRequestError(options, request, serveErrorDetails(error), startedAt);
+      emitRequestError(observedOptions, request, serveErrorDetails(error), startedAt);
       return openAIErrorResponse(error);
     }
 
     const response = jsonResponse({ error: { message: "Not found" } }, 404);
-    emitRequestComplete(options, request, response.status, startedAt);
+    emitRequestComplete(observedOptions, request, response.status, startedAt);
     return response;
   };
 }

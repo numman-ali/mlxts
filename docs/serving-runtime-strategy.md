@@ -191,9 +191,9 @@ The next work should stay ordered around architecture truth:
 5. Build cache backends behind stable contracts: dense managed cache first,
    then prefix cache, rotating/max-KV policy, quantized KV, paged KV, and later
    TurboQuant or tiered SSD storage.
-6. Add production metrics with bounded-cardinality request, scheduler, stream,
-   cache, memory, cancellation, and error counters before claiming production
-   parity with TGI-style systems.
+6. Use the new `/metrics` surface as the production observability baseline,
+   then deepen it as cache backends, stream cadence, cancellation, and
+   scheduler fairness gain more first-class state.
 7. Expand protocols through the shared request model: fuller Responses,
    Anthropic Messages, structured output/logprobs, then multimodal serving.
 

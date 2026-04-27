@@ -209,6 +209,7 @@ export type ServeEvent =
       model: string;
       inputKind: GenerationInput["kind"];
       maxTokens: number;
+      stream: boolean;
     }
   | {
       type: "generation_route_decision";

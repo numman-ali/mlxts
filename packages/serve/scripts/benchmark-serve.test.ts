@@ -55,6 +55,7 @@ describe("serve benchmark reports", () => {
           model: "local",
           inputKind: "text",
           maxTokens: 8,
+          stream: false,
           observedAtMs: 100,
         },
         {
@@ -102,6 +103,7 @@ describe("serve benchmark reports", () => {
           model: "local",
           inputKind: "tokens",
           maxTokens: 8,
+          stream: false,
           observedAtMs: 100,
         },
         {

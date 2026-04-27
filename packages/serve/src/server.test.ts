@@ -32,6 +32,53 @@ describe("serve fetch handler", () => {
     expect(await response.json()).toEqual({ status: "ok" });
   });
 
+  test("reports Prometheus metrics without invoking the engine", async () => {
+    let invoked = false;
+    const fetch = createFetchHandler({
+      engine: {
+        generate() {
+          invoked = true;
+          return { text: "", finishReason: "stop" };
+        },
+      },
+      models: [{ id: "tiny" }],
+    });
+
+    await fetch(new Request("http://localhost/health"));
+    const response = await fetch(new Request("http://localhost/metrics"));
+    const text = await response.text();
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-type")).toContain("text/plain");
+    expect(invoked).toBe(false);
+    expect(text).toContain(
+      'mlxts_serve_http_requests_total{method="GET",path="/health",status="200"} 1',
+    );
+    expect(text).not.toContain('path="/metrics"');
+  });
+
+  test("enforces optional bearer auth on metrics", async () => {
+    const fetch = createFetchHandler({
+      apiKey: "secret",
+      engine: {
+        generate() {
+          return { text: "ok", finishReason: "stop" };
+        },
+      },
+    });
+
+    const missing = await fetch(new Request("http://localhost/metrics"));
+    const authorized = await fetch(
+      new Request("http://localhost/metrics", {
+        headers: { authorization: "Bearer secret" },
+      }),
+    );
+
+    expect(missing.status).toBe(401);
+    expect((await missing.json()).error.code).toBe("invalid_api_key");
+    expect(authorized.status).toBe(200);
+  });
+
   test("reports lightweight server info without invoking the engine", async () => {
     let invoked = false;
     const fetch = createFetchHandler({
@@ -136,6 +183,7 @@ describe("serve fetch handler", () => {
       },
     });
     expect(body.endpoints).toContain("/v1/responses");
+    expect(body.endpoints).toContain("/metrics");
   });
 
   test("lists and retrieves served models with OpenAI-compatible shape", async () => {
@@ -274,6 +322,42 @@ describe("serve fetch handler", () => {
       protocol: "openai.completions",
       maxTokens: 4,
     });
+  });
+
+  test("records generation metrics for OpenAI completions", async () => {
+    const fetch = createFetchHandler({
+      engine: {
+        generate() {
+          return {
+            text: "ok",
+            finishReason: "stop",
+            usage: { promptTokens: 2, completionTokens: 3, totalTokens: 5 },
+          };
+        },
+      },
+      models: [{ id: "tiny" }],
+      idGenerator: () => "cmpl-metrics",
+    });
+
+    await fetch(
+      request("/v1/completions", {
+        model: "tiny",
+        prompt: "Hello",
+        max_tokens: 3,
+      }),
+    );
+    const metrics = await fetch(new Request("http://localhost/metrics"));
+    const text = await metrics.text();
+
+    expect(text).toContain(
+      'mlxts_serve_generation_requests_total{model="tiny",protocol="openai.completions",input_kind="text",stream="false"} 1',
+    );
+    expect(text).toContain(
+      'mlxts_serve_generation_completions_total{model="tiny",protocol="openai.completions",finish_reason="stop"} 1',
+    );
+    expect(text).toContain(
+      'mlxts_serve_generation_tokens_total{model="tiny",protocol="openai.completions",kind="completion"} 3',
+    );
   });
 
   test("disables Bun request timeout before buffered generation starts", async () => {

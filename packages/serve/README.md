@@ -30,8 +30,8 @@ mlxts-serve \
   --local-files-only
 ```
 
-The server exposes `/health`, `/info`, `/v1/models`, `/v1/completions`,
-`/v1/chat/completions`, and `/v1/responses`:
+The server exposes `/health`, `/info`, `/metrics`, `/v1/models`,
+`/v1/completions`, `/v1/chat/completions`, and `/v1/responses`:
 
 ```bash
 curl -s http://127.0.0.1:8000/v1/completions \
@@ -43,8 +43,9 @@ curl -s http://127.0.0.1:8000/v1/completions \
   }'
 ```
 
-Use `--api-key <key>` when binding outside localhost; it protects `/info` and
-all `/v1/*` routes while leaving `/health` open for process checks.
+Use `--api-key <key>` when binding outside localhost; it protects `/info`,
+`/metrics`, and all `/v1/*` routes while leaving `/health` open for process
+checks.
 `--max-generated-tokens <n>` rejects unsafe generation lengths before they reach
 the model. `--max-prompt-tokens <n>` separately caps tokenized prompt/prefill
 size, and `--max-total-tokens <n>` caps `prompt_tokens + max_tokens` against
@@ -74,6 +75,17 @@ that fit the machine. The memory preflight is deliberately conservative and
 machine-specific; it is a guardrail before prefill starts, not a promise that
 every later scheduler or multi-request workload will fit. It does not expose
 local paths, cache locations, access tokens, or queue internals.
+
+`GET /metrics` exposes Prometheus text-format metrics from the same structured
+serve events used by logs and benchmark reports. Labels are deliberately
+bounded: dynamic model-route paths collapse to `/v1/models/:model`, unknown
+served model ids collapse to `__unknown__` when the model list is known, and
+request ids/prompts/errors are not labels. The surface currently covers HTTP
+request counts/latency/in-flight gauges, generation starts/completions/errors,
+token totals and histograms, route decisions, model-lane waits, scheduler
+phases, batch sizes, prefill chunks, and latest MLX allocator memory gauges.
+Scraping `/metrics` is excluded from HTTP counters so Prometheus polling does
+not dominate local operator signals.
 
 Generation start, admission micro-batch, static batch start, completion, and
 errors are logged by default so native generation failures leave a useful last
@@ -362,8 +374,8 @@ startServeServer({
 ```
 
 `GET /v1/models` returns the configured `models` list. When `apiKey` is set,
-`/v1/*` routes require `Authorization: Bearer <key>`; `/health` stays open for
-local process checks.
+`/info`, `/metrics`, and `/v1/*` routes require `Authorization: Bearer <key>`;
+`/health` stays open for local process checks.
 
 `createTransformersGenerationEngine()` now owns the first real continuous
 batching path for loaded-model serving: eligible greedy or sampled requests can

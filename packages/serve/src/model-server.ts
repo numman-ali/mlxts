@@ -17,6 +17,7 @@ import {
 import { modelAdmissionMetadata } from "./model-context";
 import { createModelRouterGenerationEngine } from "./model-router";
 import { createRequestLimitGenerationEngine } from "./request-limits";
+import { createServeMetrics, createServeMetricsSink } from "./serve-metrics";
 import {
   requireNonNegativeInteger,
   requirePositiveFraction,
@@ -355,8 +356,15 @@ function runningModelServer(
 export function serveLoadedModels(options: ServeLoadedModelsOptions): RunningModelServer {
   const resolved = resolveLoadedModelsOptions(options);
   const abortController = new AbortController();
+  const modelIds = resolved.models.map((model) => model.modelId);
+  const metrics = createServeMetrics({ modelIds });
+  const instrumentedOnEvent = createServeMetricsSink(metrics, resolved.onEvent);
+  const engineOptions: ResolvedLoadedModelsOptions = {
+    ...resolved,
+    onEvent: instrumentedOnEvent,
+  };
   const engine = createModelRouterGenerationEngine({
-    engines: createLoadedModelEngines(resolved),
+    engines: createLoadedModelEngines(engineOptions),
   });
   const serverOptions = {
     hostname: resolved.hostname,
@@ -380,6 +388,7 @@ export function serveLoadedModels(options: ServeLoadedModelsOptions): RunningMod
       gpuMemoryUtilization: resolved.gpuMemoryUtilization,
     },
     abortSignal: abortController.signal,
+    metrics,
     ...(resolved.apiKey === undefined ? {} : { apiKey: resolved.apiKey }),
     ...(resolved.onEvent === undefined ? {} : { onEvent: resolved.onEvent }),
   };

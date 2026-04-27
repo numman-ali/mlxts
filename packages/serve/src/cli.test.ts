@@ -318,6 +318,7 @@ describe("serve CLI args", () => {
         model: "qwen-local",
         inputKind: "messages",
         maxTokens: 32,
+        stream: false,
       }),
     ).toBe(
       "[generation] cmpl-test openai.chat_completions model=qwen-local input=messages max_tokens=32 started",
@@ -661,6 +662,7 @@ describe("serve CLI args", () => {
           model: "repo/model",
           inputKind: "messages",
           maxTokens: 32,
+          stream: false,
         });
         return running;
       },

@@ -69,6 +69,7 @@ export function emitGenerationStart(
     model: request.model,
     inputKind: request.input.kind,
     maxTokens: request.sampling.maxTokens,
+    stream: request.stream,
   });
 }
 

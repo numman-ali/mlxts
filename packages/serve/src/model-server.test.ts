@@ -342,6 +342,14 @@ describe("serveLoadedModel", () => {
         ...ROUTE_STRATEGY,
         stream: false,
       });
+      const metricsResponse = await fetch(`${running.endpoint}/metrics`);
+      const metrics = await metricsResponse.text();
+      expect(metrics).toContain(
+        'mlxts_serve_generation_route_decisions_total{model="tiny",protocol="openai.completions",route="continuous",eligible="true",reason="eligible",model_type="llama",scheduler="auto",cache="managed",attention="auto",decoding="model",stream="false"} 2',
+      );
+      expect(metrics).toContain(
+        'mlxts_serve_scheduler_phases_total{model="tiny",mode="continuous",phase="admitted"}',
+      );
     } finally {
       running.stop();
     }

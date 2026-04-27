@@ -77,6 +77,7 @@ export type ServeInfoOptions = {
 const SERVE_ENDPOINTS = [
   "/health",
   "/info",
+  "/metrics",
   "/v1/models",
   "/v1/completions",
   "/v1/chat/completions",
