@@ -224,6 +224,7 @@ describe("family config parsing", () => {
         attention_k_eq_v: true,
         num_global_key_value_heads: 1,
         tie_word_embeddings: true,
+        use_bidirectional_attention: "vision",
       },
     });
 
@@ -289,6 +290,51 @@ describe("family config parsing", () => {
       },
     });
     expect(gemma4WithNullGlobalHeads.numGlobalKeyValueHeads).toBeNull();
+  });
+
+  test("Gemma 4 top-level text loading accepts the upstream vision attention marker only", () => {
+    const validTextConfig = {
+      model_type: "gemma4_text",
+      vocab_size: 32,
+      hidden_size: 16,
+      intermediate_size: 32,
+      num_hidden_layers: 2,
+      num_attention_heads: 4,
+      num_key_value_heads: 2,
+      head_dim: 4,
+      global_head_dim: 8,
+      max_position_embeddings: 128,
+      sliding_window: 64,
+      layer_types: ["sliding_attention", "full_attention"],
+      rope_parameters: {
+        sliding_attention: { rope_type: "default", rope_theta: 10000 },
+        full_attention: {
+          rope_type: "proportional",
+          rope_theta: 1_000_000,
+          partial_rotary_factor: 0.25,
+        },
+      },
+      hidden_activation: "gelu_pytorch_tanh",
+      attention_k_eq_v: true,
+      use_bidirectional_attention: "vision",
+    };
+
+    expect(
+      parseGemma4Config({
+        model_type: "gemma4",
+        text_config: validTextConfig,
+      }).modelType,
+    ).toBe("gemma4");
+
+    expect(() =>
+      parseGemma4Config({
+        model_type: "gemma4",
+        text_config: {
+          ...validTextConfig,
+          use_bidirectional_attention: true,
+        },
+      }),
+    ).toThrow("use_bidirectional_attention is multimodal Gemma 4 behavior");
   });
 
   test("family config parsers reject mismatched model_type values", () => {
@@ -464,9 +510,18 @@ describe("llama-like weight mapping", () => {
     expect(
       sanitizeGemma4Weight(
         gemma4FullAttentionConfig,
+        "language_model.model.layers.0.self_attn.k_proj.weight",
+      ),
+    ).toBe("model.layers.0.selfAttention.kProjection.weight");
+    expect(
+      sanitizeGemma4Weight(
+        gemma4FullAttentionConfig,
         "model.language_model.layers.0.self_attn.v_proj.weight",
       ),
     ).toBeNull();
+    expect(sanitizeGemma4Weight(gemma4Config, "language_model.model.embed_tokens.weight")).toBe(
+      "model.embedTokens.weight",
+    );
     expect(
       sanitizeGemma4Weight(
         gemma4FullAttentionConfig,

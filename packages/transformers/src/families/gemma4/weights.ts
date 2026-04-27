@@ -17,10 +17,16 @@ import type { ExceptionalWeightLoaderContext } from "../../types";
 import type { Gemma4TextConfig } from "./types";
 import { isIgnoredGemma4TextWeightName, sanitizeGemma4TextWeightName } from "./types";
 
-const LANGUAGE_MODEL_PREFIX = "model.language_model.";
+const LANGUAGE_MODEL_PREFIXES = ["model.language_model.", "language_model."] as const;
 const PER_LAYER_EMBEDDING_TARGET_PATH = "model.embedTokensPerLayer.weight";
 const EXCEPTIONAL_WEIGHT_TARGET_BYTES = 64 * 1024 * 1024;
 const EXCEPTIONAL_WEIGHT_BATCH_SIZE = 8;
+
+function nestedLanguageModelWeightName(nestedName: string): string {
+  return nestedName.startsWith("lm_head.") || nestedName.startsWith("model.")
+    ? nestedName
+    : `model.${nestedName}`;
+}
 
 function exceptionalCheckpointWeightName(config: Gemma4TextConfig): string {
   return config.modelType === "gemma4"
@@ -167,23 +173,19 @@ export function sanitizeGemma4Weight(
   config: Gemma4TextConfig,
   checkpointName: string,
 ): string | null {
-  if (!checkpointName.startsWith(LANGUAGE_MODEL_PREFIX)) {
+  const prefix = LANGUAGE_MODEL_PREFIXES.find((entry) => checkpointName.startsWith(entry));
+  if (prefix === undefined) {
     return null;
   }
-  const nestedName = checkpointName.slice(LANGUAGE_MODEL_PREFIX.length);
-  return sanitizeGemma4TextWeightName(
-    config,
-    nestedName.startsWith("lm_head.") ? nestedName : `model.${nestedName}`,
-  );
+  const nestedName = checkpointName.slice(prefix.length);
+  return sanitizeGemma4TextWeightName(config, nestedLanguageModelWeightName(nestedName));
 }
 
 export function isIgnoredGemma4Weight(config: Gemma4TextConfig, checkpointName: string): boolean {
-  if (!checkpointName.startsWith(LANGUAGE_MODEL_PREFIX)) {
+  const prefix = LANGUAGE_MODEL_PREFIXES.find((entry) => checkpointName.startsWith(entry));
+  if (prefix === undefined) {
     return true;
   }
-  const nestedName = checkpointName.slice(LANGUAGE_MODEL_PREFIX.length);
-  return isIgnoredGemma4TextWeightName(
-    config,
-    nestedName.startsWith("lm_head.") ? nestedName : `model.${nestedName}`,
-  );
+  const nestedName = checkpointName.slice(prefix.length);
+  return isIgnoredGemma4TextWeightName(config, nestedLanguageModelWeightName(nestedName));
 }

@@ -116,7 +116,11 @@ function assertDensePhase7Scope(config: Record<string, unknown>, context: string
   }
 
   const useBidirectionalAttention = config.use_bidirectional_attention;
-  if (useBidirectionalAttention !== undefined && useBidirectionalAttention !== null) {
+  if (
+    useBidirectionalAttention !== undefined &&
+    useBidirectionalAttention !== null &&
+    useBidirectionalAttention !== "vision"
+  ) {
     throw new ConfigParseError(
       `${context}.use_bidirectional_attention is multimodal Gemma 4 behavior and is out of Phase 7 scope.`,
     );
