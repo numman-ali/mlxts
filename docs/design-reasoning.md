@@ -137,25 +137,33 @@ This is where the reasoning matters most. The package provides:
 
 It does NOT provide a `Trainer` base class. The training loop lives in the user's code (or in an example like `examples/nanogpt/`). The package makes writing that loop easy, not invisible.
 
-### `@mlxts/serve` — Inference Serving (future)
+### `@mlxts/serve` — Inference Serving
 
-Same principle: explicit server configuration, not a "just works" black box.
+Same principle: explicit server configuration, not an opaque "just works" black
+box. Serving is now a first-class package surface with protocol adapters,
+admission limits, streaming, scheduling, metrics, and endpoint benchmarks.
 
 ```typescript
-// What we want: visible, configurable
-const server = createServer({
-  model: loadedModel,
-  tokenizer: loadedTokenizer,
+// What we want: visible, configurable, protocol-neutral inside.
+const server = serveLoadedModel({
+  model,
+  tokenizer,
+  modelId: "qwen-local",
   port: 8080,
-  maxConcurrent: 4,
+  maxGeneratedTokens: 2048,
+  maxPromptTokens: 32768,
 });
-server.start();
+await server.ready;
 
-// What we avoid: magic
-serve("meta-llama/Llama-3.2-1B", { port: 8080 });  // What tokenizer? What quantization? What cache policy?
+// What we avoid: hidden policy.
+serve("meta-llama/Llama-3.2-1B", { magic: true });  // What tokenizer? What cache policy? What route semantics?
 ```
 
-### `@mlxts/lora`, `@mlxts/align` — Fine-Tuning (future)
+OpenAI completions, chat completions, text Responses, and bounded Anthropic
+Messages should normalize directly into the shared generation request model.
+Adapters own wire shape. Engines own generation.
+
+### `@mlxts/lora`, `@mlxts/align` — Fine-Tuning
 
 LoRA injection should be a visible transformation:
 ```typescript
@@ -163,7 +171,11 @@ const adapted = applyLoRA(model, { targetLayers: ["attention.wq", "attention.wv"
 ```
 Not a decorator or mixin that silently replaces layers.
 
-DPO/SFT trainers (in `@mlxts/align`) compose training primitives from `@mlxts/train` — they're higher-level convenience, not a different framework. A user who reads an SFT training script should see the same `getBatch → computeLoss → getGrads → update` structure, with the loss function being the SFT-specific part.
+SFT/DPO helpers in `@mlxts/align` compose training primitives from
+`@mlxts/train`; they are recipe helpers, not a different framework. A user who
+reads an SFT training script should still see the same
+`getBatch -> computeLoss -> getGrads -> update` structure, with the loss
+function and data shaping being the SFT/DPO-specific parts.
 
 ---
 
@@ -351,7 +363,7 @@ If any test fails, the abstraction needs rethinking.
 | Visible control flow | User sees every step in their script | No convenience functions allowed |
 | Composition over inheritance | Functions and values over base classes | Never use classes |
 | Explicit over implicit | Configuration is passed, not discovered | Verbose boilerplate everywhere |
-| User owns the loop | Training/serving logic is in user code | No reusable training utilities |
+| User owns the loop | Training control flow stays visible; serving policy stays explicit and package-owned | No reusable training utilities or serving helpers |
 | Don't abstract early | Wait for the second consumer | Copy-paste forever |
 | Contracts describe behavior | CausalLM = "predicts next tokens", regardless of internals | One contract per model variant |
 | Paradigm-based packages | `transformers` (autoregressive) and `diffusion` (denoising) | One package per modality |

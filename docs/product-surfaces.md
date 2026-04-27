@@ -184,9 +184,9 @@ controls, and the shared protocol-neutral generation request shape.
 contract.
 
 **Protocol adapters stay thin.** OpenAI completions, chat completions,
-Responses, and future Anthropic Messages normalize into one internal request
-model. They do not normalize into each other and they do not carry model-family
-prompt logic.
+text Responses, and bounded Anthropic Messages normalize into one internal
+request model. They do not normalize into each other and they do not carry
+model-family prompt logic.
 
 **Model-native by default.** If a request omits sampling parameters, serving
 preserves that omission so checkpoint `generation_config.json` can apply. Safety

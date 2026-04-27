@@ -268,17 +268,18 @@ CI rather than relying on manual spot checks.
 
 #### `@mlxts/serve`
 
-Production inference server with OpenAI-compatible API.
+Production inference server with OpenAI-compatible and Anthropic-compatible API
+slices.
 
 | Concern | What it provides |
 |---------|-----------------|
-| API server | `/v1/chat/completions`, `/v1/completions`, text-only `/v1/responses`, `/v1/models`, `/health`, `/info` |
+| API server | `/v1/chat/completions`, `/v1/completions`, text-only `/v1/responses`, text-only `/v1/messages`, `/v1/models`, `/health`, `/info` |
 | Admission | prompt/generated/total-token limits, memory preflight, cancellation, and streaming lifecycle |
 | Batching | admission micro-batching plus cache-generic continuous scheduling for eligible LLaMA-like, Qwen 3.6 text, and Gemma 3/4 layer-pattern requests |
-| Streaming | Server-sent events for completions, chat, narrow Responses, reasoning separation, and stream keepalive |
+| Streaming | Server-sent events for completions, chat, narrow Responses, bounded Anthropic Messages, reasoning separation, and stream keepalive |
 | Model serving | single-model and multi-model load-at-start serving; dynamic load/unload and engine-pool eviction remain future work |
 | Benchmarking | endpoint `bench:serve` and Qwen/Gemma regression matrices with route, scheduler, stream, and memory evidence |
-| Protocol adapters | OpenAI chat/completions and narrow text Responses over one shared request model; Anthropic and embeddings remain future adapters |
+| Protocol adapters | OpenAI chat/completions, narrow text Responses, and bounded Anthropic Messages over one shared request model; embeddings and broader content/tool semantics remain future adapters |
 
 **Dependencies:** `@mlxts/core`, `@mlxts/nn`, `@mlxts/transformers`, `@mlxts/tokenizers`
 

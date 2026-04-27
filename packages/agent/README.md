@@ -70,4 +70,4 @@ The parser also accepts Qwen-style function blocks such as
 `<tool_call><function=list_files>{}</function></tool_call>`, because local
 models may emit their native tool syntax even when prompted with the generic
 envelope. That keeps the first loop easy to test while leaving room for richer
-model-family tool-call parsers and OpenAI Chat/Responses adapters later.
+model-family tool-call parsers and future non-chat agent adapters later.

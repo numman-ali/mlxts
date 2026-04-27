@@ -2,7 +2,7 @@
 
 Dataset and batching helpers for mlxts.
 
-`@mlxts/data` currently provides the canonical text-loading and token-batching helpers used by the temporary nanoGPT fixture.
+`@mlxts/data` provides canonical text-loading and token-batching helpers used by the committed nanoGPT example and regression surface.
 
 ```ts
 import { prepareData } from "@mlxts/data";

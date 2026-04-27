@@ -244,7 +244,8 @@ in CI as a regression gate.
 
 ## Phase 9c: Serving
 
-**Goal:** Production-quality inference server with OpenAI-compatible API.
+**Goal:** Production-quality inference server with OpenAI-compatible API and
+bounded Anthropic-compatible Messages support.
 
 ### Milestone: "Serve a model with an OpenAI-compatible API"
 
@@ -254,16 +255,17 @@ in CI as a regression gate.
 | `/v1/chat/completions` endpoint works | Test: curl request returns valid response |
 | `/v1/completions` endpoint works | Test: completion request returns text |
 | Text-only `/v1/responses` endpoint works | Test: responses request returns valid text response and semantic SSE stream |
-| Streaming responses (SSE) | Test: completions/chat/responses stream token or semantic deltas with usage where supported |
-| Protocol adapters share one internal request path | Test: chat, completions, and text Responses normalize to the protocol-neutral request model |
+| Text-only `/v1/messages` endpoint works | Test: Anthropic Messages request returns valid text/thinking blocks and Anthropic SSE events |
+| Streaming responses (SSE) | Test: completions/chat/responses/messages stream token or semantic deltas with usage where supported |
+| Protocol adapters share one internal request path | Test: chat, completions, text Responses, and bounded Anthropic Messages normalize to the protocol-neutral request model |
 | `mlxts-serve meta-llama/Llama-3.2-1B-Instruct` works | End-to-end demo through the package-owned binary |
 | Qwen/Gemma continuous scheduler routes are honest | Real regression asserts route decisions, scheduler phases, stream health, and memory budgets |
-| Future Anthropic-compatible API endpoint works | Test: Anthropic client can connect once the adapter exists |
+| Future broader Anthropic content/tool support works | Test: Anthropic clients can use images/tools once those adapters exist |
 | Future `/v1/embeddings` endpoint works | Test: embedding request returns vector once embedding engines exist |
 | Future dynamic model loading/unloading works | Test: switch models without restart once the engine pool exists |
 
 ### What "done" looks like
-`mlxts serve --model meta-llama/Llama-3.2-1B-Instruct --quantize 4bit` starts a server. Any OpenAI-compatible client (Cursor, Continue, LangChain.js, etc.) connects and gets fast, streaming responses.
+`mlxts serve --model meta-llama/Llama-3.2-1B-Instruct --quantize 4bit` starts a server. OpenAI-compatible clients (Cursor, Continue, LangChain.js, etc.) and Anthropic Messages-compatible text clients can connect and get fast, streaming responses.
 
 ---
 

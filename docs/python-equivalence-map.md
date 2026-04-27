@@ -122,10 +122,11 @@ The goal is not to replicate Python's entire ML ecosystem line-for-line. It is t
 
 | Python Package | What It Does | mlxts Equivalent | Phase | Status | Notes |
 |---|---|---|---|---|---|
-| **LangChain** | LLM application framework (chains, agents, RAG) | Not a mlxts concern | -- | Not planned | LangChain is an application framework, not an ML framework. TypeScript already has LangChain.js. mlxts provides the inference backend that LangChain.js or similar frameworks can call via OpenAI-compatible API. |
+| **LangChain** | LLM application framework (chains, agents, RAG) | Not a mlxts concern | -- | Not planned | LangChain is an application framework, not an ML framework. TypeScript already has LangChain.js. mlxts provides the inference backend that LangChain.js or similar frameworks can call via OpenAI-compatible APIs. |
 | **LlamaIndex** | Data indexing and RAG framework | Not a mlxts concern | -- | Not planned | Same rationale as LangChain. LlamaIndex has a TypeScript version. mlxts provides the model serving layer. |
 | **Gradio** | Quick ML demo UI builder | Not a mlxts concern | -- | Not planned | The GUI surface (Phase post-6) serves a similar demo/exploration purpose, but it is part of the product surface design, not a generic UI builder. |
-| **OpenAI API** (compatibility) | Standard API format for LLM serving | @mlxts/serve | 9 | Planned | @mlxts/serve exposes an OpenAI-compatible REST API. This is the interop surface for existing tools (LangChain, ChatGPT-compatible clients, etc.). |
+| **OpenAI API** (compatibility) | Standard API format for LLM serving | @mlxts/serve | 9 | Exists | @mlxts/serve exposes OpenAI-compatible completions, chat completions, and text Responses slices. This is the interop surface for existing tools (LangChain, ChatGPT-compatible clients, etc.). |
+| **Anthropic Messages API** (compatibility) | Standard Anthropic chat/message API shape | @mlxts/serve | 9 | Partial | @mlxts/serve exposes a bounded text-only Messages slice with Anthropic response and SSE framing; tools, images, and broader content blocks remain future work. |
 
 ### 2l. llama.cpp Ecosystem
 
@@ -253,7 +254,7 @@ Note: MLX does have mx.distributed with MPI, Ring, and JACCL (RDMA over Thunderb
 
 **Packages**: LangChain, LlamaIndex, Gradio, Streamlit
 
-**Why not**: These are application-layer tools, not ML infrastructure. They already have TypeScript equivalents (LangChain.js, LlamaIndex.TS). mlxts provides the model serving layer that these frameworks consume via OpenAI-compatible API. We don't need to rebuild them.
+**Why not**: These are application-layer tools, not ML infrastructure. They already have TypeScript equivalents (LangChain.js, LlamaIndex.TS). mlxts provides the model serving layer that these frameworks consume via OpenAI-compatible and Anthropic-compatible API slices. We don't need to rebuild them.
 
 ---
 

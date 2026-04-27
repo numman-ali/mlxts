@@ -159,8 +159,9 @@ class Linear extends Module {
 - `@mlxts/train` holds the extracted training schedule, loop, gradient, and
   checkpoint primitives
 - `@mlxts/data` holds the extracted text-data loading and batching helpers
-- `@mlxts/tokenizers` currently holds the extracted char tokenizer and package
-  surface for broader tokenizer work later
+- `@mlxts/tokenizers` holds the tokenizer surface used by examples and
+  pretrained checkpoints, including char-tokenizer, BPE, SentencePiece/Tekken,
+  and Hugging Face tokenizer snapshot loading support
 
 These packages are now the canonical reusable layer above `@mlxts/core`,
 `@mlxts/nn`, and `@mlxts/optimizers`.
@@ -423,7 +424,8 @@ and tokenizers.
 wiring, tokenizer, training loop, generation, checkpoints, soak, and acceptance
 flows.
 
-If reusable model-family code eventually wants its own home, it should move
-into a separate package such as `packages/lm` or `packages/models`. The split
-should happen only when there is a second consumer or a second model family
-that justifies a reusable layer.
+Reusable autoregressive model-family code belongs in `@mlxts/transformers`.
+That package owns dense text models, MoE blocks, encoder-decoder families,
+vision encoders, and VLM wrappers because they share the autoregressive
+generation paradigm. Do not create new `packages/lm`, `packages/models`, or
+modality-named packages for runtime or model-family variants.

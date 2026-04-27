@@ -19,12 +19,15 @@ scheduler guarantee.
 
 Do not call admission micro-batching continuous batching. True continuous
 batching needs a scheduler-owned decode loop plus batch-aware cache semantics in
-`@mlxts/transformers`, especially for Qwen hybrid full-attention plus recurrent
-linear-attention cache state.
+`@mlxts/transformers`. That route is now real for eligible LLaMA-like, Qwen
+3.6 text, and Gemma 3/4 layer-pattern requests; keep claims tied to the exact
+route evidence and do not imply prefix/paged cache or multimodal batching.
 
 For full-KV continuous batching, long waiting prompts must be chunk-prefilled
-between active decode steps rather than forwarded as one admission wall. This is
-fairness for the existing eligible subset, not a Qwen/Gemma batching claim.
+between active decode steps rather than forwarded as one admission wall. For
+Qwen/Gemma routes, preserve the real regression guardrails that assert
+per-request TTFT, scheduler queue time, SSE lifecycle, and mixed long-prefill /
+short-arrival fairness separately from aggregate throughput.
 
 For serving reliability work, prefer small audited tranches: admission,
 observability, cancellation, memory preflight, scheduler/cache architecture, then

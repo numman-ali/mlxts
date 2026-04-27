@@ -3,19 +3,6 @@
   "version": "0.0.1",
   "private": true,
   "type": "module",
-  "main": "./dist/index.js",
-  "module": "./dist/index.js",
-  "types": "./dist/index.d.ts",
-  "exports": {
-    ".": {
-      "types": "./dist/index.d.ts",
-      "import": "./dist/index.js",
-      "default": "./dist/index.js"
-    }
-  },
-  "bin": {
-    "nanogpt": "./dist/cli.js"
-  },
   "dependencies": {
     "@mlxts/core": "workspace:*",
     "@mlxts/data": "workspace:*",
