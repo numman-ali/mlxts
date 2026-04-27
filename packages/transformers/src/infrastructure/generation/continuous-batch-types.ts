@@ -23,6 +23,10 @@ export type ContinuousBatchAdmissionRequest = {
 };
 
 export type ContinuousBatchAdmissionBudgetSnapshot = {
+  scheduledPromptTokens: number;
+  maxScheduledPromptTokens: number | null;
+  scheduledCompletionTokens: number;
+  maxScheduledCompletionTokens: number | null;
   scheduledTotalTokens: number;
   maxScheduledTotalTokens: number | null;
 };
@@ -36,6 +40,7 @@ export type ContinuousBatchAdmissionDecision =
     }
   | (ContinuousBatchAdmissionBudgetSnapshot & {
       type: "deferred";
+      reason: "scheduled_prompt_budget" | "scheduled_completion_budget" | "scheduled_token_budget";
     })
   | {
       type: "rejected";

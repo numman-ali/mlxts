@@ -128,7 +128,11 @@ function formatSchedulerCounts(
 ): string {
   const maxTokens =
     event.maxScheduledTotalTokens === null ? "unbounded" : event.maxScheduledTotalTokens;
-  return `waiting=${event.waiting} prefilling=${event.prefilling} active=${event.active}/${event.maxBatchSize} scheduled_tokens=${event.scheduledTotalTokens}/${maxTokens}`;
+  const maxPrompt =
+    event.maxScheduledPromptTokens === null ? "unbounded" : event.maxScheduledPromptTokens;
+  const maxCompletion =
+    event.maxScheduledCompletionTokens === null ? "unbounded" : event.maxScheduledCompletionTokens;
+  return `waiting=${event.waiting} prefilling=${event.prefilling} active=${event.active}/${event.maxBatchSize} scheduled_tokens=${event.scheduledTotalTokens}/${maxTokens} scheduled_prompt_tokens=${event.scheduledPromptTokens}/${maxPrompt} scheduled_completion_tokens=${event.scheduledCompletionTokens}/${maxCompletion}`;
 }
 
 function formatSchedulerPhase(

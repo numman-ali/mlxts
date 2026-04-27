@@ -286,6 +286,7 @@ function createLoadedModelEngine(
   const modelEngine = createTransformersGenerationEngine({
     model: model.model,
     tokenizer: model.tokenizer,
+    maxGeneratedTokens: options.maxGeneratedTokens,
     maxPromptTokens: options.maxPromptTokens,
     maxTotalTokens: options.maxTotalTokens,
     maxBatchSize: options.maxBatchSize,

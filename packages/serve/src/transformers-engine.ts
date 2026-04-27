@@ -50,6 +50,7 @@ export type TransformersGenerationEngineOptions = {
   model: CausalLM;
   tokenizer: Tokenizer;
   interactionProfile?: InteractionProfile;
+  maxGeneratedTokens?: number;
   maxPromptTokens?: number;
   maxTotalTokens?: number;
   maxBatchSize?: number;

@@ -94,6 +94,10 @@ type ContinuousSchedulerCounts = {
   waitingTotalTokens: number;
   prefillingTotalTokens: number;
   activeTotalTokens: number;
+  scheduledPromptTokens: number;
+  maxScheduledPromptTokens: number | null;
+  scheduledCompletionTokens: number;
+  maxScheduledCompletionTokens: number | null;
   scheduledTotalTokens: number;
   maxScheduledTotalTokens: number | null;
 };
@@ -127,7 +131,10 @@ type ContinuousSchedulerServeEvent =
         model: string;
         id: string;
         ids: readonly string[];
-        reason: "scheduled_token_budget";
+        reason:
+          | "scheduled_prompt_budget"
+          | "scheduled_completion_budget"
+          | "scheduled_token_budget";
         promptTokens: number;
         maxTokens: number;
       })

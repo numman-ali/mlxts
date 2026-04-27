@@ -811,7 +811,8 @@ KV cache is the critical infrastructure for both single-user generation and mult
 - `Bun.serve()` — no Express, no Node HTTP
 - Server-sent events for token streaming, cancellation, long-context heartbeats, and cooperative prefill progress
 - Landed cache-generic continuous batching for eligible LLaMA-like, Qwen 3.6 text, and Gemma 3/4 layer-pattern requests, including streaming and model-native sampled defaults
-- Future scheduler tranches cover token-budget admission, separate prefill/completion budgets, stronger fairness controls, and higher-concurrency sampled evidence
+- Landed continuous scheduler token-budget admission with separate prompt, completion, and aggregate total caps
+- Future scheduler tranches cover stronger fairness controls, per-row decode state evidence, and higher-concurrency sampled proof
 - Future cache tranches cover prefix cache, paged cache, rotating/max-KV policy, quantized KV, and TurboQuant-style attention backends
 - Future model loading/unloading without restart via engine pool
 - Future per-model settings (sampling params, TTL, aliases) persisted to JSON

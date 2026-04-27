@@ -447,7 +447,11 @@ function evidenceFailures(metrics: TrialMetrics, budget: ServeRegressionBudget):
     const missing = metrics.serverRequests.filter(
       (request) =>
         request.route === "continuous" &&
-        (request.schedulerScheduledTotalTokens === null ||
+        (request.schedulerScheduledPromptTokens === null ||
+          request.schedulerMaxScheduledPromptTokens === null ||
+          request.schedulerScheduledCompletionTokens === null ||
+          request.schedulerMaxScheduledCompletionTokens === null ||
+          request.schedulerScheduledTotalTokens === null ||
           request.schedulerMaxScheduledTotalTokens === null),
     );
     if (missing.length > 0) {

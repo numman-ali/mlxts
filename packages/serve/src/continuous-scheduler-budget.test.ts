@@ -8,22 +8,23 @@ import type {
 import { createContinuousSchedulerTokenBudget } from "./continuous-scheduler-budget";
 
 function request(
-  totalTokens: number,
-  id = `request-${totalTokens}`,
+  promptTokens: number,
+  maxTokens: number,
+  id = `request-${promptTokens}-${maxTokens}`,
 ): ContinuousBatchAdmissionRequest {
   return {
     id,
-    promptTokens: totalTokens,
-    maxTokens: 0,
-    totalTokens,
+    promptTokens,
+    maxTokens,
+    totalTokens: promptTokens + maxTokens,
   };
 }
 
 function requireBudget(
-  maxTotalTokens: number,
+  options: { maxPromptTokens?: number; maxGeneratedTokens?: number; maxTotalTokens?: number },
   maxBatchSize: number,
 ): ContinuousBatchAdmissionController {
-  const budget = createContinuousSchedulerTokenBudget({ maxTotalTokens, maxBatchSize });
+  const budget = createContinuousSchedulerTokenBudget({ ...options, maxBatchSize });
   if (budget === undefined) {
     throw new Error("Expected a continuous scheduler budget.");
   }
@@ -42,37 +43,68 @@ function reserve(
 }
 
 describe("continuous scheduler token budget", () => {
-  test("defers, rejects, and releases aggregate scheduled-token reservations", () => {
-    const budget = requireBudget(4, 2);
-    const first = reserve(budget, request(5, "first"));
+  test("defers, rejects, and releases split scheduled-token reservations", () => {
+    const budget = requireBudget({ maxPromptTokens: 4, maxGeneratedTokens: 2 }, 2);
+    const first = reserve(budget, request(4, 1, "first"));
 
     expect(budget.snapshot()).toEqual({
+      scheduledPromptTokens: 4,
+      maxScheduledPromptTokens: 8,
+      scheduledCompletionTokens: 1,
+      maxScheduledCompletionTokens: 4,
       scheduledTotalTokens: 5,
-      maxScheduledTotalTokens: 8,
+      maxScheduledTotalTokens: 12,
     });
-    expect(budget.tryReserve(request(4, "second"))).toEqual({
+    expect(budget.tryReserve(request(1, 4, "completion-bound"))).toEqual({
       type: "deferred",
+      reason: "scheduled_completion_budget",
+      scheduledPromptTokens: 4,
+      maxScheduledPromptTokens: 8,
+      scheduledCompletionTokens: 1,
+      maxScheduledCompletionTokens: 4,
       scheduledTotalTokens: 5,
-      maxScheduledTotalTokens: 8,
+      maxScheduledTotalTokens: 12,
     });
-    expect(budget.tryReserve(request(9, "too-large"))).toEqual({
+    expect(budget.tryReserve(request(9, 1, "too-large-prompt"))).toEqual({
       type: "rejected",
       message:
-        "Continuous scheduler request too-large requires 9 total tokens, exceeding the model-level scheduled token budget of 8.",
+        "Continuous scheduler request too-large-prompt requires 9 prompt tokens, exceeding the model-level scheduled prompt token budget of 8.",
+    });
+    expect(budget.tryReserve(request(1, 5, "too-large-completion"))).toEqual({
+      type: "rejected",
+      message:
+        "Continuous scheduler request too-large-completion requires 5 completion tokens, exceeding the model-level scheduled completion token budget of 4.",
+    });
+    expect(
+      requireBudget(
+        { maxPromptTokens: 8, maxGeneratedTokens: 8, maxTotalTokens: 10 },
+        2,
+      ).tryReserve(request(12, 9, "too-large-total")),
+    ).toEqual({
+      type: "rejected",
+      message:
+        "Continuous scheduler request too-large-total requires 21 total tokens, exceeding the model-level scheduled total token budget of 20.",
     });
 
     first[Symbol.dispose]();
 
-    expect(budget.tryReserve(request(4, "second"))).toMatchObject({ type: "reserved" });
+    expect(budget.tryReserve(request(1, 4, "completion-bound"))).toMatchObject({
+      type: "reserved",
+    });
   });
 
   test("wakes waiters only on a real reservation release", async () => {
-    const budget = requireBudget(50, 2);
-    const first = reserve(budget, request(50, "first"));
+    const budget = requireBudget({ maxTotalTokens: 50 }, 2);
+    const first = reserve(budget, request(40, 10, "first"));
     let wakeups = 0;
 
-    expect(budget.tryReserve(request(60, "second"))).toEqual({
+    expect(budget.tryReserve(request(60, 0, "second"))).toEqual({
       type: "deferred",
+      reason: "scheduled_token_budget",
+      scheduledPromptTokens: 40,
+      maxScheduledPromptTokens: 100,
+      scheduledCompletionTokens: 10,
+      maxScheduledCompletionTokens: 100,
       scheduledTotalTokens: 50,
       maxScheduledTotalTokens: 100,
     });

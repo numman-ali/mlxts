@@ -1,6 +1,7 @@
 import type { ContinuousBatchQueueSnapshot } from "./continuous-batch-events";
 import type {
   ContinuousBatchAdmissionController,
+  ContinuousBatchAdmissionDecision,
   ContinuousBatchAdmissionRequest,
   PrefillingRequest,
   ScheduledRequest,
@@ -15,12 +16,36 @@ function requestTotalTokens(request: SchedulableRequest): number {
   return request.promptTokenIds.length + request.maxTokens;
 }
 
+function requestPromptTokens(request: SchedulableRequest): number {
+  return request.promptTokenIds.length;
+}
+
+function requestCompletionTokens(request: SchedulableRequest): number {
+  return request.maxTokens;
+}
+
 function sumTotalTokens(requests: readonly SchedulableRequest[]): number {
   return requests.reduce((total, request) => total + requestTotalTokens(request), 0);
 }
 
+function sumPromptTokens(requests: readonly SchedulableRequest[]): number {
+  return requests.reduce((total, request) => total + requestPromptTokens(request), 0);
+}
+
+function sumCompletionTokens(requests: readonly SchedulableRequest[]): number {
+  return requests.reduce((total, request) => total + requestCompletionTokens(request), 0);
+}
+
 function prefillingTotalTokens(prefilling: readonly PrefillingRequest[]): number {
   return prefilling.reduce((total, row) => total + requestTotalTokens(row.request), 0);
+}
+
+function prefillingPromptTokens(prefilling: readonly PrefillingRequest[]): number {
+  return prefilling.reduce((total, row) => total + requestPromptTokens(row.request), 0);
+}
+
+function prefillingCompletionTokens(prefilling: readonly PrefillingRequest[]): number {
+  return prefilling.reduce((total, row) => total + requestCompletionTokens(row.request), 0);
 }
 
 export function admissionRequestFor(request: ScheduledRequest): ContinuousBatchAdmissionRequest {
@@ -34,7 +59,11 @@ export function admissionRequestFor(request: ScheduledRequest): ContinuousBatchA
 }
 
 type DeferredTelemetry = {
-  deferred(request: ScheduledRequest, snapshot: ContinuousBatchQueueSnapshot): void;
+  deferred(
+    request: ScheduledRequest,
+    reason: Extract<ContinuousBatchAdmissionDecision, { type: "deferred" }>["reason"],
+    snapshot: ContinuousBatchQueueSnapshot,
+  ): void;
 };
 
 type AdmissionCleanup = (request: ScheduledRequest) => void;
@@ -63,7 +92,7 @@ function tryReserveAdmission(
   }
   if (!request.admissionDeferred) {
     request.admissionDeferred = true;
-    telemetry.deferred(request, snapshot());
+    telemetry.deferred(request, decision.reason, snapshot());
   }
   return "deferred";
 }
@@ -113,7 +142,15 @@ export function continuousBatchQueueSnapshot(
   const waitingTotalTokens = sumTotalTokens(waiting);
   const prefillingTokens = prefillingTotalTokens(prefilling);
   const activeTotalTokens = sumTotalTokens(active);
+  const prefillingPrompt = prefillingPromptTokens(prefilling);
+  const activePromptTokens = sumPromptTokens(active);
+  const prefillingCompletion = prefillingCompletionTokens(prefilling);
+  const activeCompletionTokens = sumCompletionTokens(active);
   const admission = admissionController?.snapshot();
+  const scheduledPromptTokens =
+    admission?.scheduledPromptTokens ?? prefillingPrompt + activePromptTokens;
+  const scheduledCompletionTokens =
+    admission?.scheduledCompletionTokens ?? prefillingCompletion + activeCompletionTokens;
 
   return {
     waiting: waiting.length,
@@ -123,6 +160,10 @@ export function continuousBatchQueueSnapshot(
     waitingTotalTokens,
     prefillingTotalTokens: prefillingTokens,
     activeTotalTokens,
+    scheduledPromptTokens,
+    maxScheduledPromptTokens: admission?.maxScheduledPromptTokens ?? null,
+    scheduledCompletionTokens,
+    maxScheduledCompletionTokens: admission?.maxScheduledCompletionTokens ?? null,
     scheduledTotalTokens: admission?.scheduledTotalTokens ?? prefillingTokens + activeTotalTokens,
     maxScheduledTotalTokens: admission?.maxScheduledTotalTokens ?? null,
   };

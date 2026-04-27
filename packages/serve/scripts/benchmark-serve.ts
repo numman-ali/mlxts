@@ -72,6 +72,10 @@ export type ServerRequestTimingReport = {
   schedulerWaitingTotalTokens: number | null;
   schedulerPrefillingTotalTokens: number | null;
   schedulerActiveTotalTokens: number | null;
+  schedulerScheduledPromptTokens: number | null;
+  schedulerMaxScheduledPromptTokens: number | null;
+  schedulerScheduledCompletionTokens: number | null;
+  schedulerMaxScheduledCompletionTokens: number | null;
   schedulerScheduledTotalTokens: number | null;
   schedulerMaxScheduledTotalTokens: number | null;
   firstPrefillProgressMs: number | null;
@@ -497,6 +501,10 @@ function schedulerTokenFields(
   | "schedulerWaitingTotalTokens"
   | "schedulerPrefillingTotalTokens"
   | "schedulerActiveTotalTokens"
+  | "schedulerScheduledPromptTokens"
+  | "schedulerMaxScheduledPromptTokens"
+  | "schedulerScheduledCompletionTokens"
+  | "schedulerMaxScheduledCompletionTokens"
   | "schedulerScheduledTotalTokens"
   | "schedulerMaxScheduledTotalTokens"
 > {
@@ -505,6 +513,10 @@ function schedulerTokenFields(
     schedulerWaitingTotalTokens: event?.waitingTotalTokens ?? null,
     schedulerPrefillingTotalTokens: event?.prefillingTotalTokens ?? null,
     schedulerActiveTotalTokens: event?.activeTotalTokens ?? null,
+    schedulerScheduledPromptTokens: event?.scheduledPromptTokens ?? null,
+    schedulerMaxScheduledPromptTokens: event?.maxScheduledPromptTokens ?? null,
+    schedulerScheduledCompletionTokens: event?.scheduledCompletionTokens ?? null,
+    schedulerMaxScheduledCompletionTokens: event?.maxScheduledCompletionTokens ?? null,
     schedulerScheduledTotalTokens: event?.scheduledTotalTokens ?? null,
     schedulerMaxScheduledTotalTokens: event?.maxScheduledTotalTokens ?? null,
   };

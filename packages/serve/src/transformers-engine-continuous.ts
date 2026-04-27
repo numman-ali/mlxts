@@ -117,6 +117,10 @@ function schedulerCounts(event: ContinuousBatchSchedulerEvent) {
     waitingTotalTokens: event.waitingTotalTokens,
     prefillingTotalTokens: event.prefillingTotalTokens,
     activeTotalTokens: event.activeTotalTokens,
+    scheduledPromptTokens: event.scheduledPromptTokens,
+    maxScheduledPromptTokens: event.maxScheduledPromptTokens,
+    scheduledCompletionTokens: event.scheduledCompletionTokens,
+    maxScheduledCompletionTokens: event.maxScheduledCompletionTokens,
     scheduledTotalTokens: event.scheduledTotalTokens,
     maxScheduledTotalTokens: event.maxScheduledTotalTokens,
   };
@@ -294,6 +298,10 @@ export function createContinuousTransformersGeneration(
   const strategy = transformersRuntimeStrategy(options);
   const admissionController = createContinuousSchedulerTokenBudget({
     maxBatchSize: strategy.scheduler.maxBatchSize,
+    ...(options.maxGeneratedTokens === undefined
+      ? {}
+      : { maxGeneratedTokens: options.maxGeneratedTokens }),
+    ...(options.maxPromptTokens === undefined ? {} : { maxPromptTokens: options.maxPromptTokens }),
     ...(options.maxTotalTokens === undefined ? {} : { maxTotalTokens: options.maxTotalTokens }),
   });
 

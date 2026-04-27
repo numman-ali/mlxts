@@ -4,6 +4,7 @@ import type {
   ContinuousBatchQueueSnapshot,
   ContinuousBatchSchedulerEvent,
 } from "./continuous-batch-events";
+import type { ContinuousBatchAdmissionDecision } from "./continuous-batch-types";
 
 export type ContinuousBatchTelemetryRequest = {
   id: string;
@@ -61,11 +62,15 @@ export class ContinuousBatchTelemetry {
     });
   }
 
-  deferred(request: ContinuousBatchTelemetryRequest, snapshot: ContinuousBatchQueueSnapshot): void {
+  deferred(
+    request: ContinuousBatchTelemetryRequest,
+    reason: Extract<ContinuousBatchAdmissionDecision, { type: "deferred" }>["reason"],
+    snapshot: ContinuousBatchQueueSnapshot,
+  ): void {
     this.#onSchedulerEvent?.({
       type: "deferred",
       id: request.id,
-      reason: "scheduled_token_budget",
+      reason,
       promptTokens: request.promptTokenIds.length,
       maxTokens: request.maxTokens,
       queuedMs: this.#elapsedMs(request),

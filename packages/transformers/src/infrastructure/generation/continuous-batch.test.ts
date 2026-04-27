@@ -231,6 +231,7 @@ class TestTokenBudget implements ContinuousBatchAdmissionController {
     if (this.#scheduledTotalTokens + request.totalTokens > this.#maxScheduledTotalTokens) {
       return {
         type: "deferred" as const,
+        reason: "scheduled_token_budget" as const,
         ...this.snapshot(),
       };
     }
@@ -243,6 +244,10 @@ class TestTokenBudget implements ContinuousBatchAdmissionController {
 
   snapshot() {
     return {
+      scheduledPromptTokens: this.#scheduledTotalTokens,
+      maxScheduledPromptTokens: this.#maxScheduledTotalTokens,
+      scheduledCompletionTokens: 0,
+      maxScheduledCompletionTokens: this.#maxScheduledTotalTokens,
       scheduledTotalTokens: this.#scheduledTotalTokens,
       maxScheduledTotalTokens: this.#maxScheduledTotalTokens,
     };

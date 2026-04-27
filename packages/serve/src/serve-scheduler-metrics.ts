@@ -32,6 +32,12 @@ export class ServeSchedulerMetrics {
     type: "gauge",
     labelNames: ["model", "mode", "state"],
   });
+  readonly #deferrals = new NumberMetric({
+    name: "mlxts_serve_scheduler_deferrals_total",
+    help: "Continuous scheduler admission deferrals by bounded reason.",
+    type: "counter",
+    labelNames: ["model", "mode", "reason"],
+  });
   readonly #queuedDurations = new HistogramMetric(
     {
       name: "mlxts_serve_scheduler_queue_duration_seconds",
@@ -49,6 +55,9 @@ export class ServeSchedulerMetrics {
     this.#requests.set([model, event.mode, "active"], event.active);
     this.#requests.set([model, event.mode, "max_batch_size"], event.maxBatchSize);
     this.#recordTokens(model, event);
+    if (event.phase === "deferred") {
+      this.#deferrals.add([model, event.mode, event.reason], 1);
+    }
     if (event.phase === "admitted") {
       for (const queuedMs of event.queuedMsByRequest) {
         this.#queuedDurations.observe([model, event.mode], seconds(queuedMs));
@@ -65,6 +74,7 @@ export class ServeSchedulerMetrics {
       ...this.#phases.format(),
       ...this.#requests.format(),
       ...this.#tokens.format(),
+      ...this.#deferrals.format(),
       ...this.#queuedDurations.format(),
     ];
   }
@@ -76,7 +86,18 @@ export class ServeSchedulerMetrics {
     this.#tokens.set([model, event.mode, "waiting_total"], event.waitingTotalTokens);
     this.#tokens.set([model, event.mode, "prefilling_total"], event.prefillingTotalTokens);
     this.#tokens.set([model, event.mode, "active_total"], event.activeTotalTokens);
+    this.#tokens.set([model, event.mode, "scheduled_prompt"], event.scheduledPromptTokens);
+    this.#tokens.set([model, event.mode, "scheduled_completion"], event.scheduledCompletionTokens);
     this.#tokens.set([model, event.mode, "scheduled_total"], event.scheduledTotalTokens);
+    if (event.maxScheduledPromptTokens !== null) {
+      this.#tokens.set([model, event.mode, "max_scheduled_prompt"], event.maxScheduledPromptTokens);
+    }
+    if (event.maxScheduledCompletionTokens !== null) {
+      this.#tokens.set(
+        [model, event.mode, "max_scheduled_completion"],
+        event.maxScheduledCompletionTokens,
+      );
+    }
     if (event.maxScheduledTotalTokens !== null) {
       this.#tokens.set([model, event.mode, "max_scheduled_total"], event.maxScheduledTotalTokens);
     }

@@ -113,6 +113,10 @@ describe("serve metrics", () => {
       waitingTotalTokens: 13,
       prefillingTotalTokens: 0,
       activeTotalTokens: 13,
+      scheduledPromptTokens: 5,
+      maxScheduledPromptTokens: 8,
+      scheduledCompletionTokens: 8,
+      maxScheduledCompletionTokens: 8,
       scheduledTotalTokens: 13,
       maxScheduledTotalTokens: 16,
     });
@@ -151,7 +155,16 @@ describe("serve metrics", () => {
       'mlxts_serve_scheduler_phases_total{model="known",mode="continuous",phase="deferred"} 1',
     );
     expect(text).toContain(
+      'mlxts_serve_scheduler_deferrals_total{model="known",mode="continuous",reason="scheduled_token_budget"} 1',
+    );
+    expect(text).toContain(
       'mlxts_serve_scheduler_tokens{model="known",mode="continuous",state="scheduled_total"} 13',
+    );
+    expect(text).toContain(
+      'mlxts_serve_scheduler_tokens{model="known",mode="continuous",state="scheduled_prompt"} 5',
+    );
+    expect(text).toContain(
+      'mlxts_serve_scheduler_tokens{model="known",mode="continuous",state="scheduled_completion"} 8',
     );
     expect(text).toContain(
       'mlxts_serve_generation_route_decisions_total{model="__unknown__",protocol="openai.completions",route="single",eligible="false",reason="unsupported_model_type",model_type="odd\\"model",scheduler="auto",cache="managed",attention="auto",decoding="model",stream="false"} 1',
