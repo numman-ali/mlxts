@@ -11,6 +11,7 @@ import {
   type InteractionProfile,
 } from "@mlxts/transformers";
 import { ModelExecutionLane, type ModelExecutionLaneStats } from "./model-execution-lane";
+import { transformersRuntimeStrategy } from "./serve-runtime-strategy";
 import { createContinuousTransformersGeneration } from "./transformers-engine-continuous";
 import {
   generateSinglePreparedRequest,
@@ -114,7 +115,7 @@ async function runOnModelLane<T>(
 }
 
 function maxBatchSize(options: TransformersGenerationEngineOptions): number {
-  return options.maxBatchSize ?? 1;
+  return transformersRuntimeStrategy(options).scheduler.maxBatchSize;
 }
 
 function streamTokenEventsForRequest(
@@ -147,7 +148,8 @@ function streamTokenEventsForRequest(
 export function createTransformersGenerationEngine(
   options: TransformersGenerationEngineOptions,
 ): GenerationEngine {
-  const lane = new ModelExecutionLane(options.maxConcurrentRequests ?? 1);
+  const strategy = transformersRuntimeStrategy(options);
+  const lane = new ModelExecutionLane(strategy.scheduler.maxConcurrentRequests);
   const staticGeneration = createStaticTransformersGeneration(options, lane);
   const continuous = createContinuousTransformersGeneration(options, lane);
 

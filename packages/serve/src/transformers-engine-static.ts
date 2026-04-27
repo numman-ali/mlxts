@@ -5,6 +5,7 @@
 
 import { ServeError } from "./errors";
 import type { ModelExecutionLane, ModelExecutionLaneStats } from "./model-execution-lane";
+import { transformersRuntimeStrategy } from "./serve-runtime-strategy";
 import { linkAbortSignals } from "./server-abort";
 import type { TransformersGenerationEngineOptions } from "./transformers-engine";
 import { generateTransformersBatch } from "./transformers-engine-generation";
@@ -22,7 +23,11 @@ type PendingStaticGeneration = {
 };
 
 function maxBatchSize(options: TransformersGenerationEngineOptions): number {
-  return options.maxBatchSize ?? 1;
+  return transformersRuntimeStrategy(options).scheduler.maxBatchSize;
+}
+
+function batchWindowMs(options: TransformersGenerationEngineOptions): number {
+  return transformersRuntimeStrategy(options).scheduler.batchWindowMs;
 }
 
 function cancellationError(): ServeError {
@@ -199,12 +204,12 @@ export function createStaticTransformersGeneration(
       return;
     }
     flushScheduled = true;
-    const batchWindowMs = options.batchWindowMs ?? 0;
-    if (batchWindowMs === 0) {
+    const waitMs = batchWindowMs(options);
+    if (waitMs === 0) {
       queueMicrotask(startFlush);
       return;
     }
-    setTimeout(startFlush, batchWindowMs);
+    setTimeout(startFlush, waitMs);
   }
 
   function enqueue(request: NormalizedGenerationRequest): Promise<NormalizedGenerationResult> {

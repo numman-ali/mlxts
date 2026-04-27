@@ -17,6 +17,11 @@ import {
 import { modelAdmissionMetadata } from "./model-context";
 import { createModelRouterGenerationEngine } from "./model-router";
 import { createRequestLimitGenerationEngine } from "./request-limits";
+import {
+  requireNonNegativeInteger,
+  requirePositiveFraction,
+  requirePositiveInteger,
+} from "./serve-runtime-strategy";
 import { startServeServer } from "./server";
 import { createTransformersGenerationEngine } from "./transformers-engine";
 import { DEFAULT_STREAM_DECODE_INTERVAL } from "./transformers-engine-streaming";
@@ -145,28 +150,27 @@ function requireNonEmpty(name: string, value: string): string {
   return value;
 }
 
-function requirePositiveInteger(name: string, value: number): number {
-  if (!Number.isInteger(value) || value <= 0) {
-    throw new Error(`${name} must be a positive integer.`);
-  }
-  return value;
-}
-
-function requireNonNegativeInteger(name: string, value: number): number {
-  if (!Number.isInteger(value) || value < 0) {
-    throw new Error(`${name} must be a non-negative integer.`);
-  }
-  return value;
-}
-
-function requirePositiveFraction(name: string, value: number): number {
-  if (!Number.isFinite(value) || value <= 0 || value > 1) {
-    throw new Error(`${name} must be a number greater than 0 and less than or equal to 1.`);
-  }
-  return value;
-}
-
 function resolveRuntimeOptions(options: ModelServerRuntimeOptions): ResolvedRuntimeOptions {
+  const maxBatchSize = requirePositiveInteger(
+    "maxBatchSize",
+    options.maxBatchSize ?? DEFAULT_MODEL_SERVER_MAX_BATCH_SIZE,
+  );
+  const batchWindowMs = requireNonNegativeInteger(
+    "batchWindowMs",
+    options.batchWindowMs ?? DEFAULT_MODEL_SERVER_BATCH_WINDOW_MS,
+  );
+  const streamDecodeInterval = requirePositiveInteger(
+    "streamDecodeInterval",
+    options.streamDecodeInterval ?? DEFAULT_MODEL_SERVER_STREAM_DECODE_INTERVAL,
+  );
+  const maxConcurrentRequests = requirePositiveInteger(
+    "maxConcurrentRequests",
+    options.maxConcurrentRequests ?? DEFAULT_MODEL_SERVER_MAX_CONCURRENT_REQUESTS,
+  );
+  const gpuMemoryUtilization = requirePositiveFraction(
+    "gpuMemoryUtilization",
+    options.gpuMemoryUtilization ?? DEFAULT_MODEL_SERVER_GPU_MEMORY_UTILIZATION,
+  );
   return {
     hostname: options.hostname ?? DEFAULT_MODEL_SERVER_HOSTNAME,
     port: requireNonNegativeInteger("port", options.port ?? DEFAULT_MODEL_SERVER_PORT),
@@ -182,26 +186,11 @@ function resolveRuntimeOptions(options: ModelServerRuntimeOptions): ResolvedRunt
       "maxTotalTokens",
       options.maxTotalTokens ?? DEFAULT_MODEL_SERVER_MAX_TOTAL_TOKENS,
     ),
-    maxBatchSize: requirePositiveInteger(
-      "maxBatchSize",
-      options.maxBatchSize ?? DEFAULT_MODEL_SERVER_MAX_BATCH_SIZE,
-    ),
-    batchWindowMs: requireNonNegativeInteger(
-      "batchWindowMs",
-      options.batchWindowMs ?? DEFAULT_MODEL_SERVER_BATCH_WINDOW_MS,
-    ),
-    streamDecodeInterval: requirePositiveInteger(
-      "streamDecodeInterval",
-      options.streamDecodeInterval ?? DEFAULT_MODEL_SERVER_STREAM_DECODE_INTERVAL,
-    ),
-    maxConcurrentRequests: requirePositiveInteger(
-      "maxConcurrentRequests",
-      options.maxConcurrentRequests ?? DEFAULT_MODEL_SERVER_MAX_CONCURRENT_REQUESTS,
-    ),
-    gpuMemoryUtilization: requirePositiveFraction(
-      "gpuMemoryUtilization",
-      options.gpuMemoryUtilization ?? DEFAULT_MODEL_SERVER_GPU_MEMORY_UTILIZATION,
-    ),
+    maxBatchSize,
+    batchWindowMs,
+    streamDecodeInterval,
+    maxConcurrentRequests,
+    gpuMemoryUtilization,
     ...(options.apiKey === undefined ? {} : { apiKey: options.apiKey }),
     ...(options.onEvent === undefined ? {} : { onEvent: options.onEvent }),
   };

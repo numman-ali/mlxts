@@ -220,6 +220,10 @@ export type ServeEvent =
       reason: GenerationRouteDecisionReason;
       modelType: string;
       maxBatchSize: number;
+      schedulerMode: "auto";
+      cacheBackend: "managed";
+      attentionBackend: "auto";
+      decodingBackend: "model";
       stream: boolean;
     }
   | {

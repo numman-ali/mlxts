@@ -15,6 +15,13 @@ import { createTransformersGenerationEngine } from "./transformers-engine";
 import { enforceGenerationMemoryBudget } from "./transformers-engine-shared";
 import type { GenerationStreamEvent, NormalizedGenerationRequest, ServeEvent } from "./types";
 
+const ROUTE_STRATEGY = {
+  schedulerMode: "auto",
+  cacheBackend: "managed",
+  attentionBackend: "auto",
+  decodingBackend: "model",
+} as const;
+
 class TinyTokenizer implements Tokenizer {
   readonly vocabSize = 4;
   readonly bosTokenId: number | undefined = undefined;
@@ -494,6 +501,7 @@ describe("transformers generation engine", () => {
       reason: "eligible",
       modelType: "llama",
       maxBatchSize: 1,
+      ...ROUTE_STRATEGY,
       stream: false,
     });
     expect(events).toContainEqual({
@@ -538,6 +546,7 @@ describe("transformers generation engine", () => {
       reason: "eligible",
       modelType: "llama",
       maxBatchSize: 2,
+      ...ROUTE_STRATEGY,
       stream: false,
     });
     expect(
@@ -604,6 +613,7 @@ describe("transformers generation engine", () => {
       reason: "eligible",
       modelType: "llama",
       maxBatchSize: 2,
+      ...ROUTE_STRATEGY,
       stream: true,
     });
     expect(
@@ -818,6 +828,7 @@ describe("transformers generation engine", () => {
       reason: "eligible",
       modelType: "qwen3_5_text",
       maxBatchSize: 1,
+      ...ROUTE_STRATEGY,
       stream: false,
     });
     expect(qwenEvents).toContainEqual({
@@ -839,6 +850,7 @@ describe("transformers generation engine", () => {
       reason: "eligible",
       modelType: "gemma4_text",
       maxBatchSize: 1,
+      ...ROUTE_STRATEGY,
       stream: false,
     });
     expect(gemmaEvents).toContainEqual({
@@ -884,6 +896,7 @@ describe("transformers generation engine", () => {
       reason: "eligible",
       modelType: "qwen3_5_text",
       maxBatchSize: 2,
+      ...ROUTE_STRATEGY,
       stream: false,
     });
     expect(events).toContainEqual({
@@ -936,6 +949,7 @@ describe("transformers generation engine", () => {
       reason: "eligible",
       modelType: "qwen3_5_text",
       maxBatchSize: 2,
+      ...ROUTE_STRATEGY,
       stream: false,
     });
     expect(
@@ -987,6 +1001,7 @@ describe("transformers generation engine", () => {
       reason: "eligible",
       modelType: "qwen3_5_text",
       maxBatchSize: 2,
+      ...ROUTE_STRATEGY,
       stream: true,
     });
   });
@@ -1072,6 +1087,7 @@ describe("transformers generation engine", () => {
       reason: "eligible",
       modelType: "gemma4_text",
       maxBatchSize: 2,
+      ...ROUTE_STRATEGY,
       stream: false,
     });
     expect(
@@ -1128,6 +1144,7 @@ describe("transformers generation engine", () => {
       reason: "eligible",
       modelType: "gemma4_text",
       maxBatchSize: 2,
+      ...ROUTE_STRATEGY,
       stream: true,
     });
   });

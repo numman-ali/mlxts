@@ -12,6 +12,13 @@ import {
 } from "./cli";
 import type { RunningModelServer } from "./model-server";
 
+const ROUTE_STRATEGY = {
+  schedulerMode: "auto",
+  cacheBackend: "managed",
+  attentionBackend: "auto",
+  decodingBackend: "model",
+} as const;
+
 describe("serve CLI args", () => {
   test("parses defaults from a model source", () => {
     const parsed = parseServeArgs(["mlx-community/Qwen3.6-27B-4bit"]);
@@ -345,10 +352,11 @@ describe("serve CLI args", () => {
         reason: "unsupported_model_type",
         modelType: "qwen3_5_text",
         maxBatchSize: 32,
+        ...ROUTE_STRATEGY,
         stream: false,
       }),
     ).toBe(
-      "[route] cmpl-test model=qwen-local route=single eligible=no reason=unsupported_model_type model_type=qwen3_5_text max_batch_size=32",
+      "[route] cmpl-test model=qwen-local route=single eligible=no reason=unsupported_model_type model_type=qwen3_5_text scheduler=auto cache=managed attention=auto decoding=model max_batch_size=32",
     );
     expect(
       formatServeEvent({
@@ -593,6 +601,7 @@ describe("serve CLI args", () => {
           reason: "unsupported_model_type",
           modelType: "qwen3_5_text",
           maxBatchSize: 32,
+          ...ROUTE_STRATEGY,
           stream: false,
         },
         false,

@@ -5,6 +5,7 @@
 
 import type { Tokenizer } from "@mlxts/tokenizers";
 import type { GenerationResult, TokenGenerationEvent } from "@mlxts/transformers";
+import { transformersRuntimeStrategy } from "./serve-runtime-strategy";
 import type { TransformersGenerationEngineOptions } from "./transformers-engine";
 import {
   emitGenerationProgress,
@@ -83,11 +84,7 @@ function finishReason(reason: GenerationResult["finishReason"]): NormalizedFinis
 }
 
 function configuredStreamDecodeInterval(options: TransformersGenerationEngineOptions): number {
-  const interval = options.streamDecodeInterval ?? DEFAULT_STREAM_DECODE_INTERVAL;
-  if (!Number.isInteger(interval) || interval <= 0) {
-    throw new Error("streamDecodeInterval must be a positive integer.");
-  }
-  return interval;
+  return transformersRuntimeStrategy(options).streaming.decodeInterval;
 }
 
 export function streamDecodeInterval(

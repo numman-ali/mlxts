@@ -12,6 +12,7 @@ import {
   estimateGenerationMemory,
   modelContextWindow,
 } from "./model-context";
+import { transformersRuntimeStrategy } from "./serve-runtime-strategy";
 import type { TransformersGenerationEngineOptions } from "./transformers-engine";
 import type {
   GenerationMemoryUsage,
@@ -124,7 +125,8 @@ export function enforceGenerationMemoryBudgetForTokens(
   memory: GenerationMemoryUsage | undefined = readGenerationMemoryUsage(),
   batchSize = 1,
 ): void {
-  if (options.gpuMemoryUtilization === undefined || memory === undefined) {
+  const strategy = transformersRuntimeStrategy(options);
+  if (strategy.memory.policy === "none" || memory === undefined) {
     return;
   }
 
@@ -138,14 +140,14 @@ export function enforceGenerationMemoryBudgetForTokens(
     return;
   }
 
-  const budgetBytes = Math.floor(memory.limitBytes * options.gpuMemoryUtilization);
+  const budgetBytes = Math.floor(memory.limitBytes * strategy.memory.gpuMemoryUtilization);
   const projectedBytes = memory.activeBytes + estimate.totalBytes;
   if (projectedBytes <= budgetBytes) {
     return;
   }
 
   throw new ServeError(
-    `Estimated request memory ${formatBytes(estimate.totalBytes)} plus active MLX memory ${formatBytes(memory.activeBytes)} exceeds the configured GPU memory budget ${formatBytes(budgetBytes)} (${Math.round(options.gpuMemoryUtilization * 100)}%). prompt_tokens=${promptTokens}, max_tokens=${maxTokens}, batch_size=${batchSize}.`,
+    `Estimated request memory ${formatBytes(estimate.totalBytes)} plus active MLX memory ${formatBytes(memory.activeBytes)} exceeds the configured GPU memory budget ${formatBytes(budgetBytes)} (${Math.round(strategy.memory.gpuMemoryUtilization * 100)}%). prompt_tokens=${promptTokens}, max_tokens=${maxTokens}, batch_size=${batchSize}.`,
     {
       code: "memory_budget_exceeded",
       param: "prompt",

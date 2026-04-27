@@ -180,9 +180,11 @@ The next work should stay ordered around architecture truth:
 2. Lock serving baselines for Qwen/Gemma across greedy and model-default
    sampled generation, buffered and streaming output, `@1/@2/@4/@8`
    concurrency, staggered arrivals, and short/long output rungs.
-3. Introduce a typed internal serving/runtime strategy seam before exposing
-   advanced operator flags such as paged cache, TurboQuant, attention backends,
-   speculative decode, or MTP.
+3. Keep the typed internal serving/runtime strategy seam as the path for new
+   backend choices. The current seam reports implemented behavior only:
+   scheduler `auto`, managed model-precision cache, attention `auto`,
+   model-native decoding, streaming decode cadence, and admit-only memory
+   preflight.
 4. Harden the scheduler: token-budget admission, separate prefill/completion
    budgets, stronger fairness controls, and explicit per-row decode state for
    sampler, stop, reasoning, and future logits processors.

@@ -64,17 +64,22 @@ work on long-output throughput runs.
 
 `GET /info` is a lightweight operator endpoint for confirming the served model
 ids, enabled wire routes, configured request limits, per-model admission
-metadata, and whether the current engine exposes streaming or batch generation.
-The context metadata is an admission view, not a memory guarantee: long Qwen
-contexts still need operator-set prompt/total limits that fit the machine. The
-memory preflight is deliberately conservative and machine-specific; it is a
-guardrail before prefill starts, not a promise that every later scheduler or
-multi-request workload will fit. It does not expose local paths, cache
-locations, access tokens, queue internals, or claims of continuous batching.
+metadata, selected runtime strategy, and whether the current engine exposes
+streaming or batch generation. The reported strategy is derived from currently
+implemented behavior: scheduler `auto`, managed model-precision cache, attention
+`auto`, model-native decoding, streaming decode cadence, and admit-only memory
+preflight when configured. The context metadata is an admission view, not a
+memory guarantee: long Qwen contexts still need operator-set prompt/total limits
+that fit the machine. The memory preflight is deliberately conservative and
+machine-specific; it is a guardrail before prefill starts, not a promise that
+every later scheduler or multi-request workload will fit. It does not expose
+local paths, cache locations, access tokens, or queue internals.
 
 Generation start, admission micro-batch, static batch start, completion, and
 errors are logged by default so native generation failures leave a useful last
-known stage in the terminal. Use `--verbose` while debugging to add request
+known stage in the terminal. Route-decision logs include the selected scheduler,
+cache, attention, and decoding strategy so operator output matches `/info` and
+benchmark reports. Use `--verbose` while debugging to add request
 start/completion logs. Multi-model CLI loads are logged with the model index and
 model id so long startup sequences are easier to follow.
 

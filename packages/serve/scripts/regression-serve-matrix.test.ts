@@ -7,6 +7,13 @@ import {
   type ServeRegressionBudget,
 } from "./regression-serve-matrix";
 
+const ROUTE_STRATEGY = {
+  schedulerMode: "auto",
+  cacheBackend: "managed",
+  attentionBackend: "auto",
+  decodingBackend: "model",
+};
+
 function trial(overrides: Partial<TrialMetrics> = {}): TrialMetrics {
   return {
     wallMs: 1000,
@@ -51,6 +58,7 @@ function trial(overrides: Partial<TrialMetrics> = {}): TrialMetrics {
         reason: "streaming",
         modelType: "qwen3_5_text",
         maxBatchSize: 8,
+        ...ROUTE_STRATEGY,
         stream: true,
       },
     ],
@@ -248,6 +256,7 @@ describe("serve regression matrix", () => {
           reason: "eligible",
           modelType: "gemma4_text",
           maxBatchSize: 8,
+          ...ROUTE_STRATEGY,
           stream: false,
         },
         {
@@ -259,6 +268,7 @@ describe("serve regression matrix", () => {
           reason: "eligible",
           modelType: "gemma4_text",
           maxBatchSize: 8,
+          ...ROUTE_STRATEGY,
           stream: false,
         },
       ],
@@ -356,6 +366,7 @@ describe("serve regression matrix", () => {
           reason: "eligible",
           modelType: "qwen3_5_text",
           maxBatchSize: 8,
+          ...ROUTE_STRATEGY,
           stream: false,
         },
         {
@@ -367,6 +378,7 @@ describe("serve regression matrix", () => {
           reason: "eligible",
           modelType: "qwen3_5_text",
           maxBatchSize: 8,
+          ...ROUTE_STRATEGY,
           stream: false,
         },
       ],
@@ -464,6 +476,7 @@ describe("serve regression matrix", () => {
           reason: "eligible",
           modelType: "qwen3_5_text",
           maxBatchSize: 8,
+          ...ROUTE_STRATEGY,
           stream: true,
         },
         {
@@ -475,6 +488,7 @@ describe("serve regression matrix", () => {
           reason: "eligible",
           modelType: "qwen3_5_text",
           maxBatchSize: 8,
+          ...ROUTE_STRATEGY,
           stream: true,
         },
       ],

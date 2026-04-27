@@ -4,6 +4,7 @@
  */
 
 import type { CausalLM } from "@mlxts/transformers";
+import { transformersRuntimeStrategy } from "./serve-runtime-strategy";
 import type { TransformersGenerationEngineOptions } from "./transformers-engine";
 import type {
   GenerationRoute,
@@ -130,10 +131,11 @@ export function routeDecisionForRequest(
   reason: GenerationRouteDecisionReason;
 } {
   const reason = continuousBatchIneligibilityReason(request, options);
+  const strategy = transformersRuntimeStrategy(options);
   if (reason !== "eligible") {
     return { route: "single", eligible: false, reason };
   }
-  if ((options.maxBatchSize ?? 1) <= 1) {
+  if (strategy.scheduler.maxBatchSize <= 1) {
     return { route: "single", eligible: false, reason: "max_batch_size" };
   }
   return { route: "continuous", eligible: true, reason };
@@ -146,6 +148,7 @@ export function emitGenerationRouteDecision(
   eligible: boolean,
   reason: GenerationRouteDecisionReason,
 ): void {
+  const strategy = transformersRuntimeStrategy(options);
   options.onEvent?.({
     type: "generation_route_decision",
     id: request.id,
@@ -155,7 +158,11 @@ export function emitGenerationRouteDecision(
     eligible,
     reason,
     modelType: options.model.config.modelType,
-    maxBatchSize: options.maxBatchSize ?? 1,
+    maxBatchSize: strategy.scheduler.maxBatchSize,
+    schedulerMode: strategy.scheduler.mode,
+    cacheBackend: strategy.cache.backend,
+    attentionBackend: strategy.attention.backend,
+    decodingBackend: strategy.decoding.backend,
     stream: request.stream,
   });
 }

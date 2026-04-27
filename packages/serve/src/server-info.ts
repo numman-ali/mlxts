@@ -10,6 +10,12 @@ import {
   parseOpenAIModelIdPath,
   type ServedModelInfo,
 } from "./protocols/openai-models";
+import {
+  formatServeRuntimeStrategyInfo,
+  resolveServeRuntimeStrategy,
+  type ServeRuntimeStrategyInfo,
+  TRANSFORMERS_ENGINE_RUNTIME_DEFAULTS,
+} from "./serve-runtime-strategy";
 import type { GenerationEngine } from "./types";
 
 export type ServeRuntimeLimits = {
@@ -59,6 +65,7 @@ export type ServeInfoResponse = {
     reasoning_content: true;
     tool_calls: true;
   };
+  runtime_strategy: ServeRuntimeStrategyInfo;
 };
 
 export type ServeInfoOptions = {
@@ -90,6 +97,17 @@ function formatServeInfoModel(model: ServedModelInfo, limits: ServeRuntimeLimits
   };
 }
 
+function strategyForInfo(
+  limits: ServeRuntimeLimits,
+): ReturnType<typeof resolveServeRuntimeStrategy> {
+  return resolveServeRuntimeStrategy(limits, {
+    ...TRANSFORMERS_ENGINE_RUNTIME_DEFAULTS,
+    ...(limits.gpuMemoryUtilization === undefined
+      ? {}
+      : { gpuMemoryUtilization: limits.gpuMemoryUtilization }),
+  });
+}
+
 function servedModelById(models: readonly ServedModelInfo[], id: string): ServedModelInfo {
   const model = models.find((entry) => entry.id === id);
   if (model === undefined) {
@@ -107,6 +125,7 @@ export function formatServeInfoResponse(options: ServeInfoOptions): ServeInfoRes
   const models = options.models ?? [];
   const modelIds = models.map((model) => model.id);
   const limits = options.limits ?? {};
+  const strategy = strategyForInfo(limits);
   return {
     status: "ok",
     router: "@mlxts/serve",
@@ -135,6 +154,7 @@ export function formatServeInfoResponse(options: ServeInfoOptions): ServeInfoRes
       reasoning_content: true,
       tool_calls: true,
     },
+    runtime_strategy: formatServeRuntimeStrategyInfo(strategy),
   };
 }
 

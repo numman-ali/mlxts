@@ -30,6 +30,10 @@ export type RouteDecisionReport = {
   reason: string;
   modelType: string;
   maxBatchSize: number;
+  schedulerMode: string;
+  cacheBackend: string;
+  attentionBackend: string;
+  decodingBackend: string;
   stream: boolean;
 };
 
@@ -271,6 +275,10 @@ function routeDecisionReports(events: readonly RecordedServeEvent[]): RouteDecis
       reason: event.reason,
       modelType: event.modelType,
       maxBatchSize: event.maxBatchSize,
+      schedulerMode: event.schedulerMode,
+      cacheBackend: event.cacheBackend,
+      attentionBackend: event.attentionBackend,
+      decodingBackend: event.decodingBackend,
       stream: event.stream,
     }));
 }

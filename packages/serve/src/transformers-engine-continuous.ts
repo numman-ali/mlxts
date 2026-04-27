@@ -9,6 +9,7 @@ import {
   createContinuousBatchTokenScheduler,
 } from "@mlxts/transformers";
 import type { ModelExecutionLane } from "./model-execution-lane";
+import { transformersRuntimeStrategy } from "./serve-runtime-strategy";
 import { linkAbortSignals } from "./server-abort";
 import type { TransformersGenerationEngineOptions } from "./transformers-engine";
 import {
@@ -50,7 +51,7 @@ export type ContinuousTransformersGeneration = {
 };
 
 function maxBatchSize(options: TransformersGenerationEngineOptions): number {
-  return options.maxBatchSize ?? 1;
+  return transformersRuntimeStrategy(options).scheduler.maxBatchSize;
 }
 
 function canUseContinuousBatchGeneration(
@@ -69,6 +70,7 @@ function schedulerOptions(
   modelsByRequestId: Map<string, string>,
 ): ContinuousBatchTokenSchedulerOptions {
   const batchOptions = prepared.batchOptions;
+  const strategy = transformersRuntimeStrategy(options);
   return {
     ...(batchOptions.temperature === undefined ? {} : { temperature: batchOptions.temperature }),
     ...(batchOptions.topK === undefined ? {} : { topK: batchOptions.topK }),
@@ -84,8 +86,8 @@ function schedulerOptions(
       ? {}
       : { prefillStepSize: batchOptions.prefillStepSize }),
     ...(batchOptions.padTokenId === undefined ? {} : { padTokenId: batchOptions.padTokenId }),
-    maxBatchSize: maxBatchSize(options),
-    batchWindowMs: options.batchWindowMs ?? 0,
+    maxBatchSize: strategy.scheduler.maxBatchSize,
+    batchWindowMs: strategy.scheduler.batchWindowMs,
     runExclusive: (work) => lane.run(work),
     onSchedulerEvent(event) {
       emitContinuousSchedulerPhase(options, prepared.request.model, modelsByRequestId, event);

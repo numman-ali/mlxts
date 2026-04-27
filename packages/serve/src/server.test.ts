@@ -109,6 +109,31 @@ describe("serve fetch handler", () => {
         reasoning_content: true,
         tool_calls: true,
       },
+      runtime_strategy: {
+        scheduler: {
+          mode: "auto",
+          max_batch_size: 32,
+          batch_window_ms: 1,
+          max_concurrent_requests: 1,
+        },
+        cache: {
+          backend: "managed",
+          precision: "model",
+        },
+        attention: {
+          backend: "auto",
+        },
+        decoding: {
+          backend: "model",
+        },
+        streaming: {
+          stream_decode_interval: 1,
+        },
+        memory: {
+          policy: "admit_only",
+          gpu_memory_utilization: 0.9,
+        },
+      },
     });
     expect(body.endpoints).toContain("/v1/responses");
   });

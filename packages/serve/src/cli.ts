@@ -159,7 +159,7 @@ export function formatServeEvent(event: ServeEvent): string {
     case "generation_start":
       return `[generation] ${event.id} ${event.protocol} model=${event.model} input=${event.inputKind} max_tokens=${event.maxTokens} started`;
     case "generation_route_decision":
-      return `[route] ${event.id} model=${event.model} route=${event.route} eligible=${event.eligible ? "yes" : "no"} reason=${event.reason} model_type=${event.modelType} max_batch_size=${event.maxBatchSize}`;
+      return `[route] ${event.id} model=${event.model} route=${event.route} eligible=${event.eligible ? "yes" : "no"} reason=${event.reason} model_type=${event.modelType} scheduler=${event.schedulerMode} cache=${event.cacheBackend} attention=${event.attentionBackend} decoding=${event.decodingBackend} max_batch_size=${event.maxBatchSize}`;
     case "generation_model_lane_wait":
       return `[queue] ${event.id} model=${event.model} lane=${event.lane} wait=${formatDuration(event.waitMs)} queued_ahead=${event.queuedAhead} in_flight_at_queue=${event.inFlightAtQueue} in_flight_at_dispatch=${event.inFlightAtDispatch} max_in_flight=${event.maxConcurrentJobs}`;
     case "generation_progress":

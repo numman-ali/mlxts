@@ -19,6 +19,13 @@ import {
 } from "./model-server";
 import type { ServeEvent } from "./types";
 
+const ROUTE_STRATEGY = {
+  schedulerMode: "auto",
+  cacheBackend: "managed",
+  attentionBackend: "auto",
+  decodingBackend: "model",
+} as const;
+
 class FakeModel implements CausalLM {
   readonly family = "llama";
   readonly layerCount: number = 0;
@@ -200,6 +207,31 @@ describe("serveLoadedModel", () => {
           max_concurrent_requests: 1,
           gpu_memory_utilization: 0.75,
         },
+        runtime_strategy: {
+          scheduler: {
+            mode: "auto",
+            max_batch_size: 4,
+            batch_window_ms: 2,
+            max_concurrent_requests: 1,
+          },
+          cache: {
+            backend: "managed",
+            precision: "model",
+          },
+          attention: {
+            backend: "auto",
+          },
+          decoding: {
+            backend: "model",
+          },
+          streaming: {
+            stream_decode_interval: 1,
+          },
+          memory: {
+            policy: "admit_only",
+            gpu_memory_utilization: 0.75,
+          },
+        },
         models: [
           {
             id: "tiny",
@@ -307,6 +339,7 @@ describe("serveLoadedModel", () => {
         reason: "eligible",
         modelType: "llama",
         maxBatchSize: 2,
+        ...ROUTE_STRATEGY,
         stream: false,
       });
     } finally {
