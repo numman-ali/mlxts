@@ -148,7 +148,7 @@ admission limits, streaming, scheduling, metrics, and endpoint benchmarks.
 const server = serveLoadedModel({
   model,
   tokenizer,
-  modelId: "qwen-local",
+  modelId: "mlx-community/Qwen3.6-27B-4bit",
   port: 8080,
   maxGeneratedTokens: 2048,
   maxPromptTokens: 32768,

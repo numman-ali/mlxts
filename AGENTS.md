@@ -132,6 +132,29 @@ Before non-trivial work, agents should:
 4. When Nomi has authorized sub-agents, treat them as part of the default workflow for non-trivial repo changes: use at least one well-scoped second-opinion explorer or worker for architecture truth, implementation review, or parallel bounded work, and integrate their findings deliberately rather than as decoration. Sub-agents may implement bounded, disjoint slices when the context and write scope are clear, but the lead agent must review and integrate their code before it ships.
 5. Prefer the narrowest validation that proves the change, then run required repo gates before handoff.
 
+## Terminal Debugging
+
+Use `cmux` when interactive terminal validation is needed without blocking the
+main agent surface. Prefer creating a new surface in the existing `mlxts`
+workspace, then drive it with `cmux send` and inspect it with
+`cmux read-screen --scrollback --lines <n>`. This is the preferred way to run
+interactive Pi/opencode smokes against `@mlxts/serve` because the model server,
+client agent, and logs can stay visible in separate terminals.
+
+Useful pattern:
+
+```bash
+cmux tree --all
+cmux new-surface --workspace workspace:1 --type terminal
+cmux send --workspace workspace:1 --surface surface:<id> "cd /Users/numman/Repos/nanogpt-ts\n"
+cmux send --workspace workspace:1 --surface surface:<id> "pi --offline --provider mlxts --model mlx-community/Qwen3.6-27B-4bit -p 'Reply with exactly: pi-ok'\n"
+cmux read-screen --workspace workspace:1 --surface surface:<id> --scrollback --lines 120
+```
+
+Heavy MLX commands remain exclusive even when `cmux` is used: do not run
+multiple large model servers, long benchmarks, soak runs, or training proofs in
+parallel on one machine.
+
 ## Key Technical Context
 
 ### MLX's computation model

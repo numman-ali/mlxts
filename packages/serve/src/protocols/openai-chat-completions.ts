@@ -22,6 +22,7 @@ import {
 } from "./openai-chat-messages";
 import { extractOpenAIChatToolCalls } from "./openai-chat-tool-calls";
 import { parseOpenAIStopSequences } from "./openai-stop";
+import { formatOpenAICompletionLikeUsage } from "./openai-usage";
 
 export type {
   OpenAIChatCompletionChunk,
@@ -342,11 +343,7 @@ function finishReason(reason: NormalizedFinishReason): OpenAIChatCompletionChoic
 }
 
 function formatUsage(usage: GenerationUsage): OpenAIChatCompletionUsage {
-  return {
-    ...(usage.promptTokens === undefined ? {} : { prompt_tokens: usage.promptTokens }),
-    ...(usage.completionTokens === undefined ? {} : { completion_tokens: usage.completionTokens }),
-    ...(usage.totalTokens === undefined ? {} : { total_tokens: usage.totalTokens }),
-  };
+  return formatOpenAICompletionLikeUsage(usage);
 }
 
 function hasToolOutputEnabled(chat: NormalizedChatCompletion): boolean {

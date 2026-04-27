@@ -192,7 +192,12 @@ describe("OpenAI completions adapter", () => {
       created: 123,
       model: "tiny",
       choices: [{ text: " there", index: 0, logprobs: null, finish_reason: "stop" }],
-      usage: { prompt_tokens: 1, completion_tokens: 2, total_tokens: 3 },
+      usage: {
+        prompt_tokens: 1,
+        completion_tokens: 2,
+        total_tokens: 3,
+        prompt_tokens_details: { cached_tokens: 0, cache_write_tokens: 0 },
+      },
     });
 
     expect(
@@ -240,12 +245,23 @@ describe("OpenAI completions adapter", () => {
     expect(
       formatOpenAICompletionUsageStreamChunk(
         { ...batch, streamOptions: { includeUsage: true } },
-        { promptTokens: 1, completionTokens: 2, totalTokens: 3 },
+        {
+          promptTokens: 6,
+          completionTokens: 2,
+          totalTokens: 8,
+          cacheReadTokens: 3,
+          cacheWriteTokens: 1,
+        },
         { id: "cmpl-test", created: 123 },
       ),
     ).toMatchObject({
       choices: [],
-      usage: { prompt_tokens: 1, completion_tokens: 2, total_tokens: 3 },
+      usage: {
+        prompt_tokens: 6,
+        completion_tokens: 2,
+        total_tokens: 8,
+        prompt_tokens_details: { cached_tokens: 4, cache_write_tokens: 1 },
+      },
     });
   });
 });

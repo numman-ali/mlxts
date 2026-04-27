@@ -68,7 +68,7 @@ describe("serve CLI args", () => {
     const parsed = parseServeArgs([
       "local-model",
       "--served-model-name",
-      "qwen-local",
+      "mlx-community/Qwen3.6-27B-4bit",
       "--host",
       "0.0.0.0",
       "--port",
@@ -109,8 +109,8 @@ describe("serve CLI args", () => {
       kind: "serve",
       options: {
         source: "local-model",
-        modelId: "qwen-local",
-        models: [{ source: "local-model", modelId: "qwen-local" }],
+        modelId: "mlx-community/Qwen3.6-27B-4bit",
+        models: [{ source: "local-model", modelId: "mlx-community/Qwen3.6-27B-4bit" }],
         hostname: "0.0.0.0",
         port: 8080,
         maxGeneratedTokens: 512,
@@ -303,8 +303,8 @@ describe("serve CLI args", () => {
 
     const options = {
       source: "repo/model",
-      modelId: "qwen-local",
-      models: [{ source: "repo/model", modelId: "qwen-local" }],
+      modelId: "mlx-community/Qwen3.6-27B-4bit",
+      models: [{ source: "repo/model", modelId: "mlx-community/Qwen3.6-27B-4bit" }],
       hostname: "0.0.0.0",
       port: 8000,
       maxGeneratedTokens: 64,
@@ -321,7 +321,9 @@ describe("serve CLI args", () => {
       verbose: false,
     };
     expect(formatServeReady("http://127.0.0.1:8000", options)).toContain("/v1/completions");
-    expect(formatServeReady("http://127.0.0.1:8000", options)).toContain("Models: qwen-local");
+    expect(formatServeReady("http://127.0.0.1:8000", options)).toContain(
+      "Models: mlx-community/Qwen3.6-27B-4bit",
+    );
     expect(formatServeReady("http://127.0.0.1:8000", options)).not.toContain("temperature");
     expect(formatServeReady("http://127.0.0.1:8000", options)).toContain("Prompt-token limit: 128");
     expect(formatServeReady("http://127.0.0.1:8000", options)).toContain(
@@ -350,20 +352,20 @@ describe("serve CLI args", () => {
         type: "generation_start",
         id: "cmpl-test",
         protocol: "openai.chat_completions",
-        model: "qwen-local",
+        model: "mlx-community/Qwen3.6-27B-4bit",
         inputKind: "messages",
         maxTokens: 32,
         stream: false,
       }),
     ).toBe(
-      "[generation] cmpl-test openai.chat_completions model=qwen-local input=messages max_tokens=32 started",
+      "[generation] cmpl-test openai.chat_completions model=mlx-community/Qwen3.6-27B-4bit input=messages max_tokens=32 started",
     );
     expect(
       formatServeEvent({
         type: "generation_progress",
         id: "cmpl-test",
         protocol: "openai.chat_completions",
-        model: "qwen-local",
+        model: "mlx-community/Qwen3.6-27B-4bit",
         promptTokens: 12,
         completionTokens: 64,
         maxTokens: 128,
@@ -382,7 +384,7 @@ describe("serve CLI args", () => {
         type: "generation_route_decision",
         id: "cmpl-test",
         protocol: "openai.chat_completions",
-        model: "qwen-local",
+        model: "mlx-community/Qwen3.6-27B-4bit",
         route: "single",
         eligible: false,
         reason: "unsupported_model_type",
@@ -392,14 +394,14 @@ describe("serve CLI args", () => {
         stream: false,
       }),
     ).toBe(
-      "[route] cmpl-test model=qwen-local route=single eligible=no reason=unsupported_model_type model_type=qwen3_5_text scheduler=auto cache=managed attention=auto decoding=model max_batch_size=32",
+      "[route] cmpl-test model=mlx-community/Qwen3.6-27B-4bit route=single eligible=no reason=unsupported_model_type model_type=qwen3_5_text scheduler=auto cache=managed attention=auto decoding=model max_batch_size=32",
     );
     expect(
       formatServeEvent({
         type: "generation_model_lane_wait",
         id: "cmpl-test",
         protocol: "openai.chat_completions",
-        model: "qwen-local",
+        model: "mlx-community/Qwen3.6-27B-4bit",
         lane: "model",
         waitMs: 1_234,
         inFlightAtQueue: 1,
@@ -409,14 +411,14 @@ describe("serve CLI args", () => {
         maxConcurrentJobs: 1,
       }),
     ).toBe(
-      "[queue] cmpl-test model=qwen-local lane=model wait=1.2s queued_ahead=2 in_flight_at_queue=1 in_flight_at_dispatch=1 max_in_flight=1",
+      "[queue] cmpl-test model=mlx-community/Qwen3.6-27B-4bit lane=model wait=1.2s queued_ahead=2 in_flight_at_queue=1 in_flight_at_dispatch=1 max_in_flight=1",
     );
     expect(
       formatServeEvent({
         type: "generation_prefill_progress",
         id: "cmpl-test",
         protocol: "openai.chat_completions",
-        model: "qwen-local",
+        model: "mlx-community/Qwen3.6-27B-4bit",
         promptTokens: 4096,
         processedPrefillTokens: 2048,
         totalPrefillTokens: 4095,
@@ -436,21 +438,21 @@ describe("serve CLI args", () => {
       formatServeEvent({
         type: "generation_batch_start",
         mode: "static",
-        model: "qwen-local",
+        model: "mlx-community/Qwen3.6-27B-4bit",
         ids: ["cmpl-a", "cmpl-b"],
         batchSize: 2,
         maxTokens: 64,
         maxTokensByRequest: [32, 64],
       }),
     ).toBe(
-      "[batch] static model=qwen-local size=2 max_tokens=64 per_request=32,64 ids=cmpl-a,cmpl-b started",
+      "[batch] static model=mlx-community/Qwen3.6-27B-4bit size=2 max_tokens=64 per_request=32,64 ids=cmpl-a,cmpl-b started",
     );
     expect(
       formatServeEvent({
         type: "generation_scheduler_phase",
         mode: "continuous",
         phase: "prefill_start",
-        model: "qwen-local",
+        model: "mlx-community/Qwen3.6-27B-4bit",
         id: "cmpl-a",
         ids: ["cmpl-a"],
         promptTokens: 4096,
@@ -471,7 +473,7 @@ describe("serve CLI args", () => {
         type: "generation_scheduler_phase",
         mode: "continuous",
         phase: "deferred",
-        model: "qwen-local",
+        model: "mlx-community/Qwen3.6-27B-4bit",
         id: "cmpl-a",
         ids: ["cmpl-a"],
         reason: "scheduled_token_budget",
@@ -493,7 +495,7 @@ describe("serve CLI args", () => {
         type: "generation_scheduler_phase",
         mode: "continuous",
         phase: "admitted",
-        model: "qwen-local",
+        model: "mlx-community/Qwen3.6-27B-4bit",
         ids: ["cmpl-a", "cmpl-b"],
         batchSize: 2,
         maxTokens: 64,
@@ -514,7 +516,7 @@ describe("serve CLI args", () => {
         type: "generation_scheduler_phase",
         mode: "continuous",
         phase: "first_token",
-        model: "qwen-local",
+        model: "mlx-community/Qwen3.6-27B-4bit",
         id: "cmpl-a",
         ids: ["cmpl-a"],
         completionTokens: 1,
@@ -534,7 +536,7 @@ describe("serve CLI args", () => {
         type: "generation_scheduler_phase",
         mode: "continuous",
         phase: "finished",
-        model: "qwen-local",
+        model: "mlx-community/Qwen3.6-27B-4bit",
         id: "cmpl-a",
         ids: ["cmpl-a"],
         completionTokens: 64,
@@ -555,7 +557,7 @@ describe("serve CLI args", () => {
         type: "generation_scheduler_phase",
         mode: "continuous",
         phase: "cancelled",
-        model: "qwen-local",
+        model: "mlx-community/Qwen3.6-27B-4bit",
         id: "cmpl-a",
         ids: ["cmpl-a"],
         completionTokens: 0,
@@ -575,21 +577,21 @@ describe("serve CLI args", () => {
         type: "generation_admission_batch",
         mode: "micro",
         engineMode: "batch",
-        model: "qwen-local",
+        model: "mlx-community/Qwen3.6-27B-4bit",
         ids: ["cmpl-a", "cmpl-b"],
         batchSize: 2,
         maxTokens: 64,
         maxTokensByRequest: [32, 64],
       }),
     ).toBe(
-      "[batch] micro model=qwen-local size=2 engine=batch max_tokens=64 per_request=32,64 ids=cmpl-a,cmpl-b admitted",
+      "[batch] micro model=mlx-community/Qwen3.6-27B-4bit size=2 engine=batch max_tokens=64 per_request=32,64 ids=cmpl-a,cmpl-b admitted",
     );
     expect(
       formatServeEvent({
         type: "generation_complete",
         id: "cmpl-test",
         protocol: "openai.chat_completions",
-        model: "qwen-local",
+        model: "mlx-community/Qwen3.6-27B-4bit",
         finishReason: "eos",
         promptTokens: 12,
         completionTokens: 47,
@@ -602,13 +604,13 @@ describe("serve CLI args", () => {
         type: "generation_error",
         id: "cmpl-test",
         protocol: "openai.chat_completions",
-        model: "qwen-local",
+        model: "mlx-community/Qwen3.6-27B-4bit",
         code: "model_not_found",
         message: 'Model "missing" is not served by this endpoint.',
         durationMs: 321,
       }),
     ).toBe(
-      '[generation:error] cmpl-test openai.chat_completions model=qwen-local model_not_found: Model "missing" is not served by this endpoint. in 321.0ms',
+      '[generation:error] cmpl-test openai.chat_completions model=mlx-community/Qwen3.6-27B-4bit model_not_found: Model "missing" is not served by this endpoint. in 321.0ms',
     );
     expect(
       shouldLogServeEvent(
@@ -622,7 +624,7 @@ describe("serve CLI args", () => {
           type: "generation_scheduler_phase",
           mode: "continuous",
           phase: "queued",
-          model: "qwen-local",
+          model: "mlx-community/Qwen3.6-27B-4bit",
           id: "cmpl-test",
           ids: ["cmpl-test"],
           queuedAhead: 0,
@@ -644,7 +646,7 @@ describe("serve CLI args", () => {
           type: "generation_admission_batch",
           mode: "micro",
           engineMode: "batch",
-          model: "qwen-local",
+          model: "mlx-community/Qwen3.6-27B-4bit",
           ids: ["cmpl-a", "cmpl-b"],
           batchSize: 2,
           maxTokens: 64,
@@ -659,7 +661,7 @@ describe("serve CLI args", () => {
           type: "generation_route_decision",
           id: "cmpl-test",
           protocol: "openai.chat_completions",
-          model: "qwen-local",
+          model: "mlx-community/Qwen3.6-27B-4bit",
           route: "single",
           eligible: false,
           reason: "unsupported_model_type",
@@ -677,7 +679,7 @@ describe("serve CLI args", () => {
           type: "generation_model_lane_wait",
           id: "cmpl-test",
           protocol: "openai.chat_completions",
-          model: "qwen-local",
+          model: "mlx-community/Qwen3.6-27B-4bit",
           lane: "model",
           waitMs: 1,
           inFlightAtQueue: 1,
@@ -695,7 +697,7 @@ describe("serve CLI args", () => {
           type: "generation_error",
           id: "cmpl-test",
           protocol: "openai.chat_completions",
-          model: "qwen-local",
+          model: "mlx-community/Qwen3.6-27B-4bit",
           code: "internal_error",
           message: "boom",
           durationMs: 1,
@@ -840,7 +842,9 @@ describe("serve CLI args", () => {
   });
 });
 
-function fakeRunningServer(modelIds: readonly string[] = ["qwen-local"]): RunningModelServer & {
+function fakeRunningServer(
+  modelIds: readonly string[] = ["mlx-community/Qwen3.6-27B-4bit"],
+): RunningModelServer & {
   stopped: boolean;
 } {
   const server = Bun.serve({
@@ -851,7 +855,7 @@ function fakeRunningServer(modelIds: readonly string[] = ["qwen-local"]): Runnin
   });
   return {
     endpoint: "http://127.0.0.1:8000",
-    modelId: modelIds[0] ?? "qwen-local",
+    modelId: modelIds[0] ?? "mlx-community/Qwen3.6-27B-4bit",
     modelIds,
     server,
     stopped: false,

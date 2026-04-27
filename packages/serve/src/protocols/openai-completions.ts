@@ -12,12 +12,9 @@ import type {
   NormalizedGenerationResult,
 } from "../types";
 import { parseOpenAIStopSequences } from "./openai-stop";
+import { formatOpenAICompletionLikeUsage, type OpenAICompletionLikeUsage } from "./openai-usage";
 
-export type OpenAICompletionUsage = {
-  prompt_tokens?: number;
-  completion_tokens?: number;
-  total_tokens?: number;
-};
+export type OpenAICompletionUsage = OpenAICompletionLikeUsage;
 
 export type OpenAICompletionChoice = {
   text: string;
@@ -303,6 +300,8 @@ function combineUsage(
     promptTokens: 0,
     completionTokens: 0,
     totalTokens: 0,
+    cacheReadTokens: 0,
+    cacheWriteTokens: 0,
   };
 
   for (const result of results) {
@@ -314,25 +313,19 @@ function combineUsage(
     usage.promptTokens += resultUsage.promptTokens ?? 0;
     usage.completionTokens += resultUsage.completionTokens ?? 0;
     usage.totalTokens += resultUsage.totalTokens ?? 0;
+    usage.cacheReadTokens += resultUsage.cacheReadTokens ?? 0;
+    usage.cacheWriteTokens += resultUsage.cacheWriteTokens ?? 0;
   }
 
   return sawUsage ? usage : undefined;
 }
 
 function formatUsage(usage: Required<GenerationUsage>): OpenAICompletionUsage {
-  return {
-    prompt_tokens: usage.promptTokens,
-    completion_tokens: usage.completionTokens,
-    total_tokens: usage.totalTokens,
-  };
+  return formatOpenAICompletionLikeUsage(usage);
 }
 
 function formatPartialUsage(usage: GenerationUsage): OpenAICompletionUsage {
-  return {
-    ...(usage.promptTokens === undefined ? {} : { prompt_tokens: usage.promptTokens }),
-    ...(usage.completionTokens === undefined ? {} : { completion_tokens: usage.completionTokens }),
-    ...(usage.totalTokens === undefined ? {} : { total_tokens: usage.totalTokens }),
-  };
+  return formatOpenAICompletionLikeUsage(usage);
 }
 
 function streamOptions(

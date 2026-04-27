@@ -55,6 +55,8 @@ export type GenerationUsage = {
   promptTokens?: number;
   completionTokens?: number;
   totalTokens?: number;
+  cacheReadTokens?: number;
+  cacheWriteTokens?: number;
 };
 
 export type GenerationMemoryUsage = {

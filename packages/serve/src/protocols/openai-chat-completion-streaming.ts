@@ -5,6 +5,7 @@
 
 import { isRecord, ServeError } from "../errors";
 import type { GenerationUsage, NormalizedFinishReason } from "../types";
+import { formatOpenAICompletionLikeUsage, type OpenAICompletionLikeUsage } from "./openai-usage";
 
 export type OpenAIChatCompletionStreamToolCall = {
   index: number;
@@ -16,11 +17,7 @@ export type OpenAIChatCompletionStreamToolCall = {
   };
 };
 
-export type OpenAIChatCompletionUsage = {
-  prompt_tokens?: number;
-  completion_tokens?: number;
-  total_tokens?: number;
-};
+export type OpenAIChatCompletionUsage = OpenAICompletionLikeUsage;
 
 export type OpenAIChatCompletionChunkChoice = {
   index: number;
@@ -205,11 +202,7 @@ function finishReason(
 }
 
 function formatUsage(usage: GenerationUsage): OpenAIChatCompletionUsage {
-  return {
-    ...(usage.promptTokens === undefined ? {} : { prompt_tokens: usage.promptTokens }),
-    ...(usage.completionTokens === undefined ? {} : { completion_tokens: usage.completionTokens }),
-    ...(usage.totalTokens === undefined ? {} : { total_tokens: usage.totalTokens }),
-  };
+  return formatOpenAICompletionLikeUsage(usage);
 }
 
 export function parseOpenAIChatCompletionStreamOptions(

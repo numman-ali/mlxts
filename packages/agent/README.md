@@ -11,13 +11,13 @@ in `@mlxts/serve`; examples should only demonstrate usage.
 Start a local model endpoint first:
 
 ```bash
-mlxts-serve mlx-community/Qwen3.6-27B-4bit --model-id qwen-local --port 8000
+mlxts-serve mlx-community/Qwen3.6-27B-4bit --model-id mlx-community/Qwen3.6-27B-4bit --port 8000
 ```
 
 Then talk to it with read-only local tools:
 
 ```bash
-mlxts-agent --model qwen-local --endpoint http://127.0.0.1:8000 --cwd .
+mlxts-agent --model mlx-community/Qwen3.6-27B-4bit --endpoint http://127.0.0.1:8000 --cwd .
 ```
 
 Agent turns use the served model's generation defaults unless you override them.
@@ -48,7 +48,7 @@ import {
 
 const model = createOpenAIChatAgentModel({
   endpoint: "http://127.0.0.1:8000",
-  model: "qwen-local",
+  model: "mlx-community/Qwen3.6-27B-4bit",
 });
 
 const result = await runAgentTurn({

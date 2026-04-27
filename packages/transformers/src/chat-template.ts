@@ -13,6 +13,35 @@ export type ChatToolCall = {
   };
 };
 
+type ChatToolCallTemplateArguments = string | Record<string, unknown>;
+
+type ChatToolCallTemplateValue = {
+  id?: string;
+  type: "function";
+  function: {
+    name: string;
+    arguments: ChatToolCallTemplateArguments;
+  };
+};
+
+type ChatTemplateMessage =
+  | {
+      role: "system" | "user";
+      content: string;
+    }
+  | {
+      role: "assistant";
+      content: string;
+      reasoning_content?: string;
+      tool_calls?: readonly ChatToolCallTemplateValue[];
+    }
+  | {
+      role: "tool";
+      content: string;
+      name?: string;
+      tool_call_id?: string;
+    };
+
 export type ChatTool = {
   type: "function";
   function: {
@@ -134,6 +163,56 @@ function resolveTemplateText(inspection: ReturnType<typeof inspectSnapshot>): st
   );
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function parseToolCallArguments(value: string): ChatToolCallTemplateArguments {
+  const trimmed = value.trim();
+  if (trimmed === "") {
+    return {};
+  }
+
+  try {
+    const parsed: unknown = JSON.parse(trimmed);
+    if (isRecord(parsed)) {
+      return parsed;
+    }
+  } catch {
+    return value;
+  }
+
+  return value;
+}
+
+function toolCallForTemplate(toolCall: ChatToolCall): ChatToolCallTemplateValue {
+  return {
+    ...(toolCall.id === undefined ? {} : { id: toolCall.id }),
+    type: "function",
+    function: {
+      name: toolCall.function.name,
+      arguments: parseToolCallArguments(toolCall.function.arguments),
+    },
+  };
+}
+
+function messageForTemplate(message: ChatMessage): ChatTemplateMessage {
+  if (message.role !== "assistant") {
+    return message;
+  }
+
+  return {
+    role: "assistant",
+    content: message.content,
+    ...(message.reasoning_content === undefined
+      ? {}
+      : { reasoning_content: message.reasoning_content }),
+    ...(message.tool_calls === undefined
+      ? {}
+      : { tool_calls: message.tool_calls.map(toolCallForTemplate) }),
+  };
+}
+
 /** Load a Hugging Face chat template for a local model directory or repo id. */
 export async function loadChatTemplate(
   source: string,
@@ -160,7 +239,7 @@ export async function loadChatTemplate(
     template: templateText,
     format(messages, renderOptions = {}) {
       return template.render({
-        messages,
+        messages: messages.map(messageForTemplate),
         tools: renderOptions.tools ?? [],
         bos_token: bosToken,
         eos_token: eosToken,

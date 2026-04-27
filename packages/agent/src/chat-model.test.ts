@@ -22,7 +22,7 @@ describe("createOpenAIChatAgentModel", () => {
     }[] = [];
     const model = createOpenAIChatAgentModel({
       endpoint: "http://localhost:8000",
-      model: "qwen-local",
+      model: "mlx-community/Qwen3.6-27B-4bit",
       apiKey: "secret",
       temperature: 0.7,
       enableThinking: false,
@@ -56,7 +56,7 @@ describe("createOpenAIChatAgentModel", () => {
     expect(request.init?.verbose).toBe(true);
     const body = JSON.parse(String(request.init?.body));
     expect(body).toMatchObject({
-      model: "qwen-local",
+      model: "mlx-community/Qwen3.6-27B-4bit",
       tools: [{ type: "function", function: { name: "lookup" } }],
       tool_choice: "auto",
       max_tokens: 512,
@@ -71,7 +71,7 @@ describe("createOpenAIChatAgentModel", () => {
   test("parses reasoning content separately from visible content", async () => {
     const model = createOpenAIChatAgentModel({
       endpoint: "http://localhost:8000/v1/chat/completions",
-      model: "qwen-local",
+      model: "mlx-community/Qwen3.6-27B-4bit",
       fetch() {
         return Promise.resolve(
           new Response(
@@ -106,7 +106,7 @@ describe("createOpenAIChatAgentModel", () => {
     let requestBody: unknown;
     const model = createOpenAIChatAgentModel({
       endpoint: "http://localhost:8000",
-      model: "qwen-local",
+      model: "mlx-community/Qwen3.6-27B-4bit",
       enableThinking: true,
       fetch(_input, init) {
         requestBody = JSON.parse(String(init?.body));
@@ -138,7 +138,7 @@ describe("createOpenAIChatAgentModel", () => {
 
     expect(response).toEqual({ content: "done", reasoningContent: "finished" });
     expect(requestBody).toMatchObject({
-      model: "qwen-local",
+      model: "mlx-community/Qwen3.6-27B-4bit",
       chat_template_kwargs: { enable_thinking: true },
       messages: [
         { role: "user", content: "Read the file" },
@@ -155,7 +155,7 @@ describe("createOpenAIChatAgentModel", () => {
   test("parses standard OpenAI tool calls", async () => {
     const model = createOpenAIChatAgentModel({
       endpoint: "http://localhost:8000/v1/chat/completions",
-      model: "qwen-local",
+      model: "mlx-community/Qwen3.6-27B-4bit",
       fetch() {
         return Promise.resolve(
           new Response(
@@ -196,7 +196,7 @@ describe("createOpenAIChatAgentModel", () => {
     let requestBody: unknown;
     const model = createOpenAIChatAgentModel({
       endpoint: "http://localhost:8000",
-      model: "qwen-local",
+      model: "mlx-community/Qwen3.6-27B-4bit",
       stream: true,
       fetch(_input, init) {
         requestBody = JSON.parse(String(init?.body));
@@ -220,14 +220,14 @@ describe("createOpenAIChatAgentModel", () => {
       tools: [],
     });
 
-    expect(requestBody).toMatchObject({ model: "qwen-local", stream: true });
+    expect(requestBody).toMatchObject({ model: "mlx-community/Qwen3.6-27B-4bit", stream: true });
     expect(response).toEqual({ content: "Hello", reasoningContent: "Think carefully." });
   });
 
   test("streams through end-of-body and falls back to Qwen think-tag parsing", async () => {
     const model = createOpenAIChatAgentModel({
       endpoint: "http://localhost:8000",
-      model: "qwen-local",
+      model: "mlx-community/Qwen3.6-27B-4bit",
       stream: true,
       fetch() {
         return Promise.resolve(
@@ -258,7 +258,7 @@ describe("createOpenAIChatAgentModel", () => {
   test("streams open think tags as fallback reasoning when no reasoning delta is present", async () => {
     const model = createOpenAIChatAgentModel({
       endpoint: "http://localhost:8000",
-      model: "qwen-local",
+      model: "mlx-community/Qwen3.6-27B-4bit",
       stream: true,
       fetch() {
         return Promise.resolve(
@@ -282,7 +282,7 @@ describe("createOpenAIChatAgentModel", () => {
   test("ignores malformed streamed chunks and malformed tool-call deltas", async () => {
     const model = createOpenAIChatAgentModel({
       endpoint: "http://localhost:8000",
-      model: "qwen-local",
+      model: "mlx-community/Qwen3.6-27B-4bit",
       stream: true,
       fetch() {
         return Promise.resolve(
@@ -327,7 +327,7 @@ describe("createOpenAIChatAgentModel", () => {
   test("exposes and aggregates streamed tool call deltas by index", async () => {
     const model = createOpenAIChatAgentModel({
       endpoint: "http://localhost:8000",
-      model: "qwen-local",
+      model: "mlx-community/Qwen3.6-27B-4bit",
       stream: true,
       fetch() {
         return Promise.resolve(
@@ -419,7 +419,7 @@ describe("createOpenAIChatAgentModel", () => {
     let requestBody: unknown;
     const model = createOpenAIChatAgentModel({
       endpoint: "http://localhost:8000",
-      model: "qwen-local",
+      model: "mlx-community/Qwen3.6-27B-4bit",
       stream: false,
       fetch(_input, init) {
         requestBody = JSON.parse(String(init?.body));
@@ -437,7 +437,7 @@ describe("createOpenAIChatAgentModel", () => {
     });
 
     expect(model.stream).toBeUndefined();
-    expect(requestBody).toMatchObject({ model: "qwen-local" });
+    expect(requestBody).toMatchObject({ model: "mlx-community/Qwen3.6-27B-4bit" });
     expect(requestBody).not.toHaveProperty("stream");
     expect(result.finalText).toBe("whole answer");
   });
@@ -445,7 +445,7 @@ describe("createOpenAIChatAgentModel", () => {
   test("ignores malformed standard tool calls", async () => {
     const model = createOpenAIChatAgentModel({
       endpoint: "http://localhost:8000/v1",
-      model: "qwen-local",
+      model: "mlx-community/Qwen3.6-27B-4bit",
       fetch() {
         return Promise.resolve(
           new Response(
@@ -476,7 +476,7 @@ describe("createOpenAIChatAgentModel", () => {
   test("throws clear errors for failed requests and malformed responses", async () => {
     const failed = createOpenAIChatAgentModel({
       endpoint: "http://localhost:8000",
-      model: "qwen-local",
+      model: "mlx-community/Qwen3.6-27B-4bit",
       fetch() {
         return Promise.resolve(new Response("nope", { status: 500 }));
       },
@@ -488,7 +488,7 @@ describe("createOpenAIChatAgentModel", () => {
 
     const malformed = createOpenAIChatAgentModel({
       endpoint: "http://localhost:8000",
-      model: "qwen-local",
+      model: "mlx-community/Qwen3.6-27B-4bit",
       fetch() {
         return Promise.resolve(new Response(JSON.stringify({ choices: [] }), { status: 200 }));
       },
@@ -500,7 +500,7 @@ describe("createOpenAIChatAgentModel", () => {
 
     const missingChoices = createOpenAIChatAgentModel({
       endpoint: "http://localhost:8000",
-      model: "qwen-local",
+      model: "mlx-community/Qwen3.6-27B-4bit",
       fetch() {
         return Promise.resolve(new Response(JSON.stringify({}), { status: 200 }));
       },
@@ -512,7 +512,7 @@ describe("createOpenAIChatAgentModel", () => {
 
     const malformedStream = createOpenAIChatAgentModel({
       endpoint: "http://localhost:8000",
-      model: "qwen-local",
+      model: "mlx-community/Qwen3.6-27B-4bit",
       stream: true,
       fetch() {
         return Promise.resolve(
@@ -530,7 +530,7 @@ describe("createOpenAIChatAgentModel", () => {
 
     const missingStreamBody = createOpenAIChatAgentModel({
       endpoint: "http://localhost:8000",
-      model: "qwen-local",
+      model: "mlx-community/Qwen3.6-27B-4bit",
       stream: true,
       fetch() {
         return Promise.resolve(new Response(null, { status: 200 }));
@@ -543,7 +543,7 @@ describe("createOpenAIChatAgentModel", () => {
 
     const failedStream = createOpenAIChatAgentModel({
       endpoint: "http://localhost:8000",
-      model: "qwen-local",
+      model: "mlx-community/Qwen3.6-27B-4bit",
       apiKey: "secret",
       verbose: true,
       fetch(_input, init) {

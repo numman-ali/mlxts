@@ -96,7 +96,7 @@ describe("serve fetch handler", () => {
           yield { type: "text", text: "" };
         },
       },
-      models: [{ id: "tiny" }, { id: "qwen-local" }],
+      models: [{ id: "tiny" }, { id: "mlx-community/Qwen3.6-27B-4bit" }],
       limits: {
         maxGeneratedTokens: 2048,
         maxPromptTokens: 4096,
@@ -119,7 +119,7 @@ describe("serve fetch handler", () => {
       router: "@mlxts/serve",
       version: null,
       model_id: "tiny",
-      model_ids: ["tiny", "qwen-local"],
+      model_ids: ["tiny", "mlx-community/Qwen3.6-27B-4bit"],
       model_count: 2,
       limits: {
         max_generated_tokens: 2048,
@@ -142,7 +142,7 @@ describe("serve fetch handler", () => {
           effective_total_tokens: null,
         },
         {
-          id: "qwen-local",
+          id: "mlx-community/Qwen3.6-27B-4bit",
           context_window: null,
           max_prompt_tokens: 4096,
           max_total_tokens: 4096,
@@ -319,7 +319,12 @@ describe("serve fetch handler", () => {
     });
     expect(seen[0]?.abortSignal).toBeDefined();
     expect(body.choices[0].text).toBe("echo:Hello");
-    expect(body.usage).toEqual({ prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 });
+    expect(body.usage).toEqual({
+      prompt_tokens: 1,
+      completion_tokens: 1,
+      total_tokens: 2,
+      prompt_tokens_details: { cached_tokens: 0, cache_write_tokens: 0 },
+    });
     expect(
       events.filter((event) => event.type.startsWith("generation_")).map((event) => event.type),
     ).toEqual(["generation_start", "generation_complete"]);
@@ -488,7 +493,12 @@ describe("serve fetch handler", () => {
     });
     expect(seen[0]?.abortSignal).toBeDefined();
     expect(body.choices[0].message.content).toBe("chat:messages");
-    expect(body.usage).toEqual({ prompt_tokens: 4, completion_tokens: 2, total_tokens: 6 });
+    expect(body.usage).toEqual({
+      prompt_tokens: 4,
+      completion_tokens: 2,
+      total_tokens: 6,
+      prompt_tokens_details: { cached_tokens: 0, cache_write_tokens: 0 },
+    });
   });
 
   test("routes OpenAI responses through message input", async () => {

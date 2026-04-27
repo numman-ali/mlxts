@@ -161,7 +161,7 @@ import { serveModel } from "@mlxts/serve";
 
 const server = await serveModel({
   source: "mlx-community/Qwen3.6-27B-4bit",
-  modelId: "qwen-local",
+  modelId: "mlx-community/Qwen3.6-27B-4bit",
   port: 8000,
   maxGeneratedTokens: 2048,
   maxPromptTokens: 4096,
@@ -186,7 +186,10 @@ import { serveModels } from "@mlxts/serve";
 const server = await serveModels({
   models: [
     { source: "google/gemma-4-E2B-it", modelId: "gemma-local" },
-    { source: "mlx-community/Qwen3.6-27B-4bit", modelId: "qwen-local" },
+    {
+      source: "mlx-community/Qwen3.6-27B-4bit",
+      modelId: "mlx-community/Qwen3.6-27B-4bit",
+    },
   ],
   port: 8000,
   maxConcurrentRequests: 1,
@@ -219,7 +222,7 @@ import { serveLoadedModels } from "@mlxts/serve";
 const server = serveLoadedModels({
   models: [
     { model: gemma, tokenizer: gemmaTokenizer, modelId: "gemma-local" },
-    { model: qwen, tokenizer: qwenTokenizer, modelId: "qwen-local" },
+    { model: qwen, tokenizer: qwenTokenizer, modelId: "mlx-community/Qwen3.6-27B-4bit" },
   ],
   port: 8000,
   maxConcurrentRequests: 1,
@@ -238,7 +241,7 @@ quality rather than raw in-process model decode:
 
 ```bash
 bun run bench:serve --model mlx-community/Qwen3.6-27B-4bit \
-  --model-id qwen-local \
+  --model-id mlx-community/Qwen3.6-27B-4bit \
   --rungs 128x128@1,1024x512@1,10000x128@2 \
   --greedy \
   --ignore-eos \

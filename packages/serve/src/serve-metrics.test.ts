@@ -5,7 +5,7 @@ import { createServeMetrics, normalizeServeMetricPath } from "./serve-metrics";
 describe("serve metrics", () => {
   test("normalizes dynamic HTTP paths", () => {
     expect(normalizeServeMetricPath("/health")).toBe("/health");
-    expect(normalizeServeMetricPath("/v1/models/qwen-local")).toBe("/v1/models/:model");
+    expect(normalizeServeMetricPath("/v1/models/test-model")).toBe("/v1/models/:model");
     expect(normalizeServeMetricPath("/not-real")).toBe("__unmatched__");
   });
 

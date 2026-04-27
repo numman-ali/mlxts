@@ -13,7 +13,7 @@ describe("OpenAI chat completions adapter", () => {
   test("normalizes messages and tools into a protocol-neutral request", () => {
     const normalized = normalizeOpenAIChatCompletionRequest(
       {
-        model: "qwen-local",
+        model: "mlx-community/Qwen3.6-27B-4bit",
         messages: [{ role: "user", content: "Read README.md" }],
         tools: [
           {
@@ -37,7 +37,7 @@ describe("OpenAI chat completions adapter", () => {
 
     expect(normalized.request).toMatchObject({
       id: "chat-test",
-      model: "qwen-local",
+      model: "mlx-community/Qwen3.6-27B-4bit",
       input: {
         kind: "messages",
         messages: [{ role: "user", content: "Read README.md" }],
@@ -59,7 +59,7 @@ describe("OpenAI chat completions adapter", () => {
 
   test("omits sampling overrides so model generation config can apply", () => {
     const normalized = normalizeOpenAIChatCompletionRequest(
-      { model: "qwen-local", messages: [{ role: "user", content: "Hi" }] },
+      { model: "mlx-community/Qwen3.6-27B-4bit", messages: [{ role: "user", content: "Hi" }] },
       { id: "chat-test" },
     );
 
@@ -70,7 +70,7 @@ describe("OpenAI chat completions adapter", () => {
   test("normalizes OpenAI chat option parity fields", () => {
     const normalized = normalizeOpenAIChatCompletionRequest(
       {
-        model: "qwen-local",
+        model: "mlx-community/Qwen3.6-27B-4bit",
         messages: [{ role: "user", content: "Hi" }],
         max_completion_tokens: 64,
         n: 1,
@@ -93,7 +93,7 @@ describe("OpenAI chat completions adapter", () => {
   test("preserves assistant tool calls and tool observations", () => {
     const normalized = normalizeOpenAIChatCompletionRequest(
       {
-        model: "qwen-local",
+        model: "mlx-community/Qwen3.6-27B-4bit",
         messages: [
           {
             role: "assistant",
@@ -134,7 +134,7 @@ describe("OpenAI chat completions adapter", () => {
   test("accepts developer messages and text content parts", () => {
     const normalized = normalizeOpenAIChatCompletionRequest(
       {
-        model: "qwen-local",
+        model: "mlx-community/Qwen3.6-27B-4bit",
         messages: [
           { role: "developer", content: [{ type: "text", text: "Use concise answers." }] },
           {
@@ -392,7 +392,12 @@ describe("OpenAI chat completions adapter", () => {
           finish_reason: "stop",
         },
       ],
-      usage: { prompt_tokens: 1, completion_tokens: 2, total_tokens: 3 },
+      usage: {
+        prompt_tokens: 1,
+        completion_tokens: 2,
+        total_tokens: 3,
+        prompt_tokens_details: { cached_tokens: 0, cache_write_tokens: 0 },
+      },
     });
   });
 
@@ -700,7 +705,13 @@ describe("OpenAI chat completions adapter", () => {
     expect(
       formatOpenAIChatCompletionUsageStreamChunk(
         chat,
-        { promptTokens: 1, completionTokens: 2, totalTokens: 3 },
+        {
+          promptTokens: 6,
+          completionTokens: 2,
+          totalTokens: 8,
+          cacheReadTokens: 3,
+          cacheWriteTokens: 1,
+        },
         { id: "chat-test", created: 123 },
       ),
     ).toEqual({
@@ -709,7 +720,12 @@ describe("OpenAI chat completions adapter", () => {
       created: 123,
       model: "tiny",
       choices: [],
-      usage: { prompt_tokens: 1, completion_tokens: 2, total_tokens: 3 },
+      usage: {
+        prompt_tokens: 6,
+        completion_tokens: 2,
+        total_tokens: 8,
+        prompt_tokens_details: { cached_tokens: 4, cache_write_tokens: 1 },
+      },
     });
     expect(
       formatOpenAIChatCompletionUsageStreamChunk(chat, undefined, {

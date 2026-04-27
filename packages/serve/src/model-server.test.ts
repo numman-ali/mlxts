@@ -403,7 +403,11 @@ describe("serveLoadedModel", () => {
     const running = serveLoadedModels({
       models: [
         { model: gemma, tokenizer: new GeneratingTokenizer(), modelId: "gemma-local" },
-        { model: qwen, tokenizer: new GeneratingTokenizer(), modelId: "qwen-local" },
+        {
+          model: qwen,
+          tokenizer: new GeneratingTokenizer(),
+          modelId: "mlx-community/Qwen3.6-27B-4bit",
+        },
       ],
       port: 0,
       disposeModelsOnStop: true,
@@ -418,16 +422,16 @@ describe("serveLoadedModel", () => {
         object: "list",
         data: [
           { id: "gemma-local", object: "model" },
-          { id: "qwen-local", object: "model" },
+          { id: "mlx-community/Qwen3.6-27B-4bit", object: "model" },
         ],
       });
       expect(await infoResponse.json()).toMatchObject({
         model_id: "gemma-local",
-        model_ids: ["gemma-local", "qwen-local"],
+        model_ids: ["gemma-local", "mlx-community/Qwen3.6-27B-4bit"],
         model_count: 2,
       });
       expect(running.modelId).toBe("gemma-local");
-      expect(running.modelIds).toEqual(["gemma-local", "qwen-local"]);
+      expect(running.modelIds).toEqual(["gemma-local", "mlx-community/Qwen3.6-27B-4bit"]);
 
       const gemmaResponse = await fetch(`${running.endpoint}/v1/completions`, {
         method: "POST",
@@ -443,7 +447,7 @@ describe("serveLoadedModel", () => {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
-          model: "qwen-local",
+          model: "mlx-community/Qwen3.6-27B-4bit",
           prompt: "hi",
           max_tokens: 2,
           temperature: 0,
@@ -622,7 +626,7 @@ describe("serveLoadedModel", () => {
     const running = await serveModelWithRuntime(
       {
         source: "repo/model",
-        modelId: "qwen-local",
+        modelId: "mlx-community/Qwen3.6-27B-4bit",
         revision: "main",
         apiKey: "secret",
         localFilesOnly: true,
@@ -637,13 +641,13 @@ describe("serveLoadedModel", () => {
       runtime,
     );
 
-    expect(running.modelId).toBe("qwen-local");
+    expect(running.modelId).toBe("mlx-community/Qwen3.6-27B-4bit");
     expect(calls).toEqual([
       "resolve:repo/model:main:true",
       "model:/snapshots/qwen",
       "tokenizer:/snapshots/qwen",
       "profile:/snapshots/qwen",
-      "serve:qwen-local:secret:4096:4096:16:3:64:7:2:2:0.8:true",
+      "serve:mlx-community/Qwen3.6-27B-4bit:secret:4096:4096:16:3:64:7:2:2:0.8:true",
     ]);
     expect(model.disposeCount).toBe(0);
     running.stop();

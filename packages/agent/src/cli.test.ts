@@ -14,7 +14,7 @@ describe("agent CLI args", () => {
     expect(
       parseAgentArgs([
         "--model",
-        "qwen-local",
+        "mlx-community/Qwen3.6-27B-4bit",
         "--endpoint",
         "http://localhost:8000",
         "--cwd",
@@ -33,7 +33,7 @@ describe("agent CLI args", () => {
     ).toEqual({
       kind: "agent",
       options: {
-        model: "qwen-local",
+        model: "mlx-community/Qwen3.6-27B-4bit",
         endpoint: "http://localhost:8000",
         cwd: ".",
         apiKey: "secret",
@@ -48,10 +48,10 @@ describe("agent CLI args", () => {
   });
 
   test("defaults agent turns to model-native sampling", () => {
-    expect(parseAgentArgs(["--model", "qwen-local"])).toEqual({
+    expect(parseAgentArgs(["--model", "mlx-community/Qwen3.6-27B-4bit"])).toEqual({
       kind: "agent",
       options: {
-        model: "qwen-local",
+        model: "mlx-community/Qwen3.6-27B-4bit",
         endpoint: "http://127.0.0.1:8000",
         cwd: process.cwd(),
         maxTokens: 512,
@@ -63,10 +63,12 @@ describe("agent CLI args", () => {
   });
 
   test("supports explicit deterministic and thinking controls", () => {
-    expect(parseAgentArgs(["--model", "qwen-local", "--greedy", "--thinking"])).toEqual({
+    expect(
+      parseAgentArgs(["--model", "mlx-community/Qwen3.6-27B-4bit", "--greedy", "--thinking"]),
+    ).toEqual({
       kind: "agent",
       options: {
-        model: "qwen-local",
+        model: "mlx-community/Qwen3.6-27B-4bit",
         endpoint: "http://127.0.0.1:8000",
         cwd: process.cwd(),
         maxTokens: 512,
@@ -77,7 +79,9 @@ describe("agent CLI args", () => {
         verbose: false,
       },
     });
-    expect(parseAgentArgs(["--model", "qwen-local", "--no-stream"])).toMatchObject({
+    expect(
+      parseAgentArgs(["--model", "mlx-community/Qwen3.6-27B-4bit", "--no-stream"]),
+    ).toMatchObject({
       kind: "agent",
       options: { stream: false },
     });
@@ -126,7 +130,7 @@ describe("agent CLI args", () => {
 
     await runAgentRepl(
       {
-        model: "qwen-local",
+        model: "mlx-community/Qwen3.6-27B-4bit",
         endpoint: "http://localhost:8000",
         cwd: ".",
         maxTokens: 32,
@@ -167,7 +171,7 @@ describe("agent CLI args", () => {
 
     await runAgentRepl(
       {
-        model: "qwen-local",
+        model: "mlx-community/Qwen3.6-27B-4bit",
         endpoint: "http://localhost:8000",
         cwd: ".",
         maxTokens: 32,
@@ -210,7 +214,7 @@ describe("agent CLI args", () => {
 
     await runAgentRepl(
       {
-        model: "qwen-local",
+        model: "mlx-community/Qwen3.6-27B-4bit",
         endpoint: "http://localhost:8000",
         cwd: ".",
         maxTokens: 32,
@@ -256,7 +260,7 @@ describe("agent CLI args", () => {
 
     await runAgentRepl(
       {
-        model: "qwen-local",
+        model: "mlx-community/Qwen3.6-27B-4bit",
         endpoint: "http://localhost:8000",
         cwd: ".",
         maxTokens: 32,
@@ -286,7 +290,7 @@ describe("agent CLI args", () => {
 
     await runAgentRepl(
       {
-        model: "qwen-local",
+        model: "mlx-community/Qwen3.6-27B-4bit",
         endpoint: "http://localhost:8000",
         cwd: ".",
         maxTokens: 32,
@@ -327,7 +331,7 @@ describe("agent CLI args", () => {
 
     await runAgentRepl(
       {
-        model: "qwen-local",
+        model: "mlx-community/Qwen3.6-27B-4bit",
         endpoint: "http://localhost:8000",
         cwd: ".",
         maxTokens: 32,
@@ -351,7 +355,9 @@ describe("agent CLI args", () => {
       },
     );
 
-    expect(logs).toEqual(['Talking to qwen-local at http://localhost:8000. Type "exit" to quit.']);
+    expect(logs).toEqual([
+      'Talking to mlx-community/Qwen3.6-27B-4bit at http://localhost:8000. Type "exit" to quit.',
+    ]);
   });
 
   test("prints visible agent events", () => {

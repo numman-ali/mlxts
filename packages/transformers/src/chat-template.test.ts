@@ -148,4 +148,42 @@ describe("loadChatTemplate", () => {
     const fromConfig = await loadChatTemplate(configDirectory);
     expect(fromConfig?.format([{ role: "user", content: "Hi" }])).toBe("<cfg>Hi");
   });
+
+  test("renders OpenAI wire-format tool call arguments as template mappings", async () => {
+    const directory = createTempDir("mlxts-transformers-chat-template-tools-");
+    writeFileSync(join(directory, "config.json"), JSON.stringify({ model_type: "qwen3_5" }));
+    writeFileSync(
+      join(directory, "chat_template.jinja"),
+      [
+        "{% for message in messages %}",
+        "{% if message.role == 'assistant' %}",
+        "{% for tool_call in message.tool_calls %}",
+        "{% set fn = tool_call.function %}",
+        "{% for name, value in fn.arguments|items %}{{ name }}={{ value }};{% endfor %}",
+        "{% endfor %}",
+        "{% endif %}",
+        "{% endfor %}",
+      ].join(""),
+    );
+
+    const template = await loadChatTemplate(directory);
+    expect(
+      template?.format(
+        [
+          {
+            role: "assistant",
+            content: "",
+            tool_calls: [
+              {
+                id: "call-read",
+                type: "function",
+                function: { name: "read", arguments: '{"path":"package.json"}' },
+              },
+            ],
+          },
+        ],
+        { addGenerationPrompt: false },
+      ),
+    ).toBe("path=package.json;");
+  });
 });

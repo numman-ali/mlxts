@@ -107,8 +107,8 @@ If you want to serve a local model and talk to it through the package-owned
 agent loop:
 
 ```bash
-mlxts-serve mlx-community/Qwen3.6-27B-4bit --model-id qwen-local --port 8000
-mlxts-agent --model qwen-local --endpoint http://127.0.0.1:8000 --cwd .
+mlxts-serve mlx-community/Qwen3.6-27B-4bit --model-id mlx-community/Qwen3.6-27B-4bit --port 8000
+mlxts-agent --model mlx-community/Qwen3.6-27B-4bit --endpoint http://127.0.0.1:8000 --cwd .
 ```
 
 ## Package examples

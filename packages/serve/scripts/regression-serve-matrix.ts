@@ -842,7 +842,7 @@ function baseSpecs(options: CliOptions): ServeRegressionSpec[] {
     {
       label: "qwen36-completions-stream",
       model: options.qwenModel,
-      modelId: "qwen-local",
+      modelId: options.qwenModel,
       rungs: "1024x128@1",
       stream: true,
       ignoreEos: true,
@@ -877,7 +877,7 @@ function baseSpecs(options: CliOptions): ServeRegressionSpec[] {
     {
       label: "qwen36-completions-continuous",
       model: options.qwenModel,
-      modelId: "qwen-local",
+      modelId: options.qwenModel,
       rungs: "128x32@2",
       stream: false,
       ignoreEos: true,
@@ -903,7 +903,7 @@ function baseSpecs(options: CliOptions): ServeRegressionSpec[] {
     {
       label: "qwen36-completions-stream-continuous",
       model: options.qwenModel,
-      modelId: "qwen-local",
+      modelId: options.qwenModel,
       rungs: "128x32@2",
       stream: true,
       ignoreEos: true,
@@ -938,7 +938,7 @@ function baseSpecs(options: CliOptions): ServeRegressionSpec[] {
     {
       label: "qwen36-completions-stream-continuous-at4",
       model: options.qwenModel,
-      modelId: "qwen-local",
+      modelId: options.qwenModel,
       rungs: "128x16@4",
       stream: true,
       ignoreEos: true,
@@ -975,7 +975,7 @@ function baseSpecs(options: CliOptions): ServeRegressionSpec[] {
     {
       label: "qwen36-completions-stream-continuous-at8",
       model: options.qwenModel,
-      modelId: "qwen-local",
+      modelId: options.qwenModel,
       rungs: "128x16@8",
       stream: true,
       ignoreEos: true,
@@ -1012,7 +1012,7 @@ function baseSpecs(options: CliOptions): ServeRegressionSpec[] {
     {
       label: "qwen36-completions-staggered-continuous",
       model: options.qwenModel,
-      modelId: "qwen-local",
+      modelId: options.qwenModel,
       rungs: "128x32@2",
       stream: false,
       ignoreEos: true,
@@ -1039,7 +1039,7 @@ function baseSpecs(options: CliOptions): ServeRegressionSpec[] {
     {
       label: "qwen36-completions-model-defaults-continuous",
       model: options.qwenModel,
-      modelId: "qwen-local",
+      modelId: options.qwenModel,
       rungs: "128x16@2",
       stream: false,
       ignoreEos: true,
@@ -1066,7 +1066,7 @@ function baseSpecs(options: CliOptions): ServeRegressionSpec[] {
     {
       label: "qwen36-completions-model-defaults-stream-continuous",
       model: options.qwenModel,
-      modelId: "qwen-local",
+      modelId: options.qwenModel,
       rungs: "128x16@2",
       stream: true,
       ignoreEos: true,
@@ -1367,7 +1367,7 @@ function protocolHealthSpecs(options: CliOptions): ServeRegressionSpec[] {
     ...protocols.map((protocol) => ({
       label: `qwen36-${protocol}-stream`,
       model: options.qwenModel,
-      modelId: "qwen-local",
+      modelId: options.qwenModel,
       protocol,
       ...textProtocolAdmission,
       rungs: "128x16@1",
@@ -1394,7 +1394,7 @@ function capabilitySpecs(options: CliOptions): ServeRegressionSpec[] {
     {
       label: "qwen36-long-output-stream",
       model: options.qwenModel,
-      modelId: "qwen-local",
+      modelId: options.qwenModel,
       rungs: "1024x1024@1",
       stream: true,
       ignoreEos: true,
@@ -1429,7 +1429,7 @@ function capabilitySpecs(options: CliOptions): ServeRegressionSpec[] {
     {
       label: "qwen36-long-context-stream",
       model: options.qwenModel,
-      modelId: "qwen-local",
+      modelId: options.qwenModel,
       rungs: "32768x128@1",
       stream: true,
       ignoreEos: true,
@@ -1468,7 +1468,7 @@ function fairnessSpecs(options: CliOptions): ServeRegressionSpec[] {
     {
       label: "qwen36-mixed-long-short-staggered-stream",
       model: options.qwenModel,
-      modelId: "qwen-local",
+      modelId: options.qwenModel,
       mixedRungs: "32768x128+128x32",
       stream: true,
       ignoreEos: true,

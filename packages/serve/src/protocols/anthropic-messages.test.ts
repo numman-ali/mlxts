@@ -9,7 +9,7 @@ describe("Anthropic messages adapter", () => {
   test("normalizes text-only Messages requests into protocol-neutral message input", () => {
     const normalized = normalizeAnthropicMessageRequest(
       {
-        model: "qwen-local",
+        model: "mlx-community/Qwen3.6-27B-4bit",
         system: [{ type: "text", text: "Be concise." }],
         messages: [
           { role: "user", content: [{ type: "text", text: "Hello" }] },
@@ -31,7 +31,7 @@ describe("Anthropic messages adapter", () => {
     );
 
     expect(normalized).toMatchObject({
-      model: "qwen-local",
+      model: "mlx-community/Qwen3.6-27B-4bit",
       stream: true,
       maxTokens: 64,
       temperature: 0.7,
@@ -39,7 +39,7 @@ describe("Anthropic messages adapter", () => {
       topK: 20,
       request: {
         id: "msg-test",
-        model: "qwen-local",
+        model: "mlx-community/Qwen3.6-27B-4bit",
         input: {
           kind: "messages",
           messages: [
@@ -66,7 +66,7 @@ describe("Anthropic messages adapter", () => {
   test("formats visible and thinking output as Anthropic content blocks", () => {
     const normalized = normalizeAnthropicMessageRequest(
       {
-        model: "qwen-local",
+        model: "mlx-community/Qwen3.6-27B-4bit",
         messages: [{ role: "user", content: "Hi" }],
         max_tokens: 8,
       },
@@ -91,7 +91,7 @@ describe("Anthropic messages adapter", () => {
         { type: "thinking", thinking: "I should greet.", signature: "" },
         { type: "text", text: "Hello" },
       ],
-      model: "qwen-local",
+      model: "mlx-community/Qwen3.6-27B-4bit",
       stop_reason: "max_tokens",
       stop_sequence: null,
       usage: { input_tokens: 5, output_tokens: 8 },
@@ -101,7 +101,7 @@ describe("Anthropic messages adapter", () => {
   test("rejects unsupported Anthropic shapes explicitly", () => {
     expect(() =>
       normalizeAnthropicMessageRequest(
-        { model: "qwen-local", messages: [{ role: "user", content: "Hi" }] },
+        { model: "mlx-community/Qwen3.6-27B-4bit", messages: [{ role: "user", content: "Hi" }] },
         { id: "missing-max" },
       ),
     ).toThrow('"max_tokens" is required');
@@ -109,7 +109,7 @@ describe("Anthropic messages adapter", () => {
     expect(() =>
       normalizeAnthropicMessageRequest(
         {
-          model: "qwen-local",
+          model: "mlx-community/Qwen3.6-27B-4bit",
           max_tokens: 8,
           messages: [{ role: "system", content: "Nope" }],
         },
@@ -120,7 +120,7 @@ describe("Anthropic messages adapter", () => {
     expect(() =>
       normalizeAnthropicMessageRequest(
         {
-          model: "qwen-local",
+          model: "mlx-community/Qwen3.6-27B-4bit",
           max_tokens: 8,
           messages: [
             {
@@ -138,7 +138,7 @@ describe("Anthropic messages adapter", () => {
     expect(() =>
       normalizeAnthropicMessageRequest(
         {
-          model: "qwen-local",
+          model: "mlx-community/Qwen3.6-27B-4bit",
           max_tokens: 8,
           messages: [{ role: "user", content: "Hi" }],
           tools: [{ name: "read_file" }],
@@ -151,7 +151,7 @@ describe("Anthropic messages adapter", () => {
   test("normalizes optional Anthropic variants without sampling overrides", () => {
     const disabledThinking = normalizeAnthropicMessageRequest(
       {
-        model: "qwen-local",
+        model: "mlx-community/Qwen3.6-27B-4bit",
         system: "Be brief.",
         messages: [
           { role: "user", content: "Hi" },
@@ -179,7 +179,7 @@ describe("Anthropic messages adapter", () => {
 
     const assistantText = normalizeAnthropicMessageRequest(
       {
-        model: "qwen-local",
+        model: "mlx-community/Qwen3.6-27B-4bit",
         messages: [{ role: "assistant", content: [{ type: "text", text: "Prefill" }] }],
         max_tokens: 1,
       },
@@ -194,7 +194,7 @@ describe("Anthropic messages adapter", () => {
 
   test("rejects malformed Anthropic scalar and content fields", () => {
     const base = {
-      model: "qwen-local",
+      model: "mlx-community/Qwen3.6-27B-4bit",
       messages: [{ role: "user", content: "Hi" }],
       max_tokens: 8,
     };
@@ -238,7 +238,7 @@ describe("Anthropic messages adapter", () => {
   });
 
   test("rejects malformed Anthropic message content fields", () => {
-    const base = { model: "qwen-local", max_tokens: 8 };
+    const base = { model: "mlx-community/Qwen3.6-27B-4bit", max_tokens: 8 };
 
     expect(() =>
       normalizeAnthropicMessageRequest({ ...base, messages: [] }, { id: "empty" }),
@@ -294,7 +294,7 @@ describe("Anthropic messages adapter", () => {
   });
 
   test("rejects malformed Anthropic assistant content fields", () => {
-    const base = { model: "qwen-local", max_tokens: 8 };
+    const base = { model: "mlx-community/Qwen3.6-27B-4bit", max_tokens: 8 };
 
     expect(() =>
       normalizeAnthropicMessageRequest(
