@@ -12,6 +12,7 @@ import {
 
 type CliOptions = {
   realModels: boolean;
+  fairnessSmoke: boolean;
   capabilitySmoke: boolean;
   qwenModel: string;
   gemma4Model: string;
@@ -66,6 +67,8 @@ export type ServeRequestBudget = {
   maxServerSchedulerQueuedMs?: number;
   maxServerStreamTtftMs?: number;
   maxServerSilentEventGapMs?: number;
+  maxServerFirstPrefillProgressMs?: number;
+  minServerPrefillEvents?: number;
 };
 
 type ServeRegressionSpec = {
@@ -102,6 +105,7 @@ function usage(): string {
     "",
     "Options:",
     "  --real-models             Run cached Qwen/Gemma endpoint smoke benchmarks.",
+    "  --fairness-smoke         Add mixed long-prefill/short-arrival serving guardrails; implies --real-models.",
     "  --capability-smoke        Add longer output/context rungs; implies --real-models.",
     "  --qwen-model <id>         Qwen model id/path.",
     "  --gemma4-model <id>       Gemma 4 model id/path.",
@@ -114,6 +118,7 @@ function usage(): string {
 function defaultOptions(): CliOptions {
   return {
     realModels: false,
+    fairnessSmoke: false,
     capabilitySmoke: false,
     qwenModel: "mlx-community/Qwen3.6-27B-4bit",
     gemma4Model: "google/gemma-4-E2B-it",
@@ -153,8 +158,13 @@ export function parseServeRegressionArgs(argv: readonly string[]): CliOptions {
       case "--real-models":
         options.realModels = true;
         break;
+      case "--fairness-smoke":
+        options.fairnessSmoke = true;
+        options.realModels = true;
+        break;
       case "--capability-smoke":
         options.capabilitySmoke = true;
+        options.fairnessSmoke = true;
         options.realModels = true;
         break;
       case "--qwen-model":
@@ -549,7 +559,9 @@ function requestBudgetNeedsServerRequest(budget: ServeRequestBudget): boolean {
   return (
     budget.maxServerSchedulerQueuedMs !== undefined ||
     budget.maxServerStreamTtftMs !== undefined ||
-    budget.maxServerSilentEventGapMs !== undefined
+    budget.maxServerSilentEventGapMs !== undefined ||
+    budget.maxServerFirstPrefillProgressMs !== undefined ||
+    budget.minServerPrefillEvents !== undefined
   );
 }
 
@@ -602,7 +614,7 @@ function serverRequestBudgetFailures(
   ) {
     return [`request_budget ${label} found no matching server request for ${id}`];
   }
-  return [
+  const failures = [
     metricBudgetFailure(
       label,
       "server scheduler queued",
@@ -624,7 +636,28 @@ function serverRequestBudgetFailures(
       budget.maxServerSilentEventGapMs,
       id,
     ),
+    metricBudgetFailure(
+      label,
+      "server first prefill progress",
+      serverRequest?.firstPrefillProgressMs,
+      budget.maxServerFirstPrefillProgressMs,
+      id,
+    ),
   ].filter((failure): failure is string => failure !== null);
+  const minServerPrefillEvents = budget.minServerPrefillEvents;
+  if (
+    minServerPrefillEvents !== undefined &&
+    (serverRequest?.prefillEvents ?? 0) < minServerPrefillEvents
+  ) {
+    const actual = serverRequest?.prefillEvents ?? 0;
+    return [
+      ...failures,
+      `request_budget ${label} server prefill events ${actual.toFixed(0)} < ${minServerPrefillEvents.toFixed(
+        0,
+      )} for ${id}`,
+    ];
+  }
+  return failures;
 }
 
 function failuresForMatchedRequest(
@@ -1347,6 +1380,11 @@ function capabilitySpecs(options: CliOptions): ServeRegressionSpec[] {
         minModelLaneWaitEvents: 0,
       },
     },
+  ];
+}
+
+function fairnessSpecs(options: CliOptions): ServeRegressionSpec[] {
+  return [
     {
       label: "qwen36-mixed-long-short-staggered-stream",
       model: options.qwenModel,
@@ -1380,6 +1418,14 @@ function capabilitySpecs(options: CliOptions): ServeRegressionSpec[] {
         expectSchedulerTokenPressure: true,
         minModelLaneWaitEvents: 0,
         requestBudgets: [
+          {
+            label: "long 32768x128",
+            promptTokens: 32768,
+            completionTokens: 128,
+            maxServerFirstPrefillProgressMs: 6_000,
+            maxServerSilentEventGapMs: 6_000,
+            minServerPrefillEvents: 8,
+          },
           {
             label: "short 128x32",
             promptTokens: 128,
@@ -1426,6 +1472,14 @@ function capabilitySpecs(options: CliOptions): ServeRegressionSpec[] {
         expectSchedulerTokenPressure: true,
         minModelLaneWaitEvents: 0,
         requestBudgets: [
+          {
+            label: "long 5000x128",
+            promptTokens: 5000,
+            completionTokens: 128,
+            maxServerFirstPrefillProgressMs: 2_500,
+            maxServerSilentEventGapMs: 2_500,
+            minServerPrefillEvents: 5,
+          },
           {
             label: "short 128x32",
             promptTokens: 128,
@@ -1507,9 +1561,11 @@ async function runServeBenchmark(spec: ServeRegressionSpec, options: CliOptions)
 }
 
 async function runRealModelSmoke(options: CliOptions): Promise<void> {
-  const specs = options.capabilitySmoke
-    ? [...baseSpecs(options), ...capabilitySpecs(options)]
-    : baseSpecs(options);
+  const specs = [
+    ...baseSpecs(options),
+    ...(options.fairnessSmoke ? fairnessSpecs(options) : []),
+    ...(options.capabilitySmoke ? capabilitySpecs(options) : []),
+  ];
   for (const spec of specs) {
     await runServeBenchmark(spec, options);
   }

@@ -184,8 +184,11 @@ The next work should stay ordered around architecture truth:
    streaming continuous rungs with per-request TTFT and scheduler-queued-time
    budgets, plus mixed long-prefill/short-arrival capability rungs with
    short-request-specific TTFT, stream-cadence, and scheduler queue budgets.
-   Higher concurrency and heterogeneous prompt fairness now have explicit
-   evidence instead of aggregate-throughput-only proof.
+   The normal real-checkpoint Qwen/Gemma profile now includes those mixed
+   fairness guardrails, with long-request prefill cadence assertions, so the
+   recent head-of-line blocking class does not hide behind the heavier
+   substantial profile. Higher concurrency and heterogeneous prompt fairness
+   now have explicit evidence instead of aggregate-throughput-only proof.
 3. Keep the typed internal serving/runtime strategy seam as the path for new
    backend choices. The current seam reports implemented behavior only:
    scheduler `auto`, managed model-precision cache, attention `auto`,

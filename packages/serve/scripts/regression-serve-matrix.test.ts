@@ -206,6 +206,7 @@ describe("serve regression matrix", () => {
   test("parses cheap, real-model, and capability options", () => {
     expect(parseServeRegressionArgs([])).toMatchObject({
       realModels: false,
+      fairnessSmoke: false,
       capabilitySmoke: false,
       qwenModel: "mlx-community/Qwen3.6-27B-4bit",
       gemma4Model: "google/gemma-4-E2B-it",
@@ -228,12 +229,19 @@ describe("serve regression matrix", () => {
       ]),
     ).toMatchObject({
       realModels: true,
+      fairnessSmoke: true,
       capabilitySmoke: true,
       qwenModel: "qwen",
       gemma4Model: "gemma",
       reportDir: ".tmp/reports",
       requestTimeoutMs: 120000,
       allowDownload: true,
+    });
+
+    expect(parseServeRegressionArgs(["--fairness-smoke"])).toMatchObject({
+      realModels: true,
+      fairnessSmoke: true,
+      capabilitySmoke: false,
     });
   });
 
@@ -541,6 +549,14 @@ describe("serve regression matrix", () => {
           maxServerStreamTtftMs: 600,
           maxServerSilentEventGapMs: 700,
         },
+        {
+          label: "long 32768x128",
+          promptTokens: 32768,
+          completionTokens: 128,
+          maxServerFirstPrefillProgressMs: 2_000,
+          maxServerSilentEventGapMs: 2_000,
+          minServerPrefillEvents: 8,
+        },
       ],
     };
     const fairMetrics = trial({
@@ -586,6 +602,8 @@ describe("serve regression matrix", () => {
           schedulerQueuedMs: 150_000,
           serverStreamTtftMs: 150_000,
           maxSilentEventGapMs: 600,
+          firstPrefillProgressMs: 1_200,
+          prefillEvents: 64,
         },
       ],
     });
@@ -636,6 +654,36 @@ describe("serve regression matrix", () => {
         fairnessBudget,
       ),
     ).toThrow("request_budget short 128x32 found no matching server request");
+    expect(() =>
+      assertServeReportBudget(
+        "mixed",
+        report(
+          trial({
+            ...fairMetrics,
+            serverRequests: fairMetrics.serverRequests.map((request) =>
+              request.id === "long" ? { ...request, firstPrefillProgressMs: 3_000 } : request,
+            ),
+          }),
+          mixedRung,
+        ),
+        fairnessBudget,
+      ),
+    ).toThrow("request_budget long 32768x128 server first prefill progress");
+    expect(() =>
+      assertServeReportBudget(
+        "mixed",
+        report(
+          trial({
+            ...fairMetrics,
+            serverRequests: fairMetrics.serverRequests.map((request) =>
+              request.id === "long" ? { ...request, prefillEvents: 2 } : request,
+            ),
+          }),
+          mixedRung,
+        ),
+        fairnessBudget,
+      ),
+    ).toThrow("request_budget long 32768x128 server prefill events");
   });
 
   test("accepts concurrent streaming continuous reports with per-request SSE evidence", () => {
