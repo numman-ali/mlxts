@@ -178,9 +178,12 @@ The next work should stay ordered around architecture truth:
 1. Keep repo alignment current as package surfaces evolve; stale roadmap text is
    a real engineering hazard.
 2. Lock serving baselines for Qwen/Gemma across greedy and model-default
-   sampled generation, buffered and streaming output, `@1/@2/@4/@8`
-   concurrency, staggered arrivals, short/long output rungs, and separate
-   client-observed plus server-side stream evidence.
+   sampled generation, buffered and streaming output, staggered arrivals,
+   short/long output rungs, and separate client-observed plus server-side
+   stream evidence. The real matrix now includes `@4` and `@8` Qwen/Gemma
+   streaming continuous rungs with per-request TTFT and scheduler-queued-time
+   budgets, so higher concurrency has explicit fairness evidence instead of
+   aggregate-throughput-only proof.
 3. Keep the typed internal serving/runtime strategy seam as the path for new
    backend choices. The current seam reports implemented behavior only:
    scheduler `auto`, managed model-precision cache, attention `auto`,

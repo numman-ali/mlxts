@@ -528,6 +528,8 @@ describe("serve regression matrix", () => {
       expectEveryRequestOutputStreamed: true,
       expectEveryServerRequestStreamed: true,
       expectEveryServerRequestOutputStreamed: true,
+      maxClientRequestTtftMs: 500,
+      maxServerSchedulerQueuedMs: 500,
       expectedRoute: "continuous",
       expectedReason: "eligible",
       minRouteDecisions: 2,
@@ -617,6 +619,7 @@ describe("serve regression matrix", () => {
           modelLaneWaitMs: null,
           modelLaneQueuedAhead: null,
           modelLaneInFlightAtQueue: null,
+          schedulerQueuedMs: 100,
           schedulerPhaseEvents: 3,
           schedulerAdmittedBatchSize: 2,
         },
@@ -628,6 +631,7 @@ describe("serve regression matrix", () => {
           modelLaneWaitMs: null,
           modelLaneQueuedAhead: null,
           modelLaneInFlightAtQueue: null,
+          schedulerQueuedMs: 120,
           schedulerPhaseEvents: 4,
           schedulerAdmittedBatchSize: 2,
         },
@@ -663,6 +667,21 @@ describe("serve regression matrix", () => {
         report(
           trial({
             ...streamingMetrics,
+            requests: streamingMetrics.requests.map((request) =>
+              request.index === 1 ? { ...request, ttftMs: 1_000 } : request,
+            ),
+          }),
+          streamingRung,
+        ),
+        streamingBudget,
+      ),
+    ).toThrow("client_request_ttft_ms");
+    expect(() =>
+      assertServeReportBudget(
+        "qwen-stream",
+        report(
+          trial({
+            ...streamingMetrics,
             serverRequests: streamingMetrics.serverRequests.map((request) =>
               request.id === "request-b" ? { ...request, serverStreamChunkEvents: 0 } : request,
             ),
@@ -672,6 +691,21 @@ describe("serve regression matrix", () => {
         streamingBudget,
       ),
     ).toThrow("server_requests missing server-side output stream evidence");
+    expect(() =>
+      assertServeReportBudget(
+        "qwen-stream",
+        report(
+          trial({
+            ...streamingMetrics,
+            serverRequests: streamingMetrics.serverRequests.map((request) =>
+              request.id === "request-b" ? { ...request, schedulerQueuedMs: 1_000 } : request,
+            ),
+          }),
+          streamingRung,
+        ),
+        streamingBudget,
+      ),
+    ).toThrow("scheduler queued budget");
   });
 
   test("accepts terminal-only sampled streams when lifecycle evidence is present", () => {

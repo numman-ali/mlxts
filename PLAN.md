@@ -743,7 +743,7 @@ and minimal serving are in place.
 
 **Goal**: Production-quality inference server. Quantized inference. Any OpenAI-compatible client can connect. Architecturally flexible enough that new optimization techniques (from papers or upstream projects) slot in without rewiring the stack.
 
-**Current status**: Phase 9 now contains both landed serving tranches and future production tranches. Treat the existing `@mlxts/serve` endpoint, streaming, admission, cancellation, multi-model loading, benchmark/regression harnesses, and cache-generic continuous scheduler as real surfaces to preserve. The scheduler now covers eligible LLaMA-like, Qwen 3.6 text, and Gemma 3/4 layer-pattern requests for buffered and streaming generation, including model-native sampled defaults. Keep paged/prefix cache, richer scheduler policy, production metrics, multimodal serving, embeddings, Anthropic compatibility, and advanced optimization hooks as future work.
+**Current status**: Phase 9 now contains both landed serving tranches and future production tranches. Treat the existing `@mlxts/serve` endpoint, streaming, admission, cancellation, multi-model loading, benchmark/regression harnesses, and cache-generic continuous scheduler as real surfaces to preserve. The scheduler now covers eligible LLaMA-like, Qwen 3.6 text, and Gemma 3/4 layer-pattern requests for buffered and streaming generation, including model-native sampled defaults. The real Qwen/Gemma serving matrix includes `@4` and `@8` streaming continuous guardrails with per-request TTFT, scheduler-queued-time, SSE lifecycle, and max-generation-batch evidence. Keep paged/prefix cache, richer scheduler policy, production metrics, multimodal serving, embeddings, Anthropic compatibility, and advanced optimization hooks as future work.
 
 **Research basis**: Deep analysis of three MLX inference servers — Rapid-MLX (speed-focused), vLLM-MLX (foundational batching/paging), oMLX (production serving/memory management). These share lineage (vLLM-MLX → forks) but diverged into complementary specializations. Key findings are documented in [docs/inference-optimizations.md](./docs/inference-optimizations.md). Reference repos at `.reference/rapid-mlx`, `.reference/vllm-mlx`, `.reference/omlx`.
 
@@ -812,7 +812,8 @@ KV cache is the critical infrastructure for both single-user generation and mult
 - Server-sent events for token streaming, cancellation, long-context heartbeats, and cooperative prefill progress
 - Landed cache-generic continuous batching for eligible LLaMA-like, Qwen 3.6 text, and Gemma 3/4 layer-pattern requests, including streaming and model-native sampled defaults
 - Landed continuous scheduler token-budget admission with separate prompt, completion, and aggregate total caps
-- Future scheduler tranches cover stronger fairness controls, per-row decode state evidence, and higher-concurrency sampled proof
+- Landed higher-concurrency Qwen/Gemma streaming guardrails for `@4` and `@8` continuous routes, including per-request TTFT and scheduler queue budgets
+- Future scheduler tranches cover stronger fairness policy beyond current queue/TTFT evidence, per-row decode state evidence, and higher-concurrency sampled proof
 - Future cache tranches cover prefix cache, paged cache, rotating/max-KV policy, quantized KV, and TurboQuant-style attention backends
 - Future model loading/unloading without restart via engine pool
 - Future per-model settings (sampling params, TTL, aliases) persisted to JSON

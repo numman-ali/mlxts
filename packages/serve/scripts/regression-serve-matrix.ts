@@ -33,7 +33,9 @@ export type ServeRegressionBudget = {
   expectEveryServerRequestStreamed?: boolean;
   expectEveryServerRequestOutputStreamed?: boolean;
   maxMeanTtftMs?: number;
+  maxClientRequestTtftMs?: number;
   maxObservedStreamChunkGapMs?: number;
+  maxServerSchedulerQueuedMs?: number;
   expectedRoute?: string;
   expectedReason?: string;
   minRouteDecisions?: number;
@@ -381,6 +383,18 @@ function streamTimingFailures(metrics: TrialMetrics, budget: ServeRegressionBudg
       );
     }
   }
+  if (budget.maxClientRequestTtftMs !== undefined) {
+    const maxClientRequestTtftMs = budget.maxClientRequestTtftMs;
+    const slowRequests = metrics.requests.filter(
+      (request) => request.ttftMs === null || request.ttftMs > maxClientRequestTtftMs,
+    );
+    if (slowRequests.length > 0) {
+      const ids = slowRequests.map((request) => request.id ?? `index:${request.index}`);
+      failures.push(
+        `client_request_ttft_ms exceeded ${maxClientRequestTtftMs.toFixed(1)} for ${ids.join(",")}`,
+      );
+    }
+  }
   return failures;
 }
 
@@ -457,6 +471,22 @@ function evidenceFailures(metrics: TrialMetrics, budget: ServeRegressionBudget):
     if (missing.length > 0) {
       failures.push(
         `server_requests missing scheduler token pressure: ${missing.map((request) => request.id).join(",")}`,
+      );
+    }
+  }
+  if (budget.maxServerSchedulerQueuedMs !== undefined) {
+    const maxServerSchedulerQueuedMs = budget.maxServerSchedulerQueuedMs;
+    const slowSchedulerRequests = metrics.serverRequests.filter(
+      (request) =>
+        request.route === "continuous" &&
+        (request.schedulerQueuedMs === null ||
+          request.schedulerQueuedMs > maxServerSchedulerQueuedMs),
+    );
+    if (slowSchedulerRequests.length > 0) {
+      failures.push(
+        `server_requests exceeded scheduler queued budget ${maxServerSchedulerQueuedMs.toFixed(
+          1,
+        )}ms: ${slowSchedulerRequests.map((request) => request.id).join(",")}`,
       );
     }
   }
@@ -680,6 +710,80 @@ function baseSpecs(options: CliOptions): ServeRegressionSpec[] {
       },
     },
     {
+      label: "qwen36-completions-stream-continuous-at4",
+      model: options.qwenModel,
+      modelId: "qwen-local",
+      rungs: "128x16@4",
+      stream: true,
+      ignoreEos: true,
+      budget: {
+        minCompletionTps: 10,
+        minPostTtftCompletionTps: 6,
+        maxPeakMemoryGb: 22,
+        maxActiveDeltaGb: 1,
+        minCompletionTokenRatio: 0.98,
+        minStreamChunks: 16,
+        minStreamBytes: 1,
+        expectEveryRequestStreamed: true,
+        expectEveryRequestOutputStreamed: true,
+        expectEveryServerRequestStreamed: true,
+        expectEveryServerRequestOutputStreamed: true,
+        maxMeanTtftMs: 6_000,
+        maxClientRequestTtftMs: 8_000,
+        maxObservedStreamChunkGapMs: 1_500,
+        maxServerSchedulerQueuedMs: 8_000,
+        expectedRoute: "continuous",
+        expectedReason: "eligible",
+        minRouteDecisions: 4,
+        minServerRequests: 4,
+        expectedAdmissionBatches: 0,
+        expectedStaticBatches: 0,
+        minContinuousAdmissions: 1,
+        minContinuousAdmissionRows: 4,
+        minContinuousSchedulerPhases: 13,
+        expectedMaxGenerationBatchSize: 4,
+        expectSchedulerTokenPressure: true,
+        minModelLaneWaitEvents: 0,
+      },
+    },
+    {
+      label: "qwen36-completions-stream-continuous-at8",
+      model: options.qwenModel,
+      modelId: "qwen-local",
+      rungs: "128x16@8",
+      stream: true,
+      ignoreEos: true,
+      budget: {
+        minCompletionTps: 10,
+        minPostTtftCompletionTps: 6,
+        maxPeakMemoryGb: 23,
+        maxActiveDeltaGb: 1,
+        minCompletionTokenRatio: 0.98,
+        minStreamChunks: 32,
+        minStreamBytes: 1,
+        expectEveryRequestStreamed: true,
+        expectEveryRequestOutputStreamed: true,
+        expectEveryServerRequestStreamed: true,
+        expectEveryServerRequestOutputStreamed: true,
+        maxMeanTtftMs: 9_000,
+        maxClientRequestTtftMs: 10_000,
+        maxObservedStreamChunkGapMs: 1_500,
+        maxServerSchedulerQueuedMs: 10_000,
+        expectedRoute: "continuous",
+        expectedReason: "eligible",
+        minRouteDecisions: 8,
+        minServerRequests: 8,
+        expectedAdmissionBatches: 0,
+        expectedStaticBatches: 0,
+        minContinuousAdmissions: 1,
+        minContinuousAdmissionRows: 8,
+        minContinuousSchedulerPhases: 20,
+        expectedMaxGenerationBatchSize: 8,
+        expectSchedulerTokenPressure: true,
+        minModelLaneWaitEvents: 0,
+      },
+    },
+    {
       label: "qwen36-completions-staggered-continuous",
       model: options.qwenModel,
       modelId: "qwen-local",
@@ -894,6 +998,80 @@ function baseSpecs(options: CliOptions): ServeRegressionSpec[] {
         expectedContinuousAdmissionRows: 2,
         expectedContinuousSchedulerPhases: 7,
         expectedMaxGenerationBatchSize: 2,
+        expectSchedulerTokenPressure: true,
+        minModelLaneWaitEvents: 0,
+      },
+    },
+    {
+      label: "gemma4-completions-stream-continuous-at4",
+      model: options.gemma4Model,
+      modelId: "gemma-local",
+      rungs: "128x16@4",
+      stream: true,
+      ignoreEos: true,
+      budget: {
+        minCompletionTps: 40,
+        minPostTtftCompletionTps: 20,
+        maxPeakMemoryGb: 13,
+        maxActiveDeltaGb: 1,
+        minCompletionTokenRatio: 0.98,
+        minStreamChunks: 16,
+        minStreamBytes: 1,
+        expectEveryRequestStreamed: true,
+        expectEveryRequestOutputStreamed: true,
+        expectEveryServerRequestStreamed: true,
+        expectEveryServerRequestOutputStreamed: true,
+        maxMeanTtftMs: 1_500,
+        maxClientRequestTtftMs: 2_000,
+        maxObservedStreamChunkGapMs: 1_000,
+        maxServerSchedulerQueuedMs: 2_000,
+        expectedRoute: "continuous",
+        expectedReason: "eligible",
+        minRouteDecisions: 4,
+        minServerRequests: 4,
+        expectedAdmissionBatches: 0,
+        expectedStaticBatches: 0,
+        minContinuousAdmissions: 1,
+        minContinuousAdmissionRows: 4,
+        minContinuousSchedulerPhases: 13,
+        expectedMaxGenerationBatchSize: 4,
+        expectSchedulerTokenPressure: true,
+        minModelLaneWaitEvents: 0,
+      },
+    },
+    {
+      label: "gemma4-completions-stream-continuous-at8",
+      model: options.gemma4Model,
+      modelId: "gemma-local",
+      rungs: "128x16@8",
+      stream: true,
+      ignoreEos: true,
+      budget: {
+        minCompletionTps: 60,
+        minPostTtftCompletionTps: 20,
+        maxPeakMemoryGb: 13,
+        maxActiveDeltaGb: 1,
+        minCompletionTokenRatio: 0.98,
+        minStreamChunks: 32,
+        minStreamBytes: 1,
+        expectEveryRequestStreamed: true,
+        expectEveryRequestOutputStreamed: true,
+        expectEveryServerRequestStreamed: true,
+        expectEveryServerRequestOutputStreamed: true,
+        maxMeanTtftMs: 2_000,
+        maxClientRequestTtftMs: 2_500,
+        maxObservedStreamChunkGapMs: 1_000,
+        maxServerSchedulerQueuedMs: 2_500,
+        expectedRoute: "continuous",
+        expectedReason: "eligible",
+        minRouteDecisions: 8,
+        minServerRequests: 8,
+        expectedAdmissionBatches: 0,
+        expectedStaticBatches: 0,
+        minContinuousAdmissions: 1,
+        minContinuousAdmissionRows: 8,
+        minContinuousSchedulerPhases: 20,
+        expectedMaxGenerationBatchSize: 8,
         expectSchedulerTokenPressure: true,
         minModelLaneWaitEvents: 0,
       },
