@@ -55,6 +55,7 @@ describe("benchmark-common", () => {
       captureMlxLmReference: true,
       enforceMlxLmDecodeBar: false,
       requireMlxLmReference: false,
+      allowMlxLmExtraWeights: false,
       mlxLmPython: undefined,
     });
   });
@@ -66,6 +67,7 @@ describe("benchmark-common", () => {
       "--capture-mlx-lm-reference",
       "--enforce-mlx-lm-decode-bar",
       "--require-mlx-lm-reference",
+      "--mlx-lm-allow-extra-weights",
       "--mlx-lm-python",
       "/tmp/venv/bin/python",
     ]);
@@ -74,6 +76,7 @@ describe("benchmark-common", () => {
       captureMlxLmReference: true,
       enforceMlxLmDecodeBar: true,
       requireMlxLmReference: true,
+      allowMlxLmExtraWeights: true,
       mlxLmPython: "/tmp/venv/bin/python",
     });
   });
@@ -154,6 +157,7 @@ describe("benchmark-common", () => {
         captureMlxLmReference: true,
         enforceMlxLmDecodeBar: false,
         requireMlxLmReference: false,
+        allowMlxLmExtraWeights: false,
         mlxLmPython: undefined,
       },
     });

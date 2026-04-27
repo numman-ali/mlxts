@@ -1,12 +1,29 @@
 #!/usr/bin/env python3
 
 import argparse
+import glob
 import json
 from datetime import date
+from pathlib import Path
 from statistics import fmean
+from typing import Any, Callable
 
 import mlx.core as mx
-from mlx_lm import load, stream_generate
+import mlx.nn as nn
+from mlx_lm import stream_generate
+from mlx_lm.utils import _download, _get_classes, load_tokenizer
+from mlx.utils import tree_flatten
+
+
+def is_allowed_extra_weight(name: str) -> bool:
+    return (
+        name.startswith("language_model.model.layers.")
+        and (
+            name.endswith(".self_attn.k_norm.weight")
+            or name.endswith(".self_attn.k_proj.weight")
+            or name.endswith(".self_attn.v_proj.weight")
+        )
+    )
 
 
 def parse_args() -> argparse.Namespace:
@@ -23,12 +40,71 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--prefill-step-size", required=True, type=int, help="Prompt prefill chunk size.")
     parser.add_argument("--trials", required=True, type=int, help="Measured trials to average.")
     parser.add_argument("--warmup-trials", required=True, type=int, help="Warmup trials before timing.")
+    parser.add_argument(
+        "--allow-extra-weights",
+        action="store_true",
+        help="Filter known extra checkpoint tensors before strict MLX-LM reference loading.",
+    )
     return parser.parse_args()
 
 
 def validate_positive(value: int, name: str) -> None:
     if value <= 0:
         raise ValueError(f"{name} must be positive.")
+
+
+def load_reference_model(
+    model_path: Path,
+    allow_extra: Callable[[str], bool] | None,
+) -> tuple[nn.Module, dict[str, Any]]:
+    config = json.loads((model_path / "config.json").read_text())
+    weight_files = glob.glob(str(model_path / "model*.safetensors"))
+    if not weight_files:
+        raise FileNotFoundError(f"No safetensors found in {model_path}")
+
+    weights = {}
+    for weight_file in weight_files:
+        weights.update(mx.load(weight_file))
+
+    model_class, model_args_class = _get_classes(config)
+    if "quantization_config" not in config:
+        text_config = config.get("text_config", {})
+        if "quantization_config" in text_config:
+            config["quantization_config"] = text_config["quantization_config"]
+
+    model = model_class(model_args_class.from_dict(config))
+    if hasattr(model, "sanitize"):
+        weights = model.sanitize(weights)
+
+    if allow_extra is not None:
+        expected_names = {name for name, _ in tree_flatten(model.parameters())}
+        weights = {
+            name: value
+            for name, value in weights.items()
+            if name in expected_names or not allow_extra(name)
+        }
+
+    quantization = config.get("quantization")
+    if quantization is not None:
+        def class_predicate(path, module):
+            if path in config["quantization"]:
+                return config["quantization"][path]
+            if not hasattr(module, "to_quantized"):
+                return False
+            return f"{path}.scales" in weights
+
+        nn.quantize(
+            model,
+            group_size=quantization["group_size"],
+            bits=quantization["bits"],
+            mode=quantization.get("mode", "affine"),
+            class_predicate=class_predicate,
+        )
+
+    model.eval()
+    model.load_weights(list(weights.items()), strict=True)
+    mx.eval(model.parameters())
+    return model, config
 
 
 def run_once(model, tokenizer, prompt_token_ids, args):
@@ -67,7 +143,12 @@ def main() -> None:
     ):
         raise ValueError("--prompt-token-ids-json must decode to a JSON array of integers.")
 
-    model, tokenizer = load(args.model)
+    model_path = Path(_download(args.model))
+    model, config = load_reference_model(
+        model_path,
+        is_allowed_extra_weight if args.allow_extra_weights else None,
+    )
+    tokenizer = load_tokenizer(model_path, eos_token_ids=config.get("eos_token_id", None))
     # Match mlx-lm's own benchmark behavior: throughput timing should run the
     # full requested decode window instead of stopping on EOS.
     tokenizer._eos_token_ids = {}

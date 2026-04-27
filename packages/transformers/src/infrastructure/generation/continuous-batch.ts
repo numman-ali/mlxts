@@ -437,7 +437,7 @@ export class ContinuousBatchTokenScheduler {
       this.#cache.filter(keepPositions);
     }
     this.#active = nextActive;
-    using nextInput = nextInputTensor(tokenIds, keepPositions);
+    using nextInput = nextInputTensor(emittedToken, keepPositions);
     const nextToken = sampleNextBatchToken(
       this.#model,
       nextInput,

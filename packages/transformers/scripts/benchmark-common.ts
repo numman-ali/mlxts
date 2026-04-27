@@ -69,6 +69,7 @@ export type ReferenceBenchmarkOptions = {
   captureMlxLmReference: boolean;
   enforceMlxLmDecodeBar: boolean;
   requireMlxLmReference: boolean;
+  allowMlxLmExtraWeights: boolean;
   mlxLmPython?: string;
 };
 
@@ -118,6 +119,7 @@ type MutableBenchmarkOptions = {
   captureMlxLmReference: boolean;
   enforceMlxLmDecodeBar: boolean;
   requireMlxLmReference: boolean;
+  allowMlxLmExtraWeights: boolean;
   mlxLmPython?: string;
 };
 
@@ -135,6 +137,7 @@ function defaultOptions(): MutableBenchmarkOptions {
     captureMlxLmReference: true,
     enforceMlxLmDecodeBar: false,
     requireMlxLmReference: false,
+    allowMlxLmExtraWeights: false,
     mlxLmPython: undefined,
   };
 }
@@ -296,6 +299,9 @@ function applyBooleanFlag(mutable: MutableBenchmarkOptions, flag: string): boole
     case "--require-mlx-lm-reference":
       mutable.requireMlxLmReference = true;
       return true;
+    case "--mlx-lm-allow-extra-weights":
+      mutable.allowMlxLmExtraWeights = true;
+      return true;
     default:
       return false;
   }
@@ -380,6 +386,7 @@ export function parseBenchmarkArgs(argv: readonly string[]): ParsedBenchmarkArgs
       captureMlxLmReference: mutable.captureMlxLmReference,
       enforceMlxLmDecodeBar: mutable.enforceMlxLmDecodeBar,
       requireMlxLmReference: mutable.requireMlxLmReference,
+      allowMlxLmExtraWeights: mutable.allowMlxLmExtraWeights,
       mlxLmPython: mutable.mlxLmPython,
     },
   };
@@ -669,6 +676,7 @@ export async function captureMlxLmReference(
       String(captureOptions.trials),
       "--warmup-trials",
       "1",
+      ...(referenceOptions.allowMlxLmExtraWeights ? ["--allow-extra-weights"] : []),
     ],
     {
       stdout: "pipe",

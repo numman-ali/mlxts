@@ -4,8 +4,10 @@ import {
   clearMemoryCache,
   concatenate,
   type MxArray,
+  mxAsyncEval,
   mxEval,
   reshape,
+  retainArray,
   slice,
   takeAxis,
 } from "@mlxts/core";
@@ -275,7 +277,7 @@ export function sampleNextBatchToken(
     options,
     "ContinuousBatchTokenScheduler",
   );
-  mxEval(nextToken);
+  mxAsyncEval(nextToken);
   return nextToken;
 }
 
@@ -388,12 +390,11 @@ export function tokenTensorToIds(tokens: MxArray): number[] {
     );
   }
 
-  const tokenIds: number[] = [];
-  for (let index = 0; index < batchSize; index += 1) {
-    using token = slice(tokens, [index, 0], [index + 1, 1]);
-    tokenIds.push(token.item());
+  if (batchSize === 1) {
+    return [tokens.item()];
   }
-  return tokenIds;
+
+  return Array.from(tokens.toTypedArray(), (value) => Number(value));
 }
 
 export function tokenRows(tokens: MxArray, indices: readonly number[]): MxArray {
@@ -401,14 +402,11 @@ export function tokenRows(tokens: MxArray, indices: readonly number[]): MxArray 
   return takeAxis(tokens, indexTensor, 0);
 }
 
-export function nextInputTensor(
-  tokenIds: readonly number[],
-  keepPositions: readonly number[],
-): MxArray {
-  return array(
-    keepPositions.map((position) => [tokenIds[position] ?? 0]),
-    "int32",
-  );
+export function nextInputTensor(tokens: MxArray, keepPositions: readonly number[]): MxArray {
+  if (tokens.shape[0] === keepPositions.length) {
+    return retainArray(tokens);
+  }
+  return tokenRows(tokens, keepPositions);
 }
 
 export function combineCurrentTokens(left: MxArray | null, right: MxArray): MxArray {
