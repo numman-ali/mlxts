@@ -269,22 +269,7 @@ bounded Anthropic-compatible Messages support.
 
 ---
 
-## Phase 10a: Whisper
-
-**Goal:** Speech recognition on Apple Silicon.
-
-### Milestone: "Transcribe audio from TypeScript"
-
-| Criterion | How to verify |
-|-----------|--------------|
-| `@mlxts/transformers` implements Whisper architecture | Test: forward pass produces logits |
-| Audio preprocessing (mel spectrogram) works | Test: process a WAV file, verify spectrogram shape |
-| Transcription produces correct text | Test: transcribe a 30-second audio clip, compare to known transcript |
-| `examples/whisper/` runs | Transcribe a known audio file |
-
----
-
-## Phase 10b: Diffusion
+## Phase 10a: Diffusion
 
 **Goal:** Image generation on Apple Silicon.
 
@@ -299,9 +284,9 @@ bounded Anthropic-compatible Messages support.
 
 ---
 
-## Phase 10c: Vision-Language Models
+## Phase 10b: Vision-Language Models
 
-**Goal:** Multi-modal understanding.
+**Goal:** Image-and-text understanding through `@mlxts/transformers`.
 
 ### Milestone: "Describe an image from TypeScript"
 

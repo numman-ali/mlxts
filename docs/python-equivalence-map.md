@@ -41,16 +41,14 @@ The goal is not to replicate Python's entire ML ecosystem line-for-line. It is t
 | **torch.optim** | SGD, Adam, AdamW, LR schedulers | @mlxts/optimizers | 4 (exists) | Exists | SGD (with momentum, weight decay), Adam, AdamW. LR schedulers (cosine with warmup) arrive in Phase 4. |
 | **mlx.nn** | MLX's own nn module system | @mlxts/nn | 4 (exists) | Exists | Our nn layer is a TypeScript rewrite inspired by MLX's own nn design, not a binding to it. Same Module pattern, same parameter tree semantics. |
 | **timm** | Pre-trained vision model zoo (ViT, ResNet, EfficientNet) | @mlxts/transformers | 10+ | Future | Vision encoders belong in the transformers package because packages are organized by generation paradigm, not modality. |
-| **torchaudio** | Audio processing, speech models | @mlxts/transformers | 10+ | Future | Audio understanding models like Whisper also belong in the transformers package. |
 
 ### 2c. Model Architectures
 
 | Python Package | What It Does | mlxts Equivalent | Phase | Status | Notes |
 |---|---|---|---|---|---|
-| **HuggingFace Transformers** | 200k+ pre-trained models, unified API for LLMs, vision, audio | @mlxts/transformers | 7 | Exists | The current Phase 7 surface covers dense text decoders. Vision, audio, and multimodal families remain later work in the same package. |
+| **HuggingFace Transformers** | 200k+ pre-trained models and a unified architecture API | @mlxts/transformers | 7 | Exists | The current surface covers text decoders plus the first Qwen image-preparation path. Later autoregressive understanding families remain in the same package. |
 | **mlx-lm** | LLM loading, generation, fine-tuning for MLX | @mlxts/transformers | 7-8 | Exists / Planned | Dense text loading and generation exist now. Fine-tuning arrives in later phases. |
-| **mlx-vlm** | Vision-language models for MLX | @mlxts/transformers | 10 | Future | Multimodal understanding is later work in the transformers package, not a separate modality package. |
-| **mlx-audio** | Audio/speech models for MLX | @mlxts/transformers | 10 | Future | Whisper and other audio understanding models stay under transformers. |
+| **mlx-vlm** | Vision-language models for MLX | @mlxts/transformers | 10 | Future | Vision-language understanding is later work in the transformers package, not a separate modality package. |
 | **diffusers** | Stable Diffusion, image generation pipelines | @mlxts/diffusion | 10 | Future | Phase 10 scope. Requires UNet, VAE, CLIP text encoder, scheduler infrastructure. |
 
 ### 2d. Training Infrastructure
@@ -134,8 +132,7 @@ The goal is not to replicate Python's entire ML ecosystem line-for-line. It is t
 |---|---|---|---|---|---|
 | **ggml** | C tensor library (llama.cpp's compute backend) | @mlxts/core (MLX backend) | 4 (exists) | Exists (different backend) | mlxts uses MLX, not ggml, as the compute backend. Same role (GPU tensor math), different implementation. MLX's Metal kernels are optimized for Apple Silicon. |
 | **llama.cpp** | LLM inference engine | @mlxts/serve | 9 | Planned | mlxts's inference path is native MLX, not llama.cpp. GGUF loading provides model compatibility without depending on llama.cpp as a runtime. |
-| **whisper.cpp** | Speech-to-text inference | @mlxts/transformers | 10 | Future | Whisper belongs in the transformers package because it is an encoder-decoder generation architecture. |
-| **stable-diffusion.cpp** | Image generation inference | @mlxts/diffusion | 10 | Future | Same rationale as whisper.cpp. Native MLX diffusion is preferable to wrapping a C++ implementation. |
+| **stable-diffusion.cpp** | Image generation inference | @mlxts/diffusion | 10 | Future | Native MLX diffusion is preferable to wrapping a C++ implementation. |
 
 ### 2m. WebGPU and Browser ML
 
@@ -190,8 +187,8 @@ Fine-tuning         @mlxts/lora (LoRA, QLoRA)                  [Phase 8]
 Training            @mlxts/train (training loop, checkpoints)      [Phase 5]
                     @mlxts/data (datasets, collation)               [Phase 5]
                          |
-Models              @mlxts/transformers (dense text decoders now,      [Phase 7+]
-                    vision/audio/multimodal later in the same package)
+Models              @mlxts/transformers (text decoders and             [Phase 7+]
+                    autoregressive understanding families)
                     @mlxts/diffusion                                   [Phase 10]
                          |
 Hub / Interop       official @huggingface/hub + @huggingface/jinja [Phase 7]
