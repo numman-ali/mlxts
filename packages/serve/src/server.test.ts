@@ -1088,7 +1088,7 @@ describe("serve fetch handler", () => {
     const responseResponse = await fetch(
       request("/v1/responses", {
         model: "tiny",
-        input: [{ role: "user", content: [{ type: "input_image", image_url: "data:" }] }],
+        input: [{ role: "user", content: [{ type: "input_image" }] }],
       }),
     );
     const responseBody = await responseResponse.json();

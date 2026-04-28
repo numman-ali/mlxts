@@ -5,9 +5,9 @@
 
 export type Qwen3_5Family = "qwen";
 
-export type Qwen3_5ModelType = "qwen3_5";
+export type Qwen3_5ModelType = "qwen3_5" | "qwen3_5_moe";
 
-export type Qwen3_5TextModelType = "qwen3_5_text";
+export type Qwen3_5TextModelType = "qwen3_5_text" | "qwen3_5_moe_text";
 
 export type Qwen3_5VisionModelType = "qwen3_5" | "qwen3_5_vision";
 
@@ -34,6 +34,12 @@ export type Qwen3_5TextConfig = {
   vocabSize: number;
   hiddenSize: number;
   intermediateSize: number;
+  feedForwardKind: "dense" | "moe";
+  moeIntermediateSize: number | null;
+  sharedExpertIntermediateSize: number | null;
+  numExperts: number | null;
+  numExpertsPerToken: number | null;
+  routerAuxLossCoef: number | null;
   numHiddenLayers: number;
   numAttentionHeads: number;
   numKeyValueHeads: number;

@@ -20,6 +20,8 @@ describe("family registry", () => {
       "mistral3",
       "phi3",
       "qwen3_5",
+      "qwen3_5_moe",
+      "qwen3_5_moe_text",
       "qwen3_5_text",
     ]);
   });

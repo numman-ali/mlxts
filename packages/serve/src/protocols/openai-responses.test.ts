@@ -120,6 +120,84 @@ describe("OpenAI Responses adapter", () => {
     });
   });
 
+  test("normalizes ordered media response input without advertising text-only semantics", () => {
+    const response = normalizeOpenAIResponseRequest(
+      {
+        model: "tiny",
+        input: [
+          {
+            role: "user",
+            content: [
+              { type: "input_text", text: "What is in this image?" },
+              { type: "input_image", image_url: "data:image/jpeg;base64,abcd" },
+            ],
+          },
+        ],
+      },
+      { id: "resp-image" },
+    );
+
+    expect(response.request.input).toEqual({
+      kind: "content",
+      messages: [
+        {
+          role: "user",
+          content: [
+            { kind: "text", text: "What is in this image?" },
+            {
+              kind: "image",
+              source: { kind: "data", mediaType: "image/jpeg", data: "abcd" },
+            },
+          ],
+        },
+      ],
+    });
+  });
+
+  test("normalizes Responses file and audio parts as transport-owned content", () => {
+    const response = normalizeOpenAIResponseRequest(
+      {
+        model: "tiny",
+        input: [
+          {
+            role: "user",
+            content: [
+              { type: "input_file", file_id: "file-123", filename: "brief.pdf" },
+              { type: "input_file", file_data: "data:application/pdf;base64,efgh" },
+              { type: "input_audio", input_audio: { data: "abcd", format: "wav" } },
+            ],
+          },
+        ],
+      },
+      { id: "resp-media" },
+    );
+
+    expect(response.request.input).toEqual({
+      kind: "content",
+      messages: [
+        {
+          role: "user",
+          content: [
+            {
+              kind: "file",
+              source: { kind: "file", fileId: "file-123" },
+              filename: "brief.pdf",
+            },
+            {
+              kind: "file",
+              source: { kind: "data", mediaType: "application/pdf", data: "efgh" },
+            },
+            {
+              kind: "audio",
+              source: { kind: "data", mediaType: "audio/wav", data: "abcd" },
+              format: "wav",
+            },
+          ],
+        },
+      ],
+    });
+  });
+
   test("rejects unsupported response shapes explicitly", () => {
     const invalidBodies: Record<string, unknown>[] = [
       { input: [] },
@@ -129,9 +207,18 @@ describe("OpenAI Responses adapter", () => {
       { input: [{ role: "user", content: [{}] }] },
       { input: [{ role: "user", content: [42] }] },
       { input: [{ role: "user", content: [{ type: "input_text", text: 42 }] }] },
-      { input: [{ role: "user", content: [{ type: "input_image", image_url: "data:" }] }] },
+      { input: [{ role: "user", content: [{ type: "input_image" }] }] },
       { input: [{ role: "user", content: [{ type: "input_file", file_data: "" }] }] },
+      { input: [{ role: "user", content: [{ type: "input_file", file_data: "not-a-data-url" }] }] },
       { input: [{ role: "user", content: [{ type: "input_audio", input_audio: "" }] }] },
+      {
+        input: [
+          {
+            role: "user",
+            content: [{ type: "input_audio", input_audio: { data: "", format: "wav" } }],
+          },
+        ],
+      },
       { input: [{ role: "user", content: { text: "Hello" } }] },
       { input: [{ type: "function_call_output", call_id: "call", output: "ok" }] },
       { input: [{ type: "reasoning", content: [] }] },

@@ -104,17 +104,12 @@ function parseHiddenActivation(config: Record<string, unknown>, context: string)
     "gelu_pytorch_tanh";
   if (hiddenActivation !== "gelu_pytorch_tanh") {
     throw new ConfigParseError(
-      `${context}.hidden_activation must be "gelu_pytorch_tanh" for the supported dense Gemma 4 path, got "${hiddenActivation}".`,
+      `${context}.hidden_activation must be "gelu_pytorch_tanh" for Gemma 4 text, got "${hiddenActivation}".`,
     );
   }
 }
 
-function assertDensePhase7Scope(config: Record<string, unknown>, context: string): void {
-  const enableMoeBlock = optionalBoolean(config, "enable_moe_block", context) ?? false;
-  if (enableMoeBlock) {
-    throw new ConfigParseError(`${context}.enable_moe_block=true is Phase 7e work, not Phase 7.`);
-  }
-
+function assertGemma4TextScope(config: Record<string, unknown>, context: string): void {
   const useBidirectionalAttention = config.use_bidirectional_attention;
   if (
     useBidirectionalAttention !== undefined &&
@@ -160,7 +155,7 @@ function optionalIntegerOrNull(
 
 function parseGemma4CoreConfig(config: Record<string, unknown>, context: string) {
   parseHiddenActivation(config, context);
-  assertDensePhase7Scope(config, context);
+  assertGemma4TextScope(config, context);
 
   const hiddenSize = expectInteger(config, "hidden_size", context);
   const numAttentionHeads = expectInteger(config, "num_attention_heads", context);
@@ -180,6 +175,43 @@ function parseGemma4CoreConfig(config: Record<string, unknown>, context: string)
   };
 }
 
+function positiveIntegerField(
+  config: Record<string, unknown>,
+  key: string,
+  context: string,
+): number {
+  const value = expectInteger(config, key, context);
+  if (value <= 0) {
+    throw new ConfigParseError(`${context}.${key} must be positive, got ${value}.`);
+  }
+  return value;
+}
+
+function parseGemma4MoeConfig(config: Record<string, unknown>, context: string) {
+  const enableMoeBlock = optionalBoolean(config, "enable_moe_block", context) ?? false;
+  if (!enableMoeBlock) {
+    return {
+      enableMoeBlock,
+      moeIntermediateSize: null,
+      numExperts: null,
+      topKExperts: null,
+    };
+  }
+  const numExperts = positiveIntegerField(config, "num_experts", context);
+  const topKExperts = positiveIntegerField(config, "top_k_experts", context);
+  if (topKExperts > numExperts) {
+    throw new ConfigParseError(
+      `${context}.top_k_experts must be <= num_experts (${numExperts}), got ${topKExperts}.`,
+    );
+  }
+  return {
+    enableMoeBlock,
+    moeIntermediateSize: positiveIntegerField(config, "moe_intermediate_size", context),
+    numExperts,
+    topKExperts,
+  };
+}
+
 function parseGemma4TextConfigInternal(
   rawConfig: Record<string, unknown>,
   context: string,
@@ -188,6 +220,7 @@ function parseGemma4TextConfigInternal(
 ): Gemma4TextConfig {
   const config = expectConfigRecord(rawConfig, context);
   const core = parseGemma4CoreConfig(config, context);
+  const moe = parseGemma4MoeConfig(config, context);
 
   return {
     family: "gemma",
@@ -199,6 +232,10 @@ function parseGemma4TextConfigInternal(
       expectInteger(config, "vocab_size", context),
     hiddenSize: core.hiddenSize,
     intermediateSize: expectInteger(config, "intermediate_size", context),
+    enableMoeBlock: moe.enableMoeBlock,
+    moeIntermediateSize: moe.moeIntermediateSize,
+    numExperts: moe.numExperts,
+    topKExperts: moe.topKExperts,
     numHiddenLayers: core.numHiddenLayers,
     numAttentionHeads: core.numAttentionHeads,
     numKeyValueHeads: core.numKeyValueHeads,

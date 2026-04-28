@@ -138,6 +138,92 @@ OpenAI-compatible `delta.tool_calls` chunks with `finish_reason: "tool_calls"`.
 served engine supports it, and chat streaming keeps reasoning in
 `reasoning_content` deltas instead of leaking raw `<think>` tags.
 
+## Local Coding Agents
+
+Pi and OpenCode should use `@mlxts/serve` through the OpenAI-compatible chat
+completions path today. Keep served model ids equal to the full checkpoint ids
+so client context, cache, and transcript metadata line up with the endpoint:
+
+```bash
+mlxts-serve \
+  --model mlx-community/Qwen3.6-27B-4bit \
+  --port 8000 \
+  --api-key mlxts \
+  --local-files-only \
+  --max-generated-tokens 32768 \
+  --max-prompt-tokens 262144 \
+  --max-total-tokens 262144 \
+  --gpu-memory-utilization 0.85
+```
+
+```bash
+mlxts-serve \
+  --model mlx-community/gemma-4-31b-it-4bit \
+  --port 8000 \
+  --api-key mlxts \
+  --local-files-only \
+  --max-generated-tokens 32768 \
+  --max-prompt-tokens 262144 \
+  --max-total-tokens 262144 \
+  --gpu-memory-utilization 0.85
+```
+
+These token limits are admission caps, not a promise that every 262k-token
+request fits a given Mac. `/info` reports the checkpoint context and configured
+limits, while `--gpu-memory-utilization` is still the best-effort prefill
+guardrail.
+
+Use this shared client connection shape:
+
+```bash
+export OPENAI_BASE_URL=http://127.0.0.1:8000/v1
+export OPENAI_API_KEY=mlxts
+```
+
+For Pi, the provider entry should use `api: "openai-completions"`,
+`baseUrl: "http://127.0.0.1:8000/v1"`, and `apiKey: "mlxts"`. Model entries
+should advertise text input only, the full served id, `contextWindow: 262144`,
+and `maxTokens: 32768`. Qwen uses
+`compat.thinkingFormat: "qwen-chat-template"` with
+`supportsReasoningEffort: false`; Pi maps thinking `off` to
+`enable_thinking: false`, while non-off levels are just thinking enabled.
+
+```bash
+PI_OFFLINE=1 pi \
+  --provider mlxts \
+  --model mlx-community/Qwen3.6-27B-4bit \
+  -p 'Reply with exactly: pi-ok'
+```
+
+```bash
+PI_OFFLINE=1 pi \
+  --provider mlxts \
+  --model mlx-community/gemma-4-31b-it-4bit \
+  -p 'Reply with exactly: pi-ok'
+```
+
+For OpenCode, configure an OpenAI-compatible provider with
+`baseURL: "http://127.0.0.1:8000/v1"` and model keys matching the same full
+served ids. Select the model as `mlxts/<served-model-id>`, for example:
+
+```bash
+opencode --model mlxts/mlx-community/Qwen3.6-27B-4bit
+```
+
+```bash
+opencode --model mlxts/mlx-community/gemma-4-31b-it-4bit
+```
+
+Cache metrics are truthful but narrow. OpenAI usage reports
+`prompt_tokens_details.cached_tokens` for prompt-cache reads only and
+`cache_write_tokens` for writes; TTFT and TPS live in server stream logs,
+`/metrics`, and benchmark reports, not in Pi's current footer.
+
+Do not advertise image support to coding-agent clients yet. The transformers
+package has image-preparation pieces and examples, but `@mlxts/serve` still
+rejects image/media content on the OpenAI, Responses, and Anthropic routes until
+media is accepted, preprocessed, routed, and tested end to end.
+
 `/v1/responses` starts with a deliberately narrow text-only subset of OpenAI's
 Responses API. It accepts string `input` or text-only message item arrays,
 optional `instructions`, `max_output_tokens`, model-native sampling fields,

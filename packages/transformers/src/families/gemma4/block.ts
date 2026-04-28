@@ -4,13 +4,15 @@
  */
 
 import type { MxArray } from "@mlxts/core";
-import { add, multiply, ones } from "@mlxts/core";
+import { add, multiply, ones, reshape } from "@mlxts/core";
 import { Linear, Module } from "@mlxts/nn";
 import { gegluApprox } from "../../infrastructure/gated-activations";
 import type { AttentionMask } from "../../infrastructure/masks";
+import type { PackedSwitchGLUExperts } from "../../infrastructure/moe";
 import type { DecoderCache } from "../../types";
 import { Gemma4TextAttention } from "./attention";
 import { Gemma4TextMLP } from "./mlp";
+import { createGemma4TextExperts, Gemma4TextRouter } from "./moe";
 import { Gemma4RMSNorm } from "./norm";
 import type { Gemma4SharedKeyValues, Gemma4TextConfig } from "./types";
 
@@ -22,6 +24,11 @@ export class Gemma4TextDecoderBlock extends Module {
   preFeedforwardLayerNorm: Gemma4RMSNorm;
   mlp: Gemma4TextMLP;
   postFeedforwardLayerNorm: Gemma4RMSNorm;
+  router: Gemma4TextRouter | null;
+  experts: PackedSwitchGLUExperts | null;
+  preFeedforwardLayerNorm2: Gemma4RMSNorm | null;
+  postFeedforwardLayerNorm1: Gemma4RMSNorm | null;
+  postFeedforwardLayerNorm2: Gemma4RMSNorm | null;
   layerScalar: MxArray;
   perLayerInputGate: Linear | null;
   perLayerProjection: Linear | null;
@@ -35,6 +42,19 @@ export class Gemma4TextDecoderBlock extends Module {
     this.preFeedforwardLayerNorm = new Gemma4RMSNorm(config.hiddenSize, config.rmsNormEps);
     this.mlp = new Gemma4TextMLP(config, layerIndex);
     this.postFeedforwardLayerNorm = new Gemma4RMSNorm(config.hiddenSize, config.rmsNormEps);
+    if (config.enableMoeBlock) {
+      this.router = new Gemma4TextRouter(config);
+      this.experts = createGemma4TextExperts(config);
+      this.preFeedforwardLayerNorm2 = new Gemma4RMSNorm(config.hiddenSize, config.rmsNormEps);
+      this.postFeedforwardLayerNorm1 = new Gemma4RMSNorm(config.hiddenSize, config.rmsNormEps);
+      this.postFeedforwardLayerNorm2 = new Gemma4RMSNorm(config.hiddenSize, config.rmsNormEps);
+    } else {
+      this.router = null;
+      this.experts = null;
+      this.preFeedforwardLayerNorm2 = null;
+      this.postFeedforwardLayerNorm1 = null;
+      this.postFeedforwardLayerNorm2 = null;
+    }
     this.layerScalar = ones([1]);
     if (config.hiddenSizePerLayerInput > 0) {
       this.perLayerInputGate = new Linear(config.hiddenSize, config.hiddenSizePerLayerInput, false);
@@ -94,8 +114,48 @@ export class Gemma4TextDecoderBlock extends Module {
     using residualAfterAttention = add(residualInput, normalizedAttentionOutput);
     using normalizedForMlp = this.preFeedforwardLayerNorm.forward(residualAfterAttention);
     using mlpOutput = this.mlp.forward(normalizedForMlp);
+    if (this.router !== null) {
+      return this.runMoeFeedforwardTail(residualAfterAttention, mlpOutput);
+    }
     using normalizedMlpOutput = this.postFeedforwardLayerNorm.forward(mlpOutput);
     return add(residualAfterAttention, normalizedMlpOutput);
+  }
+
+  private runMoeFeedforwardTail(residualAfterAttention: MxArray, mlpOutput: MxArray): MxArray {
+    if (
+      this.router === null ||
+      this.experts === null ||
+      this.preFeedforwardLayerNorm2 === null ||
+      this.postFeedforwardLayerNorm1 === null ||
+      this.postFeedforwardLayerNorm2 === null
+    ) {
+      throw new Error("Gemma4TextDecoderBlock: expected MoE modules to be enabled.");
+    }
+    const [batchSize, sequenceLength, hiddenSize] = residualAfterAttention.shape;
+    if (
+      residualAfterAttention.shape.length !== 3 ||
+      batchSize === undefined ||
+      sequenceLength === undefined ||
+      hiddenSize === undefined
+    ) {
+      throw new Error("Gemma4TextDecoderBlock: MoE residual must have shape [batch, seq, hidden].");
+    }
+
+    using denseOutput = this.postFeedforwardLayerNorm1.forward(mlpOutput);
+    using flatResidual = reshape(residualAfterAttention, [batchSize * sequenceLength, hiddenSize]);
+    const routing = this.router.route(flatResidual);
+    try {
+      using expertInput = this.preFeedforwardLayerNorm2.forward(flatResidual);
+      using expertOutputFlat = this.experts.forward(expertInput, routing.indices, routing.weights);
+      using expertOutput = reshape(expertOutputFlat, [batchSize, sequenceLength, hiddenSize]);
+      using normalizedExpertOutput = this.postFeedforwardLayerNorm2.forward(expertOutput);
+      using combinedOutput = add(denseOutput, normalizedExpertOutput);
+      using normalizedCombinedOutput = this.postFeedforwardLayerNorm.forward(combinedOutput);
+      return add(residualAfterAttention, normalizedCombinedOutput);
+    } finally {
+      routing.indices.free();
+      routing.weights.free();
+    }
   }
 
   private applyPerLayerInput(hidden: MxArray, perLayerInput: MxArray): MxArray {

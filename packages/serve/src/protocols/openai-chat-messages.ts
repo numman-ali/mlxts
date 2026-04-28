@@ -5,8 +5,30 @@
 
 import type { ChatMessage, ChatTool, ChatToolCall } from "@mlxts/transformers";
 import { isRecord, ServeError } from "../errors";
+import type { GenerationContentMessage, GenerationContentPart, GenerationInput } from "../types";
+import { hasMediaContent, openAIImageContentPart, textContentPart } from "./media-content";
 
-function textContentPart(value: unknown): string {
+type ParsedMessageContent = {
+  text: string;
+  parts: readonly GenerationContentPart[];
+  hasMedia: boolean;
+};
+
+type ParsedChatMessage = {
+  chat: ChatMessage;
+  content: GenerationContentMessage;
+  hasMedia: boolean;
+};
+
+function parsedTextContent(text: string): ParsedMessageContent {
+  return {
+    text,
+    parts: text === "" ? [] : [textContentPart(text)],
+    hasMedia: false,
+  };
+}
+
+function contentPart(value: unknown): GenerationContentPart {
   if (!isRecord(value)) {
     throw new ServeError(
       'OpenAI chat completions: "content" array entries must be content part objects.',
@@ -20,41 +42,68 @@ function textContentPart(value: unknown): string {
         { param: "messages" },
       );
     }
-    return value.text;
+    return textContentPart(value.text);
   }
   if (value.type === "image_url") {
-    throw new ServeError(
-      "OpenAI chat completions: image content parts are not supported by this endpoint yet.",
-      { param: "messages" },
-    );
+    return openAIImageContentPart(value.image_url, "OpenAI chat completions: image content parts");
   }
   throw new ServeError(
-    'OpenAI chat completions: only text content parts are supported in "messages" today.',
+    'OpenAI chat completions: only text and image content parts are supported in "messages" today.',
     { param: "messages" },
   );
 }
 
-function optionalMessageContent(record: Record<string, unknown>, key: string): string {
-  const value = record[key];
-  if (value === undefined || value === null) {
-    return "";
-  }
-  if (typeof value !== "string") {
-    if (Array.isArray(value)) {
-      return value.map(textContentPart).join("");
+function joinTextParts(parts: readonly GenerationContentPart[]): string {
+  let text = "";
+  for (const part of parts) {
+    if (part.kind === "text") {
+      text += part.text;
     }
-    throw new ServeError(
-      `OpenAI chat completions: "${key}" must be a string, null, or an array of text parts.`,
-      { param: key },
-    );
   }
-  return value;
+  return text;
 }
 
-function roleContent(value: Record<string, unknown>, role: "system" | "user"): ChatMessage {
+function parsedContentArray(value: readonly unknown[]): ParsedMessageContent {
+  const parts = value.map(contentPart);
   return {
-    role,
-    content: optionalMessageContent(value, "content"),
+    text: joinTextParts(parts),
+    parts,
+    hasMedia: hasMediaContent(parts),
+  };
+}
+
+function optionalMessageContent(
+  record: Record<string, unknown>,
+  key: string,
+): ParsedMessageContent {
+  const value = record[key];
+  if (value === undefined || value === null) {
+    return parsedTextContent("");
+  }
+  if (typeof value === "string") {
+    return parsedTextContent(value);
+  }
+  if (Array.isArray(value)) {
+    return parsedContentArray(value);
+  }
+  throw new ServeError(
+    `OpenAI chat completions: "${key}" must be a string, null, or an array of content parts.`,
+    { param: key },
+  );
+}
+
+function roleContent(value: Record<string, unknown>, role: "system" | "user"): ParsedChatMessage {
+  const content = optionalMessageContent(value, "content");
+  return {
+    chat: {
+      role,
+      content: content.text,
+    },
+    content: {
+      role,
+      content: content.parts,
+    },
+    hasMedia: content.hasMedia,
   };
 }
 
@@ -80,7 +129,7 @@ function toolCall(value: unknown): ChatToolCall {
   };
 }
 
-function assistantMessage(value: Record<string, unknown>): ChatMessage {
+function assistantMessage(value: Record<string, unknown>): ParsedChatMessage {
   const toolCalls =
     value.tool_calls === undefined || value.tool_calls === null
       ? undefined
@@ -92,26 +141,48 @@ function assistantMessage(value: Record<string, unknown>): ChatMessage {
       param: "messages",
     });
   }
+  const content = optionalMessageContent(value, "content");
   return {
-    role: "assistant",
-    content: optionalMessageContent(value, "content"),
-    ...(typeof value.reasoning_content === "string"
-      ? { reasoning_content: value.reasoning_content }
-      : {}),
-    ...(toolCalls === undefined ? {} : { tool_calls: toolCalls }),
+    chat: {
+      role: "assistant",
+      content: content.text,
+      ...(typeof value.reasoning_content === "string"
+        ? { reasoning_content: value.reasoning_content }
+        : {}),
+      ...(toolCalls === undefined ? {} : { tool_calls: toolCalls }),
+    },
+    content: {
+      role: "assistant",
+      content: content.parts,
+      ...(typeof value.reasoning_content === "string"
+        ? { reasoning_content: value.reasoning_content }
+        : {}),
+      ...(toolCalls === undefined ? {} : { tool_calls: toolCalls }),
+    },
+    hasMedia: content.hasMedia,
   };
 }
 
-function toolMessage(value: Record<string, unknown>): ChatMessage {
+function toolMessage(value: Record<string, unknown>): ParsedChatMessage {
+  const content = optionalMessageContent(value, "content");
   return {
-    role: "tool",
-    content: optionalMessageContent(value, "content"),
-    ...(typeof value.name === "string" ? { name: value.name } : {}),
-    ...(typeof value.tool_call_id === "string" ? { tool_call_id: value.tool_call_id } : {}),
+    chat: {
+      role: "tool",
+      content: content.text,
+      ...(typeof value.name === "string" ? { name: value.name } : {}),
+      ...(typeof value.tool_call_id === "string" ? { tool_call_id: value.tool_call_id } : {}),
+    },
+    content: {
+      role: "tool",
+      content: content.parts,
+      ...(typeof value.name === "string" ? { name: value.name } : {}),
+      ...(typeof value.tool_call_id === "string" ? { tool_call_id: value.tool_call_id } : {}),
+    },
+    hasMedia: content.hasMedia,
   };
 }
 
-function chatMessage(value: unknown): ChatMessage {
+function chatMessage(value: unknown): ParsedChatMessage {
   if (!isRecord(value)) {
     throw new ServeError('OpenAI chat completions: "messages" entries must be objects.', {
       param: "messages",
@@ -143,7 +214,28 @@ export function parseOpenAIChatMessages(record: Record<string, unknown>): ChatMe
       param: "messages",
     });
   }
-  return value.map(chatMessage);
+  return value.map(chatMessage).map((message) => message.chat);
+}
+
+/** Parse chat messages into either text-only messages or ordered media content. */
+export function parseOpenAIChatInput(record: Record<string, unknown>): GenerationInput {
+  const value = record.messages;
+  if (!Array.isArray(value) || value.length === 0) {
+    throw new ServeError('OpenAI chat completions: "messages" must be a non-empty array.', {
+      param: "messages",
+    });
+  }
+  const messages = value.map(chatMessage);
+  if (!messages.some((message) => message.hasMedia)) {
+    return {
+      kind: "messages",
+      messages: messages.map((message) => message.chat),
+    };
+  }
+  return {
+    kind: "content",
+    messages: messages.map((message) => message.content),
+  };
 }
 
 function chatTool(value: unknown): ChatTool {

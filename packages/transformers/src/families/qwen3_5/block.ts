@@ -12,7 +12,7 @@ import { Qwen3_5TextAttention } from "./attention";
 import type { Qwen3_5TextBatchCache } from "./batch-cache";
 import type { Qwen3_5TextCache } from "./cache";
 import { Qwen3_5GatedDeltaNet } from "./gated-delta";
-import { Qwen3_5TextMLP } from "./mlp";
+import { createQwen3_5TextFeedForward, type Qwen3_5TextFeedForward } from "./mlp";
 import { Qwen3_5RMSNorm } from "./norm";
 import type { Qwen3_5TextConfig } from "./types";
 
@@ -20,7 +20,7 @@ import type { Qwen3_5TextConfig } from "./types";
 export class Qwen3_5TextDecoderLayer extends Module {
   selfAttention: Qwen3_5TextAttention | null;
   linearAttention: Qwen3_5GatedDeltaNet | null;
-  mlp: Qwen3_5TextMLP;
+  mlp: Qwen3_5TextFeedForward;
   inputLayerNorm: Qwen3_5RMSNorm;
   postAttentionLayerNorm: Qwen3_5RMSNorm;
   #layerIndex: number;
@@ -34,7 +34,7 @@ export class Qwen3_5TextDecoderLayer extends Module {
       this.#layerType === "full_attention" ? new Qwen3_5TextAttention(config) : null;
     this.linearAttention =
       this.#layerType === "linear_attention" ? new Qwen3_5GatedDeltaNet(config) : null;
-    this.mlp = new Qwen3_5TextMLP(config);
+    this.mlp = createQwen3_5TextFeedForward(config);
     this.inputLayerNorm = new Qwen3_5RMSNorm(config.hiddenSize, config.rmsNormEps);
     this.postAttentionLayerNorm = new Qwen3_5RMSNorm(config.hiddenSize, config.rmsNormEps);
   }

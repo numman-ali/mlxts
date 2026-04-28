@@ -126,8 +126,11 @@ export {
   type TransformersGenerationEngineOptions,
 } from "./transformers-engine";
 export type {
+  GenerationContentMessage,
+  GenerationContentPart,
   GenerationEngine,
   GenerationInput,
+  GenerationMediaSource,
   GenerationMemoryUsage,
   GenerationProtocol,
   GenerationSamplingOptions,

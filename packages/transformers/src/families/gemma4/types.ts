@@ -17,6 +17,10 @@ export type Gemma4TextConfig = BaseModelConfig & {
   vocabSizePerLayerInput: number;
   hiddenSize: number;
   intermediateSize: number;
+  enableMoeBlock: boolean;
+  moeIntermediateSize: number | null;
+  numExperts: number | null;
+  topKExperts: number | null;
   numHiddenLayers: number;
   numAttentionHeads: number;
   numKeyValueHeads: number;
@@ -122,6 +126,27 @@ function layerWeightPath(
 ): string | null {
   const perLayerInputs = hasPerLayerInputs(config);
   const usesAlternativeAttention = gemma4UsesAlternativeAttention(config, layerIndex);
+  const moeMapping: Record<string, string | null> = config.enableMoeBlock
+    ? {
+        "router.proj.weight": layerPath(layerIndexText, ["router", "proj", "weight"]),
+        "router.scale": layerPath(layerIndexText, ["router", "scale"]),
+        "router.per_expert_scale": layerPath(layerIndexText, ["router", "perExpertScale"]),
+        "experts.gate_up_proj": layerPath(layerIndexText, ["experts", "gateUpProjection"]),
+        "experts.down_proj": layerPath(layerIndexText, ["experts", "downProjection"]),
+        "pre_feedforward_layernorm_2.weight": layerPath(layerIndexText, [
+          "preFeedforwardLayerNorm2",
+          "weight",
+        ]),
+        "post_feedforward_layernorm_1.weight": layerPath(layerIndexText, [
+          "postFeedforwardLayerNorm1",
+          "weight",
+        ]),
+        "post_feedforward_layernorm_2.weight": layerPath(layerIndexText, [
+          "postFeedforwardLayerNorm2",
+          "weight",
+        ]),
+      }
+    : {};
   const mapping: Record<string, string | null> = {
     "input_layernorm.weight": layerPath(layerIndexText, ["inputLayerNorm", "weight"]),
     "post_attention_layernorm.weight": layerPath(layerIndexText, [
@@ -175,6 +200,7 @@ function layerWeightPath(
     "post_per_layer_input_norm.weight": perLayerInputs
       ? layerPath(layerIndexText, ["postPerLayerInputNorm", "weight"])
       : null,
+    ...moeMapping,
   };
 
   return mapping[suffix] ?? null;

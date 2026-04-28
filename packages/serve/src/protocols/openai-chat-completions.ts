@@ -6,6 +6,7 @@
 import type { ChatToolCall } from "@mlxts/transformers";
 import { isRecord, ServeError } from "../errors";
 import type {
+  GenerationInput,
   GenerationUsage,
   NormalizedFinishReason,
   NormalizedGenerationRequest,
@@ -16,7 +17,7 @@ import {
   parseOpenAIChatCompletionStreamOptions,
 } from "./openai-chat-completion-streaming";
 import {
-  parseOpenAIChatMessages,
+  parseOpenAIChatInput,
   parseOpenAIChatTools,
   validateOpenAIChatToolChoice,
 } from "./openai-chat-messages";
@@ -342,10 +343,35 @@ function formatUsage(usage: GenerationUsage): OpenAIChatCompletionUsage {
 
 function hasToolOutputEnabled(chat: NormalizedChatCompletion): boolean {
   return (
-    chat.request.input.kind === "messages" &&
+    (chat.request.input.kind === "messages" || chat.request.input.kind === "content") &&
     chat.request.input.tools !== undefined &&
     chat.request.input.tools.length > 0
   );
+}
+
+function chatInputWithOptions(
+  input: GenerationInput,
+  parsedTools: ReturnType<typeof parseOpenAIChatTools>,
+  templateOptions: { enableThinking?: boolean; preserveThinking?: boolean },
+): GenerationInput {
+  const chatTemplate = Object.keys(templateOptions).length === 0 ? undefined : templateOptions;
+  if (input.kind === "messages") {
+    return {
+      kind: "messages",
+      messages: input.messages,
+      ...(parsedTools === undefined ? {} : { tools: parsedTools }),
+      ...(chatTemplate === undefined ? {} : { chatTemplate }),
+    };
+  }
+  if (input.kind === "content") {
+    return {
+      kind: "content",
+      messages: input.messages,
+      ...(parsedTools === undefined ? {} : { tools: parsedTools }),
+      ...(chatTemplate === undefined ? {} : { chatTemplate }),
+    };
+  }
+  return input;
 }
 
 /** Normalize an OpenAI chat completions JSON body into one generation request. */
@@ -363,6 +389,7 @@ export function normalizeOpenAIChatCompletionRequest(
   const model = stringField(body, "model");
   const parsedTools = body.tool_choice === "none" ? undefined : parseOpenAIChatTools(body);
   const templateOptions = chatTemplateOptions(body);
+  const input = chatInputWithOptions(parseOpenAIChatInput(body), parsedTools, templateOptions);
   const temperature = optionalNumber(
     body,
     "temperature",
@@ -383,12 +410,7 @@ export function normalizeOpenAIChatCompletionRequest(
     request: {
       id: options.id,
       model,
-      input: {
-        kind: "messages",
-        messages: parseOpenAIChatMessages(body),
-        ...(parsedTools === undefined ? {} : { tools: parsedTools }),
-        ...(Object.keys(templateOptions).length === 0 ? {} : { chatTemplate: templateOptions }),
-      },
+      input,
       sampling: {
         maxTokens: chatMaxTokens(body),
         ...(temperature === undefined ? {} : { temperature }),

@@ -4,8 +4,8 @@
  */
 
 import { isRecord, ServeError } from "../errors";
-import type { NormalizedGenerationRequest } from "../types";
-import { parseOpenAIResponseInputMessages } from "./openai-responses-input";
+import type { GenerationInput, NormalizedGenerationRequest } from "../types";
+import { parseOpenAIResponseInput } from "./openai-responses-input";
 import { parseOpenAIStopSequences } from "./openai-stop";
 
 export {
@@ -396,6 +396,22 @@ function chatTemplateOptions(record: Record<string, unknown>) {
   };
 }
 
+function responseInputWithTemplate(
+  input: GenerationInput,
+  templateOptions: { enableThinking?: boolean; preserveThinking?: boolean },
+): GenerationInput {
+  if (Object.keys(templateOptions).length === 0) {
+    return input;
+  }
+  if (input.kind === "messages") {
+    return { ...input, chatTemplate: templateOptions };
+  }
+  if (input.kind === "content") {
+    return { ...input, chatTemplate: templateOptions };
+  }
+  return input;
+}
+
 /** Normalize an OpenAI Responses JSON body into one generation request. */
 export function normalizeOpenAIResponseRequest(
   body: unknown,
@@ -410,7 +426,7 @@ export function normalizeOpenAIResponseRequest(
   const stream = optionalBoolean(body, "stream") ?? false;
   const streamOptions = parseStreamOptions(body, stream);
   const instructions = parseInstructions(body);
-  const messages = parseOpenAIResponseInputMessages(body, instructions);
+  const input = parseOpenAIResponseInput(body, instructions);
   const maxTokens = parseMaxOutputTokens(body);
   const temperature = optionalNumber(
     body,
@@ -443,11 +459,7 @@ export function normalizeOpenAIResponseRequest(
     request: {
       id: options.id,
       model,
-      input: {
-        kind: "messages",
-        messages,
-        ...(Object.keys(templateOptions).length === 0 ? {} : { chatTemplate: templateOptions }),
-      },
+      input: responseInputWithTemplate(input, templateOptions),
       sampling: {
         maxTokens: maxTokens.maxTokens,
         ...(temperature === undefined ? {} : { temperature }),

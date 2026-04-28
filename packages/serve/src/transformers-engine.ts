@@ -5,6 +5,7 @@
 
 import type { Tokenizer } from "@mlxts/tokenizers";
 import type { CausalLM, InteractionProfile } from "@mlxts/transformers";
+import { ServeError } from "./errors";
 import { ModelExecutionLane, type ModelExecutionLaneStats } from "./model-execution-lane";
 import { transformersRuntimeStrategy } from "./serve-runtime-strategy";
 import { createContinuousTransformersGeneration } from "./transformers-engine-continuous";
@@ -105,6 +106,30 @@ function maxBatchSize(options: TransformersGenerationEngineOptions): number {
   return transformersRuntimeStrategy(options).scheduler.maxBatchSize;
 }
 
+function rejectMediaInput(): never {
+  throw new ServeError(
+    "The transformers generation engine has accepted media-shaped input, but this model-serving route does not prepare media tensors yet.",
+    { code: "unsupported_input", param: "messages" },
+  );
+}
+
+function rejectMediaBatchInputs(
+  options: TransformersGenerationEngineOptions,
+  requests: readonly NormalizedGenerationRequest[],
+): void {
+  let hasMediaInput = false;
+  for (const request of requests) {
+    if (request.input.kind !== "content") {
+      continue;
+    }
+    hasMediaInput = true;
+    emitGenerationRouteDecision(options, request, "single", false, "media_input");
+  }
+  if (hasMediaInput) {
+    rejectMediaInput();
+  }
+}
+
 /** Create a text-generation engine from an already loaded CausalLM and tokenizer. */
 export function createTransformersGenerationEngine(
   options: TransformersGenerationEngineOptions,
@@ -118,6 +143,10 @@ export function createTransformersGenerationEngine(
   function generate(
     request: NormalizedGenerationRequest,
   ): NormalizedGenerationResult | Promise<NormalizedGenerationResult> {
+    if (request.input.kind === "content") {
+      emitGenerationRouteDecision(options, request, "single", false, "media_input");
+      return rejectMediaInput();
+    }
     if (request.input.kind === "messages") {
       emitGenerationRouteDecision(options, request, "single", false, "prompt_prefix_cache");
       const prepared = prepareGenerationRequest(request, options);
@@ -141,7 +170,8 @@ export function createTransformersGenerationEngine(
 
   return {
     generate,
-    generateBatch(requests) {
+    async generateBatch(requests) {
+      rejectMediaBatchInputs(options, requests);
       if (
         maxBatchSize(options) > 1 &&
         requests.every(
@@ -153,6 +183,10 @@ export function createTransformersGenerationEngine(
       return runStaticBatchOnModelLane(lane, options, requests);
     },
     async *stream(request) {
+      if (request.input.kind === "content") {
+        emitGenerationRouteDecision(options, request, "single", false, "media_input");
+        rejectMediaInput();
+      }
       if (request.input.kind === "messages") {
         emitGenerationRouteDecision(options, request, "single", false, "prompt_prefix_cache");
         const prepared = prepareGenerationRequest(request, options);

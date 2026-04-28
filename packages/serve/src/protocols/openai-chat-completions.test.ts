@@ -174,6 +174,47 @@ describe("OpenAI chat completions adapter", () => {
     });
   });
 
+  test("normalizes image content parts without flattening them into text", () => {
+    const normalized = normalizeOpenAIChatCompletionRequest(
+      {
+        model: "mlx-community/Qwen3.6-27B-4bit",
+        messages: [
+          {
+            role: "user",
+            content: [
+              { type: "text", text: "Describe this: " },
+              {
+                type: "image_url",
+                image_url: {
+                  url: "data:image/png;base64,abcd",
+                  detail: "high",
+                },
+              },
+            ],
+          },
+        ],
+      },
+      { id: "chat-image" },
+    );
+
+    expect(normalized.request.input).toEqual({
+      kind: "content",
+      messages: [
+        {
+          role: "user",
+          content: [
+            { kind: "text", text: "Describe this: " },
+            {
+              kind: "image",
+              source: { kind: "data", mediaType: "image/png", data: "abcd" },
+              detail: "high",
+            },
+          ],
+        },
+      ],
+    });
+  });
+
   test("rejects unsupported chat shapes explicitly", () => {
     expect(() =>
       normalizeOpenAIChatCompletionRequest(
@@ -221,11 +262,11 @@ describe("OpenAI chat completions adapter", () => {
       normalizeOpenAIChatCompletionRequest(
         {
           model: "tiny",
-          messages: [{ role: "user", content: [{ type: "image_url", image_url: "file://x" }] }],
+          messages: [{ role: "user", content: [{ type: "image_url", image_url: "" }] }],
         },
         { id: "chat-test" },
       ),
-    ).toThrow("image content parts");
+    ).toThrow("non-empty string");
     expect(() =>
       normalizeOpenAIChatCompletionRequest(
         {

@@ -425,6 +425,110 @@ describe("transformers generation engine", () => {
     expect(waits.every((event) => event.waitMs >= 0)).toBe(true);
   });
 
+  test("rejects media content before text-only prompt preparation", () => {
+    using model = new TinyModel();
+    const tokenizer = new TinyTokenizer();
+    const events: ServeEvent[] = [];
+    const engine = createTransformersGenerationEngine({
+      model,
+      tokenizer,
+      onEvent(event) {
+        events.push(event);
+      },
+    });
+
+    expect(() =>
+      engine.generate({
+        id: "media-request",
+        model: "tiny",
+        input: {
+          kind: "content",
+          messages: [
+            {
+              role: "user",
+              content: [
+                { kind: "text", text: "Describe this." },
+                { kind: "image", source: { kind: "url", url: "file://image.png" } },
+              ],
+            },
+          ],
+        },
+        sampling: { maxTokens: 3, temperature: 0 },
+        stream: false,
+        protocol: "openai.chat_completions",
+      }),
+    ).toThrow("media-shaped input");
+
+    expect(events).toContainEqual({
+      type: "generation_route_decision",
+      id: "media-request",
+      protocol: "openai.chat_completions",
+      model: "tiny",
+      route: "single",
+      eligible: false,
+      reason: "media_input",
+      modelType: "serve-test",
+      maxBatchSize: 1,
+      ...ROUTE_STRATEGY,
+      stream: false,
+    });
+  });
+
+  test("rejects batched media content before text-only prompt preparation", async () => {
+    using model = new TinyModel();
+    const tokenizer = new TinyTokenizer();
+    const events: ServeEvent[] = [];
+    const engine = createTransformersGenerationEngine({
+      model,
+      tokenizer,
+      onEvent(event) {
+        events.push(event);
+      },
+    });
+    const generateBatch = engine.generateBatch;
+    if (generateBatch === undefined) {
+      throw new Error("Expected transformers engine to expose generateBatch.");
+    }
+
+    await expect(
+      generateBatch([
+        {
+          id: "batch-media-request",
+          model: "tiny",
+          input: {
+            kind: "content",
+            messages: [
+              {
+                role: "user",
+                content: [
+                  { kind: "text", text: "Describe this." },
+                  { kind: "image", source: { kind: "url", url: "file://image.png" } },
+                ],
+              },
+            ],
+          },
+          sampling: { maxTokens: 3, temperature: 0 },
+          stream: false,
+          protocol: "openai.chat_completions",
+        },
+      ]),
+    ).rejects.toThrow("media-shaped input");
+
+    expect(events).toContainEqual({
+      type: "generation_route_decision",
+      id: "batch-media-request",
+      protocol: "openai.chat_completions",
+      model: "tiny",
+      route: "single",
+      eligible: false,
+      reason: "media_input",
+      modelType: "serve-test",
+      maxBatchSize: 1,
+      ...ROUTE_STRATEGY,
+      stream: false,
+    });
+  });
+
   test("applies text stop sequences above token-level EOS handling", async () => {
     using model = new TinyModel();
     const tokenizer = new TinyTokenizer();

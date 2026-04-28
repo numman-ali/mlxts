@@ -24,6 +24,12 @@ function qwen3_5TextConfig(overrides: Partial<Qwen3_5TextConfig> = {}): Qwen3_5T
     vocabSize: 32,
     hiddenSize: 8,
     intermediateSize: 16,
+    feedForwardKind: "dense",
+    moeIntermediateSize: null,
+    sharedExpertIntermediateSize: null,
+    numExperts: null,
+    numExpertsPerToken: null,
+    routerAuxLossCoef: null,
     numHiddenLayers: 2,
     numAttentionHeads: 2,
     numKeyValueHeads: 1,
@@ -129,6 +135,40 @@ describe("Qwen 3.5 weight mapping", () => {
     expect(sanitizeQwen3_5TextWeight(config, "lm_head.weight")).toBe("lmHead.weight");
   });
 
+  test("maps Qwen MoE checkpoint names onto routed and shared expert modules", () => {
+    const config = qwen3_5TextConfig({
+      feedForwardKind: "moe",
+      moeIntermediateSize: 4,
+      sharedExpertIntermediateSize: 4,
+      numExperts: 3,
+      numExpertsPerToken: 2,
+      routerAuxLossCoef: 0.001,
+    });
+
+    expect(sanitizeQwen3_5TextWeight(config, "model.layers.1.mlp.gate.weight")).toBe(
+      "model.layers.1.mlp.gate.weight",
+    );
+    expect(sanitizeQwen3_5TextWeight(config, "model.layers.1.mlp.experts.gate_up_proj")).toBe(
+      "model.layers.1.mlp.experts.gateUpProjection",
+    );
+    expect(sanitizeQwen3_5TextWeight(config, "model.layers.1.mlp.experts.down_proj")).toBe(
+      "model.layers.1.mlp.experts.downProjection",
+    );
+    expect(
+      sanitizeQwen3_5TextWeight(config, "model.layers.1.mlp.shared_expert.gate_proj.weight"),
+    ).toBe("model.layers.1.mlp.sharedExpert.gateProjection.weight");
+    expect(
+      sanitizeQwen3_5TextWeight(config, "model.layers.1.mlp.shared_expert.up_proj.weight"),
+    ).toBe("model.layers.1.mlp.sharedExpert.upProjection.weight");
+    expect(
+      sanitizeQwen3_5TextWeight(config, "model.layers.1.mlp.shared_expert.down_proj.weight"),
+    ).toBe("model.layers.1.mlp.sharedExpert.downProjection.weight");
+    expect(sanitizeQwen3_5TextWeight(config, "model.layers.1.mlp.shared_expert_gate.weight")).toBe(
+      "model.layers.1.mlp.sharedExpertGate.weight",
+    );
+    expect(sanitizeQwen3_5TextWeight(config, "model.layers.1.mlp.down_proj.weight")).toBeNull();
+  });
+
   test("drops tied lm head and unknown weights", () => {
     const tiedConfig = qwen3_5TextConfig({ tieWordEmbeddings: true });
     expect(sanitizeQwen3_5TextWeight(tiedConfig, "lm_head.weight")).toBeNull();
@@ -199,6 +239,37 @@ describe("Qwen 3.5 weight mapping", () => {
     expect(isIgnoredQwen3_5CausalLMWeight(config, "vision_tower.patch_embed.proj.weight")).toBe(
       true,
     );
+  });
+
+  test("maps wrapped Qwen MoE checkpoints through causal-LM and multimodal prefixes", () => {
+    const textConfig = qwen3_5TextConfig({
+      feedForwardKind: "moe",
+      moeIntermediateSize: 4,
+      sharedExpertIntermediateSize: 4,
+      numExperts: 3,
+      numExpertsPerToken: 2,
+      routerAuxLossCoef: 0.001,
+    });
+    const wrapperConfig = qwen3_5Config({ textConfig });
+
+    expect(
+      sanitizeQwen3_5CausalLMWeight(
+        textConfig,
+        "language_model.model.layers.0.mlp.experts.gate_up_proj",
+      ),
+    ).toBe("model.layers.0.mlp.experts.gateUpProjection");
+    expect(
+      sanitizeQwen3_5Weight(
+        wrapperConfig,
+        "model.language_model.layers.0.mlp.shared_expert_gate.weight",
+      ),
+    ).toBe("model.languageModel.layers.0.mlp.sharedExpertGate.weight");
+    expect(
+      sanitizeQwen3_5Weight(
+        wrapperConfig,
+        "language_model.model.layers.0.mlp.shared_expert.down_proj.weight",
+      ),
+    ).toBe("model.languageModel.layers.0.mlp.sharedExpert.downProjection.weight");
   });
 
   test("rejects malformed or out-of-range Qwen checkpoint names", () => {

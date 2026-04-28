@@ -24,6 +24,7 @@ import { Qwen3_5TextCache } from "./families/qwen3_5/cache";
 import { Qwen3_5ForConditionalGeneration } from "./families/qwen3_5/conditional";
 import { qwen3_5ConditionalFamily } from "./families/qwen3_5/config";
 import { loadQwen3_5ForConditionalGeneration } from "./families/qwen3_5/load";
+import { Qwen3_5TextMLP } from "./families/qwen3_5/mlp";
 import { Qwen3_5TextCausalLM, type Qwen3_5TextModel } from "./families/qwen3_5/model";
 import { generateText, generateTextStream, generateTokens } from "./generation";
 import { KVCache, LayerPatternKVCache, SlidingWindowKVCache } from "./infrastructure/cache";
@@ -870,6 +871,9 @@ function checkpointTensorsForQwen3_5TextParts(
     tensors[`${prefix}.post_attention_layernorm.weight`] = retainArray(
       layer.postAttentionLayerNorm.weight,
     );
+    if (!(layer.mlp instanceof Qwen3_5TextMLP)) {
+      throw new Error(`Expected Qwen 3.5 layer ${layerIndex} to own a dense text MLP.`);
+    }
     tensors[`${prefix}.mlp.gate_proj.weight`] = retainArray(layer.mlp.gateProjection.weight);
     tensors[`${prefix}.mlp.up_proj.weight`] = retainArray(layer.mlp.upProjection.weight);
     tensors[`${prefix}.mlp.down_proj.weight`] = retainArray(layer.mlp.downProjection.weight);

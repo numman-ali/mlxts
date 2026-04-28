@@ -155,6 +155,60 @@ function textLayerWeightPath(
       ? textLayerPath(treePrefix, layerIndexText, ["selfAttention", projection, "bias"])
       : null;
 
+  const denseMlpMapping: Record<string, string | null> = {
+    "mlp.gate_proj.weight": textLayerPath(treePrefix, layerIndexText, [
+      "mlp",
+      "gateProjection",
+      "weight",
+    ]),
+    "mlp.up_proj.weight": textLayerPath(treePrefix, layerIndexText, [
+      "mlp",
+      "upProjection",
+      "weight",
+    ]),
+    "mlp.down_proj.weight": textLayerPath(treePrefix, layerIndexText, [
+      "mlp",
+      "downProjection",
+      "weight",
+    ]),
+  };
+  const moeMlpMapping: Record<string, string | null> = {
+    "mlp.gate.weight": textLayerPath(treePrefix, layerIndexText, ["mlp", "gate", "weight"]),
+    "mlp.experts.gate_up_proj": textLayerPath(treePrefix, layerIndexText, [
+      "mlp",
+      "experts",
+      "gateUpProjection",
+    ]),
+    "mlp.experts.down_proj": textLayerPath(treePrefix, layerIndexText, [
+      "mlp",
+      "experts",
+      "downProjection",
+    ]),
+    "mlp.shared_expert.gate_proj.weight": textLayerPath(treePrefix, layerIndexText, [
+      "mlp",
+      "sharedExpert",
+      "gateProjection",
+      "weight",
+    ]),
+    "mlp.shared_expert.up_proj.weight": textLayerPath(treePrefix, layerIndexText, [
+      "mlp",
+      "sharedExpert",
+      "upProjection",
+      "weight",
+    ]),
+    "mlp.shared_expert.down_proj.weight": textLayerPath(treePrefix, layerIndexText, [
+      "mlp",
+      "sharedExpert",
+      "downProjection",
+      "weight",
+    ]),
+    "mlp.shared_expert_gate.weight": textLayerPath(treePrefix, layerIndexText, [
+      "mlp",
+      "sharedExpertGate",
+      "weight",
+    ]),
+  };
+  const feedForwardMapping = config.feedForwardKind === "moe" ? moeMlpMapping : denseMlpMapping;
   const mapping: Record<string, string | null> = {
     "input_layernorm.weight": textLayerPath(treePrefix, layerIndexText, [
       "inputLayerNorm",
@@ -235,21 +289,7 @@ function textLayerWeightPath(
       "outProjection",
       "weight",
     ]),
-    "mlp.gate_proj.weight": textLayerPath(treePrefix, layerIndexText, [
-      "mlp",
-      "gateProjection",
-      "weight",
-    ]),
-    "mlp.up_proj.weight": textLayerPath(treePrefix, layerIndexText, [
-      "mlp",
-      "upProjection",
-      "weight",
-    ]),
-    "mlp.down_proj.weight": textLayerPath(treePrefix, layerIndexText, [
-      "mlp",
-      "downProjection",
-      "weight",
-    ]),
+    ...feedForwardMapping,
   };
   return mapping[suffix] ?? null;
 }

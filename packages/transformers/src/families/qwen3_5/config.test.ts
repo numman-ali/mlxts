@@ -1,6 +1,11 @@
 import { describe, expect, test } from "bun:test";
 
-import { parseQwen3_5Config, parseQwen3_5TextConfig, parseQwen3_5VisionConfig } from "./config";
+import {
+  parseQwen3_5CausalLMConfig,
+  parseQwen3_5Config,
+  parseQwen3_5TextConfig,
+  parseQwen3_5VisionConfig,
+} from "./config";
 
 function qwen3_5LayerTypes(
   numHiddenLayers: number,
@@ -131,6 +136,59 @@ describe("Qwen 3.5 config parsing", () => {
       "linear_attention",
       "full_attention",
     ]);
+  });
+
+  test("parses Qwen MoE text and wrapper configs with upstream defaults", () => {
+    const textConfig = parseQwen3_5TextConfig(
+      qwen3_5TextRaw({
+        model_type: "qwen3_5_moe_text",
+        full_attention_interval: 1,
+        intermediate_size: undefined,
+        layer_types: ["full_attention", "full_attention"],
+        num_hidden_layers: 2,
+      }),
+    );
+    const wrapperConfig = parseQwen3_5CausalLMConfig({
+      model_type: "qwen3_5_moe",
+      text_config: qwen3_5TextRaw({
+        model_type: "qwen3_5_moe_text",
+        full_attention_interval: 1,
+        layer_types: ["full_attention", "full_attention"],
+        moe_intermediate_size: 768,
+        num_experts: 4,
+        num_experts_per_tok: 2,
+        num_hidden_layers: 2,
+        router_aux_loss_coef: 0.01,
+        shared_expert_intermediate_size: 1024,
+      }),
+    });
+
+    expect(textConfig.feedForwardKind).toBe("moe");
+    expect(textConfig.intermediateSize).toBe(512);
+    expect(textConfig.moeIntermediateSize).toBe(512);
+    expect(textConfig.sharedExpertIntermediateSize).toBe(512);
+    expect(textConfig.numExperts).toBe(256);
+    expect(textConfig.numExpertsPerToken).toBe(8);
+    expect(textConfig.routerAuxLossCoef).toBe(0.001);
+    expect(wrapperConfig.modelType).toBe("qwen3_5_moe_text");
+    expect(wrapperConfig.feedForwardKind).toBe("moe");
+    expect(wrapperConfig.moeIntermediateSize).toBe(768);
+    expect(wrapperConfig.sharedExpertIntermediateSize).toBe(1024);
+    expect(wrapperConfig.numExperts).toBe(4);
+    expect(wrapperConfig.numExpertsPerToken).toBe(2);
+    expect(wrapperConfig.routerAuxLossCoef).toBe(0.01);
+  });
+
+  test("validates Qwen MoE routing cardinality", () => {
+    expect(() =>
+      parseQwen3_5TextConfig(
+        qwen3_5TextRaw({
+          model_type: "qwen3_5_moe_text",
+          num_experts: 2,
+          num_experts_per_tok: 3,
+        }),
+      ),
+    ).toThrow("num_experts_per_tok must be <= num_experts");
   });
 
   test("accepts both current and canonical nested vision model_type values", () => {

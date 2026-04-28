@@ -15,6 +15,7 @@ import {
 import type { FamilyRegistration } from "../../types";
 import { ConfigParseError } from "../../types";
 import { Qwen3_5ForConditionalGeneration } from "./conditional";
+import { parseQwen3_5FeedForward } from "./config-feedforward";
 import {
   expectPositiveInteger,
   optionalIntegerOrNull,
@@ -28,7 +29,9 @@ import { Qwen3_5TextCausalLM } from "./model";
 import type {
   Qwen3_5Config,
   Qwen3_5EosTokenId,
+  Qwen3_5ModelType,
   Qwen3_5TextConfig,
+  Qwen3_5TextModelType,
   Qwen3_5VisionConfig,
   Qwen3_5VisionModelType,
 } from "./types";
@@ -43,11 +46,27 @@ import {
   transformQwen3_5CheckpointTensor,
 } from "./weights";
 
-function parseQwen3_5TextModelType(config: Record<string, unknown>, context: string): void {
+function parseQwen3_5ModelType(config: Record<string, unknown>, context: string): Qwen3_5ModelType {
   const modelType = expectString(config, "model_type", context);
-  if (modelType !== "qwen3_5_text") {
-    throw new ConfigParseError(`${context}.model_type must be "qwen3_5_text", got "${modelType}".`);
+  if (modelType !== "qwen3_5" && modelType !== "qwen3_5_moe") {
+    throw new ConfigParseError(
+      `${context}.model_type must be "qwen3_5" or "qwen3_5_moe", got "${modelType}".`,
+    );
   }
+  return modelType;
+}
+
+function parseQwen3_5TextModelType(
+  config: Record<string, unknown>,
+  context: string,
+): Qwen3_5TextModelType {
+  const modelType = expectString(config, "model_type", context);
+  if (modelType !== "qwen3_5_text" && modelType !== "qwen3_5_moe_text") {
+    throw new ConfigParseError(
+      `${context}.model_type must be "qwen3_5_text" or "qwen3_5_moe_text", got "${modelType}".`,
+    );
+  }
+  return modelType;
 }
 
 function parseQwen3_5TextCore(
@@ -210,25 +229,29 @@ function parseQwen3_5TextConfigInternal(
   sourceConfig: Record<string, unknown>,
 ): Qwen3_5TextConfig {
   const config = expectConfigRecord(rawConfig, context);
-  parseQwen3_5TextModelType(config, context);
+  const modelType = parseQwen3_5TextModelType(config, context);
   const core = parseQwen3_5TextCore(config, context);
   const layerTypes = parseLayerTypes(config, core.numHiddenLayers, context);
   const ropeParameters = parseTextRopeParameters(config, context);
   const optionalSettings = parseQwen3_5TextOptionalSettings(config, context);
+  const feedForward = parseQwen3_5FeedForward(config, context, modelType);
 
   return {
     family: "qwen",
-    modelType: "qwen3_5_text",
+    modelType,
     rawConfig: sourceConfig,
     vocabSize: expectPositiveInteger(
       expectInteger(config, "vocab_size", context),
       `${context}.vocab_size`,
     ),
     hiddenSize: core.hiddenSize,
-    intermediateSize: expectPositiveInteger(
-      expectInteger(config, "intermediate_size", context),
-      `${context}.intermediate_size`,
-    ),
+    intermediateSize: feedForward.intermediateSize,
+    feedForwardKind: feedForward.feedForwardKind,
+    moeIntermediateSize: feedForward.moeIntermediateSize,
+    sharedExpertIntermediateSize: feedForward.sharedExpertIntermediateSize,
+    numExperts: feedForward.numExperts,
+    numExpertsPerToken: feedForward.numExpertsPerToken,
+    routerAuxLossCoef: feedForward.routerAuxLossCoef,
     numHiddenLayers: core.numHiddenLayers,
     numAttentionHeads: core.numAttentionHeads,
     numKeyValueHeads: core.numKeyValueHeads,
@@ -343,9 +366,11 @@ export function parseQwen3_5VisionConfig(rawConfig: Record<string, unknown>): Qw
 
 export function parseQwen3_5Config(rawConfig: Record<string, unknown>): Qwen3_5Config {
   const config = expectConfigRecord(rawConfig, "Qwen 3.5 config");
-  const modelType = expectString(config, "model_type", "Qwen 3.5 config");
+  const modelType = parseQwen3_5ModelType(config, "Qwen 3.5 config");
   if (modelType !== "qwen3_5") {
-    throw new ConfigParseError(`Qwen 3.5 config.model_type must be "qwen3_5", got "${modelType}".`);
+    throw new ConfigParseError(
+      `Qwen 3.5 config.model_type must be "qwen3_5" for the conditional image wrapper, got "${modelType}".`,
+    );
   }
 
   const textConfig = parseQwen3_5TextConfigInternal(
@@ -379,10 +404,7 @@ export function parseQwen3_5Config(rawConfig: Record<string, unknown>): Qwen3_5C
 
 export function parseQwen3_5CausalLMConfig(rawConfig: Record<string, unknown>): Qwen3_5TextConfig {
   const config = expectConfigRecord(rawConfig, "Qwen 3.5 config");
-  const modelType = expectString(config, "model_type", "Qwen 3.5 config");
-  if (modelType !== "qwen3_5") {
-    throw new ConfigParseError(`Qwen 3.5 config.model_type must be "qwen3_5", got "${modelType}".`);
-  }
+  parseQwen3_5ModelType(config, "Qwen 3.5 config");
 
   const textConfig = expectConfigRecord(config.text_config, "Qwen 3.5 config.text_config");
   return parseQwen3_5TextConfigInternal(textConfig, "Qwen 3.5 config.text_config", config);
@@ -390,7 +412,7 @@ export function parseQwen3_5CausalLMConfig(rawConfig: Record<string, unknown>): 
 
 export const qwen3_5TextFamily: FamilyRegistration<Qwen3_5TextConfig> = {
   family: "qwen",
-  modelTypes: ["qwen3_5_text"],
+  modelTypes: ["qwen3_5_text", "qwen3_5_moe_text"],
   parseConfig: parseQwen3_5TextConfig,
   createModel: (config) => new Qwen3_5TextCausalLM(config),
   sanitizeWeight: sanitizeQwen3_5TextWeight,
@@ -404,7 +426,7 @@ export const qwen3_5TextFamily: FamilyRegistration<Qwen3_5TextConfig> = {
 
 export const qwen3_5Family: FamilyRegistration<Qwen3_5TextConfig> = {
   family: "qwen",
-  modelTypes: ["qwen3_5"],
+  modelTypes: ["qwen3_5", "qwen3_5_moe"],
   parseConfig: parseQwen3_5CausalLMConfig,
   createModel: (config) => new Qwen3_5TextCausalLM(config),
   sanitizeWeight: sanitizeQwen3_5CausalLMWeight,

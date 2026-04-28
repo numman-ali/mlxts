@@ -9,7 +9,12 @@ import { resolvePretrainedSnapshot } from "../../pretrained/snapshot";
 import type { ResolvedSnapshot } from "../../pretrained/types";
 import type { CausalLM, TransformerCache } from "../../types";
 import type { Gemma4TextConfig } from "./types";
-import { exceptionalGemma4WeightNames, loadExceptionalGemma4Weights } from "./weights";
+import {
+  exceptionalGemma4WeightNames,
+  loadExceptionalGemma4Weights,
+  sanitizeGemma4TextWeight,
+  sanitizeGemma4Weight,
+} from "./weights";
 
 const tempRoots: string[] = [];
 
@@ -37,6 +42,10 @@ function gemma4Config(overrides: Partial<Gemma4TextConfig> = {}): Gemma4TextConf
     vocabSizePerLayerInput: 32,
     hiddenSize: 16,
     intermediateSize: 32,
+    enableMoeBlock: false,
+    moeIntermediateSize: null,
+    numExperts: null,
+    topKExperts: null,
     numHiddenLayers: 2,
     numAttentionHeads: 4,
     numKeyValueHeads: 2,
@@ -123,6 +132,60 @@ async function resolveLocalSnapshot(directory: string): Promise<ResolvedSnapshot
 }
 
 describe("gemma4 exceptional weight loading", () => {
+  test("maps Gemma 4 MoE checkpoint names onto dense and routed branches", () => {
+    const config = gemma4Config({
+      enableMoeBlock: true,
+      moeIntermediateSize: 8,
+      numExperts: 4,
+      topKExperts: 2,
+    });
+
+    expect(sanitizeGemma4TextWeight(config, "model.layers.1.router.proj.weight")).toBe(
+      "model.layers.1.router.proj.weight",
+    );
+    expect(sanitizeGemma4TextWeight(config, "model.layers.1.router.scale")).toBe(
+      "model.layers.1.router.scale",
+    );
+    expect(sanitizeGemma4TextWeight(config, "model.layers.1.router.per_expert_scale")).toBe(
+      "model.layers.1.router.perExpertScale",
+    );
+    expect(sanitizeGemma4TextWeight(config, "model.layers.1.experts.gate_up_proj")).toBe(
+      "model.layers.1.experts.gateUpProjection",
+    );
+    expect(sanitizeGemma4TextWeight(config, "model.layers.1.experts.down_proj")).toBe(
+      "model.layers.1.experts.downProjection",
+    );
+    expect(
+      sanitizeGemma4TextWeight(config, "model.layers.1.pre_feedforward_layernorm_2.weight"),
+    ).toBe("model.layers.1.preFeedforwardLayerNorm2.weight");
+    expect(
+      sanitizeGemma4TextWeight(config, "model.layers.1.post_feedforward_layernorm_1.weight"),
+    ).toBe("model.layers.1.postFeedforwardLayerNorm1.weight");
+    expect(
+      sanitizeGemma4TextWeight(config, "model.layers.1.post_feedforward_layernorm_2.weight"),
+    ).toBe("model.layers.1.postFeedforwardLayerNorm2.weight");
+    expect(sanitizeGemma4TextWeight(config, "model.layers.1.mlp.down_proj.weight")).toBe(
+      "model.layers.1.mlp.downProjection.weight",
+    );
+  });
+
+  test("maps wrapped Gemma 4 MoE names through both language-model prefixes", () => {
+    const config = gemma4Config({
+      modelType: "gemma4",
+      enableMoeBlock: true,
+      moeIntermediateSize: 8,
+      numExperts: 4,
+      topKExperts: 2,
+    });
+
+    expect(sanitizeGemma4Weight(config, "model.language_model.layers.0.experts.gate_up_proj")).toBe(
+      "model.layers.0.experts.gateUpProjection",
+    );
+    expect(
+      sanitizeGemma4Weight(config, "language_model.model.layers.0.router.per_expert_scale"),
+    ).toBe("model.layers.0.router.perExpertScale");
+  });
+
   test("reports exceptional checkpoint names only when per-layer input is enabled", async () => {
     expect(exceptionalGemma4WeightNames(gemma4Config({ hiddenSizePerLayerInput: 0 }))).toEqual([]);
     expect(exceptionalGemma4WeightNames(gemma4Config({ modelType: "gemma4_text" }))).toEqual([

@@ -78,6 +78,9 @@ export function staticBatchIneligibilityReason(
   request: NormalizedGenerationRequest,
   options: TransformersGenerationEngineOptions,
 ): GenerationRouteDecisionReason {
+  if (request.input.kind === "content") {
+    return "media_input";
+  }
   if (request.stream) {
     return "streaming";
   }
@@ -97,9 +100,12 @@ export function staticBatchIneligibilityReason(
 }
 
 export function continuousBatchIneligibilityReason(
-  _request: NormalizedGenerationRequest,
+  request: NormalizedGenerationRequest,
   options: TransformersGenerationEngineOptions,
 ): GenerationRouteDecisionReason {
+  if (request.input.kind === "content") {
+    return "media_input";
+  }
   const hasLayerPatternBatchCache = hasGemmaLayerPatternBatchCache(options.model);
   const hasHybridQwenBatchCache = hasQwenHybridBatchCache(options.model);
   if (configHasSlidingWindow(options.model) && !hasLayerPatternBatchCache) {

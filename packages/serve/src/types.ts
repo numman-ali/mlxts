@@ -3,7 +3,65 @@
  * @module
  */
 
-import type { ChatMessage, ChatTool } from "@mlxts/transformers";
+import type { ChatMessage, ChatTool, ChatToolCall } from "@mlxts/transformers";
+
+/** External media source normalized before any model-family preparation. */
+export type GenerationMediaSource =
+  | {
+      kind: "url";
+      url: string;
+    }
+  | {
+      kind: "data";
+      mediaType: string;
+      data: string;
+    }
+  | {
+      kind: "file";
+      fileId: string;
+    };
+
+/** Ordered protocol-neutral content part for future multimodal prompt preparation. */
+export type GenerationContentPart =
+  | {
+      kind: "text";
+      text: string;
+    }
+  | {
+      kind: "image";
+      source: GenerationMediaSource;
+      detail?: "auto" | "low" | "high";
+    }
+  | {
+      kind: "audio";
+      source: GenerationMediaSource;
+      format?: string;
+    }
+  | {
+      kind: "file";
+      source: GenerationMediaSource;
+      filename?: string;
+      mediaType?: string;
+    };
+
+/** Chat-style message whose content preserves ordered text and media parts. */
+export type GenerationContentMessage =
+  | {
+      role: "system" | "user";
+      content: readonly GenerationContentPart[];
+    }
+  | {
+      role: "assistant";
+      content: readonly GenerationContentPart[];
+      reasoning_content?: string;
+      tool_calls?: readonly ChatToolCall[];
+    }
+  | {
+      role: "tool";
+      content: readonly GenerationContentPart[];
+      name?: string;
+      tool_call_id?: string;
+    };
 
 export type GenerationInput =
   | {
@@ -17,6 +75,15 @@ export type GenerationInput =
   | {
       kind: "messages";
       messages: readonly ChatMessage[];
+      tools?: readonly ChatTool[];
+      chatTemplate?: {
+        enableThinking?: boolean;
+        preserveThinking?: boolean;
+      };
+    }
+  | {
+      kind: "content";
+      messages: readonly GenerationContentMessage[];
       tools?: readonly ChatTool[];
       chatTemplate?: {
         enableThinking?: boolean;
@@ -87,7 +154,8 @@ export type GenerationRouteDecisionReason =
   | "sliding_window_cache"
   | "sampled_generation"
   | "repetition_penalty"
-  | "prompt_prefix_cache";
+  | "prompt_prefix_cache"
+  | "media_input";
 
 type ContinuousSchedulerCounts = {
   waiting: number;

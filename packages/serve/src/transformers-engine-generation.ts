@@ -10,6 +10,7 @@ import {
   generatePreparedTokenEvents,
   generateTokenEvents,
 } from "@mlxts/transformers";
+import { ServeError } from "./errors";
 import type { TransformersGenerationEngineOptions } from "./transformers-engine";
 import {
   createPromptPrefixCacheSession,
@@ -54,6 +55,13 @@ function throwIfRequestAborted(request: NormalizedGenerationRequest, context: st
   if (request.abortSignal?.aborted === true) {
     throw new GenerationAbortError(`${context}: generation was cancelled.`);
   }
+}
+
+function rejectMediaInput(): never {
+  throw new ServeError(
+    "The transformers generation engine cannot prepare media content until a model-family media adapter is configured.",
+    { code: "unsupported_input", param: "messages" },
+  );
 }
 
 function emitPromptPrepareStart(
@@ -124,6 +132,9 @@ export function prepareGenerationRequest(
   options: TransformersGenerationEngineOptions,
 ): PreparedGenerationRequest {
   throwIfRequestAborted(request, "prepareGenerationRequest");
+  if (request.input.kind === "content") {
+    rejectMediaInput();
+  }
   const startedAt = performance.now();
   emitPromptPrepareStart(request, options);
   const prompt = compileMessagePrompt(request, options);
