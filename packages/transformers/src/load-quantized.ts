@@ -1,12 +1,14 @@
 import { dequantize, inspectSafetensors, type MxArray } from "@mlxts/core";
-import type { Module } from "@mlxts/nn";
+import { Module } from "@mlxts/nn";
 import {
   type QuantizedCheckpointPlan,
   resolveCheckpointQuantizationPlan,
+  resolveQuantizationParameters,
   setupQuantizedModule,
   translateCheckpointQuantizationPlanPaths,
 } from "@mlxts/quantize";
 
+import { PackedSwitchGLUExperts, SwitchLinear } from "./infrastructure/moe";
 import { assignWeightPath } from "./infrastructure/weight-assignment";
 import type { ResolvedSnapshot, SnapshotInspection } from "./pretrained/types";
 import { listSafetensorShardPaths, parseSafetensorIndex } from "./pretrained/weights";
@@ -16,6 +18,13 @@ export type StagedDenseQuantizedLeaf = {
   weight?: MxArray;
   scales?: MxArray;
   biases?: MxArray;
+};
+
+type ModuleChildSlot = {
+  path: string;
+  parent: Module;
+  key: string;
+  child: Module;
 };
 
 async function quantizedCheckpointPaths(
@@ -63,6 +72,106 @@ function realizedCheckpointQuantizationPlan(
   };
 }
 
+function childPath(prefix: string, key: string): string {
+  return prefix === "" ? key : `${prefix}.${key}`;
+}
+
+function moduleArray(value: unknown, path: string): Module[] | null {
+  if (!Array.isArray(value) || value.length === 0) {
+    return null;
+  }
+  const hasModule = value.some((entry) => entry instanceof Module);
+  if (!hasModule) {
+    return null;
+  }
+  if (!value.every((entry) => entry instanceof Module)) {
+    throw new Error(`loadCausalLM: "${path}" mixes Module and non-Module values.`);
+  }
+  return value;
+}
+
+function visitChildModules(
+  module: Module,
+  visitor: (slot: ModuleChildSlot) => void,
+  prefix = "",
+): void {
+  for (const key of Object.keys(module)) {
+    const value = Reflect.get(module, key);
+    const path = childPath(prefix, key);
+    if (value instanceof Module) {
+      visitor({ path, parent: module, key, child: value });
+      visitChildModules(value, visitor, path);
+      continue;
+    }
+
+    const children = moduleArray(value, path);
+    if (children === null) {
+      continue;
+    }
+
+    for (let index = 0; index < children.length; index += 1) {
+      const child = children[index];
+      if (child === undefined) {
+        continue;
+      }
+      const indexedPath = childPath(path, String(index));
+      visitor({ path: indexedPath, parent: module, key, child });
+      visitChildModules(child, visitor, indexedPath);
+    }
+  }
+}
+
+function planRuleMap(
+  plan: QuantizedCheckpointPlan,
+): Map<string, QuantizedCheckpointPlan["rules"][number]> {
+  const rules = new Map<string, QuantizedCheckpointPlan["rules"][number]>();
+  for (const rule of plan.rules) {
+    rules.set(rule.path, rule);
+  }
+  return rules;
+}
+
+function hasSplitSwitchRule(plan: QuantizedCheckpointPlan, path: string): boolean {
+  const prefixes = [
+    `${path}.gateProjection`,
+    `${path}.upProjection`,
+    `${path}.downProjection`,
+  ] as const;
+  return plan.rules.some((rule) => rule.enabled && prefixes.some((prefix) => rule.path === prefix));
+}
+
+function replacePackedExpertsForSplitCheckpoint(
+  module: Module,
+  plan: QuantizedCheckpointPlan,
+): void {
+  visitChildModules(module, (slot) => {
+    if (!(slot.child instanceof PackedSwitchGLUExperts) || !hasSplitSwitchRule(plan, slot.path)) {
+      return;
+    }
+
+    const splitExperts = slot.child.toSwitchGLUExperts();
+    const previous = slot.parent.replaceChild(slot.key, splitExperts);
+    previous[Symbol.dispose]();
+  });
+}
+
+function prepareQuantizedSwitchLinears(module: Module, plan: QuantizedCheckpointPlan): void {
+  const ruleMap = planRuleMap(plan);
+  visitChildModules(module, (slot) => {
+    if (!(slot.child instanceof SwitchLinear)) {
+      return;
+    }
+
+    const rule = ruleMap.get(slot.path);
+    if (rule?.enabled === false || (rule === undefined && plan.explicitOnly)) {
+      return;
+    }
+
+    const params = resolveQuantizationParameters(rule?.params, plan.defaults);
+    slot.child.prepareQuantized(params);
+  });
+}
+
 export async function prepareQuantizedCheckpointModel(options: {
   snapshot: ResolvedSnapshot;
   inspection: SnapshotInspection;
@@ -84,6 +193,8 @@ export async function prepareQuantizedCheckpointModel(options: {
     options.translateCheckpointPath,
   );
   setupQuantizedModule(options.model, translatedPlan);
+  replacePackedExpertsForSplitCheckpoint(options.model, translatedPlan);
+  prepareQuantizedSwitchLinears(options.model, translatedPlan);
 }
 
 function withQuantizedLeafSuffix(path: string, suffix: ".scales" | ".biases"): string | null {

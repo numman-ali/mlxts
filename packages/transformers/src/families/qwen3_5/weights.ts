@@ -184,6 +184,24 @@ function textLayerWeightPath(
       "experts",
       "downProjection",
     ]),
+    "mlp.switch_mlp.gate_proj.weight": textLayerPath(treePrefix, layerIndexText, [
+      "mlp",
+      "experts",
+      "gateProjection",
+      "weight",
+    ]),
+    "mlp.switch_mlp.up_proj.weight": textLayerPath(treePrefix, layerIndexText, [
+      "mlp",
+      "experts",
+      "upProjection",
+      "weight",
+    ]),
+    "mlp.switch_mlp.down_proj.weight": textLayerPath(treePrefix, layerIndexText, [
+      "mlp",
+      "experts",
+      "downProjection",
+      "weight",
+    ]),
     "mlp.shared_expert.gate_proj.weight": textLayerPath(treePrefix, layerIndexText, [
       "mlp",
       "sharedExpert",

@@ -15,7 +15,7 @@ import {
   zeros,
 } from "@mlxts/core";
 import { Linear, Module, swiglu } from "@mlxts/nn";
-import type { RoutedTopK } from "../../infrastructure/moe";
+import type { RoutedTopK, SwitchGLUExperts } from "../../infrastructure/moe";
 import { PackedSwitchGLUExperts, topKFromRouterLogits } from "../../infrastructure/moe";
 
 import type { Qwen3_5TextConfig } from "./types";
@@ -93,7 +93,7 @@ export class Qwen3_5TextTopKRouter extends Module {
 /** Routed Qwen 3.5/3.6 MoE block with a gated shared expert. */
 export class Qwen3_5TextMoE extends Module {
   gate: Qwen3_5TextTopKRouter;
-  experts: PackedSwitchGLUExperts;
+  experts: PackedSwitchGLUExperts | SwitchGLUExperts;
   sharedExpert: Qwen3_5TextMLP;
   sharedExpertGate: Linear;
   #hiddenSize: number;

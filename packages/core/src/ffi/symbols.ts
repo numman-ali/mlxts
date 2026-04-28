@@ -334,6 +334,7 @@ export const CREATION_SYMBOLS = {
 export const TAKE_SYMBOLS = {
   // int mlx_take_axis(res, a, indices, axis, stream)
   mlx_take_axis: { args: [P, P, P, I32, P], returns: I32 },
+  mlx_gather_mm: { args: [P, P, P, P, P, BOOL, P], returns: I32 },
   mlx_slice: { args: [P, P, P, U64_FAST, P, U64_FAST, P, U64_FAST, P], returns: I32 },
   mlx_slice_dynamic: { args: [P, P, P, P, U64_FAST, P, U64_FAST, P], returns: I32 },
   mlx_slice_update: {
@@ -358,6 +359,10 @@ export const QUANTIZATION_SYMBOLS = {
   },
   mlx_quantized_matmul: {
     args: [P, P, P, P, P, BOOL, U64_FAST, U64_FAST, CSTRING, P],
+    returns: I32,
+  },
+  mlx_gather_qmm: {
+    args: [P, P, P, P, P, P, P, BOOL, U64_FAST, U64_FAST, CSTRING, BOOL, P],
     returns: I32,
   },
 } as const;

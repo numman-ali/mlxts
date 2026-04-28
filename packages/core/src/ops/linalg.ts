@@ -4,13 +4,21 @@
  */
 
 import type { Pointer } from "bun:ffi";
-import { type MxArray, readResultArrayWithMetadata } from "../array";
+import { type MxArray, readResultArray, readResultArrayWithMetadata } from "../array";
 import { defaultStream } from "../device";
 import { checkStatus } from "../error";
 import { ffi } from "../ffi";
 
 type S = Pointer | undefined;
 const s = (stream?: S) => stream ?? defaultStream();
+
+/** Options for MLX matrix multiplication with per-matrix gather indices. */
+export type GatherMmOptions = {
+  lhsIndices?: MxArray;
+  rhsIndices?: MxArray;
+  sortedIndices?: boolean;
+  stream?: S;
+};
 
 function inferMatmulShape(a: MxArray, b: MxArray): number[] | undefined {
   const aShape = a.shape;
@@ -65,6 +73,24 @@ export function matmul(a: MxArray, b: MxArray, stream?: S): MxArray {
         : { shape };
   return readResultArrayWithMetadata("matmul", metadata, (out) => {
     checkStatus(ffi.mlx_matmul(out, a._ctx, b._ctx, s(stream)), "matmul");
+  });
+}
+
+/** Matrix multiplication that gathers batch matrices before contraction. */
+export function gatherMm(a: MxArray, b: MxArray, options: GatherMmOptions = {}): MxArray {
+  return readResultArray("gather_mm", (out) => {
+    checkStatus(
+      ffi.mlx_gather_mm(
+        out,
+        a._ctx,
+        b._ctx,
+        options.lhsIndices?._ctx ?? null,
+        options.rhsIndices?._ctx ?? null,
+        options.sortedIndices ?? false,
+        s(options.stream),
+      ),
+      "gather_mm",
+    );
   });
 }
 

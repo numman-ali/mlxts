@@ -46,6 +46,13 @@ export type QuantizedMatmulOptions = {
   stream?: S;
 };
 
+/** Options for quantized matrix multiplication with per-matrix gather indices. */
+export type GatherQmmOptions = QuantizedMatmulOptions & {
+  lhsIndices?: MxArray;
+  rhsIndices?: MxArray;
+  sortedIndices?: boolean;
+};
+
 export type QuantizeResult = {
   weight: MxArray;
   scales: MxArray;
@@ -169,6 +176,37 @@ export function quantizedMatmul(
         s(options.stream),
       ),
       "quantizedMatmul",
+    );
+  });
+}
+
+/** Multiply against packed quantized weights while gathering matrices by index. */
+export function gatherQmm(
+  x: MxArray,
+  weight: MxArray,
+  scales: MxArray,
+  options: GatherQmmOptions = {},
+): MxArray {
+  const mode = options.mode ?? "affine";
+  const modeBytes = encodedMode(mode);
+  return readResultArray("gatherQmm", (out) => {
+    checkStatus(
+      ffi.mlx_gather_qmm(
+        out,
+        x._ctx,
+        weight._ctx,
+        scales._ctx,
+        options.biases?._ctx ?? null,
+        options.lhsIndices?._ctx ?? null,
+        options.rhsIndices?._ctx ?? null,
+        options.transpose ?? true,
+        optionalInt(options.groupSize),
+        optionalInt(options.bits),
+        ptr(modeBytes),
+        options.sortedIndices ?? false,
+        s(options.stream),
+      ),
+      "gatherQmm",
     );
   });
 }

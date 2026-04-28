@@ -1,8 +1,8 @@
 import { describe, expect, test } from "bun:test";
 
 import { array } from "./array";
-import { matmul, transpose } from "./ops";
-import { dequantize, quantize, quantizedMatmul } from "./quantization";
+import { expandDims, gatherMm, matmul, transpose } from "./ops";
+import { dequantize, gatherQmm, quantize, quantizedMatmul } from "./quantization";
 import { mxEval } from "./transforms";
 
 function meanAbsoluteError(actual: number[][], expected: number[][]): number {
@@ -157,6 +157,70 @@ describe("quantization", () => {
     mxEval(expected, actual);
 
     expectCloseLists(actual.toList(), expected.toList());
+  });
+
+  test("gatherQmm matches dequantized gatherMm with repeated expert indices", () => {
+    using inputRows = array(
+      [
+        Array.from({ length: 32 }, (_, index) => (index + 1) / 16),
+        Array.from({ length: 32 }, (_, index) => (32 - index) / 20),
+      ],
+      "float32",
+    );
+    using inputWithTopK = expandDims(inputRows, 1);
+    using input = expandDims(inputWithTopK, 2);
+    using weight = array(
+      Array.from({ length: 2 }, (_, expert) =>
+        Array.from({ length: 3 }, (_, row) =>
+          Array.from({ length: 32 }, (_, column) => (expert * 96 + row * 32 + column - 40) / 32),
+        ),
+      ),
+      "float32",
+    );
+    const result = quantize(weight, {
+      groupSize: 32,
+      bits: 4,
+      mode: "affine",
+    });
+    using quantized = result.weight;
+    using scales = result.scales;
+    using indices = array(
+      [
+        [1, 0],
+        [0, 1],
+      ],
+      "int32",
+    );
+    using dense =
+      result.biases === undefined
+        ? dequantize(quantized, scales, {
+            groupSize: 32,
+            bits: 4,
+            mode: "affine",
+            dtype: "float32",
+          })
+        : dequantize(quantized, scales, {
+            biases: result.biases,
+            groupSize: 32,
+            bits: 4,
+            mode: "affine",
+            dtype: "float32",
+          });
+    using denseTransposed = transpose(dense, [0, 2, 1]);
+    using expected = gatherMm(input, denseTransposed, { rhsIndices: indices });
+    using actual = gatherQmm(input, quantized, scales, {
+      ...(result.biases === undefined ? {} : { biases: result.biases }),
+      rhsIndices: indices,
+      transpose: true,
+      groupSize: 32,
+      bits: 4,
+      mode: "affine",
+    });
+
+    mxEval(expected, actual);
+
+    expectCloseLists(actual.toList(), expected.toList());
+    result.biases?.free();
   });
 });
 

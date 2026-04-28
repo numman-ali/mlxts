@@ -1,9 +1,14 @@
 # @mlxts/serve Agent Notes
 
 Serving is a first-class package surface, not an example. Keep protocol adapters
-thin: OpenAI completions, chat completions, Responses/OpenResponses, and
+thin: OpenAI completions, chat completions, OpenResponses, and
 Anthropic Messages should normalize into the shared `GenerationEngine` contract
 without copying generation logic between protocols.
+
+`/v1/responses` is an OpenResponses-spec surface, not an OpenAI Responses clone.
+Keep OpenAI wording only where a compatibility client or wire shape requires
+it, and check the OpenResponses OpenAPI/source guidance before widening response
+items, tools, files, state, or streaming events.
 
 Admission controls must be explicit and operator-facing. Keep generated-token,
 prompt-token, total-token, concurrency, and batching limits separate in code,

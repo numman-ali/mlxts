@@ -35,7 +35,8 @@ export {
   notEqual,
   where,
 } from "./comparison";
-export { conv1d, matmul } from "./linalg";
+export type { GatherMmOptions } from "./linalg";
+export { conv1d, gatherMm, matmul } from "./linalg";
 export type { SoftmaxOptions } from "./reduction";
 export {
   argmax,

@@ -81,7 +81,7 @@ export {
   setWiredLimitBytes,
 } from "./memory";
 export { isMetalAvailable, startMetalCapture, stopMetalCapture } from "./metal";
-export type { Operand, SoftmaxOptions } from "./ops";
+export type { GatherMmOptions, Operand, SoftmaxOptions } from "./ops";
 export {
   abs,
   add,
@@ -103,6 +103,7 @@ export {
   exp,
   expandDims,
   flatten,
+  gatherMm,
   geluApprox,
   greater,
   greaterEqual,
@@ -155,12 +156,13 @@ export {
 } from "./ops";
 export type {
   DequantizeOptions,
+  GatherQmmOptions,
   QuantizationMode,
   QuantizedMatmulOptions,
   QuantizeOptions,
   QuantizeResult,
 } from "./quantization";
-export { dequantize, quantize, quantizedMatmul } from "./quantization";
+export { dequantize, gatherQmm, quantize, quantizedMatmul } from "./quantization";
 // biome-ignore lint/performance/noReExportAll: Intentional namespace re-export — matches MLX Python's mx.random.normal() API pattern
 export * as random from "./random";
 export type { CompileMode, DisposableTransform } from "./transforms";

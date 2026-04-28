@@ -156,6 +156,15 @@ describe("gemma4 exceptional weight loading", () => {
       "model.layers.1.experts.downProjection",
     );
     expect(
+      sanitizeGemma4TextWeight(config, "model.layers.1.experts.switch_glu.gate_proj.weight"),
+    ).toBe("model.layers.1.experts.gateProjection.weight");
+    expect(
+      sanitizeGemma4TextWeight(config, "model.layers.1.experts.switch_glu.up_proj.weight"),
+    ).toBe("model.layers.1.experts.upProjection.weight");
+    expect(
+      sanitizeGemma4TextWeight(config, "model.layers.1.experts.switch_glu.down_proj.weight"),
+    ).toBe("model.layers.1.experts.downProjection.weight");
+    expect(
       sanitizeGemma4TextWeight(config, "model.layers.1.pre_feedforward_layernorm_2.weight"),
     ).toBe("model.layers.1.preFeedforwardLayerNorm2.weight");
     expect(
@@ -181,6 +190,12 @@ describe("gemma4 exceptional weight loading", () => {
     expect(sanitizeGemma4Weight(config, "model.language_model.layers.0.experts.gate_up_proj")).toBe(
       "model.layers.0.experts.gateUpProjection",
     );
+    expect(
+      sanitizeGemma4Weight(
+        config,
+        "language_model.model.layers.0.experts.switch_glu.gate_proj.weight",
+      ),
+    ).toBe("model.layers.0.experts.gateProjection.weight");
     expect(
       sanitizeGemma4Weight(config, "language_model.model.layers.0.router.per_expert_scale"),
     ).toBe("model.layers.0.router.perExpertScale");

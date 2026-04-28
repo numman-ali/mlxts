@@ -155,6 +155,15 @@ describe("Qwen 3.5 weight mapping", () => {
       "model.layers.1.mlp.experts.downProjection",
     );
     expect(
+      sanitizeQwen3_5TextWeight(config, "model.layers.1.mlp.switch_mlp.gate_proj.weight"),
+    ).toBe("model.layers.1.mlp.experts.gateProjection.weight");
+    expect(sanitizeQwen3_5TextWeight(config, "model.layers.1.mlp.switch_mlp.up_proj.weight")).toBe(
+      "model.layers.1.mlp.experts.upProjection.weight",
+    );
+    expect(
+      sanitizeQwen3_5TextWeight(config, "model.layers.1.mlp.switch_mlp.down_proj.weight"),
+    ).toBe("model.layers.1.mlp.experts.downProjection.weight");
+    expect(
       sanitizeQwen3_5TextWeight(config, "model.layers.1.mlp.shared_expert.gate_proj.weight"),
     ).toBe("model.layers.1.mlp.sharedExpert.gateProjection.weight");
     expect(
@@ -259,11 +268,23 @@ describe("Qwen 3.5 weight mapping", () => {
       ),
     ).toBe("model.layers.0.mlp.experts.gateUpProjection");
     expect(
+      sanitizeQwen3_5CausalLMWeight(
+        textConfig,
+        "language_model.model.layers.0.mlp.switch_mlp.gate_proj.weight",
+      ),
+    ).toBe("model.layers.0.mlp.experts.gateProjection.weight");
+    expect(
       sanitizeQwen3_5Weight(
         wrapperConfig,
         "model.language_model.layers.0.mlp.shared_expert_gate.weight",
       ),
     ).toBe("model.languageModel.layers.0.mlp.sharedExpertGate.weight");
+    expect(
+      sanitizeQwen3_5Weight(
+        wrapperConfig,
+        "language_model.model.layers.0.mlp.switch_mlp.down_proj.weight",
+      ),
+    ).toBe("model.languageModel.layers.0.mlp.experts.downProjection.weight");
     expect(
       sanitizeQwen3_5Weight(
         wrapperConfig,

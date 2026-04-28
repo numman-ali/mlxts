@@ -133,6 +133,21 @@ function layerWeightPath(
         "router.per_expert_scale": layerPath(layerIndexText, ["router", "perExpertScale"]),
         "experts.gate_up_proj": layerPath(layerIndexText, ["experts", "gateUpProjection"]),
         "experts.down_proj": layerPath(layerIndexText, ["experts", "downProjection"]),
+        "experts.switch_glu.gate_proj.weight": layerPath(layerIndexText, [
+          "experts",
+          "gateProjection",
+          "weight",
+        ]),
+        "experts.switch_glu.up_proj.weight": layerPath(layerIndexText, [
+          "experts",
+          "upProjection",
+          "weight",
+        ]),
+        "experts.switch_glu.down_proj.weight": layerPath(layerIndexText, [
+          "experts",
+          "downProjection",
+          "weight",
+        ]),
         "pre_feedforward_layernorm_2.weight": layerPath(layerIndexText, [
           "preFeedforwardLayerNorm2",
           "weight",

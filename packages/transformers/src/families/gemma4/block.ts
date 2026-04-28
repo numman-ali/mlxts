@@ -8,7 +8,7 @@ import { add, multiply, ones, reshape } from "@mlxts/core";
 import { Linear, Module } from "@mlxts/nn";
 import { gegluApprox } from "../../infrastructure/gated-activations";
 import type { AttentionMask } from "../../infrastructure/masks";
-import type { PackedSwitchGLUExperts } from "../../infrastructure/moe";
+import type { PackedSwitchGLUExperts, SwitchGLUExperts } from "../../infrastructure/moe";
 import type { DecoderCache } from "../../types";
 import { Gemma4TextAttention } from "./attention";
 import { Gemma4TextMLP } from "./mlp";
@@ -25,7 +25,7 @@ export class Gemma4TextDecoderBlock extends Module {
   mlp: Gemma4TextMLP;
   postFeedforwardLayerNorm: Gemma4RMSNorm;
   router: Gemma4TextRouter | null;
-  experts: PackedSwitchGLUExperts | null;
+  experts: PackedSwitchGLUExperts | SwitchGLUExperts | null;
   preFeedforwardLayerNorm2: Gemma4RMSNorm | null;
   postFeedforwardLayerNorm1: Gemma4RMSNorm | null;
   postFeedforwardLayerNorm2: Gemma4RMSNorm | null;

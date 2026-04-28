@@ -7,6 +7,7 @@ import {
   quantize,
   retainArray,
   saveSafetensors,
+  slice,
   transpose,
 } from "@mlxts/core";
 import { Linear, QuantizedEmbedding, QuantizedLinear } from "@mlxts/nn";
@@ -27,10 +28,11 @@ import {
   loadQwen3_5ForConditionalGeneration,
   shouldLoadQwen3_5ForConditionalGeneration,
 } from "./families/qwen3_5/load";
-import { Qwen3_5TextMLP } from "./families/qwen3_5/mlp";
+import { Qwen3_5TextMLP, Qwen3_5TextMoE } from "./families/qwen3_5/mlp";
 import { Qwen3_5TextCausalLM, type Qwen3_5TextModel } from "./families/qwen3_5/model";
 import { generateText, generateTextStream, generateTokens } from "./generation";
 import { KVCache, LayerPatternKVCache, SlidingWindowKVCache } from "./infrastructure/cache";
+import { PackedSwitchGLUExperts, SwitchGLUExperts } from "./infrastructure/moe";
 import { loadCausalLM, loadPretrainedTokenizer } from "./load";
 import { quantizePretrainedSnapshot } from "./quantize";
 import { resolveFamily } from "./registry";
@@ -120,6 +122,22 @@ function tokenizerFixture() {
       bos_token: { content: "<bos>" },
     },
   };
+}
+
+async function writeTokenizerFixture(directory: string): Promise<void> {
+  const tokenizer = tokenizerFixture();
+  await Bun.write(
+    join(directory, "tokenizer.json"),
+    `${JSON.stringify(tokenizer.tokenizerJson, null, 2)}\n`,
+  );
+  await Bun.write(
+    join(directory, "tokenizer_config.json"),
+    `${JSON.stringify(tokenizer.tokenizerConfig, null, 2)}\n`,
+  );
+  await Bun.write(
+    join(directory, "special_tokens_map.json"),
+    `${JSON.stringify(tokenizer.specialTokensMap, null, 2)}\n`,
+  );
 }
 
 function base64Token(...bytes: number[]): string {
@@ -330,6 +348,75 @@ function quantizeCheckpointTensors(
   return rewritten;
 }
 
+function splitExpertGateUpTensor(tensor: MxArray, context: string): { gate: MxArray; up: MxArray } {
+  const [expertCount, gateUpSize, hiddenSize] = tensor.shape;
+  if (
+    tensor.shape.length !== 3 ||
+    expertCount === undefined ||
+    gateUpSize === undefined ||
+    hiddenSize === undefined ||
+    gateUpSize % 2 !== 0
+  ) {
+    throw new Error(`${context}: expected [experts, 2 * intermediate, hidden] gate-up tensor.`);
+  }
+
+  const intermediateSize = gateUpSize / 2;
+  return {
+    gate: slice(tensor, [0, 0, 0], [expertCount, intermediateSize, hiddenSize]),
+    up: slice(tensor, [0, intermediateSize, 0], [expertCount, gateUpSize, hiddenSize]),
+  };
+}
+
+function qwenSplitMoeCheckpointTensors(tensors: Record<string, MxArray>): Record<string, MxArray> {
+  const rewritten: Record<string, MxArray> = {};
+  for (const [name, tensor] of Object.entries(tensors)) {
+    if (name.endsWith(".mlp.experts.gate_up_proj")) {
+      const base = name.slice(0, -".experts.gate_up_proj".length);
+      const splitWeights = splitExpertGateUpTensor(tensor, name);
+      rewritten[`${base}.switch_mlp.gate_proj.weight`] = splitWeights.gate;
+      rewritten[`${base}.switch_mlp.up_proj.weight`] = splitWeights.up;
+      continue;
+    }
+    if (name.endsWith(".mlp.experts.down_proj")) {
+      const base = name.slice(0, -".experts.down_proj".length);
+      rewritten[`${base}.switch_mlp.down_proj.weight`] = retainArray(tensor);
+      continue;
+    }
+    rewritten[name] = retainArray(tensor);
+  }
+  return rewritten;
+}
+
+function gemma4SplitMoeCheckpointTensors(
+  tensors: Record<string, MxArray>,
+): Record<string, MxArray> {
+  const rewritten: Record<string, MxArray> = {};
+  for (const [name, tensor] of Object.entries(tensors)) {
+    if (name.endsWith(".experts.gate_up_proj")) {
+      const base = name.slice(0, -".gate_up_proj".length);
+      const splitWeights = splitExpertGateUpTensor(tensor, name);
+      rewritten[`${base}.switch_glu.gate_proj.weight`] = splitWeights.gate;
+      rewritten[`${base}.switch_glu.up_proj.weight`] = splitWeights.up;
+      continue;
+    }
+    if (name.endsWith(".experts.down_proj")) {
+      const base = name.slice(0, -".down_proj".length);
+      rewritten[`${base}.switch_glu.down_proj.weight`] = retainArray(tensor);
+      continue;
+    }
+    rewritten[name] = retainArray(tensor);
+  }
+  return rewritten;
+}
+
+function freeTensorRecords(...records: Array<Record<string, MxArray>>): void {
+  for (const record of records) {
+    for (const tensor of Object.values(record)) {
+      tensor.free();
+    }
+  }
+}
+
 function rawConfigForGemma3Text(): Record<string, unknown> {
   return {
     model_type: "gemma3_text",
@@ -393,6 +480,30 @@ function rawConfigForGemma4Text(): Record<string, unknown> {
   };
 }
 
+function rawConfigForGemma4MoeText(): Record<string, unknown> {
+  return {
+    ...rawConfigForGemma4Text(),
+    vocab_size: 7,
+    vocab_size_per_layer_input: 7,
+    hidden_size: 64,
+    intermediate_size: 128,
+    num_hidden_layers: 1,
+    num_attention_heads: 4,
+    num_key_value_heads: 2,
+    num_global_key_value_heads: 2,
+    head_dim: 16,
+    global_head_dim: 16,
+    layer_types: ["full_attention"],
+    hidden_size_per_layer_input: 0,
+    use_double_wide_mlp: false,
+    num_kv_shared_layers: 0,
+    enable_moe_block: true,
+    moe_intermediate_size: 64,
+    num_experts: 2,
+    top_k_experts: 1,
+  };
+}
+
 function rawConfigForGemma4Wrapper(): Record<string, unknown> {
   return {
     model_type: "gemma4",
@@ -435,6 +546,26 @@ function rawConfigForQwen3_5Text(): Record<string, unknown> {
       mrope_section: [1, 1, 0],
       mrope_interleaved: true,
     },
+  };
+}
+
+function rawConfigForQwen3_5MoeText(): Record<string, unknown> {
+  return {
+    ...rawConfigForQwen3_5Text(),
+    model_type: "qwen3_5_moe_text",
+    vocab_size: 7,
+    hidden_size: 64,
+    intermediate_size: 64,
+    shared_expert_intermediate_size: 64,
+    moe_intermediate_size: 64,
+    num_experts: 2,
+    num_experts_per_tok: 1,
+    num_hidden_layers: 1,
+    num_attention_heads: 4,
+    num_key_value_heads: 2,
+    head_dim: 16,
+    full_attention_interval: 1,
+    layer_types: ["full_attention"],
   };
 }
 
@@ -640,6 +771,41 @@ function addGemma4LayerCheckpointTensors(
   if (layer.postPerLayerInputNorm !== null && layer.postPerLayerInputNorm.weight !== null) {
     tensors[`${prefix}.post_per_layer_input_norm.weight`] = retainArray(
       layer.postPerLayerInputNorm.weight,
+    );
+  }
+  if (layer.router !== null && layer.experts !== null) {
+    tensors[`${prefix}.router.proj.weight`] = retainArray(layer.router.proj.weight);
+    tensors[`${prefix}.router.scale`] = retainArray(layer.router.scale);
+    tensors[`${prefix}.router.per_expert_scale`] = retainArray(layer.router.perExpertScale);
+    if (!(layer.experts instanceof PackedSwitchGLUExperts)) {
+      throw new Error(`Expected Gemma 4 layer ${layerIndex} to own packed experts.`);
+    }
+    tensors[`${prefix}.experts.gate_up_proj`] = retainArray(layer.experts.gateUpProjection);
+    tensors[`${prefix}.experts.down_proj`] = retainArray(layer.experts.downProjection);
+    if (
+      layer.preFeedforwardLayerNorm2 === null ||
+      layer.postFeedforwardLayerNorm1 === null ||
+      layer.postFeedforwardLayerNorm2 === null
+    ) {
+      throw new Error(`Expected Gemma 4 MoE layer ${layerIndex} to own MoE norms.`);
+    }
+    tensors[`${prefix}.pre_feedforward_layernorm_2.weight`] = retainArray(
+      expectTensor(
+        layer.preFeedforwardLayerNorm2.weight,
+        "Expected Gemma 4 second pre-feedforward norm weight.",
+      ),
+    );
+    tensors[`${prefix}.post_feedforward_layernorm_1.weight`] = retainArray(
+      expectTensor(
+        layer.postFeedforwardLayerNorm1.weight,
+        "Expected Gemma 4 first post-feedforward norm weight.",
+      ),
+    );
+    tensors[`${prefix}.post_feedforward_layernorm_2.weight`] = retainArray(
+      expectTensor(
+        layer.postFeedforwardLayerNorm2.weight,
+        "Expected Gemma 4 second post-feedforward norm weight.",
+      ),
     );
   }
 }
@@ -874,12 +1040,32 @@ function checkpointTensorsForQwen3_5TextParts(
     tensors[`${prefix}.post_attention_layernorm.weight`] = retainArray(
       layer.postAttentionLayerNorm.weight,
     );
-    if (!(layer.mlp instanceof Qwen3_5TextMLP)) {
-      throw new Error(`Expected Qwen 3.5 layer ${layerIndex} to own a dense text MLP.`);
+    if (layer.mlp instanceof Qwen3_5TextMLP) {
+      tensors[`${prefix}.mlp.gate_proj.weight`] = retainArray(layer.mlp.gateProjection.weight);
+      tensors[`${prefix}.mlp.up_proj.weight`] = retainArray(layer.mlp.upProjection.weight);
+      tensors[`${prefix}.mlp.down_proj.weight`] = retainArray(layer.mlp.downProjection.weight);
+    } else if (layer.mlp instanceof Qwen3_5TextMoE) {
+      tensors[`${prefix}.mlp.gate.weight`] = retainArray(layer.mlp.gate.weight);
+      if (!(layer.mlp.experts instanceof PackedSwitchGLUExperts)) {
+        throw new Error(`Expected Qwen 3.5 MoE layer ${layerIndex} to own packed experts.`);
+      }
+      tensors[`${prefix}.mlp.experts.gate_up_proj`] = retainArray(
+        layer.mlp.experts.gateUpProjection,
+      );
+      tensors[`${prefix}.mlp.experts.down_proj`] = retainArray(layer.mlp.experts.downProjection);
+      tensors[`${prefix}.mlp.shared_expert.gate_proj.weight`] = retainArray(
+        layer.mlp.sharedExpert.gateProjection.weight,
+      );
+      tensors[`${prefix}.mlp.shared_expert.up_proj.weight`] = retainArray(
+        layer.mlp.sharedExpert.upProjection.weight,
+      );
+      tensors[`${prefix}.mlp.shared_expert.down_proj.weight`] = retainArray(
+        layer.mlp.sharedExpert.downProjection.weight,
+      );
+      tensors[`${prefix}.mlp.shared_expert_gate.weight`] = retainArray(
+        layer.mlp.sharedExpertGate.weight,
+      );
     }
-    tensors[`${prefix}.mlp.gate_proj.weight`] = retainArray(layer.mlp.gateProjection.weight);
-    tensors[`${prefix}.mlp.up_proj.weight`] = retainArray(layer.mlp.upProjection.weight);
-    tensors[`${prefix}.mlp.down_proj.weight`] = retainArray(layer.mlp.downProjection.weight);
 
     if (layer.linearAttention !== null) {
       tensors[`${prefix}.linear_attn.in_proj_qkv.weight`] = retainArray(
@@ -1165,6 +1351,22 @@ async function rewriteCheckpoint(
       tensor.free();
     }
   }
+}
+
+function firstQwenMoeLayer(model: Qwen3_5TextCausalLM): Qwen3_5TextMoE {
+  const layer = model.model.layers[0];
+  if (layer === undefined || !(layer.mlp instanceof Qwen3_5TextMoE)) {
+    throw new Error("Expected the loaded Qwen fixture to own a MoE layer.");
+  }
+  return layer.mlp;
+}
+
+function firstGemma4Experts(model: Gemma4TextCausalLM): PackedSwitchGLUExperts | SwitchGLUExperts {
+  const layer = model.model.layers[0];
+  if (layer === undefined || layer.experts === null) {
+    throw new Error("Expected the loaded Gemma 4 fixture to own MoE experts.");
+  }
+  return layer.experts;
 }
 
 describe("pretrained loading", () => {
@@ -1550,6 +1752,142 @@ describe("pretrained loading", () => {
     using inputIds = array([[0, 1, 2]], "int32");
     using logits = loadedModel.forward(inputIds);
     expect(logits.shape).toEqual([1, 3, rawConfig.vocab_size as number]);
+  });
+
+  test("loadCausalLM supports official combined Qwen MoE expert weights", async () => {
+    const directory = createTempDir("mlxts-transformers-qwen-moe-combined-");
+    const rawConfig = rawConfigForQwen3_5MoeText();
+    const registration = resolveFamily("qwen3_5_moe_text");
+    using model = registration.createModel(registration.parseConfig(rawConfig));
+    if (!(model instanceof Qwen3_5TextCausalLM)) {
+      throw new Error("Expected a Qwen3_5TextCausalLM for the Qwen MoE fixture.");
+    }
+
+    const tensors = checkpointTensorsForQwen3_5Text(model);
+    try {
+      await Bun.write(join(directory, "config.json"), `${JSON.stringify(rawConfig, null, 2)}\n`);
+      await writeTokenizerFixture(directory);
+      await saveSafetensors(tensors, join(directory, "model.safetensors"));
+    } finally {
+      freeTensorRecords(tensors);
+    }
+
+    using loadedModel = await loadCausalLM(directory);
+    if (!(loadedModel instanceof Qwen3_5TextCausalLM)) {
+      throw new Error("Expected loadCausalLM to return a Qwen3_5TextCausalLM.");
+    }
+    expect(firstQwenMoeLayer(loadedModel).experts).toBeInstanceOf(PackedSwitchGLUExperts);
+  });
+
+  test("loadCausalLM supports split quantized Qwen MoE switch experts", async () => {
+    const directory = createTempDir("mlxts-transformers-qwen-moe-split-");
+    const rawConfig = {
+      ...rawConfigForQwen3_5MoeText(),
+      quantization: { group_size: 64, bits: 4, mode: "affine" },
+    };
+    const registration = resolveFamily("qwen3_5_moe_text");
+    using model = registration.createModel(registration.parseConfig(rawConfig));
+    if (!(model instanceof Qwen3_5TextCausalLM)) {
+      throw new Error("Expected a Qwen3_5TextCausalLM for the split Qwen MoE fixture.");
+    }
+
+    const baseTensors = checkpointTensorsForQwen3_5Text(model);
+    const splitTensors = qwenSplitMoeCheckpointTensors(baseTensors);
+    const quantizedTensors = quantizeCheckpointTensors(splitTensors, [
+      "model.layers.0.mlp.switch_mlp.gate_proj",
+      "model.layers.0.mlp.switch_mlp.up_proj",
+      "model.layers.0.mlp.switch_mlp.down_proj",
+    ]);
+    try {
+      await Bun.write(join(directory, "config.json"), `${JSON.stringify(rawConfig, null, 2)}\n`);
+      await writeTokenizerFixture(directory);
+      await saveSafetensors(quantizedTensors, join(directory, "model.safetensors"));
+    } finally {
+      freeTensorRecords(baseTensors, splitTensors, quantizedTensors);
+    }
+
+    using loadedModel = await loadCausalLM(directory);
+    if (!(loadedModel instanceof Qwen3_5TextCausalLM)) {
+      throw new Error("Expected loadCausalLM to return a Qwen3_5TextCausalLM.");
+    }
+    const experts = firstQwenMoeLayer(loadedModel).experts;
+    expect(experts).toBeInstanceOf(SwitchGLUExperts);
+    if (!(experts instanceof SwitchGLUExperts)) {
+      throw new Error("Expected split Qwen MoE experts after quantized preparation.");
+    }
+    expect(experts.gateProjection.weight.dtype).toBe("uint32");
+
+    using inputIds = array([[0, 1, 2]], "int32");
+    using logits = loadedModel.forward(inputIds);
+    expect(logits.shape).toEqual([1, 3, 7]);
+  });
+
+  test("loadCausalLM supports official combined Gemma 4 MoE expert weights", async () => {
+    const directory = createTempDir("mlxts-transformers-gemma4-moe-combined-");
+    const rawConfig = rawConfigForGemma4MoeText();
+    const registration = resolveFamily("gemma4_text");
+    using model = registration.createModel(registration.parseConfig(rawConfig));
+    if (!(model instanceof Gemma4TextCausalLM)) {
+      throw new Error("Expected a Gemma4TextCausalLM for the Gemma 4 MoE fixture.");
+    }
+
+    const tensors = checkpointTensorsForGemma4Text(model);
+    try {
+      await Bun.write(join(directory, "config.json"), `${JSON.stringify(rawConfig, null, 2)}\n`);
+      await writeTokenizerFixture(directory);
+      await saveSafetensors(tensors, join(directory, "model.safetensors"));
+    } finally {
+      freeTensorRecords(tensors);
+    }
+
+    using loadedModel = await loadCausalLM(directory);
+    if (!(loadedModel instanceof Gemma4TextCausalLM)) {
+      throw new Error("Expected loadCausalLM to return a Gemma4TextCausalLM.");
+    }
+    expect(firstGemma4Experts(loadedModel)).toBeInstanceOf(PackedSwitchGLUExperts);
+  });
+
+  test("loadCausalLM supports split quantized Gemma 4 MoE switch experts", async () => {
+    const directory = createTempDir("mlxts-transformers-gemma4-moe-split-");
+    const rawConfig = {
+      ...rawConfigForGemma4MoeText(),
+      quantization: { group_size: 64, bits: 4, mode: "affine" },
+    };
+    const registration = resolveFamily("gemma4_text");
+    using model = registration.createModel(registration.parseConfig(rawConfig));
+    if (!(model instanceof Gemma4TextCausalLM)) {
+      throw new Error("Expected a Gemma4TextCausalLM for the split Gemma 4 MoE fixture.");
+    }
+
+    const baseTensors = checkpointTensorsForGemma4Text(model);
+    const splitTensors = gemma4SplitMoeCheckpointTensors(baseTensors);
+    const quantizedTensors = quantizeCheckpointTensors(splitTensors, [
+      "model.layers.0.experts.switch_glu.gate_proj",
+      "model.layers.0.experts.switch_glu.up_proj",
+      "model.layers.0.experts.switch_glu.down_proj",
+    ]);
+    try {
+      await Bun.write(join(directory, "config.json"), `${JSON.stringify(rawConfig, null, 2)}\n`);
+      await writeTokenizerFixture(directory);
+      await saveSafetensors(quantizedTensors, join(directory, "model.safetensors"));
+    } finally {
+      freeTensorRecords(baseTensors, splitTensors, quantizedTensors);
+    }
+
+    using loadedModel = await loadCausalLM(directory);
+    if (!(loadedModel instanceof Gemma4TextCausalLM)) {
+      throw new Error("Expected loadCausalLM to return a Gemma4TextCausalLM.");
+    }
+    const experts = firstGemma4Experts(loadedModel);
+    expect(experts).toBeInstanceOf(SwitchGLUExperts);
+    if (!(experts instanceof SwitchGLUExperts)) {
+      throw new Error("Expected split Gemma 4 MoE experts after quantized preparation.");
+    }
+    expect(experts.gateProjection.weight.dtype).toBe("uint32");
+
+    using inputIds = array([[0, 1, 2]], "int32");
+    using logits = loadedModel.forward(inputIds);
+    expect(logits.shape).toEqual([1, 3, 7]);
   });
 
   test("quantizePretrainedSnapshot rewrites a dense snapshot into a loadable quantized snapshot", async () => {

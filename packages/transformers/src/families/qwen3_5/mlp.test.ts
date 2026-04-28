@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { array, mxEval } from "@mlxts/core";
 
+import { PackedSwitchGLUExperts } from "../../infrastructure/moe";
 import { createQwen3_5TextFeedForward, Qwen3_5TextMLP, Qwen3_5TextMoE } from "./mlp";
 import type { Qwen3_5TextConfig } from "./types";
 
@@ -129,6 +130,9 @@ describe("Qwen3_5TextFeedForward", () => {
       }),
     );
     moe.gate.weight.free();
+    if (!(moe.experts instanceof PackedSwitchGLUExperts)) {
+      throw new Error("Expected Qwen MoE test fixture to start with packed experts.");
+    }
     moe.experts.gateUpProjection.free();
     moe.experts.downProjection.free();
     moe.sharedExpert.gateProjection.weight.free();
