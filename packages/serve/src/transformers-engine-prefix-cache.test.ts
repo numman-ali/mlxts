@@ -109,6 +109,31 @@ describe("PromptPrefixCache", () => {
     expect(cache.lookup(shortPrompt)).toBeNull();
   });
 
+  test("requires matching media identities for media-aware entries", () => {
+    using cache = new PromptPrefixCache(2);
+    const tokenIds = tokenRange(1, 6);
+    expect(cache.store(tokenIds, new FakeSnapshot(5), { contentKeys: ["image:first"] })).toBe(5);
+
+    const changedImage = cache.lookup(tokenIds, { contentKeys: ["image:second"] });
+    expect(changedImage).toBeNull();
+
+    const missingIdentity = cache.lookup(tokenIds);
+    expect(missingIdentity).toBeNull();
+
+    const matchingImage = cache.lookup(tokenIds, { contentKeys: ["image:first"] });
+    expect(matchingImage?.readTokens).toBe(5);
+    matchingImage?.cache[Symbol.dispose]();
+  });
+
+  test("media-aware entries only reuse whole prompt snapshots", () => {
+    using cache = new PromptPrefixCache(1);
+    expect(
+      cache.store(tokenRange(1, 6), new FakeSnapshot(5, 4), { contentKeys: ["image:first"] }),
+    ).toBe(5);
+
+    expect(cache.lookup(tokenRange(1, 5), { contentKeys: ["image:first"] })).toBeNull();
+  });
+
   test("disposes snapshots that cannot be retained", () => {
     using disabled = new PromptPrefixCache(0);
     const ignored = new FakeSnapshot(5);

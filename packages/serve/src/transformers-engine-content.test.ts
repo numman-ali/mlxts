@@ -243,6 +243,8 @@ describe("transformers media-content preparation", () => {
 
     expect(loaded.prompt.text).toContain("<|vision_start|><|image_pad|><|vision_end|>");
     expect(loaded.prompt.text).toContain("/no-think");
+    expect(loaded.promptCacheIdentity?.contentKeys).toHaveLength(1);
+    expect(loaded.promptCacheIdentity?.contentKeys[0]).toContain("qwen-image");
     expect(seenMessages[1]).toMatchObject({
       role: "assistant",
       reasoning_content: "reason",

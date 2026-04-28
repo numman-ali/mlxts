@@ -29,6 +29,7 @@ import {
   batchGenerationOptions,
   type PreparedGenerationRequest,
 } from "./transformers-engine-generation";
+import type { PromptPrefixCacheIdentity } from "./transformers-engine-prefix-cache";
 import {
   type CompiledPrompt,
   enforceGenerationMemoryBudget,
@@ -44,6 +45,7 @@ import type {
 /** Host-loaded media prompt that can prepare model tensors inside the model lane. */
 export type LoadedContentPrompt = {
   prompt: CompiledPrompt;
+  promptCacheIdentity?: PromptPrefixCacheIdentity;
   preparePrompt(
     context: TransformersContentAdapterModelContext,
   ): PreparedPrompt | Promise<PreparedPrompt>;
@@ -73,6 +75,11 @@ export type TransformersContentAdapter = {
 type LoadedContentGenerationRequest = LoadedContentPrompt & {
   request: NormalizedGenerationRequest;
   startedAt: number;
+};
+
+type DecodedQwenImage = {
+  image: DecodedQwen3_5Image;
+  cacheKey: string;
 };
 
 function rejectUnsupportedContent(message: string): never {
@@ -202,11 +209,40 @@ function imageReadOptions(signal: AbortSignal | undefined): ImageReadOptions {
   return signal === undefined ? {} : { signal };
 }
 
+function hexDigest(bytes: Uint8Array): string {
+  return [...bytes].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+function arrayBufferFromBytes(bytes: Uint8Array): ArrayBuffer {
+  const buffer = new ArrayBuffer(bytes.byteLength);
+  new Uint8Array(buffer).set(bytes);
+  return buffer;
+}
+
+async function sha256Hex(bytes: Uint8Array): Promise<string> {
+  return hexDigest(
+    new Uint8Array(await crypto.subtle.digest("SHA-256", arrayBufferFromBytes(bytes))),
+  );
+}
+
+function preprocessorCacheKey(preprocessor: Qwen3_5VisionPreprocessorConfig): string {
+  return JSON.stringify({
+    size: preprocessor.size,
+    patchSize: preprocessor.patchSize,
+    temporalPatchSize: preprocessor.temporalPatchSize,
+    mergeSize: preprocessor.mergeSize,
+    imageMean: preprocessor.imageMean,
+    imageStd: preprocessor.imageStd,
+    processorClass: preprocessor.processorClass,
+    imageProcessorType: preprocessor.imageProcessorType,
+  });
+}
+
 async function decodeQwenImage(
   part: GenerationContentPart,
   preprocessor: Qwen3_5VisionPreprocessorConfig,
   signal: AbortSignal | undefined,
-): Promise<DecodedQwen3_5Image> {
+): Promise<DecodedQwenImage> {
   if (part.kind !== "image") {
     throw new Error("decodeQwenImage requires an image part.");
   }
@@ -218,7 +254,17 @@ async function decodeQwenImage(
     originalSize.width,
     preprocessor,
   );
-  return decodeResizedImageBytes(bytes, resizedSize, readOptions);
+  const image = await decodeResizedImageBytes(bytes, resizedSize, readOptions);
+  return {
+    image,
+    cacheKey: JSON.stringify({
+      kind: "qwen-image",
+      digest: await sha256Hex(bytes),
+      originalSize,
+      resizedSize,
+      preprocessor: preprocessorCacheKey(preprocessor),
+    }),
+  };
 }
 
 /** Create the first Qwen 3.5/3.6 image-content adapter used by local serving. */
@@ -236,12 +282,16 @@ export function createQwen3_5ImageContentAdapter(
       }
       const prompt = compileQwenContentPrompt(request, context);
       const decodedImages: DecodedQwen3_5Image[] = [];
+      const contentKeys: string[] = [];
       for (const image of images) {
-        decodedImages.push(await decodeQwenImage(image, preprocessor, context.signal));
+        const decoded = await decodeQwenImage(image, preprocessor, context.signal);
+        decodedImages.push(decoded.image);
+        contentKeys.push(decoded.cacheKey);
       }
 
       return {
         prompt,
+        promptCacheIdentity: { contentKeys },
         preparePrompt(modelContext) {
           const preparedImages = prepareQwen3_5ImageBatch(decodedImages, preprocessor);
           try {
@@ -320,6 +370,9 @@ export async function prepareLoadedContentGenerationRequest(
       promptTokens,
       tokenIds: preparedPrompt.tokenIds,
       preparedPrompt,
+      ...(loaded.promptCacheIdentity === undefined
+        ? {}
+        : { promptCacheIdentity: loaded.promptCacheIdentity }),
       batchOptions: batchGenerationOptions(loaded.request, options),
     };
   } catch (error) {

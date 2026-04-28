@@ -158,7 +158,7 @@ export function createTransformersGenerationEngine(
         const loaded = await loadContentGenerationRequest(request, options);
         return await runOnModelLane(lane, options, request, async () => {
           const prepared = await prepareLoadedContentGenerationRequest(loaded, options);
-          return await generateSinglePreparedRequest(prepared, options);
+          return await generateSinglePreparedRequest(prepared, options, promptPrefixCache);
         });
       })();
     }
@@ -207,7 +207,7 @@ export function createTransformersGenerationEngine(
         const release = await acquireModelLane(lane, options, request);
         try {
           const prepared = await prepareLoadedContentGenerationRequest(loaded, options);
-          yield* streamSinglePreparedRequest(prepared, options);
+          yield* streamSinglePreparedRequest(prepared, options, promptPrefixCache);
         } finally {
           release();
         }

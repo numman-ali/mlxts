@@ -137,7 +137,70 @@ type BmpMetadata = {
   bytesPerPixel: number;
   rowStride: number;
   topDown: boolean;
+  masks: BmpChannelMasks | null;
 };
+
+type BmpChannelMasks = {
+  red: BmpChannelMask;
+  green: BmpChannelMask;
+  blue: BmpChannelMask;
+};
+
+type BmpChannelMask = {
+  mask: number;
+  shift: number;
+  max: number;
+};
+
+const BMP_COMPRESSION_RGB = 0;
+const BMP_COMPRESSION_BITFIELDS = 3;
+
+function channelMask(mask: number, context: string): BmpChannelMask {
+  if (mask === 0) {
+    throw new Error(`${context}: expected non-zero BMP color masks.`);
+  }
+  let shift = 0;
+  let shifted = mask >>> 0;
+  while ((shifted & 1) === 0) {
+    shift += 1;
+    shifted >>>= 1;
+  }
+  if ((shifted & (shifted + 1)) !== 0) {
+    throw new Error(`${context}: expected contiguous BMP color masks.`);
+  }
+  return { mask: mask >>> 0, shift, max: shifted };
+}
+
+function readBmpChannelMasks(
+  bytes: Uint8Array,
+  dibHeaderSize: number,
+  pixelOffset: number,
+  bitsPerPixel: number,
+  compression: number,
+  context: string,
+): BmpChannelMasks | null {
+  if (compression === BMP_COMPRESSION_RGB) {
+    return null;
+  }
+  if (compression !== BMP_COMPRESSION_BITFIELDS || bitsPerPixel !== 32 || pixelOffset < 66) {
+    throw new Error(
+      `${context}: expected an uncompressed 24-bit/32-bit BMP or 32-bit bitfields BMP payload.`,
+    );
+  }
+  const minimumPixelOffset = 14 + Math.max(52, dibHeaderSize);
+  if (pixelOffset < minimumPixelOffset) {
+    throw new Error(`${context}: BMP pixel data overlaps bitfield metadata.`);
+  }
+
+  const red = channelMask(readUint32(bytes, 54, context), context);
+  const green = channelMask(readUint32(bytes, 58, context), context);
+  const blue = channelMask(readUint32(bytes, 62, context), context);
+  const overlap = (red.mask & green.mask) | (red.mask & blue.mask) | (green.mask & blue.mask);
+  if (overlap !== 0) {
+    throw new Error(`${context}: expected non-overlapping BMP color masks.`);
+  }
+  return { red, green, blue };
+}
 
 function readBmpMetadata(bytes: Uint8Array, context: string): BmpMetadata {
   if (bytes.length < 54 || bytes[0] !== 0x42 || bytes[1] !== 0x4d) {
@@ -155,8 +218,20 @@ function readBmpMetadata(bytes: Uint8Array, context: string): BmpMetadata {
   const planes = readUint16(bytes, 26, context);
   const bitsPerPixel = readUint16(bytes, 28, context);
   const compression = readUint32(bytes, 30, context);
-  if (planes !== 1 || compression !== 0 || (bitsPerPixel !== 24 && bitsPerPixel !== 32)) {
-    throw new Error(`${context}: expected an uncompressed 24-bit or 32-bit BMP payload.`);
+  const masks = readBmpChannelMasks(
+    bytes,
+    dibHeaderSize,
+    pixelOffset,
+    bitsPerPixel,
+    compression,
+    context,
+  );
+  const isRawRgb =
+    compression === BMP_COMPRESSION_RGB && (bitsPerPixel === 24 || bitsPerPixel === 32);
+  if (planes !== 1 || (!isRawRgb && masks === null)) {
+    throw new Error(
+      `${context}: expected an uncompressed 24-bit/32-bit BMP or 32-bit bitfields BMP payload.`,
+    );
   }
   if (width <= 0 || signedHeight === 0) {
     throw new Error(`${context}: expected positive BMP width/height.`);
@@ -169,14 +244,48 @@ function readBmpMetadata(bytes: Uint8Array, context: string): BmpMetadata {
     throw new Error(`${context}: BMP pixel data is truncated.`);
   }
 
-  return { width, height, pixelOffset, bytesPerPixel, rowStride, topDown: signedHeight < 0 };
+  return {
+    width,
+    height,
+    pixelOffset,
+    bytesPerPixel,
+    rowStride,
+    topDown: signedHeight < 0,
+    masks,
+  };
+}
+
+function readMaskedChannel(word: number, channel: BmpChannelMask): number {
+  const value = (word & channel.mask) >>> channel.shift;
+  if (channel.max === 255) {
+    return value;
+  }
+  return Math.round((value * 255) / channel.max);
+}
+
+function readBmpMaskedRgb(
+  bytes: Uint8Array,
+  pixelOffset: number,
+  masks: BmpChannelMasks,
+  context: string,
+): { red: number; green: number; blue: number } {
+  const word = expectAvailable(bytes, pixelOffset, 4, context).getUint32(pixelOffset, true);
+  return {
+    red: readMaskedChannel(word, masks.red),
+    green: readMaskedChannel(word, masks.green),
+    blue: readMaskedChannel(word, masks.blue),
+  };
 }
 
 function readBmpRgb(
   bytes: Uint8Array,
   pixelOffset: number,
+  metadata: BmpMetadata,
   context: string,
 ): { red: number; green: number; blue: number } {
+  if (metadata.masks !== null) {
+    return readBmpMaskedRgb(bytes, pixelOffset, metadata.masks, context);
+  }
   const blue = bytes[pixelOffset];
   const green = bytes[pixelOffset + 1];
   const red = bytes[pixelOffset + 2];
@@ -194,7 +303,7 @@ function decodeBmpPixels(bytes: Uint8Array, metadata: BmpMetadata, context: stri
     const rowOffset = metadata.pixelOffset + sourceRow * metadata.rowStride;
     for (let column = 0; column < metadata.width; column += 1) {
       const pixelOffset = rowOffset + column * metadata.bytesPerPixel;
-      const pixel = readBmpRgb(bytes, pixelOffset, context);
+      const pixel = readBmpRgb(bytes, pixelOffset, metadata, context);
       data[cursor] = pixel.red;
       data[cursor + 1] = pixel.green;
       data[cursor + 2] = pixel.blue;

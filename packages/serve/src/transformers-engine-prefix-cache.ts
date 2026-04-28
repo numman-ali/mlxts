@@ -21,9 +21,16 @@ export type PromptPrefixCacheUsage = {
   writeTokens: number;
 };
 
+/** Non-token prompt identity required for safe multimodal prefix-cache reuse. */
+export type PromptPrefixCacheIdentity = {
+  /** Ordered non-token prompt inputs that affect the cached decoder state. */
+  contentKeys: readonly string[];
+};
+
 type PromptPrefixCacheSessionOptions = {
   promptCache?: PromptPrefixCache;
   tokenIds: readonly number[];
+  identity?: PromptPrefixCacheIdentity;
   enabled: boolean;
   onEvent?: (result: "hit" | "miss" | "write", usage: PromptPrefixCacheUsage) => void;
 };
@@ -35,12 +42,14 @@ type PromptPrefixGenerationOptions = Pick<
 
 export type PromptPrefixCacheSession = Disposable & {
   tokenIdsForGeneration(): readonly number[];
+  cachedPrefixLength(): number;
   generationOptions(): PromptPrefixGenerationOptions;
   usage(): PromptPrefixCacheUsage;
 };
 
 type PromptPrefixCacheEntry = {
   tokenIds: number[];
+  identity?: PromptPrefixCacheIdentity;
   snapshot: TransformerCacheSnapshot;
   lastUsed: number;
 };
@@ -54,6 +63,40 @@ function commonPrefixLength(left: readonly number[], right: readonly number[]): 
     index += 1;
   }
   return index;
+}
+
+function cloneIdentity(identity: PromptPrefixCacheIdentity): PromptPrefixCacheIdentity {
+  return { contentKeys: [...identity.contentKeys] };
+}
+
+function contentKeysMatchPrefix(
+  entryKeys: readonly string[],
+  requestedKeys: readonly string[],
+): boolean {
+  if (entryKeys.length > requestedKeys.length) {
+    return false;
+  }
+  for (let index = 0; index < entryKeys.length; index += 1) {
+    if (entryKeys[index] !== requestedKeys[index]) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function identitiesCompatible(
+  entry: PromptPrefixCacheEntry,
+  requestedIdentity: PromptPrefixCacheIdentity | undefined,
+  sharedTokens: number,
+): boolean {
+  if (entry.identity === undefined || requestedIdentity === undefined) {
+    return entry.identity === undefined && requestedIdentity === undefined;
+  }
+
+  return (
+    sharedTokens === entry.tokenIds.length &&
+    contentKeysMatchPrefix(entry.identity.contentKeys, requestedIdentity.contentKeys)
+  );
 }
 
 function disposeEntry(entry: PromptPrefixCacheEntry): void {
@@ -83,7 +126,10 @@ export class PromptPrefixCache implements Disposable {
   }
 
   /** Return the longest reusable prefix cache fork for the provided prompt tokens. */
-  lookup(tokenIds: readonly number[]): PromptPrefixCacheHit | null {
+  lookup(
+    tokenIds: readonly number[],
+    identity?: PromptPrefixCacheIdentity,
+  ): PromptPrefixCacheHit | null {
     if (this.#entries.length === 0 || tokenIds.length <= 1) {
       return null;
     }
@@ -97,7 +143,11 @@ export class PromptPrefixCache implements Disposable {
         commonPrefixLength(entry.tokenIds, tokenIds),
         maxReusableTokens,
       );
-      if (sharedTokens <= bestReadTokens || !entry.snapshot.canFork({ offset: sharedTokens })) {
+      if (
+        sharedTokens <= bestReadTokens ||
+        !identitiesCompatible(entry, identity, sharedTokens) ||
+        !entry.snapshot.canFork({ offset: sharedTokens })
+      ) {
         continue;
       }
       bestEntry = entry;
@@ -114,7 +164,11 @@ export class PromptPrefixCache implements Disposable {
   }
 
   /** Store an owned prompt-boundary snapshot, disposing it if it cannot be retained. */
-  store(tokenIds: readonly number[], snapshot: TransformerCacheSnapshot): number {
+  store(
+    tokenIds: readonly number[],
+    snapshot: TransformerCacheSnapshot,
+    identity?: PromptPrefixCacheIdentity,
+  ): number {
     if (this.#maxEntries === 0 || snapshot.offset <= 0) {
       snapshot[Symbol.dispose]();
       return 0;
@@ -128,6 +182,7 @@ export class PromptPrefixCache implements Disposable {
 
     const entry: PromptPrefixCacheEntry = {
       tokenIds: tokenIds.slice(0, snapshot.offset),
+      ...(identity === undefined ? {} : { identity: cloneIdentity(identity) }),
       snapshot,
       lastUsed: ++this.#clock,
     };
@@ -172,6 +227,10 @@ class DisabledPromptPrefixCacheSession implements PromptPrefixCacheSession {
     return this.#tokenIds;
   }
 
+  cachedPrefixLength(): number {
+    return 0;
+  }
+
   generationOptions(): PromptPrefixGenerationOptions {
     return {};
   }
@@ -186,6 +245,7 @@ class DisabledPromptPrefixCacheSession implements PromptPrefixCacheSession {
 class ActivePromptPrefixCacheSession implements PromptPrefixCacheSession {
   readonly #promptCache: PromptPrefixCache;
   readonly #tokenIds: readonly number[];
+  readonly #identity: PromptPrefixCacheIdentity | undefined;
   readonly #cache: TransformerCache | null;
   readonly #readTokens: number;
   #writeTokens = 0;
@@ -197,6 +257,7 @@ class ActivePromptPrefixCacheSession implements PromptPrefixCacheSession {
     }
     this.#promptCache = options.promptCache;
     this.#tokenIds = options.tokenIds;
+    this.#identity = options.identity === undefined ? undefined : cloneIdentity(options.identity);
     this.#cache = hit?.cache ?? null;
     this.#readTokens = hit?.readTokens ?? 0;
     this.#onEvent = options.onEvent;
@@ -206,13 +267,21 @@ class ActivePromptPrefixCacheSession implements PromptPrefixCacheSession {
     return this.#readTokens > 0 ? this.#tokenIds.slice(this.#readTokens) : this.#tokenIds;
   }
 
+  cachedPrefixLength(): number {
+    return this.#readTokens;
+  }
+
   generationOptions(): PromptPrefixGenerationOptions {
     return {
       ...(this.#cache === null
         ? {}
         : { cache: this.#cache, samplerHistoryTokenIds: this.#tokenIds }),
       onPromptCacheSnapshot: (event: PromptCacheSnapshotEvent) => {
-        const storedTokens = this.#promptCache.store(this.#tokenIds, event.snapshot);
+        const storedTokens = this.#promptCache.store(
+          this.#tokenIds,
+          event.snapshot,
+          this.#identity,
+        );
         this.#writeTokens = Math.max(0, storedTokens - this.#readTokens);
         this.#onEvent?.("write", this.usage());
       },
@@ -235,7 +304,7 @@ export function createPromptPrefixCacheSession(
     return new DisabledPromptPrefixCacheSession(options.tokenIds);
   }
 
-  const hit = options.promptCache.lookup(options.tokenIds);
+  const hit = options.promptCache.lookup(options.tokenIds, options.identity);
   if (hit === null) {
     options.onEvent?.("miss", { readTokens: 0, writeTokens: 0 });
     return new ActivePromptPrefixCacheSession(options, null);

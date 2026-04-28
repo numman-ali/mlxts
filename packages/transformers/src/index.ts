@@ -78,6 +78,7 @@ export {
   type ResolveLoRATargetsOptions,
   resolveLoRATargets,
 } from "./lora-targets";
+export { disposePreparedPrompt, slicePreparedPrompt } from "./prepared-prompt";
 export type { QuantizedSnapshotResult, QuantizePretrainedSnapshotOptions } from "./quantize";
 export { quantizePretrainedSnapshot } from "./quantize";
 export { FAMILY_REGISTRY, resolveFamily } from "./registry";

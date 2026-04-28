@@ -253,20 +253,37 @@ export class Qwen3_5ForConditionalGeneration extends Module implements CausalLM 
       options?.positionIds,
       "Qwen3_5ForConditionalGeneration.forward",
     );
+    if (positionIds !== null) {
+      const logicalLength = (cache?.offset ?? 0) + sequenceLength;
+      const deltas = ropeDeltas(positionIds, logicalLength);
+      this.#ropeDeltas = deltas;
+      if (cache instanceof Qwen3_5TextCache) {
+        cache.setRopeDeltas(deltas);
+      }
+      return positionIds;
+    }
+
     if (cache === undefined || cache.isEmpty()) {
-      this.#ropeDeltas = positionIds === null ? null : ropeDeltas(positionIds, sequenceLength);
-      return positionIds;
+      this.#ropeDeltas = null;
+      if (cache instanceof Qwen3_5TextCache) {
+        cache.setRopeDeltas(null);
+      }
+      return null;
     }
-    if (positionIds !== null || this.#ropeDeltas === null) {
-      return positionIds;
+
+    const cachedDeltas = cache instanceof Qwen3_5TextCache ? cache.ropeDeltas() : this.#ropeDeltas;
+    if (cachedDeltas === null) {
+      this.#ropeDeltas = null;
+      return null;
     }
-    if (this.#ropeDeltas.length !== batchSize) {
+    this.#ropeDeltas = [...cachedDeltas];
+    if (cachedDeltas.length !== batchSize) {
       throw new Error(
-        `Qwen3_5ForConditionalGeneration.forward: cached rope deltas for batch size ${this.#ropeDeltas.length} cannot be reused for batch size ${batchSize}.`,
+        `Qwen3_5ForConditionalGeneration.forward: cached rope deltas for batch size ${cachedDeltas.length} cannot be reused for batch size ${batchSize}.`,
       );
     }
     return createShiftedQwen3_5PositionIds(
-      this.#ropeDeltas.map((delta) => cache.offset + delta),
+      cachedDeltas.map((delta) => cache.offset + delta),
       sequenceLength,
     );
   }

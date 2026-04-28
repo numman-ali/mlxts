@@ -72,6 +72,10 @@ function cloneOptionalState(state: MxArray | null): MxArray | null {
   return state === null ? null : cloneCacheArray(state);
 }
 
+function cloneRopeDeltas(deltas: readonly number[] | null): number[] | null {
+  return deltas === null ? null : [...deltas];
+}
+
 function fullSnapshotLength(keys: MxArray): number {
   const length = keys.shape[2];
   if (length === undefined) {
@@ -176,16 +180,19 @@ class Qwen3_5TextCacheSnapshot implements TransformerCacheSnapshot {
   readonly trimmable: boolean;
   readonly #layerTypes: Qwen3_5LayerType[];
   readonly #layers: LayerCacheSnapshot[];
+  readonly #ropeDeltas: number[] | null;
   #disposed = false;
 
   constructor(options: {
     offset: number;
     layerTypes: Qwen3_5LayerType[];
     layers: LayerCacheSnapshot[];
+    ropeDeltas: readonly number[] | null;
   }) {
     this.offset = options.offset;
     this.#layerTypes = options.layerTypes;
     this.#layers = options.layers;
+    this.#ropeDeltas = cloneRopeDeltas(options.ropeDeltas);
     this.trimmable = options.layerTypes.every((layerType) => layerType === "full_attention");
   }
 
@@ -210,6 +217,7 @@ class Qwen3_5TextCacheSnapshot implements TransformerCacheSnapshot {
 
     const cache = new Qwen3_5TextCache(this.#layerTypes);
     try {
+      cache.setRopeDeltas(this.#ropeDeltas);
       for (let layerIndex = 0; layerIndex < this.#layers.length; layerIndex += 1) {
         const layer = this.#layers[layerIndex];
         if (layer === undefined) {
@@ -280,6 +288,7 @@ class Qwen3_5TextCacheSnapshot implements TransformerCacheSnapshot {
 export class Qwen3_5TextCache implements TransformerCache {
   offset = 0;
   #layers: LayerCacheState[];
+  #ropeDeltas: number[] | null = null;
 
   constructor(layerTypes: readonly Qwen3_5LayerType[]) {
     if (layerTypes.length === 0) {
@@ -313,6 +322,16 @@ export class Qwen3_5TextCache implements TransformerCache {
     return this.#layers.every((layer) => layer.type === "full_attention");
   }
 
+  /** Store request-local multimodal position deltas used after cached decode. */
+  setRopeDeltas(deltas: readonly number[] | null): void {
+    this.#ropeDeltas = cloneRopeDeltas(deltas);
+  }
+
+  /** Return request-local multimodal position deltas, if this cache owns them. */
+  ropeDeltas(): readonly number[] | null {
+    return this.#ropeDeltas;
+  }
+
   snapshot(): TransformerCacheSnapshot {
     const snapshots: LayerCacheSnapshot[] = [];
     try {
@@ -327,6 +346,7 @@ export class Qwen3_5TextCache implements TransformerCache {
         offset: this.offset,
         layerTypes: this.#layers.map((layer) => layer.type),
         layers: snapshots,
+        ropeDeltas: this.#ropeDeltas,
       });
     } catch (error) {
       disposeLayerCacheSnapshots(snapshots);

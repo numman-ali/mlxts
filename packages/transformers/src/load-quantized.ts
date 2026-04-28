@@ -2,6 +2,7 @@ import { dequantize, inspectSafetensors, type MxArray } from "@mlxts/core";
 import { Module } from "@mlxts/nn";
 import {
   type QuantizedCheckpointPlan,
+  type QuantizedCheckpointRule,
   resolveCheckpointQuantizationPlan,
   resolveQuantizationParameters,
   setupQuantizedModule,
@@ -60,10 +61,20 @@ function realizedCheckpointQuantizationPlan(
     return plan;
   }
 
-  const translatedRules = quantizedCheckpointPaths.flatMap((checkpointPath) => {
-    const translatedPath = translateCheckpointPath(checkpointPath);
-    return translatedPath === null ? [] : [{ path: translatedPath, enabled: true as const }];
-  });
+  const configuredRules = planRuleMap(plan);
+  const translatedRules = quantizedCheckpointPaths.flatMap(
+    (checkpointPath): QuantizedCheckpointRule[] => {
+      const translatedPath = translateCheckpointPath(checkpointPath);
+      if (translatedPath === null) {
+        return [];
+      }
+
+      const configuredRule = configuredRules.get(translatedPath);
+      return configuredRule?.params === undefined
+        ? [{ path: translatedPath, enabled: true }]
+        : [{ path: translatedPath, enabled: true, params: configuredRule.params }];
+    },
+  );
 
   return {
     ...plan,

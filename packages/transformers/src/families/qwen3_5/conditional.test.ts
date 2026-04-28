@@ -219,6 +219,30 @@ describe("Qwen3_5ForConditionalGeneration", () => {
         [[3], [8]],
         [[3], [8]],
       ]);
+
+      capturedPositionIds.length = 0;
+      using cacheForSnapshot = model.createCache();
+      using snapshotInputIds = array([[1, 2, 3]], "int32");
+      using snapshotPositionIds = array([[[0, 1, 2]], [[0, 1, 2]], [[0, 1, 2]]], "int32");
+      using snapshotLogits = model.forward(snapshotInputIds, {
+        cache: cacheForSnapshot,
+        positionIds: snapshotPositionIds,
+      });
+      void snapshotLogits;
+      using snapshot = cacheForSnapshot.snapshot();
+      using forkedCache = snapshot.fork();
+      using staleCache = model.createCache();
+      using stalePositionIds = array([[[10, 11, 12]], [[10, 11, 12]], [[10, 11, 12]]], "int32");
+      using staleLogits = model.forward(snapshotInputIds, {
+        cache: staleCache,
+        positionIds: stalePositionIds,
+      });
+      using nextInputIds = array([[8]], "int32");
+      using forkedLogits = model.forward(nextInputIds, { cache: forkedCache });
+      void staleLogits;
+      void forkedLogits;
+
+      expect(capturedPositionIds[2]).toEqual([[[3]], [[3]], [[3]]]);
     } finally {
       model.model.run = originalRun;
     }

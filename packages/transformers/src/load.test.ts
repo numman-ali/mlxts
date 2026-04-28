@@ -4,6 +4,7 @@ import {
   inspectSafetensors,
   MxArray,
   mxEval,
+  type QuantizationMode,
   quantize,
   retainArray,
   saveSafetensors,
@@ -323,6 +324,7 @@ function castCheckpointTensors(
 function quantizeCheckpointTensors(
   tensors: Record<string, MxArray>,
   targets: readonly string[],
+  options: { groupSize?: number; bits?: number; mode?: QuantizationMode } = {},
 ): Record<string, MxArray> {
   const targetWeights = new Set(targets.map((target) => `${target}.weight`));
   const rewritten: Record<string, MxArray> = {};
@@ -334,9 +336,9 @@ function quantizeCheckpointTensors(
     }
 
     const quantizedTensor = quantize(tensor, {
-      groupSize: 64,
-      bits: 4,
-      mode: "affine",
+      groupSize: options.groupSize ?? 64,
+      bits: options.bits ?? 4,
+      mode: options.mode ?? "affine",
     });
     rewritten[name] = quantizedTensor.weight;
     rewritten[`${name.slice(0, -".weight".length)}.scales`] = quantizedTensor.scales;
@@ -1163,6 +1165,14 @@ function wrapperQwen3_5TextTensors(tensors: Record<string, MxArray>): Record<str
   return converted;
 }
 
+function wrapperLanguageModelTensors(tensors: Record<string, MxArray>): Record<string, MxArray> {
+  const converted: Record<string, MxArray> = {};
+  for (const [name, tensor] of Object.entries(tensors)) {
+    converted[`language_model.${name}`] = retainArray(tensor);
+  }
+  return converted;
+}
+
 function checkpointTensorsForQwen3_5Conditional(
   model: Qwen3_5ForConditionalGeneration,
 ): Record<string, MxArray> {
@@ -1884,6 +1894,92 @@ describe("pretrained loading", () => {
       throw new Error("Expected split Gemma 4 MoE experts after quantized preparation.");
     }
     expect(experts.gateProjection.weight.dtype).toBe("uint32");
+
+    using inputIds = array([[0, 1, 2]], "int32");
+    using logits = loadedModel.forward(inputIds);
+    expect(logits.shape).toEqual([1, 3, 7]);
+  });
+
+  test("loadCausalLM preserves mixed per-path quantization for Gemma 4 wrapper checkpoints", async () => {
+    const directory = createTempDir("mlxts-transformers-gemma4-moe-mixed-quant-");
+    const eightBitTargets = [
+      "language_model.model.layers.0.mlp.gate_proj",
+      "language_model.model.layers.0.mlp.up_proj",
+      "language_model.model.layers.0.mlp.down_proj",
+      "language_model.model.layers.0.router.proj",
+    ];
+    const fourBitTargets = [
+      "language_model.model.layers.0.experts.switch_glu.gate_proj",
+      "language_model.model.layers.0.experts.switch_glu.up_proj",
+      "language_model.model.layers.0.experts.switch_glu.down_proj",
+    ];
+    const rawConfig = {
+      model_type: "gemma4",
+      text_config: rawConfigForGemma4MoeText(),
+      quantization_config: {
+        group_size: 64,
+        bits: 4,
+        mode: "affine",
+        ...Object.fromEntries(eightBitTargets.map((target) => [target, { bits: 8 }])),
+      },
+    };
+    const registration = resolveFamily("gemma4");
+    using model = registration.createModel(registration.parseConfig(rawConfig));
+    if (!(model instanceof Gemma4TextCausalLM)) {
+      throw new Error("Expected a Gemma4TextCausalLM for the Gemma 4 wrapper fixture.");
+    }
+
+    const baseTensors = checkpointTensorsForGemma4Text(model);
+    const splitTensors = gemma4SplitMoeCheckpointTensors(baseTensors);
+    const wrapperTensors = wrapperLanguageModelTensors(splitTensors);
+    const fourBitTensors = quantizeCheckpointTensors(wrapperTensors, fourBitTargets);
+    const quantizedTensors = quantizeCheckpointTensors(fourBitTensors, eightBitTargets, {
+      bits: 8,
+    });
+    try {
+      await Bun.write(join(directory, "config.json"), `${JSON.stringify(rawConfig, null, 2)}\n`);
+      await writeTokenizerFixture(directory);
+      await saveSafetensors(quantizedTensors, join(directory, "model.safetensors"));
+    } finally {
+      freeTensorRecords(
+        baseTensors,
+        splitTensors,
+        wrapperTensors,
+        fourBitTensors,
+        quantizedTensors,
+      );
+    }
+
+    using loadedModel = await loadCausalLM(directory);
+    if (!(loadedModel instanceof Gemma4TextCausalLM)) {
+      throw new Error("Expected loadCausalLM to return a Gemma4TextCausalLM.");
+    }
+    const layer = loadedModel.model.layers[0];
+    if (layer === undefined) {
+      throw new Error("Expected the loaded Gemma 4 fixture to own a decoder layer.");
+    }
+
+    expect(layer.mlp.gateProjection).toBeInstanceOf(QuantizedLinear);
+    expect(layer.mlp.upProjection).toBeInstanceOf(QuantizedLinear);
+    expect(layer.mlp.downProjection).toBeInstanceOf(QuantizedLinear);
+    if (!(layer.mlp.downProjection instanceof QuantizedLinear)) {
+      throw new Error("Expected the dense Gemma 4 MLP down projection to remain quantized.");
+    }
+    expect(layer.mlp.downProjection.bits).toBe(8);
+    expect(layer.mlp.downProjection.weight.shape).toEqual([64, 32]);
+
+    expect(layer.router?.proj).toBeInstanceOf(QuantizedLinear);
+    if (!(layer.router?.proj instanceof QuantizedLinear)) {
+      throw new Error("Expected the Gemma 4 router projection to remain quantized.");
+    }
+    expect(layer.router.proj.bits).toBe(8);
+
+    const experts = firstGemma4Experts(loadedModel);
+    expect(experts).toBeInstanceOf(SwitchGLUExperts);
+    if (!(experts instanceof SwitchGLUExperts)) {
+      throw new Error("Expected split Gemma 4 experts after quantized preparation.");
+    }
+    expect(experts.downProjection.weight.shape).toEqual([2, 64, 8]);
 
     using inputIds = array([[0, 1, 2]], "int32");
     using logits = loadedModel.forward(inputIds);

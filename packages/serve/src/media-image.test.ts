@@ -66,6 +66,73 @@ function bmpBytes(width: number, height: number, pixels: readonly number[]): Uin
   return new Uint8Array([...header, ...pixelBytes]);
 }
 
+function bmpBitfieldBytes(width: number, height: number, pixels: readonly number[]): Uint8Array {
+  const bytesPerPixel = 4;
+  const rowStride = width * bytesPerPixel;
+  const pixelArraySize = rowStride * height;
+  const dibHeaderSize = 124;
+  const pixelOffset = 14 + dibHeaderSize;
+  const fileSize = pixelOffset + pixelArraySize;
+  const dibHeader = [
+    ...uint32le(dibHeaderSize),
+    ...int32le(width),
+    ...int32le(-height),
+    ...uint16le(1),
+    ...uint16le(32),
+    ...uint32le(3),
+    ...uint32le(pixelArraySize),
+    ...uint32le(0),
+    ...uint32le(0),
+    ...uint32le(0),
+    ...uint32le(0),
+    ...uint32le(0x00ff0000),
+    ...uint32le(0x0000ff00),
+    ...uint32le(0x000000ff),
+    ...uint32le(0xff000000),
+    ...uint32le(0x73524742),
+  ];
+  while (dibHeader.length < dibHeaderSize) {
+    dibHeader.push(0);
+  }
+
+  const header = [
+    0x42,
+    0x4d,
+    ...uint32le(fileSize),
+    0,
+    0,
+    0,
+    0,
+    ...uint32le(pixelOffset),
+    ...dibHeader,
+  ];
+
+  const pixelBytes: number[] = [];
+  for (let row = 0; row < height; row += 1) {
+    for (let column = 0; column < width; column += 1) {
+      const index = (row * width + column) * 3;
+      const red = pixels[index];
+      const green = pixels[index + 1];
+      const blue = pixels[index + 2];
+      if (red === undefined || green === undefined || blue === undefined) {
+        throw new Error("bmpBitfieldBytes: missing RGB pixel data.");
+      }
+      pixelBytes.push(blue, green, red, 255);
+    }
+  }
+
+  return new Uint8Array([...header, ...pixelBytes]);
+}
+
+function base64Bytes(value: string): Uint8Array {
+  const binary = atob(value);
+  const bytes = new Uint8Array(binary.length);
+  for (let index = 0; index < binary.length; index += 1) {
+    bytes[index] = binary.charCodeAt(index);
+  }
+  return bytes;
+}
+
 describe("media image helpers", () => {
   test("parses 24-bit BMP payloads into RGB bytes", () => {
     const image = parseBmp(bmpBytes(2, 1, [255, 0, 0, 0, 255, 0]));
@@ -89,6 +156,15 @@ describe("media image helpers", () => {
     expect(Array.from(image.data)).toEqual([0, 255, 0, 255, 0, 0]);
   });
 
+  test("parses 32-bit bitfield BMP payloads into RGB bytes", () => {
+    const image = parseBmp(bmpBitfieldBytes(2, 1, [255, 0, 0, 0, 255, 0]));
+
+    expect(image.width).toBe(2);
+    expect(image.height).toBe(1);
+    expect(image.channels).toBe(3);
+    expect(Array.from(image.data)).toEqual([255, 0, 0, 0, 255, 0]);
+  });
+
   test("rejects malformed BMP metadata", () => {
     expect(() => parseBmp(new Uint8Array([0x50, 0x36]))).toThrow("expected a BMP payload");
     const unsupportedHeader = bmpBytes(1, 1, [255, 0, 0]);
@@ -97,6 +173,12 @@ describe("media image helpers", () => {
     const compressed = bmpBytes(1, 1, [255, 0, 0]);
     compressed[30] = 1;
     expect(() => parseBmp(compressed)).toThrow("expected an uncompressed");
+    const nonContiguousMask = bmpBitfieldBytes(1, 1, [255, 0, 0]);
+    nonContiguousMask.set(uint32le(0x00f000f0), 54);
+    expect(() => parseBmp(nonContiguousMask)).toThrow("expected contiguous BMP color masks");
+    const overlappingHeader = bmpBitfieldBytes(1, 1, [255, 0, 0]);
+    overlappingHeader.set(uint32le(66), 10);
+    expect(() => parseBmp(overlappingHeader)).toThrow("BMP pixel data overlaps bitfield metadata");
     const invalidSize = bmpBytes(1, 1, [255, 0, 0]);
     invalidSize[18] = 0;
     expect(() => parseBmp(invalidSize)).toThrow("expected positive BMP width");
@@ -178,5 +260,25 @@ describe("media image helpers", () => {
     expect(resized.height).toBe(1);
     expect(resized.channels).toBe(3);
     expect(resized.data.length).toBe(3);
+  });
+
+  test("reads and resizes PNG bytes through the platform decoder", async () => {
+    const redRgbPng = base64Bytes(
+      "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAAAXNSR0IArs4c6QAAAERlWElmTU0AKgAAAAgAAYdpAAQAAAABAAAAGgAAAAAAA6ABAAMAAAABAAEAAKACAAQAAAABAAAAAaADAAQAAAABAAAAAQAAAAD5Ip3+AAAADElEQVQIHWP4z8AAAAMBAQBb2/lEAAAAAElFTkSuQmCC",
+    );
+    const redRgbaPng = base64Bytes(
+      "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DQAAAEgQGALFXOsAAAAABJRU5ErkJggg==",
+    );
+
+    const size = await readImageBytesSize(redRgbPng);
+    const resized = await decodeResizedImageBytes(redRgbPng, { width: 1, height: 1 });
+    const rgbaResized = await decodeResizedImageBytes(redRgbaPng, { width: 1, height: 1 });
+
+    expect(size).toEqual({ width: 1, height: 1 });
+    expect(resized.width).toBe(1);
+    expect(resized.height).toBe(1);
+    expect(resized.channels).toBe(3);
+    expect(Array.from(resized.data)).toEqual([255, 0, 0]);
+    expect(Array.from(rgbaResized.data)).toEqual([255, 0, 0]);
   });
 });

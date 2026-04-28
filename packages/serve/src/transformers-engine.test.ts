@@ -613,6 +613,100 @@ describe("transformers generation engine", () => {
     });
   });
 
+  test("reuses media prompt prefixes only when media identity matches", async () => {
+    using model = new PreparedPromptModel();
+    const tokenizer = new TinyTokenizer();
+    const events: ServeEvent[] = [];
+    const engine = createTransformersGenerationEngine({
+      model,
+      tokenizer,
+      contentAdapter: {
+        async load(request) {
+          if (request.input.kind !== "content") {
+            throw new Error("Expected content input.");
+          }
+          const source = request.input.messages[0]?.content[1];
+          const imageKey =
+            source?.kind === "image" && source.source.kind === "data"
+              ? source.source.data
+              : "missing";
+          return {
+            prompt: { text: "user:<image>", tokenIds: [0, 1, 2, 3] },
+            promptCacheIdentity: { contentKeys: [`image:${imageKey}`] },
+            preparePrompt() {
+              return {
+                tokenIds: [0, 1, 2, 3],
+                inputEmbeddings: array([[[0], [1], [2], [3]]], "float32"),
+                positionIds: array([[0, 1, 2, 3]], "int32"),
+              };
+            },
+          };
+        },
+      },
+      onEvent(event) {
+        events.push(event);
+      },
+    });
+    const request = (id: string, imageData: string): NormalizedGenerationRequest => ({
+      id,
+      model: "tiny",
+      input: {
+        kind: "content",
+        messages: [
+          {
+            role: "user",
+            content: [
+              { kind: "text", text: "Describe this." },
+              {
+                kind: "image",
+                source: { kind: "data", mediaType: "image/png", data: imageData },
+              },
+            ],
+          },
+        ],
+      },
+      sampling: { maxTokens: 1, temperature: 0 },
+      stream: false,
+      protocol: "openai.chat_completions",
+    });
+
+    const first = await engine.generate(request("first", "AA=="));
+    model.forwardSequenceLengths.length = 0;
+    model.forwardedInputEmbeddingShapes.length = 0;
+    model.forwardedPositionIdShapes.length = 0;
+    events.length = 0;
+    const second = await engine.generate(request("second", "AA=="));
+    expect(model.forwardSequenceLengths).toEqual([1]);
+    expect(model.forwardedInputEmbeddingShapes).toEqual([[1, 1, 1]]);
+    expect(model.forwardedPositionIdShapes).toEqual([[1, 1]]);
+    model.forwardSequenceLengths.length = 0;
+    model.forwardedInputEmbeddingShapes.length = 0;
+    model.forwardedPositionIdShapes.length = 0;
+    events.length = 0;
+    const third = await engine.generate(request("third", "AQ=="));
+
+    expect(first.usage).toMatchObject({ cacheReadTokens: 0, cacheWriteTokens: 3 });
+    expect(second.usage).toEqual({
+      promptTokens: 4,
+      completionTokens: 1,
+      totalTokens: 5,
+      cacheReadTokens: 3,
+      cacheWriteTokens: 0,
+    });
+    expect(model.forwardSequenceLengths).toEqual([3, 1]);
+    expect(third.usage).toMatchObject({ cacheReadTokens: 0, cacheWriteTokens: 3 });
+    expect(events).toContainEqual({
+      type: "generation_prompt_cache",
+      id: "third",
+      protocol: "openai.chat_completions",
+      model: "tiny",
+      result: "miss",
+      promptTokens: 4,
+      cacheReadTokens: 0,
+      cacheWriteTokens: 0,
+    });
+  });
+
   test("streams media content through prepared prompt tensors", async () => {
     using model = new PreparedPromptModel();
     const tokenizer = new TinyTokenizer();
