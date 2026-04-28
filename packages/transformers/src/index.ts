@@ -80,6 +80,7 @@ export {
   resolveLoRATargets,
 } from "./lora/targets";
 export { disposePreparedPrompt, slicePreparedPrompt } from "./prepared-prompt";
+export { createProgressReporter } from "./pretrained/progress";
 export type { QuantizedSnapshotResult, QuantizePretrainedSnapshotOptions } from "./quantize";
 export { quantizePretrainedSnapshot } from "./quantize";
 export { FAMILY_REGISTRY, resolveFamily } from "./registry";
