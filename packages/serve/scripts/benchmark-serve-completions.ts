@@ -9,6 +9,10 @@ type CompletionUsage = {
   prompt_tokens?: number;
   completion_tokens?: number;
   total_tokens?: number;
+  prompt_tokens_details?: {
+    cached_tokens?: number;
+    cache_write_tokens?: number;
+  };
 };
 
 type CompletionChoice = {
@@ -36,6 +40,10 @@ type ResponseApiUsage = {
   input_tokens?: number;
   output_tokens?: number;
   total_tokens?: number;
+  input_tokens_details?: {
+    cached_tokens?: number;
+    cache_write_tokens?: number;
+  };
 };
 
 type ResponseApiBody = {
@@ -50,6 +58,16 @@ type ResponseApiBody = {
 type AnthropicUsage = {
   input_tokens?: number;
   output_tokens?: number;
+};
+
+type NormalizedCompletionUsage = {
+  prompt_tokens: number;
+  completion_tokens: number;
+  total_tokens: number;
+  prompt_tokens_details: {
+    cached_tokens: number;
+    cache_write_tokens: number;
+  };
 };
 
 type AnthropicMessageBody = {
@@ -82,6 +100,8 @@ export type RequestMetrics = {
   promptTokens: number;
   completionTokens: number;
   totalTokens: number;
+  cacheReadTokens: number;
+  cacheWriteTokens: number;
   finishReason: string;
   streamChunks: number;
   streamBytes: number;
@@ -229,25 +249,33 @@ function completionFinishReason(body: {
   return choice?.finish_reason ?? "unknown";
 }
 
-function completionUsage(body: { usage?: CompletionUsage | null }): Required<CompletionUsage> {
+function completionUsage(body: { usage?: CompletionUsage | null }): NormalizedCompletionUsage {
   const usage = body.usage ?? {};
   return {
     prompt_tokens: usage.prompt_tokens ?? 0,
     completion_tokens: usage.completion_tokens ?? 0,
     total_tokens: usage.total_tokens ?? 0,
+    prompt_tokens_details: {
+      cached_tokens: usage.prompt_tokens_details?.cached_tokens ?? 0,
+      cache_write_tokens: usage.prompt_tokens_details?.cache_write_tokens ?? 0,
+    },
   };
 }
 
-function responsesUsage(body: ResponseApiBody): Required<CompletionUsage> {
+function responsesUsage(body: ResponseApiBody): NormalizedCompletionUsage {
   const usage = body.usage ?? {};
   return {
     prompt_tokens: usage.input_tokens ?? 0,
     completion_tokens: usage.output_tokens ?? 0,
     total_tokens: usage.total_tokens ?? 0,
+    prompt_tokens_details: {
+      cached_tokens: usage.input_tokens_details?.cached_tokens ?? 0,
+      cache_write_tokens: usage.input_tokens_details?.cache_write_tokens ?? 0,
+    },
   };
 }
 
-function anthropicUsage(body: AnthropicMessageBody): Required<CompletionUsage> {
+function anthropicUsage(body: AnthropicMessageBody): NormalizedCompletionUsage {
   const usage = body.usage ?? {};
   const promptTokens = usage.input_tokens ?? 0;
   const completionTokens = usage.output_tokens ?? 0;
@@ -255,6 +283,7 @@ function anthropicUsage(body: AnthropicMessageBody): Required<CompletionUsage> {
     prompt_tokens: promptTokens,
     completion_tokens: completionTokens,
     total_tokens: promptTokens + completionTokens,
+    prompt_tokens_details: { cached_tokens: 0, cache_write_tokens: 0 },
   };
 }
 
@@ -357,6 +386,8 @@ async function runBufferedCompletionRequest(
     promptTokens: usage.prompt_tokens,
     completionTokens: usage.completion_tokens,
     totalTokens: usage.total_tokens,
+    cacheReadTokens: usage.prompt_tokens_details.cached_tokens,
+    cacheWriteTokens: usage.prompt_tokens_details.cache_write_tokens,
     finishReason: responseFinishReason(body),
     streamChunks: 0,
     streamBytes: 0,
@@ -384,7 +415,7 @@ function consumeSseFrames(buffer: string, onFrame: (frame: string) => void): { r
 
 type StreamingCompletionMetrics = {
   ttftMs: number | null;
-  usage: Required<CompletionUsage>;
+  usage: NormalizedCompletionUsage;
   finishReason: string;
   streamChunks: number;
   streamChunkTimesMs: number[];
@@ -394,7 +425,12 @@ type StreamingCompletionMetrics = {
 function initialStreamingCompletionMetrics(): StreamingCompletionMetrics {
   return {
     ttftMs: null,
-    usage: { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 },
+    usage: {
+      prompt_tokens: 0,
+      completion_tokens: 0,
+      total_tokens: 0,
+      prompt_tokens_details: { cached_tokens: 0, cache_write_tokens: 0 },
+    },
     finishReason: "unknown",
     streamChunks: 0,
     streamChunkTimesMs: [],
@@ -419,15 +455,16 @@ function retainResponseId(
 }
 
 function mergeAnthropicUsage(
-  previous: Required<CompletionUsage>,
+  previous: NormalizedCompletionUsage,
   usage: AnthropicUsage | undefined | null,
-): Required<CompletionUsage> {
+): NormalizedCompletionUsage {
   const promptTokens = usage?.input_tokens ?? previous.prompt_tokens;
   const completionTokens = usage?.output_tokens ?? previous.completion_tokens;
   return {
     prompt_tokens: promptTokens,
     completion_tokens: completionTokens,
     total_tokens: promptTokens + completionTokens,
+    prompt_tokens_details: previous.prompt_tokens_details,
   };
 }
 
@@ -656,6 +693,8 @@ async function runStreamingCompletionRequest(
     promptTokens: metrics.usage.prompt_tokens,
     completionTokens: metrics.usage.completion_tokens,
     totalTokens: metrics.usage.total_tokens,
+    cacheReadTokens: metrics.usage.prompt_tokens_details.cached_tokens,
+    cacheWriteTokens: metrics.usage.prompt_tokens_details.cache_write_tokens,
     finishReason: metrics.finishReason,
     streamChunks: metrics.streamChunks,
     streamBytes,

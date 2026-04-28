@@ -32,6 +32,8 @@ function trial(overrides: Partial<TrialMetrics> = {}): TrialMetrics {
     promptTokens: 1024,
     completionTokens: 128,
     totalTokens: 1152,
+    cacheReadTokens: 0,
+    cacheWriteTokens: 0,
     meanRequestMs: 1000,
     p95RequestMs: 1000,
     maxRequestMs: 1000,
@@ -49,6 +51,11 @@ function trial(overrides: Partial<TrialMetrics> = {}): TrialMetrics {
     continuousSchedulerPhases: 0,
     maxContinuousBatchSize: 0,
     maxGenerationBatchSize: 1,
+    promptCacheHits: 0,
+    promptCacheMisses: 0,
+    promptCacheWrites: 0,
+    promptCacheReadTokens: 0,
+    promptCacheWriteTokens: 0,
     streamChunks: 4,
     streamBytes: 100,
     finishReasons: ["length"],
@@ -81,6 +88,8 @@ function trial(overrides: Partial<TrialMetrics> = {}): TrialMetrics {
         promptTokens: 1024,
         completionTokens: 128,
         totalTokens: 1152,
+        cacheReadTokens: 0,
+        cacheWriteTokens: 0,
         finishReason: "length",
         streamChunks: 4,
         streamBytes: 100,
@@ -128,6 +137,12 @@ function trial(overrides: Partial<TrialMetrics> = {}): TrialMetrics {
         maxSilentEventGapMs: 900,
         prefillEvents: 0,
         progressEvents: 2,
+        promptCacheEvents: 0,
+        promptCacheHits: 0,
+        promptCacheMisses: 0,
+        promptCacheWrites: 0,
+        promptCacheReadTokens: 0,
+        promptCacheWriteTokens: 0,
         maxCompletionTokens: 128,
         serverStreamChunkEvents: 4,
         serverStreamEndEvents: 1,
@@ -1114,6 +1129,11 @@ describe("serve regression matrix", () => {
       continuousSchedulerPhases: 0,
       maxContinuousBatchSize: 0,
       maxGenerationBatchSize: 0,
+      promptCacheHits: 1,
+      promptCacheMisses: 0,
+      promptCacheWrites: 0,
+      promptCacheReadTokens: 128,
+      promptCacheWriteTokens: 0,
       routeDecisions: [
         {
           id: "route-prompt-prefix",
@@ -1145,6 +1165,8 @@ describe("serve regression matrix", () => {
           promptTokens: 140,
           completionTokens: 16,
           totalTokens: 156,
+          cacheReadTokens: 128,
+          cacheWriteTokens: 0,
           ttftMs: 180,
           streamChunks: 15,
           streamBytes: 4500,
@@ -1170,6 +1192,12 @@ describe("serve regression matrix", () => {
           serverStreamTtftMs: 180,
           serverStreamResult: "completed",
           serverStreamFinishReason: "stop",
+          promptCacheEvents: 1,
+          promptCacheHits: 1,
+          promptCacheMisses: 0,
+          promptCacheWrites: 0,
+          promptCacheReadTokens: 128,
+          promptCacheWriteTokens: 0,
         },
       ],
     });
@@ -1181,6 +1209,21 @@ describe("serve regression matrix", () => {
         protocolHealthBudget("qwen"),
       ),
     ).not.toThrow();
+
+    expect(() =>
+      assertServeReportBudget(
+        "qwen36-chat-stream",
+        report(
+          {
+            ...promptPrefixMetrics,
+            promptCacheHits: 0,
+            promptCacheReadTokens: 0,
+          },
+          { promptTokens: 128, generationTokens: 16, concurrency: 1 },
+        ),
+        protocolHealthBudget("qwen"),
+      ),
+    ).toThrow("prompt_cache_hits");
   });
 
   test("fails on throughput, memory, token, stream, route, evidence, batch, and finish regressions", () => {

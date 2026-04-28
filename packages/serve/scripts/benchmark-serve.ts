@@ -92,6 +92,12 @@ export type ServerRequestTimingReport = {
   maxSilentEventGapMs: number | null;
   prefillEvents: number;
   progressEvents: number;
+  promptCacheEvents: number;
+  promptCacheHits: number;
+  promptCacheMisses: number;
+  promptCacheWrites: number;
+  promptCacheReadTokens: number;
+  promptCacheWriteTokens: number;
   maxCompletionTokens: number;
   serverStreamChunkEvents: number;
   serverStreamEndEvents: number;
@@ -124,6 +130,8 @@ export type TrialMetrics = {
   promptTokens: number;
   completionTokens: number;
   totalTokens: number;
+  cacheReadTokens: number;
+  cacheWriteTokens: number;
   meanRequestMs: number;
   p95RequestMs: number;
   maxRequestMs: number;
@@ -141,6 +149,11 @@ export type TrialMetrics = {
   continuousSchedulerPhases: number;
   maxContinuousBatchSize: number;
   maxGenerationBatchSize: number;
+  promptCacheHits: number;
+  promptCacheMisses: number;
+  promptCacheWrites: number;
+  promptCacheReadTokens: number;
+  promptCacheWriteTokens: number;
   streamChunks: number;
   streamBytes: number;
   finishReasons: string[];
@@ -371,6 +384,26 @@ function maxCompletionTokens(events: readonly RecordedServeEvent[]): number {
   );
 }
 
+type PromptCacheStats = {
+  hits: number;
+  misses: number;
+  writes: number;
+  readTokens: number;
+  writeTokens: number;
+};
+
+function promptCacheStats(
+  events: readonly Extract<RecordedServeEvent, { type: "generation_prompt_cache" }>[],
+): PromptCacheStats {
+  return {
+    hits: events.filter((event) => event.result === "hit").length,
+    misses: events.filter((event) => event.result === "miss").length,
+    writes: events.filter((event) => event.result === "write").length,
+    readTokens: sum(events.map((event) => event.cacheReadTokens)),
+    writeTokens: sum(events.map((event) => event.cacheWriteTokens)),
+  };
+}
+
 function schedulerAdmittedQueuedMs(
   id: string,
   event:
@@ -392,6 +425,7 @@ type RequestEventSlice = {
   complete: Extract<RecordedServeEvent, { type: "generation_complete" }> | undefined;
   error: Extract<RecordedServeEvent, { type: "generation_error" }> | undefined;
   schedulerEvents: Extract<RecordedServeEvent, { type: "generation_scheduler_phase" }>[];
+  promptCacheEvents: Extract<RecordedServeEvent, { type: "generation_prompt_cache" }>[];
   prefillEvents: Extract<RecordedServeEvent, { type: "generation_prefill_progress" }>[];
   progressEvents: Extract<RecordedServeEvent, { type: "generation_progress" }>[];
   streamChunkEvents: Extract<RecordedServeEvent, { type: "generation_stream_chunk" }>[];
@@ -408,6 +442,7 @@ function requestEventSlice(group: readonly RecordedServeEvent[]): RequestEventSl
     complete: sorted.find((event) => event.type === "generation_complete"),
     error: sorted.find((event) => event.type === "generation_error"),
     schedulerEvents: sorted.filter((event) => event.type === "generation_scheduler_phase"),
+    promptCacheEvents: sorted.filter((event) => event.type === "generation_prompt_cache"),
     prefillEvents: sorted.filter((event) => event.type === "generation_prefill_progress"),
     progressEvents: sorted.filter((event) => event.type === "generation_progress"),
     streamChunkEvents: sorted.filter((event) => event.type === "generation_stream_chunk"),
@@ -565,6 +600,7 @@ function requestTimingReport(id: string, group: readonly RecordedServeEvent[]) {
   const admitted = slice.schedulerEvents.find((event) => event.phase === "admitted");
   const firstToken = slice.schedulerEvents.find((event) => event.phase === "first_token");
   const finished = slice.schedulerEvents.find((event) => event.phase === "finished");
+  const cacheStats = promptCacheStats(slice.promptCacheEvents);
 
   return {
     id,
@@ -599,6 +635,12 @@ function requestTimingReport(id: string, group: readonly RecordedServeEvent[]) {
     maxSilentEventGapMs: maxObservedEventGapMs(slice.sorted),
     prefillEvents: slice.prefillEvents.length,
     progressEvents: slice.progressEvents.length,
+    promptCacheEvents: slice.promptCacheEvents.length,
+    promptCacheHits: cacheStats.hits,
+    promptCacheMisses: cacheStats.misses,
+    promptCacheWrites: cacheStats.writes,
+    promptCacheReadTokens: cacheStats.readTokens,
+    promptCacheWriteTokens: cacheStats.writeTokens,
     maxCompletionTokens: maxCompletionTokens(slice.sorted),
     ...serverStreamFields(slice),
     ...terminalFields(slice),
@@ -699,6 +741,8 @@ async function runTrial(
   const completionTokens = results.reduce((total, result) => total + result.completionTokens, 0);
   const promptTokens = results.reduce((total, result) => total + result.promptTokens, 0);
   const totalTokens = results.reduce((total, result) => total + result.totalTokens, 0);
+  const cacheReadTokens = results.reduce((total, result) => total + result.cacheReadTokens, 0);
+  const cacheWriteTokens = results.reduce((total, result) => total + result.cacheWriteTokens, 0);
   const streamChunks = results.reduce((total, result) => total + result.streamChunks, 0);
   const streamBytes = results.reduce((total, result) => total + result.streamBytes, 0);
   const wallSeconds = Math.max(wallMs / 1000, 1e-9);
@@ -709,6 +753,9 @@ async function runTrial(
   const generationBatchSizes = [...staticBatchSizes, ...continuousAdmissionSizes];
   const routeDecisions = routeDecisionReports(events);
   const serverRequests = serverRequestTimingReports(events);
+  const trialPromptCacheStats = promptCacheStats(
+    events.filter((event) => event.type === "generation_prompt_cache"),
+  );
 
   return {
     wallMs,
@@ -725,6 +772,8 @@ async function runTrial(
     promptTokens,
     completionTokens,
     totalTokens,
+    cacheReadTokens,
+    cacheWriteTokens,
     meanRequestMs: mean(requestDurations),
     p95RequestMs: percentile(requestDurations, 0.95),
     maxRequestMs: Math.max(...requestDurations),
@@ -742,6 +791,11 @@ async function runTrial(
     continuousSchedulerPhases: countEvents(events, "generation_scheduler_phase"),
     maxContinuousBatchSize: Math.max(0, ...continuousAdmissionSizes),
     maxGenerationBatchSize: Math.max(0, ...generationBatchSizes),
+    promptCacheHits: trialPromptCacheStats.hits,
+    promptCacheMisses: trialPromptCacheStats.misses,
+    promptCacheWrites: trialPromptCacheStats.writes,
+    promptCacheReadTokens: trialPromptCacheStats.readTokens,
+    promptCacheWriteTokens: trialPromptCacheStats.writeTokens,
     streamChunks,
     streamBytes,
     finishReasons: results.map((result) => result.finishReason),
@@ -768,6 +822,8 @@ function averageTrialMetrics(trials: readonly TrialMetrics[]): TrialMetrics {
     promptTokens: mean(trials.map((trial) => trial.promptTokens)),
     completionTokens: mean(trials.map((trial) => trial.completionTokens)),
     totalTokens: mean(trials.map((trial) => trial.totalTokens)),
+    cacheReadTokens: mean(trials.map((trial) => trial.cacheReadTokens)),
+    cacheWriteTokens: mean(trials.map((trial) => trial.cacheWriteTokens)),
     meanRequestMs: mean(trials.map((trial) => trial.meanRequestMs)),
     p95RequestMs: mean(trials.map((trial) => trial.p95RequestMs)),
     maxRequestMs: mean(trials.map((trial) => trial.maxRequestMs)),
@@ -785,6 +841,11 @@ function averageTrialMetrics(trials: readonly TrialMetrics[]): TrialMetrics {
     continuousSchedulerPhases: mean(trials.map((trial) => trial.continuousSchedulerPhases)),
     maxContinuousBatchSize: mean(trials.map((trial) => trial.maxContinuousBatchSize)),
     maxGenerationBatchSize: mean(trials.map((trial) => trial.maxGenerationBatchSize)),
+    promptCacheHits: mean(trials.map((trial) => trial.promptCacheHits)),
+    promptCacheMisses: mean(trials.map((trial) => trial.promptCacheMisses)),
+    promptCacheWrites: mean(trials.map((trial) => trial.promptCacheWrites)),
+    promptCacheReadTokens: mean(trials.map((trial) => trial.promptCacheReadTokens)),
+    promptCacheWriteTokens: mean(trials.map((trial) => trial.promptCacheWriteTokens)),
     streamChunks: mean(trials.map((trial) => trial.streamChunks)),
     streamBytes: mean(trials.map((trial) => trial.streamBytes)),
     finishReasons: trials.flatMap((trial) => trial.finishReasons),
@@ -827,6 +888,8 @@ function printMetrics(prefix: string, metrics: TrialMetrics): void {
       `prompt_tokens=${metrics.promptTokens.toFixed(0)}`,
       `completion_tokens=${metrics.completionTokens.toFixed(0)}`,
       `total_tokens=${metrics.totalTokens.toFixed(0)}`,
+      `cache_read_tokens=${metrics.cacheReadTokens.toFixed(0)}`,
+      `cache_write_tokens=${metrics.cacheWriteTokens.toFixed(0)}`,
       `peak_memory=${metrics.peakMemoryGb.toFixed(3)}`,
       `active_memory=${metrics.activeMemoryGb.toFixed(3)}`,
       `cache_memory=${metrics.cacheMemoryGb.toFixed(3)}`,
@@ -841,6 +904,11 @@ function printMetrics(prefix: string, metrics: TrialMetrics): void {
       `continuous_scheduler_phases=${metrics.continuousSchedulerPhases.toFixed(0)}`,
       `max_continuous_batch=${metrics.maxContinuousBatchSize.toFixed(0)}`,
       `max_generation_batch=${metrics.maxGenerationBatchSize.toFixed(0)}`,
+      `prompt_cache_hits=${metrics.promptCacheHits.toFixed(0)}`,
+      `prompt_cache_misses=${metrics.promptCacheMisses.toFixed(0)}`,
+      `prompt_cache_writes=${metrics.promptCacheWrites.toFixed(0)}`,
+      `prompt_cache_read_tokens=${metrics.promptCacheReadTokens.toFixed(0)}`,
+      `prompt_cache_write_tokens=${metrics.promptCacheWriteTokens.toFixed(0)}`,
       `stream_chunks=${metrics.streamChunks.toFixed(0)}`,
       `stream_bytes=${metrics.streamBytes.toFixed(0)}`,
       `finish_reasons=${[...new Set(metrics.finishReasons)].join("|") || "none"}`,

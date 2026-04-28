@@ -214,6 +214,9 @@ The next work should stay ordered around architecture truth:
    recent head-of-line blocking class does not hide behind the heavier
    substantial profile. Higher concurrency and heterogeneous prompt fairness
    now have explicit evidence instead of aggregate-throughput-only proof.
+   Message-protocol health rungs also require prompt-prefix cache hits and
+   nonzero cache-read evidence in benchmark reports, so repeated-turn serving
+   regressions fail before they become client-visible latency mysteries.
 3. Keep the typed internal serving/runtime strategy seam as the path for new
    backend choices. The current seam reports implemented behavior only:
    scheduler `auto`, managed model-precision cache, attention `auto`,

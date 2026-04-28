@@ -53,6 +53,10 @@ export type ServeRegressionBudget = {
   expectedContinuousSchedulerPhases?: number;
   expectedMaxGenerationBatchSize?: number;
   expectSchedulerTokenPressure?: boolean;
+  minPromptCacheHits?: number;
+  minPromptCacheReadTokens?: number;
+  minPromptCacheWrites?: number;
+  minPromptCacheWriteTokens?: number;
   minModelLaneWaitEvents?: number;
   minModelLaneBusyWaitEvents?: number;
   requestBudgets?: ServeRequestBudget[];
@@ -809,6 +813,31 @@ function modelLaneWaitFailures(metrics: TrialMetrics, budget: ServeRegressionBud
   return failures;
 }
 
+function promptCacheFailures(metrics: TrialMetrics, budget: ServeRegressionBudget): string[] {
+  return counterFailures([
+    {
+      name: "prompt_cache_hits",
+      value: metrics.promptCacheHits,
+      minimum: budget.minPromptCacheHits,
+    },
+    {
+      name: "prompt_cache_read_tokens",
+      value: metrics.promptCacheReadTokens,
+      minimum: budget.minPromptCacheReadTokens,
+    },
+    {
+      name: "prompt_cache_writes",
+      value: metrics.promptCacheWrites,
+      minimum: budget.minPromptCacheWrites,
+    },
+    {
+      name: "prompt_cache_write_tokens",
+      value: metrics.promptCacheWriteTokens,
+      minimum: budget.minPromptCacheWriteTokens,
+    },
+  ]);
+}
+
 export function assertServeReportBudget(
   label: string,
   report: BenchmarkReport,
@@ -826,6 +855,7 @@ export function assertServeReportBudget(
       ...routeFailures(averages, budget),
       ...evidenceFailures(averages, budget),
       ...batchCounterFailures(averages, budget),
+      ...promptCacheFailures(averages, budget),
       ...modelLaneWaitFailures(averages, budget),
       ...requestBudgetFailures(averages, budget),
     ];
@@ -1352,6 +1382,8 @@ export function protocolHealthBudget(model: "qwen" | "gemma"): ServeRegressionBu
     expectedContinuousAdmissionRows: 0,
     expectedContinuousSchedulerPhases: 0,
     expectedMaxGenerationBatchSize: 0,
+    minPromptCacheHits: 1,
+    minPromptCacheReadTokens: 1,
     minModelLaneWaitEvents: 0,
   };
 }

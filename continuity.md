@@ -30,7 +30,9 @@ text endpoints while benchmark and scheduler work continues.
 - **Serving telemetry**: `bench:serve` reports `continuous_admissions`
   separately from `static_batches` and `admission_batches`; server prefill
   metrics (`mean_server_prefill_ms`, `mean_server_prefill_tps`) are distinct
-  from client-observed TTFT.
+  from client-observed TTFT. Reports now also expose protocol usage cache
+  tokens plus server-event prompt-prefix cache hits, writes, and read/write
+  tokens.
 - **Image serving**: Qwen image transport, host decode, and prepared-prompt
   cache shipped with explicit boundary — serve owns I/O and decode, transformers
   owns preprocessing and prompt expansion.
@@ -61,6 +63,12 @@ Full evidence ladder lives in
 - Mixed long-prefill / short-arrival fairness: Qwen `32768x128 + 128x32`
   short-queue dropped from ~126s starvation to ~2.6s after fairness-biased
   prefill chunking.
+- Real repeated-turn protocol health: `regression:qwen-gemma -- --profile real`
+  now requires prompt-prefix cache hits for Qwen and Gemma chat, OpenResponses,
+  and Anthropic Messages rungs. Latest proof passed with Qwen read evidence
+  `139` client cached tokens for chat/responses and `278` server prompt-cache
+  read tokens across all three message protocols; Gemma recorded `138` client
+  cached tokens for chat/responses and `276` server prompt-cache read tokens.
 
 ## Next Work
 
@@ -70,6 +78,9 @@ Full evidence ladder lives in
 - Next scheduler tranche is cache-semantics work: chunked prefill fairness,
   streaming collectors, sampled batch decode, then Qwen hybrid recurrent /
   full-attention caches and Gemma sliding/global caches.
+- Prefix-cache next tranche is batch/paged longest-common-prefix reuse. The
+  single-request repeated-turn path is now live-regression guarded across Qwen
+  and Gemma message protocols.
 - Real serving memory preflight should reject admission deterministically
   based on family geometry + cache layout, not advisory warnings.
 - Use `bun run bench:serve --stream` for huge prompt rungs; buffered JSON is

@@ -108,6 +108,66 @@ describe("serve benchmark reports", () => {
     ]);
   });
 
+  test("keeps prompt-prefix cache evidence in server request reports", () => {
+    expect(
+      serverRequestTimingReports([
+        {
+          type: "generation_start",
+          id: "request",
+          protocol: "openai.chat_completions",
+          model: "local",
+          inputKind: "messages",
+          maxTokens: 8,
+          stream: true,
+          observedAtMs: 100,
+        },
+        {
+          type: "generation_prompt_cache",
+          id: "request",
+          protocol: "openai.chat_completions",
+          model: "local",
+          result: "write",
+          promptTokens: 12,
+          cacheReadTokens: 0,
+          cacheWriteTokens: 12,
+          observedAtMs: 105,
+        },
+        {
+          type: "generation_prompt_cache",
+          id: "request",
+          protocol: "openai.chat_completions",
+          model: "local",
+          result: "hit",
+          promptTokens: 12,
+          cacheReadTokens: 12,
+          cacheWriteTokens: 0,
+          observedAtMs: 110,
+        },
+        {
+          type: "generation_prompt_cache",
+          id: "request",
+          protocol: "openai.chat_completions",
+          model: "local",
+          result: "miss",
+          promptTokens: 4,
+          cacheReadTokens: 0,
+          cacheWriteTokens: 0,
+          observedAtMs: 115,
+        },
+      ]),
+    ).toMatchObject([
+      {
+        id: "request",
+        promptCacheEvents: 3,
+        promptCacheHits: 1,
+        promptCacheMisses: 1,
+        promptCacheWrites: 1,
+        promptCacheReadTokens: 12,
+        promptCacheWriteTokens: 12,
+      },
+    ]);
+  });
+
   test("keeps server-side stream timing in server request reports", () => {
     expect(
       serverRequestTimingReports([

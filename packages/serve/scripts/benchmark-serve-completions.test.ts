@@ -33,7 +33,12 @@ describe("serve benchmark completion requests", () => {
         return Response.json({
           id: "cmpl-buffered",
           choices: [{ text: "ok", finish_reason: "length" }],
-          usage: { prompt_tokens: 2, completion_tokens: 3, total_tokens: 5 },
+          usage: {
+            prompt_tokens: 2,
+            completion_tokens: 3,
+            total_tokens: 5,
+            prompt_tokens_details: { cached_tokens: 1, cache_write_tokens: 1 },
+          },
         });
       },
     });
@@ -57,6 +62,8 @@ describe("serve benchmark completion requests", () => {
         promptTokens: 2,
         completionTokens: 3,
         totalTokens: 5,
+        cacheReadTokens: 1,
+        cacheWriteTokens: 1,
         finishReason: "length",
         streamChunks: 0,
         streamBytes: 0,
@@ -88,7 +95,12 @@ describe("serve benchmark completion requests", () => {
       textSseFrame({
         id: "cmpl-stream",
         choices: [],
-        usage: { prompt_tokens: 2, completion_tokens: 3, total_tokens: 5 },
+        usage: {
+          prompt_tokens: 2,
+          completion_tokens: 3,
+          total_tokens: 5,
+          prompt_tokens_details: { cached_tokens: 2, cache_write_tokens: 0 },
+        },
       }),
       "data: [DONE]\n\n",
     ].join("");
@@ -127,6 +139,8 @@ describe("serve benchmark completion requests", () => {
         promptTokens: 2,
         completionTokens: 3,
         totalTokens: 5,
+        cacheReadTokens: 2,
+        cacheWriteTokens: 0,
         finishReason: "length",
         streamChunks: 2,
       });
@@ -224,7 +238,12 @@ describe("serve benchmark completion requests", () => {
         response: {
           status: "incomplete",
           incomplete_details: { reason: "max_output_tokens" },
-          usage: { input_tokens: 5, output_tokens: 3, total_tokens: 8 },
+          usage: {
+            input_tokens: 5,
+            output_tokens: 3,
+            total_tokens: 8,
+            input_tokens_details: { cached_tokens: 4, cache_write_tokens: 0 },
+          },
         },
       }),
       "data: [DONE]\n\n",
@@ -262,6 +281,8 @@ describe("serve benchmark completion requests", () => {
         promptTokens: 5,
         completionTokens: 3,
         totalTokens: 8,
+        cacheReadTokens: 4,
+        cacheWriteTokens: 0,
         finishReason: "length",
         streamChunks: 2,
       });
@@ -333,6 +354,8 @@ describe("serve benchmark completion requests", () => {
         promptTokens: 5,
         completionTokens: 3,
         totalTokens: 8,
+        cacheReadTokens: 0,
+        cacheWriteTokens: 0,
         finishReason: "max_tokens",
         streamChunks: 2,
       });
