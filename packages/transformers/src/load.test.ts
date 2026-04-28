@@ -23,7 +23,10 @@ import { LlamaLikeCausalLM } from "./families/llama-like/model";
 import { Qwen3_5TextCache } from "./families/qwen3_5/cache";
 import { Qwen3_5ForConditionalGeneration } from "./families/qwen3_5/conditional";
 import { qwen3_5ConditionalFamily } from "./families/qwen3_5/config";
-import { loadQwen3_5ForConditionalGeneration } from "./families/qwen3_5/load";
+import {
+  loadQwen3_5ForConditionalGeneration,
+  shouldLoadQwen3_5ForConditionalGeneration,
+} from "./families/qwen3_5/load";
 import { Qwen3_5TextMLP } from "./families/qwen3_5/mlp";
 import { Qwen3_5TextCausalLM, type Qwen3_5TextModel } from "./families/qwen3_5/model";
 import { generateText, generateTextStream, generateTokens } from "./generation";
@@ -1327,6 +1330,45 @@ describe("pretrained loading", () => {
     );
 
     originalModel[Symbol.dispose]();
+  });
+
+  test("shouldLoadQwen3_5ForConditionalGeneration accepts dense and MoE conditional wrappers", async () => {
+    const denseDirectory = createTempDir("mlxts-transformers-qwen3_5-detect-");
+    const moeDirectory = createTempDir("mlxts-transformers-qwen3_5-moe-detect-");
+    const textOnlyDirectory = createTempDir("mlxts-transformers-qwen3_5-text-detect-");
+
+    await Bun.write(
+      join(denseDirectory, "config.json"),
+      `${JSON.stringify(rawConfigForQwen3_5Wrapper(), null, 2)}\n`,
+    );
+    await Bun.write(
+      join(moeDirectory, "config.json"),
+      `${JSON.stringify(
+        {
+          ...rawConfigForQwen3_5Wrapper(),
+          model_type: "qwen3_5_moe",
+          architectures: ["Qwen3_5MoeForConditionalGeneration"],
+          text_config: {
+            ...rawConfigForQwen3_5Text(),
+            model_type: "qwen3_5_moe_text",
+            moe_intermediate_size: 2,
+            num_experts: 4,
+            num_experts_per_tok: 2,
+            shared_expert_intermediate_size: 2,
+          },
+        },
+        null,
+        2,
+      )}\n`,
+    );
+    await Bun.write(
+      join(textOnlyDirectory, "config.json"),
+      `${JSON.stringify(rawConfigForQwen3_5Text(), null, 2)}\n`,
+    );
+
+    expect(await shouldLoadQwen3_5ForConditionalGeneration(denseDirectory)).toBe(true);
+    expect(await shouldLoadQwen3_5ForConditionalGeneration(moeDirectory)).toBe(true);
+    expect(await shouldLoadQwen3_5ForConditionalGeneration(textOnlyDirectory)).toBe(false);
   });
 
   test("loadPretrainedTokenizer and AutoTokenizer read the snapshot tokenizer", async () => {

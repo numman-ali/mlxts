@@ -256,8 +256,8 @@ class SnapshotCountingModel extends TinyModel {
 }
 
 class TinyQwenHybridModel extends TinyModel {
-  constructor() {
-    super({ family: "qwen", modelType: "qwen3_5_text" });
+  constructor(modelType = "qwen3_5_text") {
+    super({ family: "qwen", modelType });
   }
 
   createBatchCache(leftPadding: readonly number[]): TransformerBatchCache {
@@ -1585,6 +1585,49 @@ describe("transformers generation engine", () => {
     expect(
       events.some((event) => event.type === "generation_batch_start" && event.mode === "static"),
     ).toBe(false);
+  });
+
+  test("routes Qwen MoE hybrid-cache requests through continuous batching", async () => {
+    using model = new TinyQwenHybridModel("qwen3_5_moe_text");
+    const tokenizer = new TinyTokenizer();
+    const events: ServeEvent[] = [];
+    const engine = createTransformersGenerationEngine({
+      model,
+      tokenizer,
+      maxBatchSize: 2,
+      batchWindowMs: 1,
+      onEvent(event) {
+        events.push(event);
+      },
+    });
+
+    await Promise.all([
+      engine.generate(textRequest("moe-one")),
+      engine.generate(textRequest("moe-two")),
+    ]);
+
+    expect(model.batchForwardCount).toBeGreaterThan(0);
+    expect(
+      events.some(
+        (event) =>
+          event.type === "generation_scheduler_phase" &&
+          event.phase === "admitted" &&
+          event.batchSize === 2,
+      ),
+    ).toBe(true);
+    expect(events).toContainEqual({
+      type: "generation_route_decision",
+      id: "moe-one",
+      protocol: "openai.completions",
+      model: "tiny",
+      route: "continuous",
+      eligible: true,
+      reason: "eligible",
+      modelType: "qwen3_5_moe_text",
+      maxBatchSize: 2,
+      ...ROUTE_STRATEGY,
+      stream: false,
+    });
   });
 
   test("streams Qwen hybrid-cache requests through continuous batching", async () => {

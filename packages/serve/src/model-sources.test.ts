@@ -363,4 +363,46 @@ describe("serveModels", () => {
       removeDirectory(directory);
     }
   });
+
+  test("loads Qwen MoE conditional checkpoints with an image content adapter", async () => {
+    const calls: string[] = [];
+    const directory = createQwenConditionalDirectory();
+    await Bun.write(
+      `${directory}/config.json`,
+      JSON.stringify({
+        model_type: "qwen3_5_moe",
+        architectures: ["Qwen3_5MoeForConditionalGeneration"],
+        vision_config: { hidden_size: 8 },
+      }),
+    );
+    const runtime = testRuntime({
+      calls,
+      loadQwenConditional: true,
+      recordContentAdapters: true,
+    });
+
+    try {
+      const running = await serveModelsWithRuntime(
+        {
+          models: [{ source: directory, modelId: "Qwen/Qwen3.6-35B-A3B" }],
+          localFilesOnly: true,
+        },
+        runtime,
+      );
+
+      expect(running.modelIds).toEqual(["Qwen/Qwen3.6-35B-A3B"]);
+      expect(calls).toEqual([
+        `resolve:${directory}:undefined:true`,
+        `qwen-conditional-model:${directory}`,
+        `tokenizer:${directory}`,
+        `profile:${directory}`,
+        `qwen-preprocessor:${directory}`,
+        "content-adapters:yes",
+        "serve:Qwen/Qwen3.6-35B-A3B:undefined:undefined:true",
+      ]);
+      running.stop();
+    } finally {
+      removeDirectory(directory);
+    }
+  });
 });

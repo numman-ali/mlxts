@@ -14,11 +14,11 @@ import type {
 
 const CONTINUOUS_BATCH_MODEL_TYPES = new Set(["gemma", "llama", "mistral", "mistral3", "phi3"]);
 const GEMMA_LAYER_PATTERN_BATCH_MODEL_TYPES = new Set(["gemma3_text", "gemma4_text", "gemma4"]);
-const QWEN_HYBRID_BATCH_MODEL_TYPES = new Set(["qwen3_5_text"]);
+const QWEN_HYBRID_BATCH_MODEL_TYPES = new Set(["qwen3_5_text", "qwen3_5_moe_text"]);
 const STATIC_BATCH_MODEL_TYPES = new Set([
   ...CONTINUOUS_BATCH_MODEL_TYPES,
   ...GEMMA_LAYER_PATTERN_BATCH_MODEL_TYPES,
-  "qwen3_5_text",
+  ...QWEN_HYBRID_BATCH_MODEL_TYPES,
 ]);
 
 function configHasSlidingWindow(model: CausalLM): boolean {

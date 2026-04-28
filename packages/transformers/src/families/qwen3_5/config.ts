@@ -440,7 +440,7 @@ export const qwen3_5Family: FamilyRegistration<Qwen3_5TextConfig> = {
 
 export const qwen3_5ConditionalFamily: FamilyRegistration<Qwen3_5Config> = {
   family: "qwen",
-  modelTypes: ["qwen3_5"],
+  modelTypes: ["qwen3_5", "qwen3_5_moe"],
   parseConfig: parseQwen3_5Config,
   createModel: (config) => new Qwen3_5ForConditionalGeneration(config),
   sanitizeWeight: sanitizeQwen3_5Weight,

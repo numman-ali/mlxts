@@ -26,6 +26,13 @@ function hasArchitecture(config: Record<string, unknown>, architecture: string):
   return Array.isArray(architectures) && architectures.includes(architecture);
 }
 
+function hasConditionalArchitecture(config: Record<string, unknown>): boolean {
+  return (
+    hasArchitecture(config, "Qwen3_5ForConditionalGeneration") ||
+    hasArchitecture(config, "Qwen3_5MoeForConditionalGeneration")
+  );
+}
+
 function prepareQwen3_5ConditionalModel(
   configRecord: Record<string, unknown>,
 ): PreparedModel<Qwen3_5ForConditionalGeneration> {
@@ -53,8 +60,8 @@ export async function shouldLoadQwen3_5ForConditionalGeneration(source: string):
     return false;
   }
   return (
-    config.model_type === "qwen3_5" &&
+    (config.model_type === "qwen3_5" || config.model_type === "qwen3_5_moe") &&
     isRecord(config.vision_config) &&
-    hasArchitecture(config, "Qwen3_5ForConditionalGeneration")
+    hasConditionalArchitecture(config)
   );
 }

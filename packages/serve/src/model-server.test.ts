@@ -851,6 +851,75 @@ describe("serveLoadedModel", () => {
     }
   });
 
+  test("loads single Qwen MoE conditional checkpoints with an image content adapter", async () => {
+    const model = new FakeModel();
+    const calls: string[] = [];
+    const directory = createQwenConditionalDirectory();
+    await Bun.write(
+      `${directory}/config.json`,
+      JSON.stringify({
+        model_type: "qwen3_5_moe",
+        architectures: ["Qwen3_5MoeForConditionalGeneration"],
+        vision_config: { hidden_size: 8 },
+      }),
+    );
+    const runtime: ServeModelRuntime = {
+      async resolvePretrainedSource(source, options) {
+        calls.push(`resolve:${source}:${options?.localFilesOnly}`);
+        return directory;
+      },
+      async loadCausalLM() {
+        throw new Error("single Qwen MoE conditional checkpoints should not use loadCausalLM");
+      },
+      async loadQwen3_5ForConditionalGeneration(source) {
+        calls.push(`qwen-conditional-model:${source}`);
+        return model;
+      },
+      async loadQwen3_5VisionPreprocessor(source) {
+        calls.push(`qwen-preprocessor:${source}`);
+        return qwenPreprocessorConfig;
+      },
+      async loadPretrainedTokenizer(source) {
+        calls.push(`tokenizer:${source}`);
+        return new FakeTokenizer();
+      },
+      async loadInteractionProfile(source) {
+        calls.push(`profile:${source}`);
+        return fakeInteractionProfile;
+      },
+      serveLoadedModel(options) {
+        calls.push(
+          `serve:${options.modelId}:${options.contentAdapter === undefined ? "no" : "yes"}`,
+        );
+        return fakeRunningServer(options.modelId);
+      },
+    };
+
+    try {
+      const running = await serveModelWithRuntime(
+        {
+          source: "repo/qwen-moe",
+          modelId: "Qwen/Qwen3.6-35B-A3B",
+          localFilesOnly: true,
+        },
+        runtime,
+      );
+
+      expect(running.modelId).toBe("Qwen/Qwen3.6-35B-A3B");
+      expect(calls).toEqual([
+        "resolve:repo/qwen-moe:true",
+        `qwen-conditional-model:${directory}`,
+        `tokenizer:${directory}`,
+        `profile:${directory}`,
+        `qwen-preprocessor:${directory}`,
+        "serve:Qwen/Qwen3.6-35B-A3B:yes",
+      ]);
+      running.stop();
+    } finally {
+      removeDirectory(directory);
+    }
+  });
+
   test("disposes loaded models when tokenizer loading fails", async () => {
     const model = new FakeModel();
     const runtime: ServeModelRuntime = {
