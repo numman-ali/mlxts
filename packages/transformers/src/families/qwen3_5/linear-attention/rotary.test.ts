@@ -1,9 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import { array } from "@mlxts/core";
 import { RoPE } from "@mlxts/nn";
-
+import type { Qwen3_5TextConfig } from "../types";
 import { createSequentialQwen3_5PositionIds, Qwen3_5TextRotaryEmbedding } from "./rotary";
-import type { Qwen3_5TextConfig } from "./types";
 
 function qwen3_5TextConfig(overrides: Partial<Qwen3_5TextConfig> = {}): Qwen3_5TextConfig {
   return {

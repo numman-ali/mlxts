@@ -16,11 +16,11 @@ import {
   takeAxis,
 } from "@mlxts/core";
 
-import { BatchKVCache } from "../../infrastructure/cache";
-import { INTERNAL_CACHE_VIEW, type TransformerCacheView } from "../../infrastructure/cache/view";
-import type { TransformerBatchCache, TransformerCache } from "../../types";
-import { type Qwen3_5LinearLayerState, Qwen3_5TextCache } from "./cache";
-import type { Qwen3_5LayerType } from "./types";
+import { BatchKVCache } from "../../../infrastructure/cache";
+import { INTERNAL_CACHE_VIEW, type TransformerCacheView } from "../../../infrastructure/cache/view";
+import type { TransformerBatchCache, TransformerCache } from "../../../types";
+import type { Qwen3_5LayerType } from "../types";
+import { type Qwen3_5LinearLayerState, Qwen3_5TextCache } from "./index";
 
 function validateLayerTypes(layerTypes: readonly Qwen3_5LayerType[]): Qwen3_5LayerType[] {
   if (layerTypes.length === 0) {

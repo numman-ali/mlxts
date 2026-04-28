@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { array, mxEval } from "@mlxts/core";
 
 import { Qwen3_5TextBatchCache } from "./batch-cache";
-import { Qwen3_5TextCache } from "./cache";
+import { Qwen3_5TextCache } from "./index";
 
 describe("Qwen3_5TextCache", () => {
   test("tracks mixed full-attention and linear-attention state", () => {

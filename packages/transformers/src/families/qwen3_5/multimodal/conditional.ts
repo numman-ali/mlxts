@@ -13,13 +13,16 @@ import {
   retainArray,
 } from "@mlxts/core";
 import { Linear, Module } from "@mlxts/nn";
-import { expectSingleTransformerCache } from "../../infrastructure/cache";
+import { expectSingleTransformerCache } from "../../../infrastructure/cache";
 import {
   retainInputEmbeddings,
   retainInputPositionIds,
-} from "../../infrastructure/input-embeddings";
-import type { CausalLM, ForwardOptions, PreparedPrompt, TransformerCache } from "../../types";
-import { Qwen3_5TextCache } from "./cache";
+} from "../../../infrastructure/input-embeddings";
+import type { CausalLM, ForwardOptions, PreparedPrompt, TransformerCache } from "../../../types";
+import { Qwen3_5TextCache } from "../cache/index";
+import { createShiftedQwen3_5PositionIds } from "../linear-attention/rotary";
+import { Qwen3_5TextModel } from "../model";
+import type { Qwen3_5Config } from "../types";
 import {
   buildPositionIds,
   countImageTokens,
@@ -30,9 +33,6 @@ import {
   gridThwList,
   ropeDeltas,
 } from "./conditional-support";
-import { Qwen3_5TextModel } from "./model";
-import { createShiftedQwen3_5PositionIds } from "./rotary";
-import type { Qwen3_5Config } from "./types";
 import { Qwen3_5VisionModel } from "./vision";
 
 export { countQwen3_5ImageTokens, createQwen3_5MmTokenTypeIds, expandQwen3_5ImageTokens };

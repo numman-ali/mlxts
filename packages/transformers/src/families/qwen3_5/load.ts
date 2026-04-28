@@ -5,8 +5,8 @@
 
 import { loadPreparedCausalLM, type PreparedModel } from "../../load";
 import type { LoadCausalLMOptions } from "../../types";
-import { Qwen3_5ForConditionalGeneration } from "./conditional";
 import { qwen3_5ConditionalFamily } from "./config";
+import { Qwen3_5ForConditionalGeneration } from "./multimodal/conditional";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);

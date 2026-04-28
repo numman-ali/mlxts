@@ -12,14 +12,14 @@ export {
   loadChatTemplate,
 } from "./chat-template";
 export {
-  expandQwen3_5ImageTokens,
-  prepareQwen3_5ImagePrompt,
-  QWEN3_5_IMAGE_MARKER,
-} from "./families/qwen3_5/conditional";
-export {
   loadQwen3_5ForConditionalGeneration,
   shouldLoadQwen3_5ForConditionalGeneration,
 } from "./families/qwen3_5/load";
+export {
+  expandQwen3_5ImageTokens,
+  prepareQwen3_5ImagePrompt,
+  QWEN3_5_IMAGE_MARKER,
+} from "./families/qwen3_5/multimodal/conditional";
 export {
   type DecodedQwen3_5Image,
   loadQwen3_5VisionPreprocessor,
@@ -28,7 +28,7 @@ export {
   prepareQwen3_5ImageBatch,
   type Qwen3_5VisionPreprocessorConfig,
   smartResizeQwen3_5Image,
-} from "./families/qwen3_5/preprocessing";
+} from "./families/qwen3_5/multimodal/preprocessing";
 export {
   type ContinuousBatchAdmissionBudgetSnapshot,
   type ContinuousBatchAdmissionController,

@@ -5,7 +5,7 @@ import {
   generateBatchTokens,
   generateTokens,
 } from "../../generation";
-import { Qwen3_5TextCache } from "./cache";
+import { Qwen3_5TextCache } from "./cache/index";
 import { Qwen3_5TextCausalLM } from "./model";
 import type { Qwen3_5TextConfig } from "./types";
 

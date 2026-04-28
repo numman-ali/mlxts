@@ -14,7 +14,6 @@ import {
 } from "../../infrastructure/config-parsing";
 import type { FamilyRegistration } from "../../types";
 import { ConfigParseError } from "../../types";
-import { Qwen3_5ForConditionalGeneration } from "./conditional";
 import { parseQwen3_5FeedForward } from "./config-feedforward";
 import {
   expectPositiveInteger,
@@ -26,6 +25,7 @@ import {
   parseTextRopeParameters,
 } from "./config-helpers";
 import { Qwen3_5TextCausalLM } from "./model";
+import { Qwen3_5ForConditionalGeneration } from "./multimodal/conditional";
 import type {
   Qwen3_5Config,
   Qwen3_5EosTokenId,

@@ -30,8 +30,8 @@ import {
   createLeftPaddedAttentionMask,
 } from "../../infrastructure/masks";
 import type { TransformerCache } from "../../types";
-import { Qwen3_5TextBatchCache } from "./batch-cache";
-import { Qwen3_5TextRotaryEmbedding } from "./rotary";
+import { Qwen3_5TextBatchCache } from "./cache/batch-cache";
+import { Qwen3_5TextRotaryEmbedding } from "./linear-attention/rotary";
 import type { Qwen3_5TextConfig } from "./types";
 
 type ProjectedAttentionInputs = {

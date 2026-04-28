@@ -23,7 +23,7 @@ import {
   where,
 } from "@mlxts/core";
 
-import type { Qwen3_5TextConfig } from "./types";
+import type { Qwen3_5TextConfig } from "../types";
 
 function takeLastAxisRange(x: MxArray, start: number, end: number): MxArray {
   const rank = x.shape.length;

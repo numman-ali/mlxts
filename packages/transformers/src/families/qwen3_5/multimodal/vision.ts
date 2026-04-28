@@ -28,7 +28,7 @@ import {
 } from "@mlxts/core";
 import { Embedding, gelu, LayerNorm, Linear, Module } from "@mlxts/nn";
 
-import type { Qwen3_5VisionConfig } from "./types";
+import type { Qwen3_5VisionConfig } from "../types";
 import {
   applyVisionRotaryPosEmb,
   bilinearInterpolationTables,

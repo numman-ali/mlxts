@@ -9,9 +9,9 @@ import { Module } from "@mlxts/nn";
 
 import type { AttentionMask } from "../../infrastructure/masks";
 import { Qwen3_5TextAttention } from "./attention";
-import type { Qwen3_5TextBatchCache } from "./batch-cache";
-import type { Qwen3_5TextCache } from "./cache";
-import { Qwen3_5GatedDeltaNet } from "./gated-delta";
+import type { Qwen3_5TextBatchCache } from "./cache/batch-cache";
+import type { Qwen3_5TextCache } from "./cache/index";
+import { Qwen3_5GatedDeltaNet } from "./linear-attention/gated-delta";
 import { createQwen3_5TextFeedForward, type Qwen3_5TextFeedForward } from "./mlp";
 import { Qwen3_5RMSNorm } from "./norm";
 import type { Qwen3_5TextConfig } from "./types";

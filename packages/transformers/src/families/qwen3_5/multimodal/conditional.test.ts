@@ -1,15 +1,14 @@
 import { describe, expect, test } from "bun:test";
 
 import { array, retainArray, zeros } from "@mlxts/core";
-
+import { Qwen3_5TextCausalLM } from "../model";
+import type { Qwen3_5Config, Qwen3_5TextConfig, Qwen3_5VisionConfig } from "../types";
 import {
   createQwen3_5MmTokenTypeIds,
   expandQwen3_5ImageTokens,
   prepareQwen3_5ImagePrompt,
   Qwen3_5ForConditionalGeneration,
 } from "./conditional";
-import { Qwen3_5TextCausalLM } from "./model";
-import type { Qwen3_5Config, Qwen3_5TextConfig, Qwen3_5VisionConfig } from "./types";
 
 function qwen3_5TextConfig(overrides: Partial<Qwen3_5TextConfig> = {}): Qwen3_5TextConfig {
   return {

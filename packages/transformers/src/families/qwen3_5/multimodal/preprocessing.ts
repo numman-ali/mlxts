@@ -9,10 +9,10 @@ import {
   expectConfigRecord,
   expectInteger,
   optionalString,
-} from "../../infrastructure/config-parsing";
-import { inspectSnapshot, resolvePretrainedSnapshot } from "../../pretrained/snapshot";
-import type { LoadSourceOptions } from "../../pretrained/types";
-import { ConfigParseError } from "../../types";
+} from "../../../infrastructure/config-parsing";
+import { inspectSnapshot, resolvePretrainedSnapshot } from "../../../pretrained/snapshot";
+import type { LoadSourceOptions } from "../../../pretrained/types";
+import { ConfigParseError } from "../../../types";
 
 export type Qwen3_5VisionPreprocessorConfig = {
   size: {

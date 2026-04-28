@@ -22,8 +22,7 @@ import { Gemma4TextMLP } from "./families/gemma4/mlp";
 import { Gemma4TextCausalLM } from "./families/gemma4/model";
 import { LlamaLikeMLP } from "./families/llama-like/mlp";
 import { LlamaLikeCausalLM } from "./families/llama-like/model";
-import { Qwen3_5TextCache } from "./families/qwen3_5/cache";
-import { Qwen3_5ForConditionalGeneration } from "./families/qwen3_5/conditional";
+import { Qwen3_5TextCache } from "./families/qwen3_5/cache/index";
 import { qwen3_5ConditionalFamily } from "./families/qwen3_5/config";
 import {
   loadQwen3_5ForConditionalGeneration,
@@ -31,6 +30,7 @@ import {
 } from "./families/qwen3_5/load";
 import { Qwen3_5TextMLP, Qwen3_5TextMoE } from "./families/qwen3_5/mlp";
 import { Qwen3_5TextCausalLM, type Qwen3_5TextModel } from "./families/qwen3_5/model";
+import { Qwen3_5ForConditionalGeneration } from "./families/qwen3_5/multimodal/conditional";
 import { generateText, generateTextStream, generateTokens } from "./generation";
 import { KVCache, LayerPatternKVCache, SlidingWindowKVCache } from "./infrastructure/cache";
 import { PackedSwitchGLUExperts, SwitchGLUExperts } from "./infrastructure/moe";

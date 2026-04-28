@@ -5,15 +5,15 @@
 
 import { type MxArray, mxEval, retainArray, slice } from "@mlxts/core";
 
-import { KVCache } from "../../infrastructure/cache";
-import { cloneCacheArray } from "../../infrastructure/cache/runtime";
-import { INTERNAL_CACHE_VIEW, type TransformerCacheView } from "../../infrastructure/cache/view";
+import { KVCache } from "../../../infrastructure/cache";
+import { cloneCacheArray } from "../../../infrastructure/cache/runtime";
+import { INTERNAL_CACHE_VIEW, type TransformerCacheView } from "../../../infrastructure/cache/view";
 import type {
   TransformerCache,
   TransformerCacheForkOptions,
   TransformerCacheSnapshot,
-} from "../../types";
-import type { Qwen3_5LayerType } from "./types";
+} from "../../../types";
+import type { Qwen3_5LayerType } from "../types";
 
 export type Qwen3_5LinearLayerState = {
   convState: MxArray | null;
