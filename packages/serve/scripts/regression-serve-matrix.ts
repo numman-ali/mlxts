@@ -1330,7 +1330,7 @@ function baseSpecs(options: CliOptions): ServeRegressionSpec[] {
   ];
 }
 
-function protocolHealthBudget(model: "qwen" | "gemma"): ServeRegressionBudget {
+export function protocolHealthBudget(model: "qwen" | "gemma"): ServeRegressionBudget {
   return {
     minCompletionTps: model === "qwen" ? 0.5 : 2,
     maxPeakMemoryGb: model === "qwen" ? 22 : 13,
@@ -1342,17 +1342,16 @@ function protocolHealthBudget(model: "qwen" | "gemma"): ServeRegressionBudget {
     expectEveryServerRequestStreamed: true,
     maxMeanTtftMs: model === "qwen" ? 8_000 : 2_000,
     maxObservedStreamChunkGapMs: 1_500,
-    expectedRoute: "continuous",
-    expectedReason: "eligible",
+    expectedRoute: "single",
+    expectedReason: "prompt_prefix_cache",
     minRouteDecisions: 1,
     minServerRequests: 1,
     expectedAdmissionBatches: 0,
     expectedStaticBatches: 0,
-    minContinuousAdmissions: 1,
-    minContinuousAdmissionRows: 1,
-    minContinuousSchedulerPhases: 4,
-    expectedMaxGenerationBatchSize: 1,
-    expectSchedulerTokenPressure: true,
+    expectedContinuousAdmissions: 0,
+    expectedContinuousAdmissionRows: 0,
+    expectedContinuousSchedulerPhases: 0,
+    expectedMaxGenerationBatchSize: 0,
     minModelLaneWaitEvents: 0,
   };
 }

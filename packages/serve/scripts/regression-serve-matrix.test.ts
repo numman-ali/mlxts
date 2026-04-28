@@ -5,6 +5,7 @@ import type { ServeBenchmarkRung } from "./benchmark-serve-options";
 import {
   assertServeReportBudget,
   parseServeRegressionArgs,
+  protocolHealthBudget,
   type ServeRegressionBudget,
 } from "./regression-serve-matrix";
 
@@ -1084,6 +1085,102 @@ describe("serve regression matrix", () => {
         },
       ),
     ).toThrow("output");
+  });
+
+  test("budgets message protocol health through prompt prefix cache", () => {
+    const baseRequest = trial().requests[0];
+    const baseServerRequest = trial().serverRequests[0];
+    if (baseRequest === undefined || baseServerRequest === undefined) {
+      throw new Error("Expected trial fixture to include one request and one server request.");
+    }
+
+    const promptPrefixMetrics = trial({
+      completionTps: 24,
+      meanPostTtftCompletionTps: 32,
+      promptTokens: 140,
+      completionTokens: 16,
+      totalTokens: 156,
+      peakMemoryGb: 15,
+      activeDeltaGb: 0,
+      streamChunks: 15,
+      streamBytes: 4500,
+      admissionBatches: 0,
+      admissionRows: 0,
+      maxAdmissionBatchSize: 0,
+      staticBatches: 0,
+      staticBatchRows: 0,
+      continuousAdmissions: 0,
+      continuousAdmissionRows: 0,
+      continuousSchedulerPhases: 0,
+      maxContinuousBatchSize: 0,
+      maxGenerationBatchSize: 0,
+      routeDecisions: [
+        {
+          id: "route-prompt-prefix",
+          model: "fixture-model",
+          route: "single",
+          eligible: false,
+          reason: "prompt_prefix_cache",
+          modelType: "qwen3_5_text",
+          protocol: "openai.chat",
+          maxBatchSize: 8,
+          schedulerMode: "auto",
+          cacheBackend: "managed",
+          attentionBackend: "auto",
+          decodingBackend: "model",
+          stream: true,
+        },
+      ],
+      routeSummary: [
+        {
+          key: "single:prompt_prefix_cache",
+          route: "single",
+          reason: "prompt_prefix_cache",
+          count: 1,
+        },
+      ],
+      requests: [
+        {
+          ...baseRequest,
+          promptTokens: 140,
+          completionTokens: 16,
+          totalTokens: 156,
+          ttftMs: 180,
+          streamChunks: 15,
+          streamBytes: 4500,
+        },
+      ],
+      serverRequests: [
+        {
+          ...baseServerRequest,
+          route: "single",
+          routeReason: "prompt_prefix_cache",
+          protocol: "openai.chat",
+          inputKind: "messages",
+          schedulerPhaseEvents: 0,
+          schedulerAdmittedBatchSize: null,
+          schedulerMaxScheduledPromptTokens: null,
+          schedulerScheduledPromptTokens: null,
+          schedulerMaxScheduledCompletionTokens: null,
+          schedulerScheduledCompletionTokens: null,
+          schedulerMaxScheduledTotalTokens: null,
+          schedulerScheduledTotalTokens: null,
+          serverStreamChunks: 15,
+          serverStreamBytes: 4500,
+          serverStreamTtftMs: 180,
+          serverStreamResult: "completed",
+          serverStreamFinishReason: "stop",
+        },
+      ],
+    });
+
+    expect(() =>
+      assertServeReportBudget(
+        "qwen36-chat-stream",
+        report(promptPrefixMetrics, { promptTokens: 128, generationTokens: 16, concurrency: 1 }),
+        protocolHealthBudget("qwen"),
+      ),
+    ).not.toThrow();
   });
 
   test("fails on throughput, memory, token, stream, route, evidence, batch, and finish regressions", () => {

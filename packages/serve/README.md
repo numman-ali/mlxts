@@ -140,12 +140,14 @@ model id so long startup sequences are easier to follow.
 
 The first-class model server wraps one loaded model in a small scheduler-aware
 admission queue. Eligible full-cache LLaMA-like, Qwen 3.6 text, and Gemma 3/4
-layer-pattern requests can join the transformer-owned continuous scheduler,
-including streaming completions and chat streams. The scheduler supports greedy
-decode and model-native sampled defaults by keeping sampler state per request
-row. Engines without native batching support still benefit from serialized
-request admission instead of overlapping local generations on the same model
-instance.
+layer-pattern text completion requests can join the transformer-owned continuous
+scheduler, including streaming completions. Message-shaped chat, Responses, and
+Anthropic requests use the single-request prompt-prefix-cache lane until
+batch-native cache reuse is represented below the serving layer. The scheduler
+supports greedy decode and model-native sampled defaults by keeping sampler
+state per request row. Engines without native batching support still benefit
+from serialized request admission instead of overlapping local generations on
+the same model instance.
 
 When `temperature`, `top_p`, or `top_k` are omitted, serving leaves them unset so
 `@mlxts/transformers` can apply the checkpoint's `generation_config.json`.
