@@ -15,6 +15,29 @@ afterEach(() => {
 });
 
 describe("core runtime profile", () => {
+  test("does not record wrapper or FFI timings when disabled", () => {
+    delete process.env.MLXTS_RUNTIME_PROFILE;
+    resetCoreRuntimeProfile();
+
+    {
+      using lhs = array([[1]], "float32");
+      using rhs = array([[2]], "float32");
+      using result = add(lhs, rhs);
+      expect(result.item()).toBe(3);
+    }
+
+    const snapshot = snapshotCoreRuntimeProfile();
+    expect(snapshot.enabled).toBe(false);
+    expect(snapshot.outSlot.count).toBe(0);
+    expect(snapshot.ffiInvoke.count).toBe(0);
+    expect(snapshot.wrapperConstruct.count).toBe(0);
+    expect(snapshot.registryRegister.count).toBe(0);
+    expect(snapshot.explicitFree.count).toBe(0);
+    expect(snapshot.registryUnregister.count).toBe(0);
+    expect(snapshot.nativeFree.count).toBe(0);
+    expect(snapshot.ffiLabels.add?.count ?? 0).toBe(0);
+  });
+
   test("captures wrapper, ffi, and free activity when enabled", () => {
     process.env.MLXTS_RUNTIME_PROFILE = "1";
     resetCoreRuntimeProfile();

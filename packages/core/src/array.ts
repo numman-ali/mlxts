@@ -26,6 +26,7 @@ import { ffi } from "./ffi/lib";
 import { OutSlot, ptr, readI32, sizeToNumber, unwrapPointer } from "./ffi/pointer";
 import {
   coreRuntimeProfileTimestamp,
+  isCoreRuntimeProfilingEnabled,
   recordExplicitFreeDuration,
   recordFfiInvokeDuration,
   recordOutSlotDuration,
@@ -36,9 +37,14 @@ import { copyTypedArrayFromContiguous, scalarFromTypedArrayCopy } from "./typed-
 export type { NestedArray } from "./array-data";
 
 initializeErrorHandler();
-
 /** Read an FFI pointer result written into a temporary output slot. */
 export function readResultPointer(label: string, invoke: (out: Pointer) => void): Pointer {
+  if (!isCoreRuntimeProfilingEnabled()) {
+    const slot = new OutSlot();
+    invoke(slot.prepare());
+    return slot.read(label);
+  }
+
   const outSlotStarted = coreRuntimeProfileTimestamp();
   const slot = new OutSlot();
   recordOutSlotDuration(coreRuntimeProfileTimestamp() - outSlotStarted);
@@ -62,7 +68,6 @@ export function readResultArrayWithMetadata(
   return MxArray._fromCtx(readResultPointer(label, invoke), metadata);
 }
 
-// FinalizationRegistry is a safety net for missed explicit disposal.
 const registry = new FinalizationRegistry<Pointer>((ctx: Pointer) => {
   ffi.mlx_array_free(ctx);
 });
@@ -82,9 +87,9 @@ export class MxArray implements Disposable {
   private _dtype: DType | null = null;
   private _ndim: number | null = null;
   private _size: number | null = null;
-
   private constructor(ctx: Pointer, metadata?: ArrayMetadata) {
-    const constructStarted = coreRuntimeProfileTimestamp();
+    const profileEnabled = isCoreRuntimeProfilingEnabled();
+    const constructStarted = profileEnabled ? coreRuntimeProfileTimestamp() : 0;
     this._ctx = ctx;
     if (metadata?.shape !== undefined) {
       this._shape = freezeShapeMetadata(metadata.shape);
@@ -95,15 +100,16 @@ export class MxArray implements Disposable {
       this._size = metadata?.size ?? null;
     }
     this._dtype = metadata?.dtype ?? null;
-    const registerStarted = coreRuntimeProfileTimestamp();
+    const registerStarted = profileEnabled ? coreRuntimeProfileTimestamp() : 0;
     registry.register(this, ctx, this);
-    const registerEnded = coreRuntimeProfileTimestamp();
-    recordWrapperConstructDuration(
-      registerEnded - constructStarted,
-      registerEnded - registerStarted,
-    );
+    if (profileEnabled) {
+      const registerEnded = coreRuntimeProfileTimestamp();
+      recordWrapperConstructDuration(
+        registerEnded - constructStarted,
+        registerEnded - registerStarted,
+      );
+    }
   }
-
   /** Wrap an existing mlx_array context pointer and take ownership of it. */
   static _fromCtx(ctx: Pointer, metadata?: ArrayMetadata): MxArray {
     return new MxArray(ctx, metadata);
@@ -328,19 +334,21 @@ export class MxArray implements Disposable {
       return;
     }
 
-    const freeStarted = coreRuntimeProfileTimestamp();
+    const profileEnabled = isCoreRuntimeProfilingEnabled();
+    const freeStarted = profileEnabled ? coreRuntimeProfileTimestamp() : 0;
     this._disposed = true;
-    const unregisterStarted = coreRuntimeProfileTimestamp();
+    const unregisterStarted = profileEnabled ? coreRuntimeProfileTimestamp() : 0;
     registry.unregister(this);
-    const unregisterEnded = coreRuntimeProfileTimestamp();
-    const nativeFreeStarted = coreRuntimeProfileTimestamp();
+    const unregisterEnded = profileEnabled ? coreRuntimeProfileTimestamp() : 0;
+    const nativeFreeStarted = profileEnabled ? coreRuntimeProfileTimestamp() : 0;
     ffi.mlx_array_free(this._ctx);
-    const nativeFreeEnded = coreRuntimeProfileTimestamp();
-    recordExplicitFreeDuration(
-      nativeFreeEnded - freeStarted,
-      unregisterEnded - unregisterStarted,
-      nativeFreeEnded - nativeFreeStarted,
-    );
+    if (profileEnabled) {
+      const nativeFreeEnded = coreRuntimeProfileTimestamp();
+      const freeNs = nativeFreeEnded - freeStarted;
+      const unregisterNs = unregisterEnded - unregisterStarted;
+      const nativeFreeNs = nativeFreeEnded - nativeFreeStarted;
+      recordExplicitFreeDuration(freeNs, unregisterNs, nativeFreeNs);
+    }
   }
 
   /** Support `using` declarations for explicit resource management. */

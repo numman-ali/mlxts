@@ -34,6 +34,14 @@ text endpoints while benchmark and scheduler work continues.
 - **Image serving**: Qwen image transport, host decode, and prepared-prompt
   cache shipped with explicit boundary — serve owns I/O and decode, transformers
   owns preprocessing and prompt expansion.
+- **Architectural cleanup (2026-04-28)**: the audit remediation tranches have
+  landed end to end. Cross-example data helpers moved into `@mlxts/data`;
+  `serve/src/`, Qwen 3.5/3.6, transformer LoRA, align evaluation, tokenizers,
+  and nn are in role-named folders; core compile controls are out of the
+  top-level barrel; stream writers, supervised-run primitives, trainable-module
+  helpers, progress reporting, and cache layer taxonomy are package-owned; and
+  package-agent / cross-package-import governance gates are wired into
+  `bun run validate`.
 
 ## Latest Evidence
 
@@ -75,7 +83,7 @@ Full evidence ladder lives in
 - `--ignore-eos` is an exact-length throughput tool only. Normal serving
   honors EOS; parity claims need explicit ignore-EOS rungs to compare decode
   speed rather than chat stopping behavior.
-- Architectural follow-ups from the 2026-04-28 audit are tracked in
-  `docs/reviews/2026-04-28-architectural-posture-audit.md` § Remediation
-  Backlog. Tier 1 (cross-example coupling) is the only structural blocker;
-  Tier 1.5 is cheap hygiene; Tier 2 is the serve folder restructure tranche.
+- The 2026-04-28 architectural cleanup backlog is complete. Future structure
+  changes should keep `bun run check:per-package-agents` and
+  `bun run check:cross-package-imports` green instead of relying on manual
+  package-boundary review.

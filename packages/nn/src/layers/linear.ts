@@ -15,6 +15,7 @@ export class Linear extends Module {
   weight: MxArray;
   bias: MxArray | null;
   #inputDims: number;
+  /** Cached because repeated forwards would otherwise rebuild an identical weight transpose. */
   #transposedWeight: MxArray | null = null;
   #transposedWeightSource: MxArray | null = null;
 

@@ -16,6 +16,7 @@ import { Module } from "../module";
 export class Embedding extends Module {
   weight: MxArray;
   #embeddingDims: number;
+  /** Cached because tied projections otherwise rebuild an identical transpose during decode. */
   #transposedWeight: MxArray | null = null;
   #transposedWeightSource: MxArray | null = null;
 
