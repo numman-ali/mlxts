@@ -5,10 +5,10 @@ import type { Tokenizer } from "@mlxts/tokenizers";
 import {
   type BaseModelConfig,
   BatchKVCache,
+  type CacheLayerKind,
   type CausalLM,
   type ForwardOptions,
   type InteractionProfile,
-  KVCache,
   type TransformerBatchCache,
   type TransformerCache,
   type TransformerCacheForkOptions,
@@ -74,20 +74,27 @@ class SpecialTokenTokenizer extends TinyTokenizer {
 type TinyModelConfig = Partial<BaseModelConfig> & {
   slidingWindow?: number;
   layerTypes?: string[];
+  layerKinds?: readonly CacheLayerKind[];
 };
 
 class TinyModel implements CausalLM {
   readonly family: BaseModelConfig["family"];
-  readonly layerCount = 1;
+  readonly layerCount: number;
   readonly config: BaseModelConfig & {
     slidingWindow?: number;
     layerTypes?: string[];
   };
   readonly forwardBatchSizes: number[] = [];
   readonly forwardSequenceLengths: number[] = [];
+  readonly #layerKinds: readonly CacheLayerKind[];
 
   constructor(config: TinyModelConfig = {}) {
     const family = config.family ?? "gemma";
+    this.#layerKinds = config.layerKinds ??
+      config.layerTypes?.map((layerType) =>
+        layerType === "sliding_attention" ? "sliding" : "full",
+      ) ?? ["full"];
+    this.layerCount = this.#layerKinds.length;
     this.family = family;
     this.config = {
       family,
@@ -95,7 +102,7 @@ class TinyModel implements CausalLM {
       rawConfig: config.rawConfig ?? {},
       vocabSize: 4,
       hiddenSize: 1,
-      numHiddenLayers: 1,
+      numHiddenLayers: this.layerCount,
       ...(config.generationDefaults === undefined
         ? {}
         : { generationDefaults: config.generationDefaults }),
@@ -125,7 +132,7 @@ class TinyModel implements CausalLM {
   }
 
   createCache(): TransformerCache {
-    return new KVCache(1);
+    return new CountingCache([], 0, true, this.#layerKinds);
   }
 
   parameters(): ParameterTree {
@@ -174,13 +181,14 @@ class PreparedPromptModel extends TinyModel {
 
 class CountingCacheSnapshot implements TransformerCacheSnapshot {
   readonly offset: number;
-  readonly layerKinds = ["full"] as const;
+  readonly layerKinds: readonly CacheLayerKind[];
   readonly trimmable: boolean;
   disposeCount = 0;
 
-  constructor(offset: number, trimmable = true) {
+  constructor(offset: number, trimmable = true, layerKinds: readonly CacheLayerKind[] = ["full"]) {
     this.offset = offset;
     this.trimmable = trimmable;
+    this.layerKinds = [...layerKinds];
   }
 
   canFork(options: TransformerCacheForkOptions = {}): boolean {
@@ -192,7 +200,7 @@ class CountingCacheSnapshot implements TransformerCacheSnapshot {
   }
 
   fork(options: TransformerCacheForkOptions = {}): TransformerCache {
-    return new CountingCache([], options.offset ?? this.offset);
+    return new CountingCache([], options.offset ?? this.offset, this.trimmable, this.layerKinds);
   }
 
   [Symbol.dispose](): void {
@@ -201,16 +209,23 @@ class CountingCacheSnapshot implements TransformerCacheSnapshot {
 }
 
 class CountingCache implements TransformerCache {
-  readonly layerCount = 1;
-  readonly layerKinds = ["full"] as const;
+  readonly layerCount: number;
+  readonly layerKinds: readonly CacheLayerKind[];
   offset: number;
   readonly #snapshots: CountingCacheSnapshot[];
   readonly #trimmable: boolean;
 
-  constructor(snapshots: CountingCacheSnapshot[], offset = 0, trimmable = true) {
+  constructor(
+    snapshots: CountingCacheSnapshot[],
+    offset = 0,
+    trimmable = true,
+    layerKinds: readonly CacheLayerKind[] = ["full"],
+  ) {
     this.#snapshots = snapshots;
     this.offset = offset;
     this.#trimmable = trimmable;
+    this.layerKinds = [...layerKinds];
+    this.layerCount = layerKinds.length;
   }
 
   updateAndFetch(): { keys: MxArray; values: MxArray } {
@@ -230,7 +245,7 @@ class CountingCache implements TransformerCache {
   }
 
   snapshot(): TransformerCacheSnapshot {
-    const snapshot = new CountingCacheSnapshot(this.offset, this.#trimmable);
+    const snapshot = new CountingCacheSnapshot(this.offset, this.#trimmable, this.layerKinds);
     this.#snapshots.push(snapshot);
     return snapshot;
   }
@@ -259,7 +274,7 @@ class SnapshotCountingModel extends TinyModel {
 
 class TinyQwenHybridModel extends TinyModel {
   constructor(modelType = "qwen3_5_text") {
-    super({ family: "qwen", modelType });
+    super({ family: "qwen", modelType, layerKinds: ["linear-recurrent", "full"] });
   }
 
   createBatchCache(leftPadding: readonly number[]): TransformerBatchCache {
@@ -1507,7 +1522,7 @@ describe("transformers generation engine", () => {
   });
 
   test("statically batches Qwen and Gemma layer-pattern prompts without continuous scheduling", async () => {
-    using qwenModel = new TinyModel({ family: "qwen", modelType: "qwen3_5_text" });
+    using qwenModel = new TinyQwenHybridModel();
     using gemmaSlidingModel = new TinyModel({
       family: "gemma",
       modelType: "gemma4_text",
@@ -1590,7 +1605,7 @@ describe("transformers generation engine", () => {
     });
   });
 
-  test("coalesces concurrent Qwen requests through static batching only", async () => {
+  test("does not batch Qwen identifiers without hybrid cache semantics", async () => {
     using model = new TinyModel({ family: "qwen", modelType: "qwen3_5_text" });
     const tokenizer = new TinyTokenizer();
     const events: ServeEvent[] = [];
@@ -1610,29 +1625,21 @@ describe("transformers generation engine", () => {
     ]);
 
     expect(results.map((result) => result.text)).toEqual(["cc", "cc"]);
-    expect(model.batchForwardCount).toBeGreaterThan(0);
+    expect(model.batchForwardCount).toBe(0);
     expect(events.some((event) => event.type === "generation_scheduler_phase")).toBe(false);
+    expect(events.some((event) => event.type === "generation_batch_start")).toBe(false);
     expect(events).toContainEqual({
       type: "generation_route_decision",
       id: "qwen-one",
       protocol: "openai.completions",
       model: "tiny",
-      route: "static",
-      eligible: true,
-      reason: "eligible",
+      route: "single",
+      eligible: false,
+      reason: "unsupported_model_type",
       modelType: "qwen3_5_text",
       maxBatchSize: 2,
       ...ROUTE_STRATEGY,
       stream: false,
-    });
-    expect(events).toContainEqual({
-      type: "generation_batch_start",
-      mode: "static",
-      model: "tiny",
-      ids: ["qwen-one", "qwen-two"],
-      batchSize: 2,
-      maxTokens: 2,
-      maxTokensByRequest: [2, 2],
     });
   });
 

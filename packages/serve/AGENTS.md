@@ -46,6 +46,8 @@ Family-owned cache, serve-owned scheduling. Serve manipulates
 fork, store, and dispose operations. KV layout, layer-pattern handling,
 recurrent state, and quantized storage stay in `@mlxts/transformers`; serve owns
 matching, identity gating, eviction, accounting, metrics, and protocol usage.
+Serve dispatches cache-shape scheduling on `CacheLayerKind`, not on family
+identifiers.
 
 Serve owns media transport, bounded host-side I/O, decode, cancellation, and
 model-lane scheduling. Model-family preprocessing - smart resize, patch tokens,

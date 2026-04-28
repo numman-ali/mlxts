@@ -3,7 +3,7 @@
  * @module
  */
 
-import type { CausalLM } from "@mlxts/transformers";
+import type { CacheLayerKind, CausalLM } from "@mlxts/transformers";
 import { transformersRuntimeStrategy } from "../runtime/strategy";
 import type {
   GenerationRoute,
@@ -14,21 +14,12 @@ import type { TransformersGenerationEngineOptions } from "./index";
 
 const CONTINUOUS_BATCH_MODEL_TYPES = new Set(["gemma", "llama", "mistral", "mistral3", "phi3"]);
 const GEMMA_LAYER_PATTERN_BATCH_MODEL_TYPES = new Set(["gemma3_text", "gemma4_text", "gemma4"]);
-const QWEN_HYBRID_BATCH_MODEL_TYPES = new Set(["qwen3_5_text", "qwen3_5_moe_text"]);
 const STATIC_BATCH_MODEL_TYPES = new Set([
   ...CONTINUOUS_BATCH_MODEL_TYPES,
   ...GEMMA_LAYER_PATTERN_BATCH_MODEL_TYPES,
-  ...QWEN_HYBRID_BATCH_MODEL_TYPES,
 ]);
 
-function configHasSlidingWindow(model: CausalLM): boolean {
-  const config = model.config;
-  if (!("slidingWindow" in config)) {
-    return false;
-  }
-  const value = config.slidingWindow;
-  return typeof value === "number" && Number.isFinite(value) && value > 0;
-}
+const MODEL_CACHE_LAYER_KINDS = new WeakMap<CausalLM, readonly CacheLayerKind[]>();
 
 function effectiveTemperature(
   request: NormalizedGenerationRequest,
@@ -43,22 +34,36 @@ function effectiveRepetitionPenalty(options: TransformersGenerationEngineOptions
   return options.model.config.generationDefaults?.repetitionPenalty ?? 1.0;
 }
 
+function cacheLayerKinds(model: CausalLM): readonly CacheLayerKind[] {
+  const cached = MODEL_CACHE_LAYER_KINDS.get(model);
+  if (cached !== undefined) {
+    return cached;
+  }
+
+  using cache = model.createCache();
+  const layerKinds = [...cache.layerKinds];
+  MODEL_CACHE_LAYER_KINDS.set(model, layerKinds);
+  return layerKinds;
+}
+
+function hasCacheLayerKind(layerKinds: readonly CacheLayerKind[], kind: CacheLayerKind): boolean {
+  return layerKinds.includes(kind);
+}
+
+function isAttentionCacheLayerKind(kind: CacheLayerKind): boolean {
+  return kind === "full" || kind === "sliding";
+}
+
 function hasGemmaLayerPatternBatchCache(model: CausalLM): boolean {
   if (!GEMMA_LAYER_PATTERN_BATCH_MODEL_TYPES.has(model.config.modelType)) {
     return false;
   }
 
-  const layerTypes: unknown = Reflect.get(model.config, "layerTypes");
-  const slidingWindow: unknown = Reflect.get(model.config, "slidingWindow");
+  const layerKinds = cacheLayerKinds(model);
   return (
-    Array.isArray(layerTypes) &&
-    layerTypes.length === model.layerCount &&
-    layerTypes.every(
-      (layerType) => layerType === "full_attention" || layerType === "sliding_attention",
-    ) &&
-    typeof slidingWindow === "number" &&
-    Number.isInteger(slidingWindow) &&
-    slidingWindow > 0
+    layerKinds.length === model.layerCount &&
+    layerKinds.every(isAttentionCacheLayerKind) &&
+    hasCacheLayerKind(layerKinds, "sliding")
   );
 }
 
@@ -66,11 +71,9 @@ function hasModelOwnedBatchCache(model: CausalLM): boolean {
   return typeof Reflect.get(model, "createBatchCache") === "function";
 }
 
-function hasQwenHybridBatchCache(model: CausalLM): boolean {
+function hasLinearRecurrentBatchCache(model: CausalLM): boolean {
   return (
-    model.config.family === "qwen" &&
-    QWEN_HYBRID_BATCH_MODEL_TYPES.has(model.config.modelType) &&
-    hasModelOwnedBatchCache(model)
+    hasCacheLayerKind(cacheLayerKinds(model), "linear-recurrent") && hasModelOwnedBatchCache(model)
   );
 }
 
@@ -84,10 +87,13 @@ export function staticBatchIneligibilityReason(
   if (request.stream) {
     return "streaming";
   }
-  if (configHasSlidingWindow(options.model) && !hasGemmaLayerPatternBatchCache(options.model)) {
+  const layerKinds = cacheLayerKinds(options.model);
+  const hasLayerPatternBatchCache = hasGemmaLayerPatternBatchCache(options.model);
+  const hasLinearRecurrentCache = hasLinearRecurrentBatchCache(options.model);
+  if (hasCacheLayerKind(layerKinds, "sliding") && !hasLayerPatternBatchCache) {
     return "sliding_window_cache";
   }
-  if (!STATIC_BATCH_MODEL_TYPES.has(options.model.config.modelType)) {
+  if (!STATIC_BATCH_MODEL_TYPES.has(options.model.config.modelType) && !hasLinearRecurrentCache) {
     return "unsupported_model_type";
   }
   if (effectiveTemperature(request, options) !== 0) {
@@ -106,15 +112,16 @@ export function continuousBatchIneligibilityReason(
   if (request.input.kind === "content") {
     return "media_input";
   }
+  const layerKinds = cacheLayerKinds(options.model);
   const hasLayerPatternBatchCache = hasGemmaLayerPatternBatchCache(options.model);
-  const hasHybridQwenBatchCache = hasQwenHybridBatchCache(options.model);
-  if (configHasSlidingWindow(options.model) && !hasLayerPatternBatchCache) {
+  const hasLinearRecurrentCache = hasLinearRecurrentBatchCache(options.model);
+  if (hasCacheLayerKind(layerKinds, "sliding") && !hasLayerPatternBatchCache) {
     return "sliding_window_cache";
   }
   if (
     !CONTINUOUS_BATCH_MODEL_TYPES.has(options.model.config.modelType) &&
     !hasLayerPatternBatchCache &&
-    !hasHybridQwenBatchCache
+    !hasLinearRecurrentCache
   ) {
     return "unsupported_model_type";
   }
