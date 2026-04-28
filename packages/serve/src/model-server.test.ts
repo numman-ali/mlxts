@@ -544,6 +544,59 @@ describe("serveLoadedModel", () => {
     }
   });
 
+  test("serves OpenAI responses image content through a loaded content adapter", async () => {
+    const model = new PreparedGeneratingModel();
+    const running = serveLoadedModel({
+      model,
+      tokenizer: new GeneratingTokenizer(),
+      modelId: "mlx-community/Qwen3.6-27B-4bit",
+      port: 0,
+      contentAdapter: {
+        async load() {
+          return {
+            prompt: { text: "user:<image>", tokenIds: [0, 1] },
+            preparePrompt() {
+              return {
+                tokenIds: [0, 1],
+                inputEmbeddings: array([[[0], [1]]], "float32"),
+              };
+            },
+          };
+        },
+      },
+    });
+
+    try {
+      const response = await fetch(`${running.endpoint}/v1/responses`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          model: "mlx-community/Qwen3.6-27B-4bit",
+          input: [
+            {
+              role: "user",
+              content: [
+                { type: "input_text", text: "Describe this." },
+                { type: "input_image", image_url: "data:image/png;base64,AA==" },
+              ],
+            },
+          ],
+          max_output_tokens: 2,
+          temperature: 0,
+        }),
+      });
+
+      expect(response.status).toBe(200);
+      expect(await response.json()).toMatchObject({
+        object: "response",
+        output_text: "cc",
+      });
+      expect(model.forwardedInputEmbeddingShapes).toContainEqual([1, 1, 1]);
+    } finally {
+      running.stop();
+    }
+  });
+
   test("validates operator-facing server options before binding", () => {
     const model = new FakeModel();
     const tokenizer = new FakeTokenizer();

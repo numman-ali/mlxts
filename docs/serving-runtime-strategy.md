@@ -240,10 +240,12 @@ The next work should stay ordered around architecture truth:
    request, generation, scheduler, batch, memory, and streaming lifecycle
    signals; deepen it as cache backends, cancellation state, and scheduler
    fairness gain more first-class state.
-8. Expand protocols and modalities through the shared request model: fuller
-   Responses and Anthropic Messages, structured output/logprobs, then
-   multimodal serving. Image/video/audio/PDF/file support should normalize into
-   typed content parts first, then route through model-family adapters when the
+8. Expand protocols and modalities through the shared request model. Qwen image
+   data URLs now prove the first media adapter path for Chat Completions and
+   Responses; the next slices are fuller Responses and Anthropic Messages,
+   structured output/logprobs, Gemma image/video truth, and broader file/audio
+   inputs. Image/video/audio/PDF/file support should normalize into typed
+   content parts first, then route through model-family adapters when the
    underlying checkpoint genuinely supports that modality.
 
 That order protects the thing that matters most: every new capability should

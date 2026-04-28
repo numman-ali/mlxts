@@ -8,6 +8,8 @@ This tranche turns the prior protocol-neutral media seam into a real Qwen image-
 
 Gemma image input is still rejected honestly until Gemma-family image preparation exists in `@mlxts/transformers`.
 
+The serving product surface now advertises the capability narrowly: Qwen image data URLs are supported through OpenAI Chat Completions and Responses when the loaded checkpoint exposes the media adapter; Anthropic Messages and coding-agent client metadata remain text-only until those paths are implemented and smoked.
+
 ## Files Reviewed
 
 - `packages/serve/src/index.ts`
@@ -18,6 +20,7 @@ Gemma image input is still rejected honestly until Gemma-family image preparatio
 - `packages/serve/src/server-anthropic-messages.ts`
 - `packages/serve/src/server-json.ts`
 - `packages/serve/src/server-responses.ts`
+- `packages/serve/src/server-info.ts`
 - `packages/serve/src/server.ts`
 - `packages/serve/src/transformers-engine-content.ts`
 - `packages/serve/src/transformers-engine-generation.ts`
@@ -40,7 +43,8 @@ Gemma image input is still rejected honestly until Gemma-family image preparatio
 
 Focused validation run:
 
-- `bun test packages/serve/src/server-json.test.ts packages/serve/src/media-image.test.ts packages/serve/src/transformers-engine-content.test.ts packages/serve/src/transformers-engine.test.ts packages/serve/src/model-server.test.ts packages/serve/src/model-sources.test.ts packages/serve/src/server.test.ts` passed: 121 tests.
+- `bun test packages/serve/src/server-json.test.ts packages/serve/src/media-image.test.ts packages/serve/src/transformers-engine-content.test.ts packages/serve/src/transformers-engine.test.ts packages/serve/src/model-server.test.ts packages/serve/src/model-sources.test.ts packages/serve/src/server.test.ts` passed: 122 tests.
+- `bun test packages/serve/src/model-server.test.ts packages/serve/src/server.test.ts` passed after the Responses image and `/info` product-surface follow-up: 50 tests.
 - `bun run check:coverage` passed. `@mlxts/serve` coverage was `95.18%` lines / `95.42%` functions, above the required `95%` line / `90%` function thresholds.
 - `bun run typecheck` passed across all workspaces.
 - `bun run lint` passed.

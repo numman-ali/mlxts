@@ -44,6 +44,28 @@ curl -s http://127.0.0.1:8000/v1/completions \
   }'
 ```
 
+For Qwen conditional checkpoints, image inputs use OpenAI-style data URLs on
+the Chat Completions or Responses routes:
+
+```bash
+IMAGE_DATA_URL="data:image/png;base64,..."
+
+curl -s http://127.0.0.1:8000/v1/chat/completions \
+  -H 'content-type: application/json' \
+  -d "{
+    \"model\": \"mlx-community/Qwen3.6-27B-4bit\",
+    \"messages\": [{
+      \"role\": \"user\",
+      \"content\": [
+        { \"type\": \"text\", \"text\": \"Describe this image.\" },
+        { \"type\": \"image_url\", \"image_url\": { \"url\": \"$IMAGE_DATA_URL\" } }
+      ]
+    }],
+    \"chat_template_kwargs\": { \"enable_thinking\": false },
+    \"max_tokens\": 128
+  }"
+```
+
 Use `--api-key <key>` when binding outside localhost; it protects `/info`,
 `/metrics`, and all `/v1/*` routes while leaving `/health` open for process
 checks.
@@ -219,22 +241,24 @@ Cache metrics are truthful but narrow. OpenAI usage reports
 `cache_write_tokens` for writes; TTFT and TPS live in server stream logs,
 `/metrics`, and benchmark reports, not in Pi's current footer.
 
-Do not advertise image support to coding-agent clients yet. The transformers
-package has image-preparation pieces and examples, but `@mlxts/serve` still
-rejects image/media content on the OpenAI, Responses, and Anthropic routes until
-media is accepted, preprocessed, routed, and tested end to end.
+Qwen conditional checkpoints such as `mlx-community/Qwen3.6-27B-4bit` can accept
+image data URLs through OpenAI Chat Completions and Responses. Keep Pi/OpenCode
+model metadata text-only until those clients' image/file payloads are configured
+and smoked end to end; raw OpenAI-compatible clients can send image data URLs
+directly today.
 
-`/v1/responses` starts with a deliberately narrow text-only subset of OpenAI's
-Responses API. It accepts string `input` or text-only message item arrays,
-optional `instructions`, `max_output_tokens`, model-native sampling fields,
-`seed`, `metadata`, and non-persistent `store: false`; it returns a `response`
-object with `output`, `output_text`, usage, and reasoning items when the model
-result includes reasoning content. `stream: true` emits semantic Responses SSE
-events such as `response.created`, `response.output_text.delta`,
+`/v1/responses` starts with a deliberately narrow text-first subset of OpenAI's
+Responses API. It accepts string `input`, message item arrays, Qwen image data
+URLs when the served checkpoint exposes a media adapter, optional `instructions`,
+`max_output_tokens`, model-native sampling fields, `seed`, `metadata`, and
+non-persistent `store: false`; it returns a `response` object with `output`,
+`output_text`, usage, and reasoning items when the model result includes
+reasoning content. `stream: true` emits semantic Responses SSE events such as
+`response.created`, `response.output_text.delta`,
 `response.reasoning_text.delta`, and `response.completed` for text output.
-Stateful continuation, background jobs, tools, files/images, prompt templates,
-truncation, and non-text output formats are rejected explicitly until those
-semantics are implemented for real.
+Stateful continuation, background jobs, tools, remote/file image sources,
+non-image files, audio, truncation, and non-text output formats are rejected
+explicitly until those semantics are implemented for real.
 
 `/v1/messages` starts with a bounded Anthropic Messages-compatible text path.
 It accepts top-level `system`, text-only `messages`, required `max_tokens`,

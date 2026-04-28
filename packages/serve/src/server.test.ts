@@ -175,8 +175,8 @@ describe("serve fetch handler", () => {
       ],
       capabilities: {
         completions: true,
-        chat_completions: true,
-        responses: "text_only",
+        chat_completions: "text_and_image_when_supported",
+        responses: "text_and_image_when_supported",
         anthropic_messages: "text_only",
         sse_streaming: true,
         batch_generation: true,
