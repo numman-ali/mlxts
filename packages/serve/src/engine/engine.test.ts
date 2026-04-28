@@ -174,6 +174,7 @@ class PreparedPromptModel extends TinyModel {
 
 class CountingCacheSnapshot implements TransformerCacheSnapshot {
   readonly offset: number;
+  readonly layerKinds = ["full"] as const;
   readonly trimmable: boolean;
   disposeCount = 0;
 
@@ -201,6 +202,7 @@ class CountingCacheSnapshot implements TransformerCacheSnapshot {
 
 class CountingCache implements TransformerCache {
   readonly layerCount = 1;
+  readonly layerKinds = ["full"] as const;
   offset: number;
   readonly #snapshots: CountingCacheSnapshot[];
   readonly #trimmable: boolean;

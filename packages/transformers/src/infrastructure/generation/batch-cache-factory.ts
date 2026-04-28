@@ -4,7 +4,7 @@
  */
 
 import type { CausalLM, TransformerBatchCache } from "../../types";
-import { BatchKVCache, LayerPatternBatchKVCache } from "../cache";
+import { BatchKVCache, cacheLayerKindFromAttentionType, LayerPatternBatchKVCache } from "../cache";
 
 type BatchCacheFactory = (leftPadding: readonly number[]) => unknown;
 
@@ -13,9 +13,12 @@ function isBatchCacheFactory(value: unknown): value is BatchCacheFactory {
 }
 
 function isTransformerBatchCache(value: unknown): value is TransformerBatchCache {
+  const layerKinds =
+    typeof value === "object" && value !== null ? Reflect.get(value, "layerKinds") : undefined;
   return (
     typeof value === "object" &&
     value !== null &&
+    Array.isArray(layerKinds) &&
     typeof Reflect.get(value, "updateAndFetch") === "function" &&
     typeof Reflect.get(value, "advance") === "function" &&
     typeof Reflect.get(value, "filter") === "function" &&
@@ -67,11 +70,13 @@ function gemmaLayerWindowSizes(model: CausalLM, context: string): (number | unde
 
   const layerWindowSizes: (number | undefined)[] = [];
   for (const layerType of layerTypes) {
-    if (layerType === "sliding_attention") {
+    const layerKind =
+      typeof layerType === "string" ? cacheLayerKindFromAttentionType(layerType) : null;
+    if (layerKind === "sliding") {
       layerWindowSizes.push(slidingWindow);
       continue;
     }
-    if (layerType === "full_attention") {
+    if (layerKind === "full") {
       layerWindowSizes.push(undefined);
       continue;
     }

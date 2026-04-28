@@ -5,7 +5,7 @@
 
 import type { MxArray, ParameterTree } from "@mlxts/core";
 import type { TokenizerFormat } from "@mlxts/tokenizers";
-
+import type { CacheLayerKind } from "./infrastructure/cache/layer-kind";
 import type {
   LoadSourceOptions,
   PretrainedLoadProgressEvent,
@@ -130,6 +130,8 @@ export type TransformerCacheForkOptions = {
 export interface TransformerCacheSnapshot extends Disposable {
   /** Logical token offset represented by this snapshot. */
   readonly offset: number;
+  /** Per-decoder-layer semantic cache state kind. */
+  readonly layerKinds: readonly CacheLayerKind[];
   /** Whether this snapshot can fork at earlier offsets as well as its full offset. */
   readonly trimmable: boolean;
 
@@ -161,6 +163,7 @@ export type BaseModelConfig = {
 
 export interface TransformerCache extends Disposable {
   readonly layerCount: number;
+  readonly layerKinds: readonly CacheLayerKind[];
   readonly offset: number;
 
   updateAndFetch(
@@ -178,6 +181,7 @@ export interface TransformerCache extends Disposable {
 
 export interface TransformerBatchCache extends Disposable {
   readonly layerCount: number;
+  readonly layerKinds: readonly CacheLayerKind[];
   readonly batchSize: number;
   readonly length: number;
   readonly leftPadding: readonly number[];

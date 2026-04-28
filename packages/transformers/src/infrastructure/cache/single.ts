@@ -11,6 +11,11 @@ import type {
   TransformerCacheSnapshot,
 } from "../../types";
 import {
+  type CacheLayerKind,
+  cacheLayerKindsFromWindowSizes,
+  repeatedCacheLayerKinds,
+} from "./layer-kind";
+import {
   appendFullCacheState,
   appendSlidingCacheState,
   type CacheAppendResult,
@@ -50,6 +55,7 @@ function sliceSnapshotArray(value: MxArray, length: number): MxArray {
 
 class CacheSnapshot implements TransformerCacheSnapshot {
   readonly offset: number;
+  readonly layerKinds: readonly CacheLayerKind[];
   readonly trimmable: boolean;
   readonly #layers: LayerStateSnapshot[];
   readonly #createCache: CacheFactory;
@@ -58,11 +64,13 @@ class CacheSnapshot implements TransformerCacheSnapshot {
 
   constructor(options: {
     offset: number;
+    layerKinds: readonly CacheLayerKind[];
     layers: LayerStateSnapshot[];
     createCache: CacheFactory;
     trimPolicy: SnapshotTrimPolicy;
   }) {
     this.offset = options.offset;
+    this.layerKinds = [...options.layerKinds];
     this.trimmable = options.trimPolicy === "prefix";
     this.#layers = options.layers;
     this.#createCache = options.createCache;
@@ -156,6 +164,8 @@ abstract class CacheBase implements TransformerCache {
     return this.#layers.length;
   }
 
+  abstract get layerKinds(): readonly CacheLayerKind[];
+
   isEmpty(): boolean {
     return this.offset === 0;
   }
@@ -172,6 +182,7 @@ abstract class CacheBase implements TransformerCache {
       }
       return new CacheSnapshot({
         offset: this.offset,
+        layerKinds: this.layerKinds,
         layers,
         createCache: this.snapshotCacheFactory(),
         trimPolicy: this.snapshotTrimPolicy(),
@@ -274,6 +285,17 @@ abstract class CacheBase implements TransformerCache {
 
 /** Full causal KV cache that keeps every prior token. */
 export class KVCache extends CacheBase {
+  readonly #layerKinds: readonly CacheLayerKind[];
+
+  constructor(layerCount: number) {
+    super(layerCount);
+    this.#layerKinds = repeatedCacheLayerKinds(layerCount, "full");
+  }
+
+  get layerKinds(): readonly CacheLayerKind[] {
+    return this.#layerKinds;
+  }
+
   protected snapshotCacheFactory(): CacheFactory {
     const layerCount = this.layerCount;
     return () => new KVCache(layerCount);
@@ -283,6 +305,7 @@ export class KVCache extends CacheBase {
 /** Sliding-window KV cache used by decoder families like Mistral. */
 export class SlidingWindowKVCache extends CacheBase {
   #windowSize: number;
+  readonly #layerKinds: readonly CacheLayerKind[];
 
   constructor(layerCount: number, windowSize: number) {
     super(layerCount);
@@ -292,6 +315,11 @@ export class SlidingWindowKVCache extends CacheBase {
       );
     }
     this.#windowSize = windowSize;
+    this.#layerKinds = repeatedCacheLayerKinds(layerCount, "sliding");
+  }
+
+  get layerKinds(): readonly CacheLayerKind[] {
+    return this.#layerKinds;
   }
 
   override isTrimmable(): boolean {
@@ -332,6 +360,7 @@ export class SlidingWindowKVCache extends CacheBase {
 /** Per-layer cache that mixes full and sliding-window retention within one model. */
 export class LayerPatternKVCache extends CacheBase {
   #layerWindowSizes: (number | undefined)[];
+  readonly #layerKinds: readonly CacheLayerKind[];
 
   constructor(layerCount: number, layerWindowSizes: readonly (number | undefined)[]) {
     super(layerCount);
@@ -348,6 +377,11 @@ export class LayerPatternKVCache extends CacheBase {
       }
     }
     this.#layerWindowSizes = [...layerWindowSizes];
+    this.#layerKinds = cacheLayerKindsFromWindowSizes(this.#layerWindowSizes);
+  }
+
+  get layerKinds(): readonly CacheLayerKind[] {
+    return this.#layerKinds;
   }
 
   override isTrimmable(): boolean {

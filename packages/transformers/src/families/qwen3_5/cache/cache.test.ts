@@ -9,6 +9,7 @@ describe("Qwen3_5TextCache", () => {
     using cache = new Qwen3_5TextCache(["linear_attention", "full_attention", "linear_attention"]);
 
     expect(cache.layerCount).toBe(3);
+    expect(cache.layerKinds).toEqual(["linear-recurrent", "full", "linear-recurrent"]);
     expect(cache.isEmpty()).toBe(true);
     expect(cache.isTrimmable()).toBe(false);
 
@@ -87,6 +88,7 @@ describe("Qwen3_5TextCache", () => {
 
     using snapshot = cache.snapshot();
     expect(snapshot.offset).toBe(2);
+    expect(snapshot.layerKinds).toEqual(["linear-recurrent", "full"]);
     expect(snapshot.trimmable).toBe(false);
     expect(snapshot.canFork()).toBe(true);
     expect(snapshot.canFork({ offset: 1 })).toBe(false);
@@ -94,6 +96,7 @@ describe("Qwen3_5TextCache", () => {
 
     using fork = snapshot.fork();
     expect(fork.offset).toBe(2);
+    expect(fork.layerKinds).toEqual(["linear-recurrent", "full"]);
     const arrays = fork.arrays();
     try {
       mxEval(...arrays);
@@ -176,6 +179,8 @@ describe("Qwen3_5TextCache", () => {
     mxEval(view);
 
     using snapshot = cache.snapshot();
+    expect(cache.layerKinds).toEqual(["full"]);
+    expect(snapshot.layerKinds).toEqual(["full"]);
     expect(snapshot.trimmable).toBe(true);
     expect(snapshot.canFork({ offset: 2 })).toBe(true);
 
@@ -199,6 +204,7 @@ describe("Qwen3_5TextBatchCache", () => {
 
     expect(cache.batchSize).toBe(2);
     expect(cache.layerCount).toBe(2);
+    expect(cache.layerKinds).toEqual(["linear-recurrent", "full"]);
     expect(cache.leftPadding).toEqual([2, 0]);
     expect(cache.offsets).toEqual([-2, 0]);
 
@@ -227,6 +233,7 @@ describe("Qwen3_5TextBatchCache", () => {
     try {
       expect(extracted).toBeInstanceOf(Qwen3_5TextCache);
       expect(extracted.offset).toBe(1);
+      expect(extracted.layerKinds).toEqual(["linear-recurrent", "full"]);
       const arrays = extracted.arrays();
       try {
         mxEval(...arrays);

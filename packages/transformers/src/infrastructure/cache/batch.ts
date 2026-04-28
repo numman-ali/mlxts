@@ -15,6 +15,7 @@ import {
 } from "@mlxts/core";
 
 import type { TransformerBatchCache, TransformerCache } from "../../types";
+import { type CacheLayerKind, repeatedCacheLayerKinds } from "./layer-kind";
 import {
   appendFullCacheState,
   type CacheAppendResult,
@@ -278,6 +279,7 @@ export class BatchKVCache implements TransformerBatchCache {
   #layers: LayerState[];
   #leftPadding: number[];
   #offsets: number[];
+  readonly #layerKinds: readonly CacheLayerKind[];
 
   constructor(layerCount: number, leftPadding: readonly number[]) {
     if (!Number.isInteger(layerCount) || layerCount <= 0) {
@@ -286,10 +288,15 @@ export class BatchKVCache implements TransformerBatchCache {
     this.#leftPadding = validateBatchMetadata(leftPadding);
     this.#offsets = this.#leftPadding.map((padding) => (padding === 0 ? 0 : -padding));
     this.#layers = Array.from({ length: layerCount }, () => createEmptyLayerState());
+    this.#layerKinds = repeatedCacheLayerKinds(layerCount, "full");
   }
 
   get layerCount(): number {
     return this.#layers.length;
+  }
+
+  get layerKinds(): readonly CacheLayerKind[] {
+    return this.#layerKinds;
   }
 
   get batchSize(): number {

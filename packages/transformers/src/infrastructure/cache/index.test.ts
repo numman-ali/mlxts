@@ -3,6 +3,7 @@ import { describe, expect, test } from "bun:test";
 import { array, type MxArray, mxEval } from "@mlxts/core";
 import {
   BatchKVCache,
+  cacheLayerKindFromAttentionType,
   cacheStateArrays,
   KVCache,
   LayerPatternBatchKVCache,
@@ -148,6 +149,25 @@ describe("Transformer caches", () => {
   test("managed KVCache appends keys and values across updates", () => {
     using cache = new KVCache(1);
     runFullAppendScenario(cache);
+  });
+
+  test("managed caches expose shared per-layer cache taxonomy", () => {
+    using fullCache = new KVCache(2);
+    using slidingCache = new SlidingWindowKVCache(2, 4);
+    using layerPatternCache = new LayerPatternKVCache(3, [undefined, 2, undefined]);
+    using layerPatternSnapshot = layerPatternCache.snapshot();
+    using batchCache = new BatchKVCache(2, [0]);
+    using layerPatternBatchCache = new LayerPatternBatchKVCache(3, [0], [undefined, 2, undefined]);
+
+    expect(cacheLayerKindFromAttentionType("full_attention")).toBe("full");
+    expect(cacheLayerKindFromAttentionType("sliding_attention")).toBe("sliding");
+    expect(cacheLayerKindFromAttentionType("linear_attention")).toBe("linear-recurrent");
+    expect(fullCache.layerKinds).toEqual(["full", "full"]);
+    expect(slidingCache.layerKinds).toEqual(["sliding", "sliding"]);
+    expect(layerPatternCache.layerKinds).toEqual(["full", "sliding", "full"]);
+    expect(layerPatternSnapshot.layerKinds).toEqual(["full", "sliding", "full"]);
+    expect(batchCache.layerKinds).toEqual(["full", "full"]);
+    expect(layerPatternBatchCache.layerKinds).toEqual(["full", "sliding", "full"]);
   });
 
   test("managed SlidingWindowKVCache reuses ring-buffer storage for single-token updates once full", () => {

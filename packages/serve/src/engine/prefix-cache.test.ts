@@ -10,6 +10,7 @@ import { createPromptPrefixCacheSession, PromptPrefixCache } from "./prefix-cach
 
 class FakeCache implements TransformerCache {
   readonly layerCount = 0;
+  readonly layerKinds = [] as const;
   readonly offset: number;
 
   constructor(offset: number) {
@@ -45,6 +46,7 @@ class FakeCache implements TransformerCache {
 
 class FakeSnapshot implements TransformerCacheSnapshot {
   readonly offset: number;
+  readonly layerKinds = [] as const;
   readonly trimmable = true;
   readonly maxForkOffset: number;
   disposeCount = 0;

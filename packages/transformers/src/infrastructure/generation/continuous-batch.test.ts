@@ -30,6 +30,10 @@ class TrackingBatchCache implements TransformerBatchCache {
     return this.inner.layerCount;
   }
 
+  get layerKinds() {
+    return this.inner.layerKinds;
+  }
+
   get batchSize(): number {
     return this.inner.batchSize;
   }

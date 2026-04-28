@@ -5,6 +5,13 @@ import { isManagedLayerPatternBatchKVCache } from "./layer-pattern-batch";
 
 export { BatchKVCache, isManagedBatchKVCache } from "./batch";
 export {
+  type CacheLayerKind,
+  cacheLayerKindFromAttentionType,
+  cacheLayerKindsFromAttentionTypes,
+  cacheLayerKindsFromWindowSizes,
+  repeatedCacheLayerKinds,
+} from "./layer-kind";
+export {
   isManagedLayerPatternBatchKVCache,
   LayerPatternBatchKVCache,
 } from "./layer-pattern-batch";

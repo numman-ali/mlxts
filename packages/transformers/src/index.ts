@@ -53,6 +53,7 @@ export {
 } from "./generation";
 export {
   BatchKVCache,
+  type CacheLayerKind,
   KVCache,
   LayerPatternBatchKVCache,
   LayerPatternKVCache,

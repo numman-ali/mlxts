@@ -16,7 +16,11 @@ import {
   takeAxis,
 } from "@mlxts/core";
 
-import { BatchKVCache } from "../../../infrastructure/cache";
+import {
+  BatchKVCache,
+  type CacheLayerKind,
+  cacheLayerKindsFromAttentionTypes,
+} from "../../../infrastructure/cache";
 import { INTERNAL_CACHE_VIEW, type TransformerCacheView } from "../../../infrastructure/cache/view";
 import type { TransformerBatchCache, TransformerCache } from "../../../types";
 import type { Qwen3_5LayerType } from "../types";
@@ -159,12 +163,14 @@ function disposePreparedLinearStates(states: readonly Qwen3_5LinearLayerState[])
 /** Batch cache for Qwen's mixed full-attention and linear-attention text layers. */
 export class Qwen3_5TextBatchCache implements TransformerBatchCache {
   readonly #layerTypes: Qwen3_5LayerType[];
+  readonly #layerKinds: readonly CacheLayerKind[];
   readonly #fullAttentionCache: BatchKVCache;
   readonly #linearStates: Qwen3_5LinearLayerState[];
   #linearLeftPadding: number[];
 
   constructor(layerTypes: readonly Qwen3_5LayerType[], leftPadding: readonly number[]) {
     this.#layerTypes = validateLayerTypes(layerTypes);
+    this.#layerKinds = cacheLayerKindsFromAttentionTypes(this.#layerTypes, "Qwen3_5TextBatchCache");
     const padding = validateBatchMetadata(leftPadding);
     this.#fullAttentionCache = new BatchKVCache(this.#layerTypes.length, padding);
     this.#linearLeftPadding = [...padding];
@@ -175,6 +181,10 @@ export class Qwen3_5TextBatchCache implements TransformerBatchCache {
 
   get layerCount(): number {
     return this.#layerTypes.length;
+  }
+
+  get layerKinds(): readonly CacheLayerKind[] {
+    return this.#layerKinds;
   }
 
   get batchSize(): number {

@@ -5,7 +5,11 @@
 
 import { type MxArray, mxEval, retainArray, slice } from "@mlxts/core";
 
-import { KVCache } from "../../../infrastructure/cache";
+import {
+  type CacheLayerKind,
+  cacheLayerKindsFromAttentionTypes,
+  KVCache,
+} from "../../../infrastructure/cache";
 import { cloneCacheArray } from "../../../infrastructure/cache/runtime";
 import { INTERNAL_CACHE_VIEW, type TransformerCacheView } from "../../../infrastructure/cache/view";
 import type {
@@ -177,6 +181,7 @@ function sliceFullAttentionSnapshotArray(value: MxArray, length: number): MxArra
 
 class Qwen3_5TextCacheSnapshot implements TransformerCacheSnapshot {
   readonly offset: number;
+  readonly layerKinds: readonly CacheLayerKind[];
   readonly trimmable: boolean;
   readonly #layerTypes: Qwen3_5LayerType[];
   readonly #layers: LayerCacheSnapshot[];
@@ -191,6 +196,10 @@ class Qwen3_5TextCacheSnapshot implements TransformerCacheSnapshot {
   }) {
     this.offset = options.offset;
     this.#layerTypes = options.layerTypes;
+    this.layerKinds = cacheLayerKindsFromAttentionTypes(
+      options.layerTypes,
+      "Qwen3_5TextCacheSnapshot",
+    );
     this.#layers = options.layers;
     this.#ropeDeltas = cloneRopeDeltas(options.ropeDeltas);
     this.trimmable = options.layerTypes.every((layerType) => layerType === "full_attention");
@@ -288,12 +297,14 @@ class Qwen3_5TextCacheSnapshot implements TransformerCacheSnapshot {
 export class Qwen3_5TextCache implements TransformerCache {
   offset = 0;
   #layers: LayerCacheState[];
+  readonly #layerKinds: readonly CacheLayerKind[];
   #ropeDeltas: number[] | null = null;
 
   constructor(layerTypes: readonly Qwen3_5LayerType[]) {
     if (layerTypes.length === 0) {
       throw new Error("Qwen3_5TextCache: layerTypes must contain at least one layer.");
     }
+    this.#layerKinds = cacheLayerKindsFromAttentionTypes(layerTypes, "Qwen3_5TextCache");
     this.#layers = layerTypes.map((layerType) =>
       layerType === "full_attention"
         ? {
@@ -312,6 +323,10 @@ export class Qwen3_5TextCache implements TransformerCache {
 
   get layerCount(): number {
     return this.#layers.length;
+  }
+
+  get layerKinds(): readonly CacheLayerKind[] {
+    return this.#layerKinds;
   }
 
   isEmpty(): boolean {

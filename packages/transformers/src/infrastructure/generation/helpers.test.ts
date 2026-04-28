@@ -16,6 +16,7 @@ import {
 
 class FakeCache implements TransformerCache {
   readonly layerCount = 0;
+  readonly layerKinds = [] as const;
   readonly offset = 0;
 
   #stateArrays: MxArray[];

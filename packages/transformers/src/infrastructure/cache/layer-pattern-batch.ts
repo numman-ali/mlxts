@@ -6,6 +6,7 @@
 import { array, type MxArray, slice } from "@mlxts/core";
 
 import type { TransformerBatchCache, TransformerCache } from "../../types";
+import { type CacheLayerKind, cacheLayerKindsFromWindowSizes } from "./layer-kind";
 import {
   extendLayerState,
   filterLayerState,
@@ -41,6 +42,7 @@ function validateUpdateBatchSize(keys: MxArray, values: MxArray, batchSize: numb
 export class LayerPatternBatchKVCache implements TransformerBatchCache {
   #layers: LayerState[];
   #layerWindowSizes: (number | undefined)[];
+  readonly #layerKinds: readonly CacheLayerKind[];
   #leftPadding: number[];
   #offsets: number[];
   #logicalLength = 0;
@@ -58,11 +60,16 @@ export class LayerPatternBatchKVCache implements TransformerBatchCache {
     this.#leftPadding = validateLeftPadding(leftPadding);
     this.#offsets = this.#leftPadding.map((padding) => (padding === 0 ? 0 : -padding));
     this.#layerWindowSizes = validateLayerWindows(layerCount, layerWindowSizes);
+    this.#layerKinds = cacheLayerKindsFromWindowSizes(this.#layerWindowSizes);
     this.#layers = Array.from({ length: layerCount }, () => createEmptyLayerState());
   }
 
   get layerCount(): number {
     return this.#layers.length;
+  }
+
+  get layerKinds(): readonly CacheLayerKind[] {
+    return this.#layerKinds;
   }
 
   get batchSize(): number {
