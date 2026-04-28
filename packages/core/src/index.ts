@@ -165,18 +165,14 @@ export type {
 export { dequantize, gatherQmm, quantize, quantizedMatmul } from "./quantization";
 // biome-ignore lint/performance/noReExportAll: Intentional namespace re-export — matches MLX Python's mx.random.normal() API pattern
 export * as random from "./random";
-export type { CompileMode, DisposableTransform } from "./transforms";
+export type { DisposableTransform } from "./transforms";
 export {
   checkpoint,
-  clearCompileCache,
   compile,
   compileMany,
-  disableCompile,
-  enableCompile,
   grad,
   mxAsyncEval,
   mxEval,
-  setCompileMode,
   valueAndGrad,
 } from "./transforms";
 export type { FlatEntry, ParameterTree } from "./tree";

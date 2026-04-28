@@ -1,10 +1,18 @@
 import { describe, expect, test } from "bun:test";
 
+import * as core from "./index";
 import { add, array, type MxArray, matmul, mxEval, ones, random, VERSION, zeros } from "./index";
 
 describe("@mlxts/core", () => {
   test("exports a version string", () => {
     expect(VERSION).toBe("0.0.1");
+  });
+
+  test("keeps compile controls out of the public barrel", () => {
+    expect("clearCompileCache" in core).toBe(false);
+    expect("disableCompile" in core).toBe(false);
+    expect("enableCompile" in core).toBe(false);
+    expect("setCompileMode" in core).toBe(false);
   });
 
   test("PLAN.md exit criteria: ones → matmul → eval → toList", () => {
