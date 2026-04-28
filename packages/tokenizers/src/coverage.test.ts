@@ -3,8 +3,12 @@ import { mkdtempSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 
-import { loadBPEFromTokenizerJson } from "./bpe";
-import { decodeByteLevelTokens, encodeByteLevelSegment, splitByteLevelText } from "./byte-level";
+import { loadBPEFromTokenizerJson } from "./bpe/bpe";
+import {
+  decodeByteLevelTokens,
+  encodeByteLevelSegment,
+  splitByteLevelText,
+} from "./bpe/byte-level";
 import { CharTokenizer } from "./char";
 import { UnsupportedTokenizerError } from "./errors";
 import { loadSentencePiece, loadTokenizer, loadTokenizerJson } from "./load";

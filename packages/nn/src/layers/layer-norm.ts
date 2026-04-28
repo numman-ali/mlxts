@@ -10,7 +10,7 @@
 
 import type { MxArray } from "@mlxts/core";
 import { fastLayerNorm, formatShape, ones, zeros } from "@mlxts/core";
-import { Module } from "./module";
+import { Module } from "../module";
 
 /** Layer normalization over the last axis. */
 export class LayerNorm extends Module {

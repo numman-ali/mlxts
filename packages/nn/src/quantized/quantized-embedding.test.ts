@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { array, mxEval } from "@mlxts/core";
-import { Embedding } from "./embedding";
+import { Embedding } from "../layers/embedding";
 import { QuantizedEmbedding } from "./quantized-embedding";
 
 function meanAbsoluteError(actual: unknown, expected: unknown): number {

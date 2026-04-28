@@ -18,12 +18,12 @@ import {
 } from "@mlxts/core";
 import { SGD } from "@mlxts/optimizers";
 import { gelu, swiglu } from "./activations";
-import { GroupedQueryAttention } from "./grouped-query-attention";
-import { Linear } from "./linear";
+import { GroupedQueryAttention } from "./layers/grouped-query-attention";
+import { Linear } from "./layers/linear";
+import { RMSNorm } from "./layers/rms-norm";
+import { RoPE } from "./layers/rope";
 import { crossEntropy } from "./losses";
 import { Module } from "./module";
-import { RMSNorm } from "./rms-norm";
-import { RoPE } from "./rope";
 import { valueAndGrad } from "./value-and-grad";
 
 class MLP extends Module {

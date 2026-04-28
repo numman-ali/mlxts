@@ -5,7 +5,7 @@
 
 import { existsSync, readFileSync, statSync } from "fs";
 import { join } from "path";
-import { type BPETokenizer, loadBPEFromTokenizerJson } from "./bpe";
+import { type BPETokenizer, loadBPEFromTokenizerJson } from "./bpe/bpe";
 import { CharTokenizer } from "./char";
 import { UnsupportedTokenizerError } from "./errors";
 import { SentencePieceTokenizer } from "./sentencepiece";

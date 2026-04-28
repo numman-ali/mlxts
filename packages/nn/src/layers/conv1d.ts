@@ -9,7 +9,7 @@
 
 import type { MxArray } from "@mlxts/core";
 import { add, conv1d as conv1dOp, formatShape, random, zeros } from "@mlxts/core";
-import { Module } from "./module";
+import { Module } from "../module";
 
 /** 1D convolution layer for channel-last sequence inputs. */
 export class Conv1d extends Module {

@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { array, concatenate, mxEval } from "@mlxts/core";
-import { Linear } from "./linear";
+import { Linear } from "../layers/linear";
 import { fuseQuantizedLinears, QuantizedLinear } from "./quantized-linear";
 
 describe("QuantizedLinear", () => {

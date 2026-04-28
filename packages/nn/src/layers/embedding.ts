@@ -10,7 +10,7 @@
 
 import type { MxArray } from "@mlxts/core";
 import { formatShape, isIntegerDType, matmul, random, takeAxis, transpose } from "@mlxts/core";
-import { Module } from "./module";
+import { Module } from "../module";
 
 /** Embedding layer: integer indices → dense vectors. */
 export class Embedding extends Module {

@@ -3,9 +3,6 @@
  * @module
  */
 
-import { sortAddedTokenMatches, splitInputByAddedTokens } from "./bpe-added-tokens";
-import { createMergeKey, findBestMerge, mergeWordPieces } from "./bpe-merges";
-import { decodeByteLevelTokens, encodeByteLevelSegment, splitByteLevelText } from "./byte-level";
 import type {
   BatchEncoding,
   DecodeOptions,
@@ -13,7 +10,10 @@ import type {
   Encoding,
   Offset,
   Tokenizer,
-} from "./tokenizer";
+} from "../tokenizer";
+import { sortAddedTokenMatches, splitInputByAddedTokens } from "./bpe-added-tokens";
+import { createMergeKey, findBestMerge, mergeWordPieces } from "./bpe-merges";
+import { decodeByteLevelTokens, encodeByteLevelSegment, splitByteLevelText } from "./byte-level";
 
 export type AddedToken = {
   content: string;

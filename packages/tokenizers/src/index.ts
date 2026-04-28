@@ -1,4 +1,4 @@
-export { BPETokenizer, loadBPEFromTokenizerJson } from "./bpe";
+export { BPETokenizer, loadBPEFromTokenizerJson } from "./bpe/bpe";
 export { CharTokenizer } from "./char";
 export { UnsupportedTokenizerError } from "./errors";
 export type { LoadTokenizerOptions, TokenizerFileSet, TokenizerFormat } from "./load";

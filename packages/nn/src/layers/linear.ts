@@ -8,7 +8,7 @@
 
 import type { MxArray } from "@mlxts/core";
 import { add, formatShape, matmul, random, transpose, zeros } from "@mlxts/core";
-import { Module } from "./module";
+import { Module } from "../module";
 
 /** Fully connected layer: `y = x @ weight.T + bias`. */
 export class Linear extends Module {

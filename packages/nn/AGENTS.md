@@ -10,6 +10,8 @@ Weight tying stays functional. `Embedding.asLinear(hidden)` returns the projecti
 
 The public surface holds semantic names: `gelu`, `relu`, `silu`, `swiglu`, `crossEntropy`, `mse`, `RMSNorm`, `LayerNorm`, `RoPE`, `Linear`, `Embedding`, `Conv1d`, `Dropout`, `GroupedQueryAttention`, `LoRALinear`. Compile and shape-keyed reuse live behind these names, not in front of them.
 
+Layer implementations live in `src/layers/`. Quantized layer variants live in `src/quantized/`. `Module`, checkpointing, value-and-grad, activations, and losses stay in their current root or domain folders.
+
 Quantized variants (`QuantizedLinear`, `QuantizedEmbedding`) parallel their non-quantized counterparts and consume the same `Module` parameter contract. Fused quantized linears arrive through `fuseQuantizedLinears`. Mutating layer arrays in place to fuse is forbidden.
 
 Disposable intermediates inside `forward` use `using`. Hidden disposable `MxArray` intermediates inside nested expressions are forbidden — local tensor lifetimes stay visible.

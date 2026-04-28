@@ -14,8 +14,8 @@ import {
   takeAxis,
   zeros,
 } from "@mlxts/core";
-import { Embedding } from "./embedding";
-import { Module } from "./module";
+import { Embedding } from "../layers/embedding";
+import { Module } from "../module";
 
 export type QuantizedEmbeddingOptions = {
   groupSize?: number;

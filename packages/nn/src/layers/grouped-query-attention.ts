@@ -21,9 +21,9 @@ import {
   softmax,
   transpose,
 } from "@mlxts/core";
+import { Module } from "../module";
 import { Dropout } from "./dropout";
 import { Linear } from "./linear";
-import { Module } from "./module";
 import type { RoPE } from "./rope";
 
 export type GroupedQueryAttentionOptions = {

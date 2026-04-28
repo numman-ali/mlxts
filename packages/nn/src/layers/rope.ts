@@ -8,7 +8,7 @@
 
 import type { MxArray } from "@mlxts/core";
 import { fastRoPE } from "@mlxts/core";
-import { Module } from "./module";
+import { Module } from "../module";
 
 /** Rotary positional embeddings applied over the last axis. */
 export class RoPE extends Module {

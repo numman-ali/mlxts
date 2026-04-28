@@ -10,7 +10,7 @@
 
 import type { MxArray } from "@mlxts/core";
 import { multiply, random, retainArray } from "@mlxts/core";
-import { Module } from "./module";
+import { Module } from "../module";
 
 /** Dropout layer — no learnable parameters. */
 export class Dropout extends Module {

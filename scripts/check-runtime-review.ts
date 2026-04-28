@@ -30,7 +30,7 @@ const GENERATION_HOT_PATH_PREFIXES = [
 
 const GENERATION_HOT_PATH_FILES = new Set([
   "packages/transformers/src/generation.ts",
-  "packages/nn/src/grouped-query-attention.ts",
+  "packages/nn/src/layers/grouped-query-attention.ts",
   "packages/core/src/fast.ts",
 ]);
 

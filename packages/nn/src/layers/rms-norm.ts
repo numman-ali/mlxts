@@ -9,7 +9,7 @@
 
 import type { MxArray } from "@mlxts/core";
 import { fastRmsNorm, formatShape, ones } from "@mlxts/core";
-import { Module } from "./module";
+import { Module } from "../module";
 
 /** Root mean square normalization over the last axis. */
 export class RMSNorm extends Module {

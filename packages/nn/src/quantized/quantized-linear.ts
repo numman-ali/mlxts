@@ -15,8 +15,8 @@ import {
   retainArray,
   zeros,
 } from "@mlxts/core";
-import { Linear } from "./linear";
-import { Module } from "./module";
+import { Linear } from "../layers/linear";
+import { Module } from "../module";
 
 export type QuantizedLinearOptions = {
   bias?: boolean;

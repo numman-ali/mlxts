@@ -3,8 +3,8 @@
  * @module
  */
 
-import { type AddedToken, BPETokenizer } from "./bpe-base";
-import { encodeByteLevelBytes } from "./byte-level";
+import { type AddedToken, BPETokenizer } from "./bpe/bpe-base";
+import { encodeByteLevelBytes } from "./bpe/byte-level";
 import { UnsupportedTokenizerError } from "./errors";
 
 type TekkenSpecialToken = {

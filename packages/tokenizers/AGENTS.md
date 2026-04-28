@@ -4,6 +4,8 @@ Zero internal dependencies. `@mlxts/core`, `@mlxts/nn`, and any model package ar
 
 Each tokenizer class is self-contained — `BPETokenizer`, `SentencePieceTokenizer`, `CharTokenizer`. `loadTokenizer` is pure dispatch over `TokenizerFormat`. New formats arrive as siblings, never as additions to the `Tokenizer` interface.
 
+BPE-family files live under `src/bpe/`. SentencePiece, Tekken, and char remain root siblings beside the loader.
+
 BPE longest-match scanning is bounded by the maximum vocab token length, not by the remaining prompt length. Bounding by remaining prompt length is O(n²) on long prompts.
 
 Hugging Face `tokenizer.json` added tokens use sparse IDs above the base vocab size. BPE decode tables register `added_tokens` by ID, not just base vocab entries.

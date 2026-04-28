@@ -176,7 +176,7 @@ async function runFocusedUnitChecks(): Promise<void> {
   await runCommand("focused unit checks", [
     "bun",
     "test",
-    "packages/nn/src/quantized-embedding.test.ts",
+    "packages/nn/src/quantized/quantized-embedding.test.ts",
     "packages/quantize/src/quantize-module.test.ts",
     "packages/quantize/src/setup-quantized-module.test.ts",
     "packages/transformers/src/families/qwen3_5/model.test.ts",

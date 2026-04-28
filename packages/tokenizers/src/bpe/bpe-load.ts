@@ -3,8 +3,8 @@
  * @module
  */
 
+import { UnsupportedTokenizerError } from "../errors";
 import { type AddedToken, type BPEConfig, BPETokenizer, type BPEVariant } from "./bpe-base";
-import { UnsupportedTokenizerError } from "./errors";
 
 type VariantSettings = {
   variant: BPEVariant;

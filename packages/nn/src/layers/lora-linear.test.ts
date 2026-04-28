@@ -1,8 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import { array, mxEval } from "@mlxts/core";
+import { QuantizedLinear } from "../quantized/quantized-linear";
 import { Linear } from "./linear";
 import { LoRALinear } from "./lora-linear";
-import { QuantizedLinear } from "./quantized-linear";
 
 describe("LoRALinear", () => {
   test("matches the base layer before adapters change", () => {

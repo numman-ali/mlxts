@@ -5,10 +5,10 @@
 
 import type { MxArray } from "@mlxts/core";
 import { add, matmul, multiply, random, retainArray, transpose, zeros } from "@mlxts/core";
+import { Module } from "../module";
+import { QuantizedLinear } from "../quantized/quantized-linear";
 import { Dropout } from "./dropout";
 import { Linear } from "./linear";
-import { Module } from "./module";
-import { QuantizedLinear } from "./quantized-linear";
 
 export type LoRALinearConfig = {
   rank?: number;
