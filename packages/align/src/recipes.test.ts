@@ -6,9 +6,8 @@ import {
   evaluatePreferenceDatasetLoss,
   evaluatePreferenceMetrics,
   evaluateSupervisionDatasetLoss,
-  runPreferenceTrainingSteps,
-  runSupervisionTrainingSteps,
-} from "./recipes";
+} from "./evaluation";
+import { runPreferenceTrainingSteps, runSupervisionTrainingSteps } from "./recipes";
 
 function createTinyLlama() {
   const registration = resolveFamily("llama");
