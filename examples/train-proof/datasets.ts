@@ -1,15 +1,12 @@
 import type { ChatPreferenceConversation } from "@mlxts/align";
-import { type ChatMessage, loadHuggingFaceRowsDataset } from "@mlxts/data";
+import {
+  type ChatMessage,
+  createTrainingProofCorpus,
+  loadHuggingFaceRowsDataset,
+  parseUltrachatMessagesRow,
+} from "@mlxts/data";
 
 import type { TrainingProofArgs } from "./args";
-
-/** Proof chat corpus used for the tiny local smoke path. */
-export type TrainingProofCorpus = {
-  supervisionExamples: readonly ChatMessage[][];
-  promptMessages: readonly ChatMessage[];
-  chosen: ChatMessage;
-  rejected: ChatMessage;
-};
 
 export type TrainingProofRawDatasets = {
   supervisionTrainMessages: readonly ChatMessage[][];
@@ -174,49 +171,7 @@ async function loadDatasetRowsFromParquet<T>(
   return rows.map((row) => parseRow(row));
 }
 
-/** Canonical small chat corpus for the tiny proof runner fallback. */
-export function createTrainingProofCorpus(): TrainingProofCorpus {
-  return {
-    supervisionExamples: [
-      [
-        { role: "system", content: "You are concise, exact, and helpful." },
-        { role: "user", content: "Explain LoRA in one sentence." },
-        {
-          role: "assistant",
-          content: "LoRA trains a small low-rank adapter instead of updating the entire model.",
-        },
-      ],
-      [
-        { role: "system", content: "You are concise, exact, and helpful." },
-        { role: "user", content: "Why does quantization help on Apple Silicon?" },
-        {
-          role: "assistant",
-          content: "It lowers memory use and keeps the unified-memory runtime practical.",
-        },
-      ],
-    ],
-    promptMessages: [
-      { role: "system", content: "You are concise, exact, and helpful." },
-      { role: "user", content: "Write a friendly one-sentence greeting." },
-    ],
-    chosen: {
-      role: "assistant",
-      content: "You're welcome. Happy to help.",
-    },
-    rejected: {
-      role: "assistant",
-      content: "ok",
-    },
-  };
-}
-
-/** Parse one Ultrachat row into a supervision-ready chat transcript. */
-export function parseUltrachatMessagesRow(row: unknown): readonly ChatMessage[] {
-  const record = expectObject(row, "ultrachat row");
-  const messages = parseChatMessages(record.messages, "ultrachat row.messages");
-  expectAssistant(messages, "ultrachat row.messages");
-  return messages;
-}
+export { createTrainingProofCorpus, parseUltrachatMessagesRow };
 
 /** Parse one Ultrafeedback preference row into prompt, chosen, and rejected turns. */
 export function parseUltrafeedbackPreferenceRow(row: unknown): ChatPreferenceConversation {

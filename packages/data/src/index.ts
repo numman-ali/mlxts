@@ -9,3 +9,8 @@ export {
 export { loadJsonlDataset } from "./jsonl";
 export type { PreferenceExample, TokenSupervisionExample } from "./preference";
 export { createRandomSource, getBatch, loadText, prepareData } from "./text";
+export {
+  createTrainingProofCorpus,
+  parseUltrachatMessagesRow,
+  type TrainingProofCorpus,
+} from "./training-proof";

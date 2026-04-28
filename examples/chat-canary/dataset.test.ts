@@ -1,7 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { loadJsonlDataset } from "@mlxts/data";
-
-import { parseUltrachatMessagesRow } from "../train-proof/datasets";
+import { loadJsonlDataset, parseUltrachatMessagesRow } from "@mlxts/data";
 
 type CanaryRow = {
   id: string;
