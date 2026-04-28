@@ -10,8 +10,9 @@ import {
 } from "../protocols/anthropic-messages";
 import { completeGenerationStream, failGenerationStream } from "../streaming/lifecycle";
 import { createGenerationStreamObserver } from "../streaming/observability";
+import { closeStreamEvents } from "../streaming/runtime";
 import { writeAnthropicMessageStreamEvents } from "../streaming/writer-anthropic-messages";
-import { closeStreamEvents, sseHeaders } from "../streaming/writer-openai";
+import { sseHeaders } from "../streaming/writer-base";
 import type { GenerationEngine, GenerationStreamEvent, ServeEvent } from "../types";
 import { linkAbortSignals, withAbortSignal } from "./abort";
 import { emitGenerationComplete, emitGenerationError, emitGenerationStart } from "./events";

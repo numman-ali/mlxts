@@ -3,7 +3,7 @@ import { describe, expect, test } from "bun:test";
 import { normalizeOpenAIChatCompletionRequest } from "../protocols/openai-chat-completions";
 import { normalizeOpenAICompletionRequest } from "../protocols/openai-completions";
 import type { GenerationStreamEvent } from "../types";
-import { sseHeaders, writeChatStreamEvents, writeStreamEvents } from "./writer-openai";
+import { writeChatStreamEvents, writeStreamEvents } from "./writer-openai";
 
 function parseSsePayloads(text: string): unknown[] {
   return text
@@ -56,14 +56,6 @@ async function* closableStreamEvents(
 }
 
 describe("server streaming helpers", () => {
-  test("returns SSE headers for Bun responses", () => {
-    expect(sseHeaders()).toEqual({
-      "content-type": "text/event-stream; charset=utf-8",
-      "cache-control": "no-cache",
-      connection: "keep-alive",
-    });
-  });
-
   test("completion SSE stops on stop sequences even when the stream ends without a done event", async () => {
     const batch = normalizeOpenAICompletionRequest(
       {

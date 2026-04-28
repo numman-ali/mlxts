@@ -12,34 +12,22 @@ import {
   type normalizeOpenAICompletionRequest,
 } from "../protocols/openai-completions";
 import type { GenerationStreamEvent, GenerationUsage, NormalizedFinishReason } from "../types";
-import { withSseHeartbeat } from "./heartbeat";
 import {
   enqueueObservedSse,
   enqueueSseJson,
-  readStreamEvent,
   type StreamControlOptions,
   type StreamObserverChunkKind,
   type StreamSummary,
   streamSummary,
   streamWasCancelled,
-  toAsyncIterator,
   yieldToHttpWriter,
 } from "./runtime";
 import { createStopSequenceFilter } from "./stop-filter";
-
-export { closeStreamEvents } from "./runtime";
+import { runSseGenerationStream } from "./writer-base";
 
 type ChatChunkOptions = Parameters<typeof formatOpenAIChatCompletionStreamChunk>[2] & {
   observer?: StreamControlOptions["observer"];
 };
-
-export function sseHeaders(): HeadersInit {
-  return {
-    "content-type": "text/event-stream; charset=utf-8",
-    "cache-control": "no-cache",
-    connection: "keep-alive",
-  };
-}
 
 type CompletionStreamState = {
   stopFilter: ReturnType<typeof createStopSequenceFilter>;
@@ -396,32 +384,11 @@ export async function writeStreamEvents(
     finalFinishReason: "stop",
     sentTerminalChunk: false,
   };
-  const iterator = toAsyncIterator(stream);
   enqueueObservedSse(controller, ": mlxts-serve stream started\n\n", options, "protocol");
   await yieldToHttpWriter();
-  while (true) {
-    const next = await withSseHeartbeat(
-      controller,
-      () => readStreamEvent(iterator, options.signal),
-      options.abort,
-    );
-    if (next.type === "finished" || next.type === "cancelled") {
-      break;
-    }
-    const shouldStop = handleCompletionStreamEvent(
-      controller,
-      state,
-      batch,
-      request,
-      options,
-      next.event,
-    );
-    await yieldToHttpWriter();
-    if (shouldStop) {
-      await iterator.return?.();
-      break;
-    }
-  }
+  await runSseGenerationStream(controller, stream, options, (event) =>
+    handleCompletionStreamEvent(controller, state, batch, request, options, event),
+  );
   return finalizeCompletionStream(controller, state, batch, request, options);
 }
 
@@ -443,22 +410,8 @@ export async function writeChatStreamEvents(
   };
   emitChatStreamChunk(controller, chat, {}, { ...options, includeRole: true }, "protocol");
 
-  const iterator = toAsyncIterator(stream);
-  while (true) {
-    const next = await withSseHeartbeat(
-      controller,
-      () => readStreamEvent(iterator, options.signal),
-      options.abort,
-    );
-    if (next.type === "finished" || next.type === "cancelled") {
-      break;
-    }
-    const shouldStop = handleChatStreamEvent(controller, state, chat, options, next.event);
-    await yieldToHttpWriter();
-    if (shouldStop) {
-      await iterator.return?.();
-      break;
-    }
-  }
+  await runSseGenerationStream(controller, stream, options, (event) =>
+    handleChatStreamEvent(controller, state, chat, options, event),
+  );
   return finalizeChatStream(controller, state, chat, options);
 }

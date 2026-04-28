@@ -9,20 +9,17 @@ import {
 } from "../protocols/anthropic-messages";
 import { createOpenAIChatCompletionReasoningStream } from "../protocols/openai-chat-completions";
 import type { GenerationStreamEvent, GenerationUsage, NormalizedFinishReason } from "../types";
-import { withSseHeartbeat } from "./heartbeat";
 import {
   enqueueObservedSse,
-  readStreamEvent,
   type StreamControlOptions,
   type StreamObserver,
   type StreamObserverChunkKind,
   type StreamSummary,
   streamSummary,
   streamWasCancelled,
-  toAsyncIterator,
-  yieldToHttpWriter,
 } from "./runtime";
 import { createStopSequenceFilter } from "./stop-filter";
+import { runSseGenerationStream } from "./writer-base";
 
 type BlockKind = "thinking" | "text";
 
@@ -290,22 +287,8 @@ export async function writeAnthropicMessageStreamEvents(
     "protocol",
   );
 
-  const iterator = toAsyncIterator(stream);
-  while (true) {
-    const next = await withSseHeartbeat(
-      controller,
-      () => readStreamEvent(iterator, options.signal),
-      options.abort,
-    );
-    if (next.type === "finished" || next.type === "cancelled") {
-      break;
-    }
-    const shouldStop = handleStreamEvent(controller, state, next.event);
-    await yieldToHttpWriter();
-    if (shouldStop) {
-      await iterator.return?.();
-      break;
-    }
-  }
+  await runSseGenerationStream(controller, stream, options, (event) =>
+    handleStreamEvent(controller, state, event),
+  );
   return finalizeStream(controller, state, options);
 }

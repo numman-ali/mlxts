@@ -10,7 +10,8 @@ import {
 } from "../protocols/openai-responses";
 import { completeGenerationStream, failGenerationStream } from "../streaming/lifecycle";
 import { createGenerationStreamObserver } from "../streaming/observability";
-import { closeStreamEvents, sseHeaders } from "../streaming/writer-openai";
+import { closeStreamEvents } from "../streaming/runtime";
+import { sseHeaders } from "../streaming/writer-base";
 import { writeOpenAIResponseStreamEvents } from "../streaming/writer-openai-responses";
 import type {
   GenerationEngine,

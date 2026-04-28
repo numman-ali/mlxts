@@ -21,12 +21,9 @@ import {
 import type { ServedModelInfo } from "../protocols/openai-models";
 import { completeGenerationStream, failGenerationStream } from "../streaming/lifecycle";
 import { createGenerationStreamObserver } from "../streaming/observability";
-import {
-  closeStreamEvents,
-  sseHeaders,
-  writeChatStreamEvents,
-  writeStreamEvents,
-} from "../streaming/writer-openai";
+import { closeStreamEvents } from "../streaming/runtime";
+import { sseHeaders } from "../streaming/writer-base";
+import { writeChatStreamEvents, writeStreamEvents } from "../streaming/writer-openai";
 import type { GenerationEngine, GenerationStreamEvent, ServeEvent } from "../types";
 import { linkAbortSignals, withAbortSignal } from "./abort";
 import {

@@ -15,20 +15,17 @@ import type {
   NormalizedFinishReason,
   NormalizedGenerationResult,
 } from "../types";
-import { withSseHeartbeat } from "./heartbeat";
 import {
   enqueueObservedSse,
-  readStreamEvent,
   type StreamControlOptions,
   type StreamObserver,
   type StreamObserverChunkKind,
   type StreamSummary,
   streamSummary,
   streamWasCancelled,
-  toAsyncIterator,
-  yieldToHttpWriter,
 } from "./runtime";
 import { createStopSequenceFilter } from "./stop-filter";
+import { runSseGenerationStream } from "./writer-base";
 
 type OutputState = {
   id: string;
@@ -381,23 +378,9 @@ export async function writeOpenAIResponseStreamEvents(
   emitResponseEvent(controller, state, "response.created", { response: pending });
   emitResponseEvent(controller, state, "response.in_progress", { response: pending });
 
-  const iterator = toAsyncIterator(stream);
-  while (true) {
-    const next = await withSseHeartbeat(
-      controller,
-      () => readStreamEvent(iterator, options.signal),
-      options.abort,
-    );
-    if (next.type === "finished" || next.type === "cancelled") {
-      break;
-    }
-    const shouldStop = handleStreamEvent(controller, state, options, next.event);
-    await yieldToHttpWriter();
-    if (shouldStop) {
-      await iterator.return?.();
-      break;
-    }
-  }
+  await runSseGenerationStream(controller, stream, options, (event) =>
+    handleStreamEvent(controller, state, options, event),
+  );
 
   return finalizeResponseStream(controller, state, response, options);
 }
