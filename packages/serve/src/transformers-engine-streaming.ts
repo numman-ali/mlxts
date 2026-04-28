@@ -3,17 +3,18 @@
  * @module
  */
 
-import type { Tokenizer } from "@mlxts/tokenizers";
 import type { GenerationResult, TokenGenerationEvent } from "@mlxts/transformers";
 import { transformersRuntimeStrategy } from "./serve-runtime-strategy";
 import type { TransformersGenerationEngineOptions } from "./transformers-engine";
 import {
+  decodeGeneratedTokenIds,
   emitGenerationProgress,
   promptHasOpenThinking,
   THINK_OPEN,
 } from "./transformers-engine-shared";
 import type {
   GenerationStreamEvent,
+  GenerationUsage,
   NormalizedFinishReason,
   NormalizedGenerationRequest,
 } from "./types";
@@ -30,6 +31,8 @@ export type StreamingDecodeState = {
   rawPrefix: string;
 };
 
+const REPLACEMENT_CHARACTER = "\uFFFD";
+
 function commonPrefixLength(left: string, right: string): number {
   const limit = Math.min(left.length, right.length);
   let index = 0;
@@ -39,12 +42,23 @@ function commonPrefixLength(left: string, right: string): number {
   return index;
 }
 
+function stableStreamingPrefix(text: string): string {
+  let end = text.length;
+  while (end > 0 && text[end - 1] === REPLACEMENT_CHARACTER) {
+    end -= 1;
+  }
+  return end === text.length ? text : text.slice(0, end);
+}
+
 function flushDecodedText(
-  tokenizer: Tokenizer,
+  options: TransformersGenerationEngineOptions,
+  request: NormalizedGenerationRequest,
   tokenIds: readonly number[],
   text: string,
+  flushOptions: { final?: boolean } = {},
 ): { text: string; delta: string } {
-  const decoded = tokenizer.decode([...tokenIds], { skipSpecialTokens: true });
+  const rawDecoded = decodeGeneratedTokenIds(options, request, tokenIds);
+  const decoded = flushOptions.final === true ? rawDecoded : stableStreamingPrefix(rawDecoded);
   const delta = decoded.slice(commonPrefixLength(text, decoded));
   return { text: decoded, delta };
 }
@@ -56,25 +70,37 @@ function shouldEmitProgress(
   return completionTokens % 64 === 0 || completionTokens === request.sampling.maxTokens;
 }
 
-function streamUsage(promptTokens: number, completionTokens: number) {
+function streamUsage(
+  promptTokens: number,
+  completionTokens: number,
+  cacheUsage: { readTokens: number; writeTokens: number } = { readTokens: 0, writeTokens: 0 },
+): GenerationUsage {
   return {
     promptTokens,
     completionTokens,
     totalTokens: promptTokens + completionTokens,
+    ...(cacheUsage.readTokens === 0 && cacheUsage.writeTokens === 0
+      ? {}
+      : {
+          cacheReadTokens: cacheUsage.readTokens,
+          cacheWriteTokens: cacheUsage.writeTokens,
+        }),
   };
 }
 
 function flushStreamDelta(
-  tokenizer: Tokenizer,
+  options: TransformersGenerationEngineOptions,
+  request: NormalizedGenerationRequest,
   generatedTokenIds: readonly number[],
   decodedText: string,
   rawPrefix: string,
+  flushOptions: { final?: boolean } = {},
 ): { decodedText: string; rawPrefix: string; text?: string } {
-  const flushed = flushDecodedText(tokenizer, generatedTokenIds, decodedText);
+  const flushed = flushDecodedText(options, request, generatedTokenIds, decodedText, flushOptions);
   const text = rawPrefix === "" ? flushed.delta : `${rawPrefix}${flushed.delta}`;
   return {
     decodedText: flushed.text,
-    rawPrefix: "",
+    rawPrefix: text === "" ? rawPrefix : "",
     ...(text === "" ? {} : { text }),
   };
 }
@@ -120,7 +146,8 @@ export function handleStreamingTokenDelta(
   }
 
   const flushed = flushStreamDelta(
-    options.tokenizer,
+    options,
+    request,
     state.generatedTokenIds,
     state.decodedText,
     state.rawPrefix,
@@ -150,18 +177,22 @@ export function handleStreamingTokenEvent(
 }
 
 export function handleStreamingDone(
+  request: NormalizedGenerationRequest,
   options: TransformersGenerationEngineOptions,
   promptTokens: number,
   state: StreamingDecodeState,
   tokenIds: readonly number[],
   reason: GenerationResult["finishReason"],
+  cacheUsage?: { readTokens: number; writeTokens: number },
 ): { text?: string; done: Extract<GenerationStreamEvent, { type: "done" }> } {
   state.generatedTokenIds = [...tokenIds];
   const flushed = flushStreamDelta(
-    options.tokenizer,
+    options,
+    request,
     state.generatedTokenIds,
     state.decodedText,
     state.rawPrefix,
+    { final: true },
   );
   state.decodedText = flushed.decodedText;
   state.rawPrefix = flushed.rawPrefix;
@@ -170,16 +201,26 @@ export function handleStreamingDone(
     done: {
       type: "done",
       finishReason: finishReason(reason),
-      usage: streamUsage(promptTokens, state.generatedTokenIds.length),
+      usage: streamUsage(promptTokens, state.generatedTokenIds.length, cacheUsage),
     },
   };
 }
 
 export function handleStreamingDoneEvent(
+  request: NormalizedGenerationRequest,
   options: TransformersGenerationEngineOptions,
   promptTokens: number,
   state: StreamingDecodeState,
   event: Extract<TokenGenerationEvent, { type: "done" }>,
+  cacheUsage?: { readTokens: number; writeTokens: number },
 ): { text?: string; done: Extract<GenerationStreamEvent, { type: "done" }> } {
-  return handleStreamingDone(options, promptTokens, state, event.tokenIds, event.finishReason);
+  return handleStreamingDone(
+    request,
+    options,
+    promptTokens,
+    state,
+    event.tokenIds,
+    event.finishReason,
+    cacheUsage,
+  );
 }

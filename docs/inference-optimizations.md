@@ -90,7 +90,7 @@ All three share lineage — vLLM-MLX is the origin, Rapid-MLX and oMLX forked an
 
 ### Chunked Prefill with Decode Interleaving
 
-**What**: Break large prefills into chunks (2048-8192 tokens). Between chunks, run one decode step for all active requests. Prevents decode starvation during long-context prefills. If a request has a cached prefix, align the first chunk to that boundary for optimal cache capture (critical for hybrid RNN models where the snapshot must be taken at the exact prefix boundary).
+**What**: Break large prefills into chunks (512-8192+ tokens depending on operator mode). Between chunks, run one decode step for all active requests. Prevents decode starvation during long-context prefills. If a request has a cached prefix, align the first chunk to that boundary for optimal cache capture (critical for hybrid RNN models where the snapshot must be taken at the exact prefix boundary). In `@mlxts/serve`, `--prefill-step-size` controls cold prompt-prefill chunks, while `--active-prefill-step-size` controls chunks only when another row is already decoding.
 
 **Reference**: All three servers implement this. Rapid-MLX `scheduler.py:132` (`_install_chunked_prefill`).
 

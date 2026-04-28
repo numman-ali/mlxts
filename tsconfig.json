@@ -16,6 +16,7 @@
       "@mlxts/lora": ["packages/lora/src/index.ts"],
       "@mlxts/align": ["packages/align/src/index.ts"],
       "@mlxts/agent": ["packages/agent/src/index.ts"],
+      "@mlxts/protocols": ["packages/protocols/src/index.ts"],
       "@mlxts/serve": ["packages/serve/src/index.ts"],
       "@mlxts/tokenizers": ["packages/tokenizers/src/index.ts"],
       "@mlxts/transformers": ["packages/transformers/src/index.ts"]

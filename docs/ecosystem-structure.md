@@ -266,6 +266,19 @@ CI rather than relying on manual spot checks.
 
 ### Layer 6: Inference and Serving
 
+#### `@mlxts/protocols`
+
+Small shared protocol helpers used by serving and agent clients. This package is
+intentionally zero-dependency: it owns wire-format text normalization that must
+not drift between packages, such as model-native reasoning tag separation.
+
+| Concern | What it provides |
+|---------|-----------------|
+| Reasoning tags | Shared splitting/streaming cleanup for Qwen `<think>`, Anthropic-style `<antThinking>`, and Gemma thought-channel markers |
+| Wire helpers | Tiny protocol utilities that do not depend on model execution, HTTP servers, or MLX tensors |
+
+**Dependencies:** none
+
 #### `@mlxts/serve`
 
 Production inference server with OpenAI-compatible and Anthropic-compatible API
@@ -281,9 +294,23 @@ slices.
 | Benchmarking | endpoint `bench:serve` and Qwen/Gemma regression matrices with route, scheduler, stream, and memory evidence |
 | Protocol adapters | OpenAI chat/completions, narrow text Responses, and bounded Anthropic Messages over one shared request model; embeddings and broader content/tool semantics remain future adapters |
 
-**Dependencies:** `@mlxts/core`, `@mlxts/nn`, `@mlxts/transformers`, `@mlxts/tokenizers`
+**Dependencies:** `@mlxts/core`, `@mlxts/nn`, `@mlxts/protocols`, `@mlxts/transformers`, `@mlxts/tokenizers`
 
 **Runtime:** `Bun.serve()` — no Express, no Node HTTP.
+
+#### `@mlxts/agent`
+
+Local tool-using agent loops over served models. This is a debugging and product
+surface for exercising model/tool behavior without putting orchestration inside
+the serving package.
+
+| Concern | What it provides |
+|---------|-----------------|
+| Tool loop | model → tool call → observation → continue orchestration |
+| Local tools | Read-only filesystem tools for safe local debugging |
+| Chat client | OpenAI chat-completions client with streaming, reasoning, and tool-call support |
+
+**Dependencies:** `@mlxts/protocols`
 
 #### `@mlxts/quantize`
 
@@ -508,7 +535,9 @@ mlxts/                                # Monorepo root
 @mlxts/align                          # Core + data + lora + nn + tokenizers + train + transformers
 
 @mlxts/transformers                   # Core + nn + tokenizers + official HF JS
-@mlxts/serve                          # Core + nn + transformers + tokenizers
+@mlxts/protocols                      # Leaf — shared protocol text helpers
+@mlxts/serve                          # Core + nn + protocols + transformers + tokenizers
+@mlxts/agent                          # Protocols + local tool loop
 @mlxts/quantize                       # Core + nn
 @mlxts/eval                           # Core + transformers + tokenizers + data
 

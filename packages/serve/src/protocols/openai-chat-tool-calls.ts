@@ -11,11 +11,19 @@ export type ExtractedOpenAIChatToolCalls = {
   toolCalls: ChatToolCall[];
 };
 
-const TOOL_CALL_PATTERN = /<tool_call>([\s\S]*?)<\/tool_call>/g;
+const TOOL_CALL_PATTERN = /(?:<tool_call>|<\|tool_call>)([\s\S]*?)(?:<\/tool_call>|<tool_call\|>)/g;
 const NATIVE_FUNCTION_PATTERN =
   /^<function=([A-Za-z_][A-Za-z0-9_.:-]*)>\s*([\s\S]*?)\s*<\/function>$/;
 const NATIVE_PARAMETER_PATTERN =
   /<parameter=([A-Za-z_][A-Za-z0-9_.:-]*)>\s*([\s\S]*?)\s*<\/parameter>/g;
+const GEMMA_FUNCTION_PATTERN = /^call:([A-Za-z_][A-Za-z0-9_.:-]*)\{([\s\S]*)\}$/;
+const GEMMA_STRING_MARKER = '<|"|>';
+
+type GemmaScanState = {
+  depth: number;
+  index: number;
+  inString: boolean;
+};
 
 function parseJsonPayload(payload: string): unknown {
   return JSON.parse(payload);
@@ -89,6 +97,134 @@ function parseNativeFunctionPayload(payload: string, index: number): ChatToolCal
   };
 }
 
+function advanceGemmaStringMarker(text: string, state: GemmaScanState): boolean {
+  if (!text.startsWith(GEMMA_STRING_MARKER, state.index)) {
+    return false;
+  }
+  state.inString = !state.inString;
+  state.index += GEMMA_STRING_MARKER.length;
+  return true;
+}
+
+function updateGemmaContainerDepth(state: GemmaScanState, char: string | undefined): void {
+  if (state.inString) {
+    return;
+  }
+  if (char === "{" || char === "[") {
+    state.depth += 1;
+    return;
+  }
+  if (char === "}" || char === "]") {
+    state.depth -= 1;
+  }
+}
+
+function isTopLevelGemmaChar(
+  state: GemmaScanState,
+  char: string | undefined,
+  expected: string,
+): boolean {
+  return !state.inString && state.depth === 0 && char === expected;
+}
+
+function splitTopLevelEntries(text: string): string[] {
+  const entries: string[] = [];
+  const state: GemmaScanState = { depth: 0, index: 0, inString: false };
+  let start = 0;
+
+  while (state.index < text.length) {
+    if (advanceGemmaStringMarker(text, state)) {
+      continue;
+    }
+    const char = text[state.index];
+    if (isTopLevelGemmaChar(state, char, ",")) {
+      entries.push(text.slice(start, state.index).trim());
+      start = state.index + 1;
+    } else {
+      updateGemmaContainerDepth(state, char);
+    }
+    state.index += 1;
+  }
+
+  const tail = text.slice(start).trim();
+  return tail === "" ? entries : [...entries, tail];
+}
+
+function topLevelColonIndex(text: string): number {
+  const state: GemmaScanState = { depth: 0, index: 0, inString: false };
+  while (state.index < text.length) {
+    if (advanceGemmaStringMarker(text, state)) {
+      continue;
+    }
+    const char = text[state.index];
+    if (isTopLevelGemmaChar(state, char, ":")) {
+      return state.index;
+    }
+    updateGemmaContainerDepth(state, char);
+    state.index += 1;
+  }
+  return -1;
+}
+
+function parseGemmaValue(value: string): unknown {
+  const trimmed = value.trim();
+  if (trimmed.startsWith(GEMMA_STRING_MARKER) && trimmed.endsWith(GEMMA_STRING_MARKER)) {
+    return trimmed.slice(GEMMA_STRING_MARKER.length, -GEMMA_STRING_MARKER.length);
+  }
+  if (trimmed.startsWith("{") && trimmed.endsWith("}")) {
+    return parseGemmaObject(trimmed.slice(1, -1));
+  }
+  if (trimmed.startsWith("[") && trimmed.endsWith("]")) {
+    return splitTopLevelEntries(trimmed.slice(1, -1)).map(parseGemmaValue);
+  }
+  if (trimmed === "true") {
+    return true;
+  }
+  if (trimmed === "false") {
+    return false;
+  }
+  if (trimmed === "null") {
+    return null;
+  }
+  const numberValue = Number(trimmed);
+  return Number.isFinite(numberValue) && trimmed !== "" ? numberValue : trimmed;
+}
+
+function parseGemmaObject(payload: string): Record<string, unknown> {
+  const args: Record<string, unknown> = {};
+  for (const entry of splitTopLevelEntries(payload)) {
+    const colon = topLevelColonIndex(entry);
+    if (colon <= 0) {
+      throw new Error("Gemma tool call arguments must use key:value entries.");
+    }
+    const key = entry.slice(0, colon).trim();
+    if (!/^[A-Za-z_][A-Za-z0-9_.:-]*$/.test(key)) {
+      throw new Error("Gemma tool call argument key is invalid.");
+    }
+    args[key] = parseGemmaValue(entry.slice(colon + 1));
+  }
+  return args;
+}
+
+function parseGemmaFunctionPayload(payload: string, index: number): ChatToolCall | null {
+  const match = GEMMA_FUNCTION_PATTERN.exec(payload.trim());
+  if (match === null) {
+    return null;
+  }
+  const name = match[1];
+  if (name === undefined) {
+    return null;
+  }
+  return {
+    id: `call_${index + 1}`,
+    type: "function",
+    function: {
+      name,
+      arguments: JSON.stringify(parseGemmaObject(match[2] ?? "")),
+    },
+  };
+}
+
 function parseJsonToolCall(payload: string, index: number): ChatToolCall {
   const parsed = parseJsonPayload(payload);
   if (!isRecord(parsed)) {
@@ -114,7 +250,8 @@ function parseJsonToolCall(payload: string, index: number): ChatToolCall {
 
 function parseToolCallPayload(payload: string, index: number): ChatToolCall {
   const nativeCall = parseNativeFunctionPayload(payload, index);
-  return nativeCall ?? parseJsonToolCall(payload, index);
+  const gemmaCall = nativeCall ?? parseGemmaFunctionPayload(payload, index);
+  return gemmaCall ?? parseJsonToolCall(payload, index);
 }
 
 /** Parse one generated tool-call payload into the OpenAI-compatible message shape. */

@@ -73,6 +73,124 @@ describe("Qwen3_5TextCache", () => {
     expect(() => cache.advance(-1)).toThrow("sequenceLength must be a non-negative integer");
     expect(() => new Qwen3_5TextCache([])).toThrow("must contain at least one layer");
   });
+
+  test("snapshots hybrid state and only allows exact forks when linear attention is present", () => {
+    using cache = new Qwen3_5TextCache(["linear_attention", "full_attention"]);
+    using fullKeys = array([[[[1], [2]]]], "float32");
+    using fullValues = array([[[[10], [20]]]], "float32");
+    using fullView = cache.updateAndFetch(1, fullKeys, fullValues).keys;
+    using convState = array([[[3, 4]]], "float32");
+    using recurrentState = array([[[[5]]]], "float32");
+    cache.updateLinearState(0, convState, recurrentState);
+    cache.advance(2);
+    mxEval(fullView);
+
+    using snapshot = cache.snapshot();
+    expect(snapshot.offset).toBe(2);
+    expect(snapshot.trimmable).toBe(false);
+    expect(snapshot.canFork()).toBe(true);
+    expect(snapshot.canFork({ offset: 1 })).toBe(false);
+    expect(() => snapshot.fork({ offset: 1 })).toThrow("cannot fork offset 1");
+
+    using fork = snapshot.fork();
+    expect(fork.offset).toBe(2);
+    const arrays = fork.arrays();
+    try {
+      mxEval(...arrays);
+      expect(arrays.map((value) => value.toList())).toEqual([
+        [[[3, 4]]],
+        [[[[5]]]],
+        [[[[1], [2]]]],
+        [[[[10], [20]]]],
+      ]);
+    } finally {
+      for (const value of arrays) {
+        value.free();
+      }
+    }
+  });
+
+  test("hybrid snapshots can fork repeatedly without sharing mutable restored state", () => {
+    using cache = new Qwen3_5TextCache(["linear_attention", "full_attention"]);
+    using fullKeys = array([[[[1], [2]]]], "float32");
+    using fullValues = array([[[[10], [20]]]], "float32");
+    using fullView = cache.updateAndFetch(1, fullKeys, fullValues).keys;
+    using convState = array([[[3, 4]]], "float32");
+    using recurrentState = array([[[[5]]]], "float32");
+    cache.updateLinearState(0, convState, recurrentState);
+    cache.advance(2);
+    mxEval(fullView);
+
+    using snapshot = cache.snapshot();
+    using firstFork = snapshot.fork();
+    if (!(firstFork instanceof Qwen3_5TextCache)) {
+      throw new Error("expected first Qwen cache fork");
+    }
+    using nextKeys = array([[[[6]]]], "float32");
+    using nextValues = array([[[[60]]]], "float32");
+    using nextView = firstFork.updateAndFetch(1, nextKeys, nextValues).keys;
+    using nextConvState = array([[[7, 8]]], "float32");
+    using nextRecurrentState = array([[[[9]]]], "float32");
+    firstFork.updateLinearState(0, nextConvState, nextRecurrentState);
+    firstFork.advance(1);
+    mxEval(nextView);
+
+    using secondFork = snapshot.fork();
+    expect(secondFork.offset).toBe(2);
+    const arrays = secondFork.arrays();
+    try {
+      mxEval(...arrays);
+      expect(arrays.map((value) => value.toList())).toEqual([
+        [[[3, 4]]],
+        [[[[5]]]],
+        [[[[1], [2]]]],
+        [[[[10], [20]]]],
+      ]);
+    } finally {
+      for (const value of arrays) {
+        value.free();
+      }
+    }
+  });
+
+  test("snapshots cannot fork after disposal", () => {
+    using cache = new Qwen3_5TextCache(["linear_attention", "full_attention"]);
+    using convState = array([[[1, 2]]], "float32");
+    using recurrentState = array([[[[3]]]], "float32");
+    cache.updateLinearState(0, convState, recurrentState);
+    cache.advance(1);
+
+    const snapshot = cache.snapshot();
+    snapshot[Symbol.dispose]();
+    expect(snapshot.canFork()).toBe(false);
+    expect(() => snapshot.fork()).toThrow("cannot fork offset 1");
+    snapshot[Symbol.dispose]();
+  });
+
+  test("snapshots all-full Qwen caches with prefix trimming", () => {
+    using cache = new Qwen3_5TextCache(["full_attention"]);
+    using keys = array([[[[1], [2], [3]]]], "float32");
+    using values = array([[[[10], [20], [30]]]], "float32");
+    using view = cache.updateAndFetch(0, keys, values).keys;
+    cache.advance(3);
+    mxEval(view);
+
+    using snapshot = cache.snapshot();
+    expect(snapshot.trimmable).toBe(true);
+    expect(snapshot.canFork({ offset: 2 })).toBe(true);
+
+    using prefix = snapshot.fork({ offset: 2 });
+    expect(prefix.offset).toBe(2);
+    const arrays = prefix.arrays();
+    try {
+      mxEval(...arrays);
+      expect(arrays.map((value) => value.toList())).toEqual([[[[[1], [2]]]], [[[[10], [20]]]]]);
+    } finally {
+      for (const value of arrays) {
+        value.free();
+      }
+    }
+  });
 });
 
 describe("Qwen3_5TextBatchCache", () => {

@@ -743,7 +743,7 @@ and minimal serving are in place.
 
 **Goal**: Production-quality inference server. Quantized inference. Any OpenAI-compatible client can connect. Architecturally flexible enough that new optimization techniques (from papers or upstream projects) slot in without rewiring the stack.
 
-**Current status**: Phase 9 now contains both landed serving tranches and future production tranches. Treat the existing `@mlxts/serve` endpoint, streaming, admission, cancellation, multi-model loading, metrics, benchmark/regression harnesses, and cache-generic continuous scheduler as real surfaces to preserve. The scheduler now covers eligible LLaMA-like, Qwen 3.6 text, and Gemma 3/4 layer-pattern requests for buffered and streaming generation, including model-native sampled defaults. The real Qwen/Gemma serving matrix includes `@4` and `@8` streaming continuous guardrails with per-request TTFT, scheduler-queued-time, SSE lifecycle, and max-generation-batch evidence, plus mixed long-prefill/short-arrival fairness guardrails that assert short-request fairness and long-request prefill cadence separately from aggregate throughput. Keep paged/prefix cache, richer scheduler policy, multimodal serving, embeddings, broader Anthropic/Responses compatibility, and advanced optimization hooks as future work.
+**Current status**: Phase 9 now contains both landed serving tranches and future production tranches. Treat the existing `@mlxts/serve` endpoint, streaming, admission, cancellation, multi-model loading, metrics, benchmark/regression harnesses, cache-generic continuous scheduler, and first single-request chat prompt-prefix cache as real surfaces to preserve. The scheduler now covers eligible LLaMA-like, Qwen 3.6 text, and Gemma 3/4 layer-pattern requests for buffered and streaming generation, including model-native sampled defaults. The real Qwen/Gemma serving matrix includes `@4` and `@8` streaming continuous guardrails with per-request TTFT, scheduler-queued-time, SSE lifecycle, and max-generation-batch evidence, plus mixed long-prefill/short-arrival fairness guardrails that assert short-request fairness and long-request prefill cadence separately from aggregate throughput. Keep paged/batch-native prefix cache, richer scheduler policy, multimodal serving, embeddings, broader Anthropic/Responses compatibility, and advanced optimization hooks as future work.
 
 **Research basis**: Deep analysis of three MLX inference servers — Rapid-MLX (speed-focused), vLLM-MLX (foundational batching/paging), oMLX (production serving/memory management). These share lineage (vLLM-MLX → forks) but diverged into complementary specializations. Key findings are documented in [docs/inference-optimizations.md](./docs/inference-optimizations.md). Reference repos at `.reference/rapid-mlx`, `.reference/vllm-mlx`, `.reference/omlx`.
 
@@ -773,10 +773,33 @@ KV cache is the critical infrastructure for both single-user generation and mult
 
 1. **Simple KV cache** (already in `@mlxts/transformers`) — one contiguous cache per sequence. Sufficient for single-user generation.
 2. **Paged KV cache** — 64-token blocks with reference counting, doubly-linked free list (O(1) alloc/free), Copy-on-Write when shared blocks diverge. Chain hashing (block N's SHA-256 includes blocks 0..N-1) for O(1) prefix dedup without explicit trie traversal. This is the foundation for concurrent serving. (Reference: vLLM-MLX `paged_cache.py`)
-3. **Prompt cache with LCP matching** — memory-aware prefix cache that handles the agentic multi-turn pattern: divergent sequences sharing a common head. Sorted key index with binary search for O(log N) prefix lookup. Deep-copy-on-fetch for mutable cache offsets. Optional 4/8-bit quantization for stored entries. (Reference: Rapid-MLX `memory_cache.py`)
+3. **Prompt cache with LCP matching** — first landed as a small single-request message/chat prompt-prefix cache using family-owned snapshots, cache-hit telemetry, and OpenAI-compatible cache read/write accounting. The next cache pass should widen this into memory-aware LCP matching for divergent agentic sequences sharing a common head, with sorted key lookup, safer multi-entry eviction policy, batch/paged-cache integration, and optional 4/8-bit quantization for stored entries. (Reference: Rapid-MLX `memory_cache.py`)
 4. **SSD-persistent cache** (future) — serialize KV blocks to safetensors on disk, survive server restarts. Write-back RAM hot cache with LRU eviction to SSD. Background writer thread with pure-JS safetensors serializer (no MLX calls, thread-safe). ~2ms read per 10MB block on NVMe. (Reference: oMLX `paged_ssd_cache.py`)
 
 **Cache backend must be pluggable** — the generation loop and scheduler interact with the cache through a stable interface. Swapping from simple → paged → SSD-backed should not require changing model code or the serving API.
+
+**Cross-family requirement** — prefix cache is not complete until it is proven
+across the major cache shapes we serve:
+
+- LLaMA-like full KV: every layer retains growing keys/values and is the
+  baseline for trim/copy/LCP semantics.
+- Gemma 3/4 layer-pattern caches: sliding layers retain only their window while
+  full layers retain the long prefix, so cache accounting must separate logical
+  context length from retained tensor length.
+- Qwen 3.5/3.6 hybrid caches: full-attention layers retain KV while
+  linear-attention layers retain recurrent/conv state. Exact-continuation reuse
+  and arbitrary LCP reuse are different capabilities, and non-trimmable state
+  must stay visible in the contract.
+
+The acceptance proof should include repeated chat-turn benchmarks with cache
+read/write token reporting, lower second-turn TTFT, reduced suffix prefill
+events, and no regression to continuous batching fairness for uncached requests.
+
+The implementation seam should be family-owned prefix snapshots rather than a
+serving-owned dump of cache tensors. `@mlxts/transformers` owns snapshot/fork
+correctness for each cache family; `@mlxts/serve` owns longest-prefix matching,
+admission, accounting, eviction, metrics, and OpenAI-compatible cache usage
+reporting.
 
 ### 9c. Generation engine architecture
 
@@ -816,7 +839,8 @@ KV cache is the critical infrastructure for both single-user generation and mult
 - Landed higher-concurrency Qwen/Gemma streaming guardrails for `@4` and `@8` continuous routes, including per-request TTFT and scheduler queue budgets
 - Landed mixed long-prefill/short-arrival guardrails for Qwen/Gemma continuous streaming, including request-shape-specific short-request TTFT, scheduler queue, and stream-cadence budgets
 - Future scheduler tranches cover stronger fairness policy beyond current queue/TTFT evidence, per-row decode state evidence, and higher-concurrency sampled proof
-- Future cache tranches cover prefix cache, paged cache, rotating/max-KV policy, quantized KV, and TurboQuant-style attention backends
+- Future cache tranches deepen prefix cache into batch-native/paged reuse,
+  rotating/max-KV policy, quantized KV, and TurboQuant-style attention backends
 - Future model loading/unloading without restart via engine pool
 - Future per-model settings (sampling params, TTL, aliases) persisted to JSON
 - Landed disconnect guard — monitor client disconnection and cancel generation

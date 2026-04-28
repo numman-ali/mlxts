@@ -1,3 +1,5 @@
+import { DEFAULT_SERVE_PREFILL_STEP_SIZE } from "../src/serve-runtime-strategy";
+
 export type MatrixMode = "cartesian" | "zip";
 export type SamplingMode = "model-defaults" | "greedy";
 export type TransportMode = "non-streaming" | "streaming";
@@ -23,6 +25,7 @@ export type ServeBenchmarkOptions = {
   port: number;
   maxBatchSize: number;
   batchWindowMs: number;
+  prefillStepSize: number;
   activePrefillStepSize: number;
   activeDecodeStepsPerPrefillChunk: number;
   streamDecodeInterval: number;
@@ -79,6 +82,7 @@ function usage(): never {
       "  --max-concurrent-requests <n>   Server-side in-flight generation limit, default 1",
       "  --max-batch-size <n>            Admission micro-batch size, default 32",
       "  --batch-window-ms <n>           Admission micro-batch window, default 1",
+      `  --prefill-step-size <n>         Cold prompt-prefill chunk size, default ${DEFAULT_SERVE_PREFILL_STEP_SIZE}`,
       "  --active-prefill-step-size <n>  Prefill chunk size while rows are decoding, default 128",
       "  --active-decode-steps-per-prefill-chunk <n>  Decode quantum before prefill resumes, default 16",
       "  --stream-decode-interval <n>    Streaming text flush interval, default 1",
@@ -229,6 +233,7 @@ type ParseState = {
   port: number;
   maxBatchSize: number;
   batchWindowMs: number;
+  prefillStepSize: number;
   activePrefillStepSize: number;
   activeDecodeStepsPerPrefillChunk: number;
   streamDecodeInterval: number;
@@ -256,6 +261,7 @@ function defaultParseState(): ParseState {
     port: 0,
     maxBatchSize: 32,
     batchWindowMs: 1,
+    prefillStepSize: DEFAULT_SERVE_PREFILL_STEP_SIZE,
     activePrefillStepSize: 128,
     activeDecodeStepsPerPrefillChunk: 16,
     streamDecodeInterval: DEFAULT_STREAM_DECODE_INTERVAL,
@@ -345,6 +351,9 @@ function readServerValueArg(state: ParseState, arg: string, value: string | unde
       return true;
     case "--batch-window-ms":
       state.batchWindowMs = readNonNegativeInteger(arg, value);
+      return true;
+    case "--prefill-step-size":
+      state.prefillStepSize = readPositiveInteger(arg, value);
       return true;
     case "--active-prefill-step-size":
       state.activePrefillStepSize = readPositiveInteger(arg, value);
@@ -462,6 +471,7 @@ export function parseServeBenchmarkArgs(argv: readonly string[]): ServeBenchmark
     port: state.port,
     maxBatchSize: state.maxBatchSize,
     batchWindowMs: state.batchWindowMs,
+    prefillStepSize: state.prefillStepSize,
     activePrefillStepSize: state.activePrefillStepSize,
     activeDecodeStepsPerPrefillChunk: state.activeDecodeStepsPerPrefillChunk,
     streamDecodeInterval: state.streamDecodeInterval,

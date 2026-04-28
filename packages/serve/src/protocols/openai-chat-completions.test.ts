@@ -57,6 +57,22 @@ describe("OpenAI chat completions adapter", () => {
     expect(normalized.streamOptions).toEqual({ includeUsage: false });
   });
 
+  test("preserves explicit Qwen thinking-history replay when thinking is disabled", () => {
+    const normalized = normalizeOpenAIChatCompletionRequest(
+      {
+        model: "mlx-community/Qwen3.6-27B-4bit",
+        messages: [{ role: "user", content: "Hi" }],
+        chat_template_kwargs: { enable_thinking: false, preserve_thinking: true },
+      },
+      { id: "chat-test" },
+    );
+
+    expect(normalized.request.input).toMatchObject({
+      kind: "messages",
+      chatTemplate: { enableThinking: false, preserveThinking: true },
+    });
+  });
+
   test("omits sampling overrides so model generation config can apply", () => {
     const normalized = normalizeOpenAIChatCompletionRequest(
       { model: "mlx-community/Qwen3.6-27B-4bit", messages: [{ role: "user", content: "Hi" }] },
@@ -472,6 +488,43 @@ describe("OpenAI chat completions adapter", () => {
     expect(response.choices[0]?.finish_reason).toBe("tool_calls");
   });
 
+  test("formats generated Gemma-native tool calls", () => {
+    const chat = normalizeOpenAIChatCompletionRequest(
+      {
+        model: "tiny",
+        messages: [{ role: "user", content: "list files" }],
+        tools: [{ type: "function", function: { name: "list_files" } }],
+      },
+      { id: "chat-test" },
+    );
+
+    const response = formatOpenAIChatCompletionResponse(
+      chat,
+      {
+        text: '<|tool_call>call:list_files{path:<|"|>.<|"|>,limit:2}<tool_call|><|tool_response>',
+        finishReason: "eos",
+      },
+      { id: "chat-test", created: 123 },
+    );
+
+    expect(response.choices[0]).toEqual({
+      index: 0,
+      message: {
+        role: "assistant",
+        content: null,
+        tool_calls: [
+          {
+            id: "call_1",
+            type: "function",
+            function: { name: "list_files", arguments: '{"path":".","limit":2}' },
+          },
+        ],
+      },
+      finish_reason: "tool_calls",
+    });
+    expect(JSON.stringify(response)).not.toContain("<|tool_response>");
+  });
+
   test("formats reasoning plus multiple generated tool calls without XML leakage", () => {
     const chat = normalizeOpenAIChatCompletionRequest(
       {
@@ -584,6 +637,28 @@ describe("OpenAI chat completions adapter", () => {
       role: "assistant",
       content: "Hello!",
       reasoning_content: "I should greet the user.",
+    });
+  });
+
+  test("moves Anthropic-style thinking text into reasoning_content", () => {
+    const chat = normalizeOpenAIChatCompletionRequest(
+      { model: "tiny", messages: [{ role: "user", content: "Hi" }] },
+      { id: "chat-test" },
+    );
+
+    const response = formatOpenAIChatCompletionResponse(
+      chat,
+      {
+        text: "<antThinking>I should answer without exposing this.</antThinking>\n\nHello!",
+        finishReason: "eos",
+      },
+      { id: "chat-test", created: 123 },
+    );
+
+    expect(response.choices[0]?.message).toEqual({
+      role: "assistant",
+      content: "Hello!",
+      reasoning_content: "I should answer without exposing this.",
     });
   });
 
@@ -724,7 +799,7 @@ describe("OpenAI chat completions adapter", () => {
         prompt_tokens: 6,
         completion_tokens: 2,
         total_tokens: 8,
-        prompt_tokens_details: { cached_tokens: 4, cache_write_tokens: 1 },
+        prompt_tokens_details: { cached_tokens: 3, cache_write_tokens: 1 },
       },
     });
     expect(
@@ -744,6 +819,28 @@ describe("OpenAI chat completions adapter", () => {
     expect(stream.finish()).toEqual([{ content: "Hello" }]);
   });
 
+  test("splits streamed Anthropic-style reasoning from visible content", () => {
+    const stream = createOpenAIChatCompletionReasoningStream();
+
+    expect(stream.push("<antThinking>I should ")).toEqual([]);
+    expect(stream.push("answer.</antThinking>\n\nHel")).toEqual([
+      { reasoningContent: "I should answer." },
+    ]);
+    expect(stream.push("lo")).toEqual([]);
+    expect(stream.finish()).toEqual([{ content: "Hello" }]);
+  });
+
+  test("splits streamed Gemma thought-channel reasoning from visible content", () => {
+    const stream = createOpenAIChatCompletionReasoningStream();
+
+    expect(stream.push("<|channel>thought\nI should ")).toEqual([]);
+    expect(stream.push("answer.<channel|>\n\nHel")).toEqual([
+      { reasoningContent: "I should answer." },
+    ]);
+    expect(stream.push("lo")).toEqual([]);
+    expect(stream.finish()).toEqual([{ content: "Hello" }]);
+  });
+
   test("buffers generated streaming tool-call envelopes", () => {
     const stream = createOpenAIChatCompletionToolCallStream(true);
 
@@ -759,6 +856,26 @@ describe("OpenAI chat completions adapter", () => {
             id: "call_1",
             type: "function",
             function: { name: "read_file", arguments: '{"path":"README.md"}' },
+          },
+        ],
+      },
+    ]);
+    expect(stream.finish()).toEqual([]);
+  });
+
+  test("buffers generated Gemma-native streaming tool-call envelopes", () => {
+    const stream = createOpenAIChatCompletionToolCallStream(true);
+
+    expect(stream.push("Before ")).toEqual([]);
+    expect(stream.push('<|tool_call>call:list_files{path:<|"|>.<|"|>}<tool_call|>')).toEqual([
+      { content: "Before " },
+      {
+        toolCalls: [
+          {
+            index: 0,
+            id: "call_1",
+            type: "function",
+            function: { name: "list_files", arguments: '{"path":"."}' },
           },
         ],
       },

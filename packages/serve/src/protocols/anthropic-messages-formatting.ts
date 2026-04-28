@@ -10,28 +10,10 @@ import type {
   AnthropicStopReason,
   NormalizedAnthropicMessage,
 } from "./anthropic-messages";
-
-const THINK_OPEN = "<think>";
-const THINK_CLOSE = "</think>";
+import { splitReasoningTags } from "./reasoning-tags";
 
 function splitReasoningText(text: string): { content: string; reasoningContent?: string } {
-  const openIndex = text.indexOf(THINK_OPEN);
-  const closeIndex = text.indexOf(THINK_CLOSE);
-  if (closeIndex < 0 && openIndex < 0) {
-    return { content: text.trim() };
-  }
-  if (closeIndex >= 0 && (openIndex < 0 || openIndex < closeIndex)) {
-    const reasoningStart = openIndex < 0 ? 0 : openIndex + THINK_OPEN.length;
-    const contentPrefix = openIndex > 0 ? text.slice(0, openIndex).trimEnd() : "";
-    const contentSuffix = text.slice(closeIndex + THINK_CLOSE.length).trimStart();
-    const content =
-      contentPrefix === "" ? contentSuffix.trim() : `${contentPrefix}\n${contentSuffix}`.trim();
-    const reasoningContent = text.slice(reasoningStart, closeIndex).trim();
-    return reasoningContent === "" ? { content } : { content, reasoningContent };
-  }
-  const content = text.slice(0, openIndex).trimEnd();
-  const reasoningContent = text.slice(openIndex + THINK_OPEN.length).trim();
-  return reasoningContent === "" ? { content } : { content, reasoningContent };
+  return splitReasoningTags(text);
 }
 
 function contentBlocks(result: NormalizedGenerationResult): AnthropicContentBlock[] {

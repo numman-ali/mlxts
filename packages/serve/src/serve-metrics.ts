@@ -140,6 +140,18 @@ export class ServeMetrics {
     type: "counter",
     labelNames: ["model", "protocol"],
   });
+  readonly #promptCacheEvents = new NumberMetric({
+    name: "mlxts_serve_generation_prompt_cache_events_total",
+    help: "Prompt-prefix cache hit, miss, and write events.",
+    type: "counter",
+    labelNames: ["model", "protocol", "result"],
+  });
+  readonly #promptCacheTokens = new NumberMetric({
+    name: "mlxts_serve_generation_prompt_cache_tokens_total",
+    help: "Prompt-prefix cache prompt, read, and write token counts.",
+    type: "counter",
+    labelNames: ["model", "protocol", "result", "kind"],
+  });
   readonly #routeDecisions = new NumberMetric({
     name: "mlxts_serve_generation_route_decisions_total",
     help: "Serving route decisions made before generation execution.",
@@ -250,6 +262,9 @@ export class ServeMetrics {
         this.#prefillTokens.add([this.#modelLabel(event.model), event.protocol], event.chunkTokens);
         this.#recordMemory(this.#modelLabel(event.model), event.memory);
         break;
+      case "generation_prompt_cache":
+        this.#recordPromptCache(event);
+        break;
       case "generation_stream_chunk":
         break;
       case "generation_stream_end":
@@ -296,6 +311,8 @@ export class ServeMetrics {
       this.#generationTokenCounts,
       this.#generationMaxTokens,
       this.#prefillTokens,
+      this.#promptCacheEvents,
+      this.#promptCacheTokens,
       this.#routeDecisions,
       this.#memoryBytes,
       this.#batches,
@@ -396,6 +413,15 @@ export class ServeMetrics {
       this.#generationTokens.add([model, protocol, kind], value);
       this.#generationTokenCounts.observe([model, protocol, kind], value);
     }
+  }
+
+  #recordPromptCache(event: Extract<ServeEvent, { type: "generation_prompt_cache" }>): void {
+    const model = this.#modelLabel(event.model);
+    const labels = [model, event.protocol, event.result];
+    this.#promptCacheEvents.add(labels, 1);
+    this.#promptCacheTokens.add([...labels, "prompt"], event.promptTokens);
+    this.#promptCacheTokens.add([...labels, "read"], event.cacheReadTokens);
+    this.#promptCacheTokens.add([...labels, "write"], event.cacheWriteTokens);
   }
 
   #recordMemory(model: string, memory: GenerationMemoryUsage | undefined): void {

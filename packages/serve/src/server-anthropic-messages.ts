@@ -93,6 +93,7 @@ export async function anthropicMessagesRouteResponse(
           id: responseOptions.id,
           created: 0,
           signal: abortScope.signal,
+          abort: () => abortScope.abort(),
           observer,
         }).then(
           (summary) => {

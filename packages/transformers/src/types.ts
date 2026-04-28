@@ -35,6 +35,10 @@ export type GenerationOptions = SamplerOptions & {
   eosTokenIds?: number[];
   useCache?: boolean;
   cache?: TransformerCache;
+  /** Full sampler history when cache input is only a prompt suffix. */
+  samplerHistoryTokenIds?: readonly number[];
+  /** Receives an owned prompt-boundary cache snapshot after prefill. The callback owns it. */
+  onPromptCacheSnapshot?: (event: PromptCacheSnapshotEvent) => void;
   addSpecialTokens?: boolean;
   prefillStepSize?: number;
   /** Cooperative cancellation signal checked between prefill chunks and decode steps. */
@@ -50,7 +54,13 @@ export type BatchGenerationOptions = Omit<GenerationOptions, "maxTokens" | "onPr
 
 export type GenerationDefaults = Omit<
   GenerationOptions,
-  "addSpecialTokens" | "maxTokens" | "cache" | "onPrefillProgress" | "abortSignal"
+  | "addSpecialTokens"
+  | "maxTokens"
+  | "cache"
+  | "samplerHistoryTokenIds"
+  | "onPromptCacheSnapshot"
+  | "onPrefillProgress"
+  | "abortSignal"
 >;
 
 export type GenerationResult = {
@@ -65,6 +75,15 @@ export type PrefillProgressEvent = {
   chunkTokens: number;
 };
 
+/** Owned cache snapshot emitted after prompt prefill for prompt-prefix reuse. */
+export type PromptCacheSnapshotEvent = {
+  /** Logical cache offset captured by the snapshot. */
+  offset: number;
+  /** Owned snapshot; the callback must store or dispose it. */
+  snapshot: TransformerCacheSnapshot;
+};
+
+/** Incremental token-generation event for a single request. */
 export type TokenGenerationEvent =
   | {
       type: "token";
@@ -101,6 +120,25 @@ export type PreparedPrompt = {
   positionIds?: MxArray;
 };
 
+/** Options for restoring a cache snapshot at a supported logical prefix. */
+export type TransformerCacheForkOptions = {
+  /** Logical prefix offset to restore. Defaults to the snapshot's full offset. */
+  offset?: number;
+};
+
+/** Owned prompt/cache snapshot that can produce disposable request-local cache forks. */
+export interface TransformerCacheSnapshot extends Disposable {
+  /** Logical token offset represented by this snapshot. */
+  readonly offset: number;
+  /** Whether this snapshot can fork at earlier offsets as well as its full offset. */
+  readonly trimmable: boolean;
+
+  /** Return whether `fork()` can produce a cache at the requested offset. */
+  canFork(options?: TransformerCacheForkOptions): boolean;
+  /** Return a disposable cache fork owned by the caller. */
+  fork(options?: TransformerCacheForkOptions): TransformerCache;
+}
+
 export type LoadCausalLMOptions = LoadSourceOptions & {
   strictUnexpectedWeights?: boolean;
 };
@@ -133,6 +171,7 @@ export interface TransformerCache extends Disposable {
   advance(sequenceLength: number): void;
   isEmpty(): boolean;
   isTrimmable(): boolean;
+  snapshot(): TransformerCacheSnapshot;
   /** Return retained cache-state arrays for explicit eval. The caller owns the returned views. */
   arrays(): MxArray[];
 }

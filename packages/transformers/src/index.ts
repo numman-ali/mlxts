@@ -93,12 +93,15 @@ export type {
   LoadSourceOptions,
   PrefillProgressEvent,
   PretrainedLoadProgressEvent,
+  PromptCacheSnapshotEvent,
   SamplerOptions,
   SupportedModelFamily,
   TextGenerationResult,
   TokenGenerationEvent,
   TransformerBatchCache,
   TransformerCache,
+  TransformerCacheForkOptions,
+  TransformerCacheSnapshot,
 } from "./types";
 export {
   ConfigParseError,

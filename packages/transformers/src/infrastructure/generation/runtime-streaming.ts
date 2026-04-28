@@ -31,6 +31,7 @@ import {
   validatePrefillStepSize,
 } from "./helpers";
 import {
+  emitPromptCacheSnapshot,
   finishIfEos,
   maybeClearGenerationCache,
   predictNextTokenWithState,
@@ -78,7 +79,7 @@ async function* streamWithCache(
   cache: TransformerCache,
 ): AsyncIterable<TokenGenerationEvent> {
   const scope = createGenerationScope();
-  const samplerState = new SamplerState(promptTokenIds, options);
+  const samplerState = new SamplerState(options.samplerHistoryTokenIds ?? promptTokenIds, options);
   const generated: number[] = [];
   let finishReason: GenerationResult["finishReason"] = "length";
   let initialPrompt: PrefilledPrompt | null = null;
@@ -114,6 +115,9 @@ async function* streamWithCache(
             ),
           }));
     const activePrompt = initialPrompt;
+    withDefaultStream(scope.stream, () => {
+      emitPromptCacheSnapshot(cache, options);
+    });
     throwIfGenerationAborted(options.abortSignal, "generateTokens");
     currentToken = withDefaultStream(scope.stream, () =>
       predictNextTokenWithState(
@@ -184,7 +188,7 @@ async function* streamWithoutCache(
   eosTokenIds: ReadonlySet<number>,
 ): AsyncIterable<TokenGenerationEvent> {
   const scope = createGenerationScope();
-  const samplerState = new SamplerState(promptTokenIds, options);
+  const samplerState = new SamplerState(options.samplerHistoryTokenIds ?? promptTokenIds, options);
   const runningPrompt = [...promptTokenIds];
   const initialInputEmbeddings = retainPromptInputEmbeddings(
     promptTokenIds,

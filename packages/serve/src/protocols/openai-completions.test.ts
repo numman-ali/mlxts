@@ -260,7 +260,7 @@ describe("OpenAI completions adapter", () => {
         prompt_tokens: 6,
         completion_tokens: 2,
         total_tokens: 8,
-        prompt_tokens_details: { cached_tokens: 4, cache_write_tokens: 1 },
+        prompt_tokens_details: { cached_tokens: 3, cache_write_tokens: 1 },
       },
     });
   });

@@ -85,6 +85,21 @@ describe("generation defaults", () => {
     });
   });
 
+  test("parses model-native sampled checkpoint defaults", () => {
+    expect(
+      parseGenerationDefaults({
+        do_sample: true,
+        temperature: 1.0,
+        top_k: 20,
+        top_p: 0.95,
+      }),
+    ).toEqual({
+      temperature: 1.0,
+      topK: 20,
+      topP: 0.95,
+    });
+  });
+
   test("merges model defaults with tokenizer eos ids", () => {
     const resolved = resolveGenerationOptions(
       fakeModel({

@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
+import { DEFAULT_SERVE_PREFILL_STEP_SIZE } from "../src/serve-runtime-strategy";
 import {
   buildServeBenchmarkRungs,
   expectedCompletionTokensForRung,
@@ -37,6 +38,7 @@ describe("serve benchmark options", () => {
       port: 0,
       maxBatchSize: 32,
       batchWindowMs: 1,
+      prefillStepSize: DEFAULT_SERVE_PREFILL_STEP_SIZE,
       activePrefillStepSize: 128,
       activeDecodeStepsPerPrefillChunk: 16,
       streamDecodeInterval: 1,
@@ -76,6 +78,8 @@ describe("serve benchmark options", () => {
       "8",
       "--batch-window-ms",
       "2",
+      "--prefill-step-size",
+      "1024",
       "--active-prefill-step-size",
       "256",
       "--active-decode-steps-per-prefill-chunk",
@@ -121,6 +125,7 @@ describe("serve benchmark options", () => {
       port: 8081,
       maxBatchSize: 8,
       batchWindowMs: 2,
+      prefillStepSize: 1024,
       activePrefillStepSize: 256,
       activeDecodeStepsPerPrefillChunk: 24,
       streamDecodeInterval: 4,
@@ -286,6 +291,9 @@ describe("serve benchmark options", () => {
     );
     expect(() => parseServeBenchmarkArgs(["model", "--active-prefill-step-size", "0"])).toThrow(
       "--active-prefill-step-size expects a positive integer",
+    );
+    expect(() => parseServeBenchmarkArgs(["model", "--prefill-step-size", "0"])).toThrow(
+      "--prefill-step-size expects a positive integer",
     );
     expect(() =>
       parseServeBenchmarkArgs(["model", "--active-decode-steps-per-prefill-chunk", "0"]),

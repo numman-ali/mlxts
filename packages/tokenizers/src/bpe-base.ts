@@ -95,6 +95,7 @@ export class BPETokenizer implements Tokenizer {
   #splitPattern: string | undefined;
   #byteFallback: boolean;
   #unkTokenId: number | undefined;
+  #maxSentencePieceTokenLength: number;
 
   constructor(config: BPEConfig) {
     this.#variant = config.variant;
@@ -134,6 +135,13 @@ export class BPETokenizer implements Tokenizer {
     this.#splitPattern = config.splitPattern;
     this.#byteFallback = config.byteFallback ?? false;
     this.#unkTokenId = config.unkTokenId;
+    this.#maxSentencePieceTokenLength = 1;
+    for (const token of Object.keys(config.vocab)) {
+      this.#maxSentencePieceTokenLength = Math.max(
+        this.#maxSentencePieceTokenLength,
+        Array.from(token).length,
+      );
+    }
   }
 
   get vocabSize(): number {
@@ -386,7 +394,8 @@ export class BPETokenizer implements Tokenizer {
     let bestToken: string | undefined;
     let bestLength = 0;
 
-    for (let end = chars.length; end > start; end -= 1) {
+    const maxEnd = Math.min(chars.length, start + this.#maxSentencePieceTokenLength);
+    for (let end = maxEnd; end > start; end -= 1) {
       const candidate = chars.slice(start, end).join("");
       if (this.#vocab.has(candidate)) {
         bestToken = candidate;

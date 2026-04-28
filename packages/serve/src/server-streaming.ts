@@ -4,6 +4,7 @@ import {
   formatOpenAIChatCompletionStreamChunk,
   formatOpenAIChatCompletionUsageStreamChunk,
   type normalizeOpenAIChatCompletionRequest,
+  stripGeneratedChatControlTokens,
 } from "./protocols/openai-chat-completions";
 import {
   formatOpenAICompletionStreamChunk,
@@ -177,7 +178,7 @@ function processParsedChatDelta(
     return;
   }
 
-  const filtered = state.stopFilter.push(delta.content ?? "");
+  const filtered = state.stopFilter.push(stripGeneratedChatControlTokens(delta.content ?? ""));
   if (filtered.text !== "") {
     emitChatStreamChunk(controller, chat, { content: filtered.text }, options);
   }
@@ -399,8 +400,10 @@ export async function writeStreamEvents(
   enqueueObservedSse(controller, ": mlxts-serve stream started\n\n", options, "protocol");
   await yieldToHttpWriter();
   while (true) {
-    const next = await withSseHeartbeat(controller, () =>
-      readStreamEvent(iterator, options.signal),
+    const next = await withSseHeartbeat(
+      controller,
+      () => readStreamEvent(iterator, options.signal),
+      options.abort,
     );
     if (next.type === "finished" || next.type === "cancelled") {
       break;
@@ -442,8 +445,10 @@ export async function writeChatStreamEvents(
 
   const iterator = toAsyncIterator(stream);
   while (true) {
-    const next = await withSseHeartbeat(controller, () =>
-      readStreamEvent(iterator, options.signal),
+    const next = await withSseHeartbeat(
+      controller,
+      () => readStreamEvent(iterator, options.signal),
+      options.abort,
     );
     if (next.type === "finished" || next.type === "cancelled") {
       break;

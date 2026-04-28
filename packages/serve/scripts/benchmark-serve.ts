@@ -78,6 +78,11 @@ export type ServerRequestTimingReport = {
   schedulerMaxScheduledCompletionTokens: number | null;
   schedulerScheduledTotalTokens: number | null;
   schedulerMaxScheduledTotalTokens: number | null;
+  serverPrefillStartMs: number | null;
+  serverPrefillEndMs: number | null;
+  serverPrefillMs: number | null;
+  serverPrefillTokens: number | null;
+  serverPrefillTps: number | null;
   firstPrefillProgressMs: number | null;
   lastPrefillProgressMs: number | null;
   prefillObservedMs: number | null;
@@ -111,6 +116,8 @@ export type TrialMetrics = {
   totalTps: number;
   meanTtftMs: number | null;
   meanPromptToFirstTokenTps: number | null;
+  meanServerPrefillMs: number | null;
+  meanServerPrefillTps: number | null;
   meanPostTtftCompletionTps: number | null;
   meanStreamChunkGapMs: number | null;
   maxStreamChunkGapMs: number | null;
@@ -166,6 +173,7 @@ export type BenchmarkReport = {
   ignoreEos: boolean;
   maxBatchSize: number;
   batchWindowMs: number;
+  prefillStepSize: number;
   activePrefillStepSize: number;
   activeDecodeStepsPerPrefillChunk: number;
   streamDecodeInterval: number;
@@ -415,6 +423,21 @@ function prefillObservedMs(firstMs: number | null, lastMs: number | null): numbe
   return firstMs === null || lastMs === null ? null : lastMs - firstMs;
 }
 
+function positiveDurationMs(startMs: number | null, endMs: number | null): number | null {
+  if (startMs === null || endMs === null) {
+    return null;
+  }
+  const durationMs = endMs - startMs;
+  return durationMs <= 0 ? null : durationMs;
+}
+
+function prefillTps(tokens: number | null, durationMs: number | null): number | null {
+  if (tokens === null || durationMs === null || durationMs <= 0) {
+    return null;
+  }
+  return tokens / (durationMs / 1000);
+}
+
 function requestDurationMs(slice: RequestEventSlice): number | null {
   if (slice.complete !== undefined) {
     return slice.complete.durationMs;
@@ -527,10 +550,18 @@ function schedulerTokenFields(
 function requestTimingReport(id: string, group: readonly RecordedServeEvent[]) {
   const slice = requestEventSlice(group);
   const startedAt = sliceStartMs(slice);
-  const firstPrefillMs = relativeMs(slice.prefillEvents[0], startedAt);
-  const lastPrefillMs = relativeMs(slice.prefillEvents[slice.prefillEvents.length - 1], startedAt);
-  const firstCompletion = slice.progressEvents.find((event) => event.completionTokens > 0);
   const prefillStart = slice.schedulerEvents.find((event) => event.phase === "prefill_start");
+  const firstPromptProgress = slice.progressEvents.find((event) => event.completionTokens === 0);
+  const serverPrefillStartMs =
+    relativeMs(prefillStart, startedAt) ??
+    relativeMs(firstPromptProgress, startedAt) ??
+    relativeMs(slice.modelLaneWait, startedAt);
+  const firstPrefillMs = relativeMs(slice.prefillEvents[0], startedAt);
+  const lastPrefill = slice.prefillEvents[slice.prefillEvents.length - 1];
+  const lastPrefillMs = relativeMs(lastPrefill, startedAt);
+  const serverPrefillMs = positiveDurationMs(serverPrefillStartMs, lastPrefillMs);
+  const serverPrefillTokens = lastPrefill?.totalPrefillTokens ?? null;
+  const firstCompletion = slice.progressEvents.find((event) => event.completionTokens > 0);
   const admitted = slice.schedulerEvents.find((event) => event.phase === "admitted");
   const firstToken = slice.schedulerEvents.find((event) => event.phase === "first_token");
   const finished = slice.schedulerEvents.find((event) => event.phase === "finished");
@@ -554,6 +585,11 @@ function requestTimingReport(id: string, group: readonly RecordedServeEvent[]) {
     schedulerPhaseEvents: slice.schedulerEvents.length,
     schedulerAdmittedBatchSize: admitted?.batchSize ?? null,
     ...schedulerTokenFields(slice),
+    serverPrefillStartMs,
+    serverPrefillEndMs: lastPrefillMs,
+    serverPrefillMs,
+    serverPrefillTokens,
+    serverPrefillTps: prefillTps(serverPrefillTokens, serverPrefillMs),
     firstPrefillProgressMs: firstPrefillMs,
     lastPrefillProgressMs: lastPrefillMs,
     prefillObservedMs: prefillObservedMs(firstPrefillMs, lastPrefillMs),
@@ -681,6 +717,8 @@ async function runTrial(
     totalTps: totalTokens / wallSeconds,
     meanTtftMs: meanPresent(results.map((result) => result.ttftMs)),
     meanPromptToFirstTokenTps: meanPresent(results.map((result) => result.promptToFirstTokenTps)),
+    meanServerPrefillMs: meanPresent(serverRequests.map((request) => request.serverPrefillMs)),
+    meanServerPrefillTps: meanPresent(serverRequests.map((request) => request.serverPrefillTps)),
     meanPostTtftCompletionTps: meanPresent(results.map((result) => result.postTtftCompletionTps)),
     meanStreamChunkGapMs: meanPresent(results.map((result) => result.meanStreamChunkGapMs)),
     maxStreamChunkGapMs: maxPresent(results.map((result) => result.maxStreamChunkGapMs)),
@@ -722,6 +760,8 @@ function averageTrialMetrics(trials: readonly TrialMetrics[]): TrialMetrics {
     totalTps: mean(trials.map((trial) => trial.totalTps)),
     meanTtftMs: meanPresent(trials.map((trial) => trial.meanTtftMs)),
     meanPromptToFirstTokenTps: meanPresent(trials.map((trial) => trial.meanPromptToFirstTokenTps)),
+    meanServerPrefillMs: meanPresent(trials.map((trial) => trial.meanServerPrefillMs)),
+    meanServerPrefillTps: meanPresent(trials.map((trial) => trial.meanServerPrefillTps)),
     meanPostTtftCompletionTps: meanPresent(trials.map((trial) => trial.meanPostTtftCompletionTps)),
     meanStreamChunkGapMs: meanPresent(trials.map((trial) => trial.meanStreamChunkGapMs)),
     maxStreamChunkGapMs: maxPresent(trials.map((trial) => trial.maxStreamChunkGapMs)),
@@ -776,6 +816,8 @@ function printMetrics(prefix: string, metrics: TrialMetrics): void {
       `total_tps=${metrics.totalTps.toFixed(3)}`,
       `mean_ttft_ms=${formatNullableMs(metrics.meanTtftMs)}`,
       `mean_prompt_to_first_token_tps=${formatNullableTps(metrics.meanPromptToFirstTokenTps)}`,
+      `mean_server_prefill_ms=${formatNullableMs(metrics.meanServerPrefillMs)}`,
+      `mean_server_prefill_tps=${formatNullableTps(metrics.meanServerPrefillTps)}`,
       `mean_post_ttft_completion_tps=${formatNullableTps(metrics.meanPostTtftCompletionTps)}`,
       `mean_stream_chunk_gap_ms=${formatNullableMs(metrics.meanStreamChunkGapMs)}`,
       `max_stream_chunk_gap_ms=${formatNullableMs(metrics.maxStreamChunkGapMs)}`,
@@ -891,6 +933,7 @@ async function main(): Promise<void> {
       `ignore_eos=${options.ignoreEos}`,
       `max_batch_size=${options.maxBatchSize}`,
       `batch_window_ms=${options.batchWindowMs}`,
+      `prefill_step_size=${options.prefillStepSize}`,
       `active_prefill_step_size=${options.activePrefillStepSize}`,
       `active_decode_steps_per_prefill_chunk=${options.activeDecodeStepsPerPrefillChunk}`,
       `stream_decode_interval=${options.streamDecodeInterval}`,
@@ -919,6 +962,7 @@ async function main(): Promise<void> {
     maxTotalTokens: options.maxTotalTokens ?? maximum(rungs.map(maxTotalTokensForRung)),
     maxBatchSize: options.maxBatchSize,
     batchWindowMs: options.batchWindowMs,
+    prefillStepSize: options.prefillStepSize,
     activePrefillStepSize: options.activePrefillStepSize,
     activeDecodeStepsPerPrefillChunk: options.activeDecodeStepsPerPrefillChunk,
     streamDecodeInterval: options.streamDecodeInterval,
@@ -956,6 +1000,7 @@ async function main(): Promise<void> {
         ignoreEos: options.ignoreEos,
         maxBatchSize: options.maxBatchSize,
         batchWindowMs: options.batchWindowMs,
+        prefillStepSize: options.prefillStepSize,
         activePrefillStepSize: options.activePrefillStepSize,
         activeDecodeStepsPerPrefillChunk: options.activeDecodeStepsPerPrefillChunk,
         streamDecodeInterval: options.streamDecodeInterval,

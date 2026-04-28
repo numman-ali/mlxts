@@ -56,6 +56,25 @@ describe("request limit generation engine", () => {
     });
   });
 
+  test("disposes the wrapped engine when present", () => {
+    let disposeCount = 0;
+    const engine = createRequestLimitGenerationEngine({
+      engine: {
+        generate() {
+          return { text: "", finishReason: "stop" };
+        },
+        [Symbol.dispose]() {
+          disposeCount += 1;
+        },
+      },
+      maxGeneratedTokens: 4,
+    });
+
+    engine[Symbol.dispose]?.();
+
+    expect(disposeCount).toBe(1);
+  });
+
   test("validates a full batch before generation starts", () => {
     const seen: string[] = [];
     const inner: GenerationEngine = {

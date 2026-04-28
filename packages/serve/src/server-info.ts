@@ -24,6 +24,7 @@ export type ServeRuntimeLimits = {
   maxTotalTokens?: number;
   maxBatchSize?: number;
   batchWindowMs?: number;
+  prefillStepSize?: number;
   activePrefillStepSize?: number;
   activeDecodeStepsPerPrefillChunk?: number;
   streamDecodeInterval?: number;
@@ -54,6 +55,7 @@ export type ServeInfoResponse = {
     max_total_tokens: number | null;
     max_client_batch_size: number | null;
     batch_window_ms: number | null;
+    prefill_step_size: number | null;
     active_prefill_step_size: number | null;
     active_decode_steps_per_prefill_chunk: number | null;
     stream_decode_interval: number | null;
@@ -148,6 +150,7 @@ export function formatServeInfoResponse(options: ServeInfoOptions): ServeInfoRes
       max_total_tokens: numberOrNull(limits.maxTotalTokens),
       max_client_batch_size: numberOrNull(limits.maxBatchSize),
       batch_window_ms: numberOrNull(limits.batchWindowMs),
+      prefill_step_size: numberOrNull(limits.prefillStepSize),
       active_prefill_step_size: numberOrNull(limits.activePrefillStepSize),
       active_decode_steps_per_prefill_chunk: numberOrNull(limits.activeDecodeStepsPerPrefillChunk),
       stream_decode_interval: numberOrNull(limits.streamDecodeInterval),

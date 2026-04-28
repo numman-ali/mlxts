@@ -6,22 +6,15 @@
 import { jsonResponse, ServeError } from "./errors";
 import { formatOpenAIResponse, normalizeOpenAIResponseRequest } from "./protocols/openai-responses";
 import { linkAbortSignals, withAbortSignal } from "./server-abort";
-import {
-  emitGenerationComplete,
-  emitGenerationError,
-  emitGenerationStart,
-  emitRequestComplete,
-  emitRequestError,
-  serveErrorDetails,
-} from "./server-events";
+import { emitGenerationComplete, emitGenerationError, emitGenerationStart } from "./server-events";
 import { writeOpenAIResponseStreamEvents } from "./server-responses-streaming";
+import { completeGenerationStream, failGenerationStream } from "./server-stream-lifecycle";
 import { createGenerationStreamObserver } from "./server-stream-observability";
 import { closeStreamEvents, sseHeaders } from "./server-streaming";
 import type {
   GenerationEngine,
   GenerationStreamEvent,
   NormalizedGenerationRequest,
-  NormalizedGenerationResult,
   ServeEvent,
 } from "./types";
 
@@ -79,49 +72,41 @@ function responseStreamBody(
         id: control.id,
         created: control.created,
         signal: control.signal,
+        abort: () => control.abort(),
         observer: streamObserver,
       }).then(
         (summary) => {
-          control.dispose();
-          const durationMs = performance.now() - control.generationStartedAt;
-          streamObserver.end(
-            summary.finishReason === "cancelled" ? "cancelled" : "completed",
-            summary.finishReason,
-            durationMs,
-          );
-          const result: NormalizedGenerationResult = {
-            text: "",
-            finishReason: summary.finishReason,
-            ...(summary.usage === undefined ? {} : { usage: summary.usage }),
-          };
-          emitGenerationComplete(options, generationRequest, result, durationMs);
-          if (summary.finishReason === "cancelled") {
-            emitRequestError(
+          completeGenerationStream(
+            {
               options,
               request,
-              {
-                message: "Client disconnected during streaming response output.",
-                code: "client_cancelled",
-                status: 499,
-              },
-              control.requestStartedAt,
-            );
-          } else {
-            emitRequestComplete(options, request, 200, control.requestStartedAt);
-          }
-          if (!cancelled) {
-            controller.close();
-          }
+              generationRequest,
+              abortScope: control,
+              observer: streamObserver,
+              generationStartedAt: control.generationStartedAt,
+              requestStartedAt: control.requestStartedAt,
+              controller,
+              isCancelled: () => cancelled,
+            },
+            summary,
+            "Client disconnected during streaming response output.",
+          );
         },
         (error: unknown) => {
-          control.dispose();
-          const durationMs = performance.now() - control.generationStartedAt;
-          streamObserver.end("error", "error", durationMs);
-          emitGenerationError(options, generationRequest, error, durationMs);
-          emitRequestError(options, request, serveErrorDetails(error), control.requestStartedAt);
-          if (!cancelled) {
-            controller.error(error);
-          }
+          failGenerationStream(
+            {
+              options,
+              request,
+              generationRequest,
+              abortScope: control,
+              observer: streamObserver,
+              generationStartedAt: control.generationStartedAt,
+              requestStartedAt: control.requestStartedAt,
+              controller,
+              isCancelled: () => cancelled,
+            },
+            error,
+          );
         },
       );
     },

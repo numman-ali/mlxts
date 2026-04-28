@@ -125,5 +125,10 @@ export function createModelRouterGenerationEngine(
       }
       return stream(request);
     },
+    [Symbol.dispose]() {
+      for (const engine of engines.values()) {
+        engine[Symbol.dispose]?.();
+      }
+    },
   };
 }

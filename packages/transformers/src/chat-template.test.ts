@@ -186,4 +186,167 @@ describe("loadChatTemplate", () => {
       ),
     ).toBe("path=package.json;");
   });
+
+  test("preserves Gemma empty thinking channels in assistant history when requested", async () => {
+    const directory = createTempDir("mlxts-transformers-chat-template-gemma-thinking-");
+    writeFileSync(join(directory, "config.json"), JSON.stringify({ model_type: "gemma4" }));
+    writeFileSync(
+      join(directory, "chat_template.jinja"),
+      [
+        "{{ bos_token }}",
+        "{% for message in messages %}",
+        "{{ '<|turn>' + ('model' if message.role == 'assistant' else message.role) + '\\n' }}",
+        "{{ message.content }}",
+        "{{ '<turn|>\\n' }}",
+        "{% endfor %}",
+        "{% if add_generation_prompt %}",
+        "{{ '<|turn>model\\n' }}",
+        "{% if not enable_thinking | default(false) %}",
+        "{{ '<|channel>thought\\n<channel|>' }}",
+        "{% endif %}",
+        "{% endif %}",
+      ].join(""),
+    );
+    writeFileSync(join(directory, "tokenizer_config.json"), JSON.stringify({ bos_token: "<bos>" }));
+
+    const template = await loadChatTemplate(directory);
+    expect(
+      template?.format(
+        [
+          { role: "user", content: "Hi" },
+          { role: "assistant", content: "Hello" },
+          { role: "user", content: "Again" },
+        ],
+        { enableThinking: false, preserveThinking: true },
+      ),
+    ).toBe(
+      "<bos><|turn>user\nHi<turn|>\n<|turn>model\n<|channel>thought\n<channel|>Hello<turn|>\n<|turn>user\nAgain<turn|>\n<|turn>model\n<|channel>thought\n<channel|>",
+    );
+  });
+
+  test("preserves Gemma empty thinking channels before assistant tool-call history", async () => {
+    const directory = createTempDir("mlxts-transformers-chat-template-gemma-tool-thinking-");
+    writeFileSync(join(directory, "config.json"), JSON.stringify({ model_type: "gemma4" }));
+    writeFileSync(
+      join(directory, "chat_template.jinja"),
+      [
+        "{{ bos_token }}",
+        "{% for message in messages %}",
+        "{% if message.role == 'assistant' %}",
+        "{{ '<|turn>model\\n' }}",
+        "{% for tool_call in message.tool_calls %}",
+        "{{ '<|tool_call>call:' + tool_call.function.name + '{}<tool_call|>' }}",
+        "{% endfor %}",
+        "{% else %}",
+        "{{ '<|turn>' + message.role + '\\n' + message.content + '<turn|>\\n' }}",
+        "{% endif %}",
+        "{% endfor %}",
+      ].join(""),
+    );
+    writeFileSync(join(directory, "tokenizer_config.json"), JSON.stringify({ bos_token: "<bos>" }));
+
+    const template = await loadChatTemplate(directory);
+    expect(
+      template?.format(
+        [
+          { role: "user", content: "Read" },
+          {
+            role: "assistant",
+            content: "",
+            tool_calls: [
+              {
+                id: "call-read",
+                type: "function",
+                function: { name: "read", arguments: "{}" },
+              },
+            ],
+          },
+        ],
+        { addGenerationPrompt: false, enableThinking: false, preserveThinking: true },
+      ),
+    ).toBe(
+      "<bos><|turn>user\nRead<turn|>\n<|turn>model\n<|channel>thought\n<channel|><|tool_call>call:read{}<tool_call|>",
+    );
+  });
+
+  test("renders Gemma-style reasoning, tool calls, and tool responses", async () => {
+    const directory = createTempDir("mlxts-transformers-chat-template-gemma-tools-");
+    writeFileSync(join(directory, "config.json"), JSON.stringify({ model_type: "gemma4" }));
+    writeFileSync(
+      join(directory, "chat_template.jinja"),
+      [
+        "{{ bos_token }}",
+        "{% if tools %}",
+        "<|turn>system\n",
+        "{% for tool in tools %}",
+        '<|tool>declaration:{{ tool.function.name }}{description:<|"|>{{ tool.function.description }}<|"|>}<tool|>',
+        "{% endfor %}",
+        "<turn|>\n",
+        "{% endif %}",
+        "{% set ns = namespace(prev_message_type=None) %}",
+        "{% for message in messages %}",
+        "{% if message.role != 'tool' %}",
+        "{% set role = 'model' if message.role == 'assistant' else message.role %}",
+        "{{ '<|turn>' + role + '\\n' }}",
+        "{% if message.reasoning_content and message.tool_calls %}",
+        "{{ '<|channel>thought\\n' + message.reasoning_content + '\\n<channel|>' }}",
+        "{% endif %}",
+        "{% if message.tool_calls %}",
+        "{% for tool_call in message.tool_calls %}",
+        "{% set function = tool_call.function %}",
+        "{{ '<|tool_call>call:' + function.name + '{' }}",
+        "{% for name, value in function.arguments|items %}",
+        "{{ name }}:<|\"|>{{ value }}<|\"|>{{ ',' if not loop.last }}",
+        "{% endfor %}",
+        "{{ '}<tool_call|>' }}",
+        "{% endfor %}",
+        "{% set ns.prev_message_type = 'tool_call' %}",
+        "{% for follow in messages[loop.index:] %}",
+        "{% if follow.role == 'tool' %}",
+        "{{ '<|tool_response>response:' + message.tool_calls[0].function.name + '{value:<|\"|>' + follow.content + '<|\"|>}<tool_response|>' }}",
+        "{% set ns.prev_message_type = 'tool_response' %}",
+        "{% endif %}",
+        "{% endfor %}",
+        "{% endif %}",
+        "{{ message.content }}",
+        "{% if ns.prev_message_type != 'tool_response' %}<turn|>\n{% endif %}",
+        "{% endif %}",
+        "{% endfor %}",
+        "{% if add_generation_prompt and ns.prev_message_type != 'tool_response' %}<|turn>model\n{% endif %}",
+      ].join(""),
+    );
+    writeFileSync(join(directory, "tokenizer_config.json"), JSON.stringify({ bos_token: "<bos>" }));
+
+    const template = await loadChatTemplate(directory);
+    const rendered = template?.format(
+      [
+        { role: "user", content: "Read package.json" },
+        {
+          role: "assistant",
+          content: "",
+          reasoning_content: "Need the file.",
+          tool_calls: [
+            {
+              id: "call-read",
+              type: "function",
+              function: { name: "read", arguments: '{"path":"package.json"}' },
+            },
+          ],
+        },
+        { role: "tool", tool_call_id: "call-read", content: '{"name":"mlxts"}' },
+      ],
+      {
+        addGenerationPrompt: true,
+        tools: [{ type: "function", function: { name: "read", description: "Read a file" } }],
+      },
+    );
+
+    expect(rendered).toContain("<|tool>declaration:read");
+    expect(rendered).toContain("<|channel>thought\nNeed the file.\n<channel|>");
+    expect(rendered).toContain('<|tool_call>call:read{path:<|"|>package.json<|"|>}<tool_call|>');
+    expect(rendered).toContain(
+      '<|tool_response>response:read{value:<|"|>{"name":"mlxts"}<|"|>}<tool_response|>',
+    );
+    expect(rendered?.endsWith("<|turn>model\n")).toBe(false);
+  });
 });

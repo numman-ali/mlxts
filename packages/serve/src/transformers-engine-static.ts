@@ -8,7 +8,7 @@ import type { ModelExecutionLane, ModelExecutionLaneStats } from "./model-execut
 import { transformersRuntimeStrategy } from "./serve-runtime-strategy";
 import { linkAbortSignals } from "./server-abort";
 import type { TransformersGenerationEngineOptions } from "./transformers-engine";
-import { generateTransformersBatch } from "./transformers-engine-generation";
+import { generateTransformersBatch } from "./transformers-engine-batch";
 import {
   continuousBatchIneligibilityReason,
   staticBatchIneligibilityReason,

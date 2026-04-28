@@ -114,6 +114,30 @@ Cache backends need a shared shape that can represent trimmable KV layers,
 non-trimmable recurrent layers, static batch caches, paged blocks, prefix cache
 hits, and future quantized storage.
 
+Cross-family cache work must be designed against at least three architecture
+classes before it is considered real:
+
+- LLaMA-like full KV is the clean baseline: every layer stores growing
+  attention keys/values, and prefix reuse can be validated with trim/copy
+  semantics.
+- Gemma 3/4 layer-pattern caches mix sliding and full attention, so prefix
+  cache accounting must distinguish logical sequence length from retained
+  per-layer window length.
+- Qwen 3.5/3.6 hybrid caches mix full-attention KV with linear-attention
+  recurrent and convolution state, so exact-continuation reuse may be possible
+  before arbitrary trim/LCP reuse, but the non-trimmable state must be modeled
+  explicitly rather than hidden behind a full-KV abstraction.
+
+If a cache optimization cannot explain its behavior for all three classes, it
+is still a family-specific experiment rather than a serving capability.
+
+The shared abstraction should be a family-owned prefix snapshot/fork layer, not
+a generic list of KV tensors. Each family owns how a prefix is snapshotted,
+forked for a request, trimmed when safe, and disposed. The serving layer owns
+matching, admission, accounting, eviction, metrics, and protocol usage fields.
+That split keeps model architecture truth in `@mlxts/transformers` while still
+giving `@mlxts/serve` a model-agnostic cache lifecycle.
+
 Schedulers need a model-agnostic request lifecycle: waiting, prefill, running,
 streaming collector, cancellation, completion, and error. HTTP concurrency is
 not the same as token-level continuous batching.
@@ -197,19 +221,30 @@ The next work should stay ordered around architecture truth:
    preflight.
 4. Harden the scheduler: continuous routes now use one model-level reservation
    budget with separate prompt, completion, and aggregate total caps. Serving
-   uses a fairness-biased `512` token prefill chunk so short arrivals can get
-   admitted between long-prefill chunks. The next passes should add stronger
-   fairness controls and keep explicit per-row decode state for sampler, stop,
-   reasoning, and future logits processors.
-5. Build cache backends behind stable contracts: dense managed cache first,
-   then prefix cache, rotating/max-KV policy, quantized KV, paged KV, and later
-   TurboQuant or tiered SSD storage.
-6. Use `/metrics` as the production observability baseline. It now covers
+   exposes `--prefill-step-size` for cold prompt-prefill chunks and keeps the
+   default at a fairness-biased `512` so short arrivals can get admitted between
+   long-prefill chunks. The next passes should add stronger fairness controls
+   and keep explicit per-row decode state for sampler, stop, reasoning, and
+   future logits processors.
+5. Deepen cache backends behind stable contracts. The first prompt-prefix cache
+   tranche now covers single message/chat requests through family-owned
+   snapshot/fork semantics and OpenAI-compatible cache read/write accounting.
+   The next proof is live repeated-turn Qwen/Gemma/Pi evidence, then widening
+   reuse into batch-native or paged-cache scheduler paths without regressing
+   uncached continuous fairness.
+6. After single-request prefix-cache semantics are proven in live acceptance,
+   deepen rotating/max-KV policy, quantized KV, paged KV, and later TurboQuant
+   or tiered SSD storage. Lossy or compressed cache strategies need quality
+   evidence as well as speed/memory evidence.
+7. Use `/metrics` as the production observability baseline. It now covers
    request, generation, scheduler, batch, memory, and streaming lifecycle
    signals; deepen it as cache backends, cancellation state, and scheduler
    fairness gain more first-class state.
-7. Expand protocols through the shared request model: fuller Responses and
-   Anthropic Messages, structured output/logprobs, then multimodal serving.
+8. Expand protocols and modalities through the shared request model: fuller
+   Responses and Anthropic Messages, structured output/logprobs, then
+   multimodal serving. Image/video/audio/PDF/file support should normalize into
+   typed content parts first, then route through model-family adapters when the
+   underlying checkpoint genuinely supports that modality.
 
 That order protects the thing that matters most: every new capability should
 make the stack feel more coherent, not more accidental.

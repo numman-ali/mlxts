@@ -270,6 +270,17 @@ describe("BPETokenizer", () => {
     expect(ids).toEqual([2, 105, 2364, 107, 9259, 993, 106, 107, 105, 4368, 107]);
   });
 
+  test("keeps sentencepiece longest-match scans bounded on long prompts", () => {
+    const tokenizer = createSentencePieceStyleBPE();
+    const startedAt = performance.now();
+    const ids = tokenizer.encode("H".repeat(4096), { addSpecialTokens: false });
+    const elapsedMs = performance.now() - startedAt;
+    expect(ids.length).toBe(4097);
+    expect(ids[0]).toBe(0);
+    expect(ids.slice(1).every((id) => id === 1)).toBe(true);
+    expect(elapsedMs).toBeLessThan(1000);
+  });
+
   test("matches inline added tokens for ByteLevel tokenizers", () => {
     const tokenizer = createPhiStyleTokenizer();
     const ids = tokenizer.encode("Hi<|endoftext|>Hi", { addSpecialTokens: false });

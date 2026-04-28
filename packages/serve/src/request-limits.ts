@@ -97,6 +97,9 @@ export function createRequestLimitGenerationEngine(
       return stream(request);
     };
   }
+  limited[Symbol.dispose] = () => {
+    options.engine[Symbol.dispose]?.();
+  };
 
   return limited;
 }

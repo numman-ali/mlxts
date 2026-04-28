@@ -21,12 +21,14 @@ export function enqueueSseComment(
 export async function withSseHeartbeat<T>(
   controller: ReadableStreamDefaultController<Uint8Array>,
   work: () => Promise<T>,
+  onEnqueueError?: () => void,
 ): Promise<T> {
   const heartbeat = setInterval(() => {
     try {
       enqueueSseComment(controller, "mlxts-serve keep-alive");
     } catch {
       clearInterval(heartbeat);
+      onEnqueueError?.();
     }
   }, HEARTBEAT_INTERVAL_MS);
   try {

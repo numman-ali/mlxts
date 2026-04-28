@@ -59,6 +59,36 @@ describe("model router generation engine", () => {
     expect(betaBatches).toEqual([["1", "3"]]);
   });
 
+  test("disposes routed model engines", () => {
+    let alphaDisposeCount = 0;
+    let betaDisposeCount = 0;
+    const engine = createModelRouterGenerationEngine({
+      engines: {
+        alpha: {
+          generate() {
+            return { text: "a", finishReason: "stop" };
+          },
+          [Symbol.dispose]() {
+            alphaDisposeCount += 1;
+          },
+        },
+        beta: {
+          generate() {
+            return { text: "b", finishReason: "stop" };
+          },
+          [Symbol.dispose]() {
+            betaDisposeCount += 1;
+          },
+        },
+      },
+    });
+
+    engine[Symbol.dispose]?.();
+
+    expect(alphaDisposeCount).toBe(1);
+    expect(betaDisposeCount).toBe(1);
+  });
+
   test("reports unknown model ids and delegates streaming per model", async () => {
     const engine = createModelRouterGenerationEngine({
       engines: new Map<string, GenerationEngine>([

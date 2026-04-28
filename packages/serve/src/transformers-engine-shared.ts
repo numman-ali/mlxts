@@ -28,10 +28,10 @@ export type CompiledPrompt = {
 export const THINK_OPEN = "<think>";
 const THINK_CLOSE = "</think>";
 const PROGRESS_TOKEN_INTERVAL = 64;
-const DEFAULT_PREFILL_STEP_SIZE = 512;
 
 /** Convert a normalized serving request into transformer generation options. */
 export function generationOptions(
+  options: TransformersGenerationEngineOptions,
   request: NormalizedGenerationRequest,
   onPrefillProgress?: (event: PrefillProgressEvent) => void,
 ): GenerationOptions {
@@ -46,7 +46,7 @@ export function generationOptions(
     ...(request.sampling.ignoreEos === true ? { eosTokenIds: [] } : {}),
     ...(request.abortSignal === undefined ? {} : { abortSignal: request.abortSignal }),
     ...(onPrefillProgress === undefined ? {} : { onPrefillProgress }),
-    prefillStepSize: DEFAULT_PREFILL_STEP_SIZE,
+    prefillStepSize: transformersRuntimeStrategy(options).scheduler.prefillStepSize,
   };
 }
 
@@ -134,7 +134,7 @@ export function enforceGenerationMemoryBudgetForTokens(
   const estimate = estimateGenerationMemory(options.model, {
     promptTokens,
     totalTokens: promptTokens + maxTokens,
-    prefillStepSize: DEFAULT_PREFILL_STEP_SIZE,
+    prefillStepSize: transformersRuntimeStrategy(options).scheduler.prefillStepSize,
     batchSize,
   });
   if (estimate === undefined) {
@@ -365,4 +365,32 @@ export function promptTokenCount(
     return request.input.tokenIds.length;
   }
   return prompt?.tokenIds.length ?? 0;
+}
+
+/** Whether generated special markers should stay visible for protocol parsing. */
+export function shouldPreserveGeneratedSpecialTokens(
+  options: TransformersGenerationEngineOptions,
+  request: NormalizedGenerationRequest,
+): boolean {
+  if (request.input.kind !== "messages") {
+    return false;
+  }
+  const modelType = options.model.config.modelType;
+  if (modelType !== "gemma4" && modelType !== "gemma4_text") {
+    return false;
+  }
+  return (
+    (request.input.tools?.length ?? 0) > 0 || request.input.chatTemplate?.enableThinking === true
+  );
+}
+
+/** Decode generated tokens with model-family markers preserved when downstream parsing needs them. */
+export function decodeGeneratedTokenIds(
+  options: TransformersGenerationEngineOptions,
+  request: NormalizedGenerationRequest,
+  tokenIds: readonly number[],
+): string {
+  return options.tokenizer.decode([...tokenIds], {
+    skipSpecialTokens: !shouldPreserveGeneratedSpecialTokens(options, request),
+  });
 }

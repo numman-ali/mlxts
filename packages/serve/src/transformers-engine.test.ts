@@ -10,6 +10,9 @@ import {
   type InteractionProfile,
   KVCache,
   type TransformerBatchCache,
+  type TransformerCache,
+  type TransformerCacheForkOptions,
+  type TransformerCacheSnapshot,
 } from "@mlxts/transformers";
 import { createTransformersGenerationEngine } from "./transformers-engine";
 import { enforceGenerationMemoryBudget } from "./transformers-engine-shared";
@@ -46,6 +49,12 @@ class TinyTokenizer implements Tokenizer {
 
   decodeBatch(batch: number[][]): string[] {
     return batch.map((entry) => this.decode(entry));
+  }
+}
+
+class UnstableEmojiTokenizer extends TinyTokenizer {
+  override decode(tokenIds: number[]): string {
+    return tokenIds.length < 2 ? "\uFFFD" : "😄";
   }
 }
 
@@ -115,7 +124,7 @@ class TinyModel implements CausalLM {
     );
   }
 
-  createCache() {
+  createCache(): TransformerCache {
     return new KVCache(1);
   }
 
@@ -146,6 +155,89 @@ class TinyModel implements CausalLM {
   }
 
   [Symbol.dispose](): void {}
+}
+
+class CountingCacheSnapshot implements TransformerCacheSnapshot {
+  readonly offset: number;
+  readonly trimmable: boolean;
+  disposeCount = 0;
+
+  constructor(offset: number, trimmable = true) {
+    this.offset = offset;
+    this.trimmable = trimmable;
+  }
+
+  canFork(options: TransformerCacheForkOptions = {}): boolean {
+    const offset = options.offset ?? this.offset;
+    if (offset > this.offset || this.disposeCount !== 0) {
+      return false;
+    }
+    return offset === this.offset || this.trimmable;
+  }
+
+  fork(options: TransformerCacheForkOptions = {}): TransformerCache {
+    return new CountingCache([], options.offset ?? this.offset);
+  }
+
+  [Symbol.dispose](): void {
+    this.disposeCount += 1;
+  }
+}
+
+class CountingCache implements TransformerCache {
+  readonly layerCount = 1;
+  offset: number;
+  readonly #snapshots: CountingCacheSnapshot[];
+  readonly #trimmable: boolean;
+
+  constructor(snapshots: CountingCacheSnapshot[], offset = 0, trimmable = true) {
+    this.#snapshots = snapshots;
+    this.offset = offset;
+    this.#trimmable = trimmable;
+  }
+
+  updateAndFetch(): { keys: MxArray; values: MxArray } {
+    throw new Error("CountingCache.updateAndFetch should not be called.");
+  }
+
+  advance(sequenceLength: number): void {
+    this.offset += sequenceLength;
+  }
+
+  isEmpty(): boolean {
+    return this.offset === 0;
+  }
+
+  isTrimmable(): boolean {
+    return this.#trimmable;
+  }
+
+  snapshot(): TransformerCacheSnapshot {
+    const snapshot = new CountingCacheSnapshot(this.offset, this.#trimmable);
+    this.#snapshots.push(snapshot);
+    return snapshot;
+  }
+
+  arrays(): MxArray[] {
+    return [];
+  }
+
+  [Symbol.dispose](): void {}
+}
+
+class SnapshotCountingModel extends TinyModel {
+  readonly snapshots: CountingCacheSnapshot[] = [];
+
+  constructor(
+    config: TinyModelConfig = {},
+    readonly trimmableCache = true,
+  ) {
+    super(config);
+  }
+
+  override createCache(): TransformerCache {
+    return new CountingCache(this.snapshots, 0, this.trimmableCache);
+  }
 }
 
 class TinyQwenHybridModel extends TinyModel {
@@ -181,6 +273,40 @@ const chatProfile: InteractionProfile = {
     const text = messages.map((message) => `${message.role}:${message.content}`).join("\n");
     const suffix = options.enableThinking === false ? "\nno-thinking" : "";
     return { text: `${text}${suffix}`, tokenIds: tokenizer.encode(`${text}${suffix}`) };
+  },
+};
+
+const qwenThinkingReplayProfile: InteractionProfile = {
+  kind: "chat",
+  chatTemplate: {
+    template: "qwen-thinking-replay",
+    format(messages) {
+      return messages.map((message) => `${message.role}:${message.content}`).join("\n");
+    },
+  },
+  compileTextPrompt(tokenizer, prompt, options = {}) {
+    return {
+      text: prompt,
+      tokenIds: tokenizer.encode(
+        prompt,
+        options.addSpecialTokens === undefined
+          ? {}
+          : { addSpecialTokens: options.addSpecialTokens },
+      ),
+    };
+  },
+  compileMessages(_tokenizer, messages, options = {}) {
+    const stableAssistantStart = [10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21];
+    const disabledThinkingTail = [30];
+    const replayedAssistantTail = [40, 41, 42, 43];
+    const tokenIds =
+      options.enableThinking === false && options.preserveThinking === true && messages.length > 1
+        ? [...stableAssistantStart, ...replayedAssistantTail]
+        : [...stableAssistantStart, ...disabledThinkingTail];
+    return {
+      text: messages.map((message) => `${message.role}:${message.content}`).join("\n"),
+      tokenIds,
+    };
   },
 };
 
@@ -248,6 +374,35 @@ describe("transformers generation engine", () => {
     expect(result.usage).toEqual({ promptTokens: 2, completionTokens: 3, totalTokens: 5 });
     expect(events).toEqual(["2:0/3", "2:3/3"]);
     expect(prefillEvents).toEqual(["1/1:1"]);
+  });
+
+  test("uses configured cold prompt prefill chunk size", async () => {
+    using model = new TinyModel();
+    const tokenizer = new TinyTokenizer();
+    const prefillEvents: string[] = [];
+    const engine = createTransformersGenerationEngine({
+      model,
+      tokenizer,
+      prefillStepSize: 2,
+      onEvent(event) {
+        if (event.type === "generation_prefill_progress") {
+          prefillEvents.push(
+            `${event.processedPrefillTokens}/${event.totalPrefillTokens}:${event.chunkTokens}`,
+          );
+        }
+      },
+    });
+
+    await engine.generate({
+      id: "prefill-chunk-size",
+      model: "tiny",
+      input: { kind: "text", text: "hello" },
+      sampling: { maxTokens: 1, temperature: 0 },
+      stream: false,
+      protocol: "openai.completions",
+    });
+
+    expect(prefillEvents).toEqual(["2/4:2", "4/4:2"]);
   });
 
   test("emits model lane queue timing for single-route requests", async () => {
@@ -465,7 +620,142 @@ describe("transformers generation engine", () => {
     });
 
     expect(result.text).toBe("cc");
-    expect(result.usage).toEqual({ promptTokens: 7, completionTokens: 2, totalTokens: 9 });
+    expect(result.usage).toEqual({
+      promptTokens: 7,
+      completionTokens: 2,
+      totalTokens: 9,
+      cacheWriteTokens: 6,
+      cacheReadTokens: 0,
+    });
+  });
+
+  test("reuses message prompt prefixes through the single-request prompt cache", async () => {
+    using model = new TinyModel();
+    const tokenizer = new TinyTokenizer();
+    const events: ServeEvent[] = [];
+    const engine = createTransformersGenerationEngine({
+      model,
+      tokenizer,
+      interactionProfile: chatProfile,
+      onEvent(event) {
+        events.push(event);
+      },
+    });
+    const request = (id: string): NormalizedGenerationRequest => ({
+      id,
+      model: "tiny",
+      input: { kind: "messages", messages: [{ role: "user", content: "hi" }] },
+      sampling: { maxTokens: 2, temperature: 0 },
+      stream: false,
+      protocol: "openai.chat_completions",
+    });
+
+    const first = await engine.generate(request("first"));
+    model.forwardSequenceLengths.length = 0;
+    events.length = 0;
+    const second = await engine.generate(request("second"));
+
+    expect(first.usage).toMatchObject({ cacheWriteTokens: 6, cacheReadTokens: 0 });
+    expect(second.usage).toEqual({
+      promptTokens: 7,
+      completionTokens: 2,
+      totalTokens: 9,
+      cacheReadTokens: 6,
+      cacheWriteTokens: 0,
+    });
+    expect(model.forwardSequenceLengths).toEqual([1, 1]);
+    expect(events).toContainEqual({
+      type: "generation_route_decision",
+      id: "second",
+      protocol: "openai.chat_completions",
+      model: "tiny",
+      route: "single",
+      eligible: false,
+      reason: "prompt_prefix_cache",
+      modelType: "serve-test",
+      maxBatchSize: 1,
+      ...ROUTE_STRATEGY,
+      stream: false,
+    });
+    expect(events).toContainEqual({
+      type: "generation_prompt_cache",
+      id: "second",
+      protocol: "openai.chat_completions",
+      model: "tiny",
+      result: "hit",
+      promptTokens: 7,
+      cacheReadTokens: 6,
+      cacheWriteTokens: 0,
+    });
+  });
+
+  test("reuses Pi-style Qwen disabled-thinking replay prompts with exact-only caches", async () => {
+    using model = new SnapshotCountingModel({ family: "qwen", modelType: "qwen3_5_text" }, false);
+    const tokenizer = new TinyTokenizer();
+    const engine = createTransformersGenerationEngine({
+      model,
+      tokenizer,
+      interactionProfile: qwenThinkingReplayProfile,
+    });
+
+    const first = await engine.generate({
+      id: "first",
+      model: "tiny",
+      input: {
+        kind: "messages",
+        messages: [{ role: "user", content: "hi" }],
+        chatTemplate: { enableThinking: false, preserveThinking: true },
+      },
+      sampling: { maxTokens: 1, temperature: 0 },
+      stream: false,
+      protocol: "openai.chat_completions",
+    });
+    model.forwardSequenceLengths.length = 0;
+
+    const second = await engine.generate({
+      id: "second",
+      model: "tiny",
+      input: {
+        kind: "messages",
+        messages: [
+          { role: "user", content: "hi" },
+          { role: "assistant", content: "Hello!" },
+          { role: "user", content: "Ping" },
+        ],
+        chatTemplate: { enableThinking: false, preserveThinking: true },
+      },
+      sampling: { maxTokens: 1, temperature: 0 },
+      stream: false,
+      protocol: "openai.chat_completions",
+    });
+
+    expect(first.usage).toMatchObject({ cacheReadTokens: 0, cacheWriteTokens: 12 });
+    expect(second.usage).toMatchObject({ cacheReadTokens: 12, cacheWriteTokens: 3 });
+    expect(model.forwardSequenceLengths).toEqual([3, 1]);
+  });
+
+  test("disposes stored prompt cache snapshots when the engine is disposed", async () => {
+    using model = new SnapshotCountingModel();
+    const tokenizer = new TinyTokenizer();
+    const engine = createTransformersGenerationEngine({
+      model,
+      tokenizer,
+      interactionProfile: chatProfile,
+    });
+
+    await engine.generate({
+      id: "request-1",
+      model: "tiny",
+      input: { kind: "messages", messages: [{ role: "user", content: "hi" }] },
+      sampling: { maxTokens: 1, temperature: 0 },
+      stream: false,
+      protocol: "openai.chat_completions",
+    });
+
+    expect(model.snapshots).toHaveLength(1);
+    expect(model.snapshots[0]?.disposeCount).toBe(0);
+    engine[Symbol.dispose]?.();
+    expect(model.snapshots[0]?.disposeCount).toBe(1);
   });
 
   test("uses static batch generation for eligible greedy full-cache requests", async () => {
@@ -1484,6 +1774,33 @@ describe("transformers generation engine", () => {
     ]);
   });
 
+  test("does not stream an unstable replacement character before an emoji completes", async () => {
+    using model = new TinyModel();
+    const tokenizer = new UnstableEmojiTokenizer();
+    const engine = createTransformersGenerationEngine({ model, tokenizer });
+    const events: GenerationStreamEvent[] = [];
+
+    for await (const event of (await engine.stream?.({
+      id: "request-1",
+      model: "tiny",
+      input: { kind: "text", text: "hi" },
+      sampling: { maxTokens: 2, temperature: 0 },
+      stream: true,
+      protocol: "openai.completions",
+    })) ?? []) {
+      events.push(event);
+    }
+
+    expect(events).toEqual([
+      { type: "text", text: "😄" },
+      {
+        type: "done",
+        finishReason: "length",
+        usage: { promptTokens: 2, completionTokens: 2, totalTokens: 4 },
+      },
+    ]);
+  });
+
   test("streams prompt-open thinking as raw think-tagged text", async () => {
     using model = new TinyModel();
     const tokenizer = new TinyTokenizer();
@@ -1517,7 +1834,96 @@ describe("transformers generation engine", () => {
     expect(events[2]).toEqual({
       type: "done",
       finishReason: "length",
-      usage: { promptTokens: "user:hi\n<think>\n".length, completionTokens: 2, totalTokens: 18 },
+      usage: {
+        promptTokens: "user:hi\n<think>\n".length,
+        completionTokens: 2,
+        totalTokens: 18,
+        cacheReadTokens: 0,
+        cacheWriteTokens: "user:hi\n<think>\n".length - 1,
+      },
+    });
+  });
+
+  test("reuses message prompt prefixes for streaming chat requests", async () => {
+    using model = new TinyModel();
+    const tokenizer = new TinyTokenizer();
+    const engine = createTransformersGenerationEngine({
+      model,
+      tokenizer,
+      interactionProfile: chatProfile,
+    });
+    const request = (id: string): NormalizedGenerationRequest => ({
+      id,
+      model: "tiny",
+      input: { kind: "messages", messages: [{ role: "user", content: "hi" }] },
+      sampling: { maxTokens: 2, temperature: 0 },
+      stream: true,
+      protocol: "openai.chat_completions",
+    });
+
+    for await (const _event of (await engine.stream?.(request("first"))) ?? []) {
+      // Prime the prompt cache.
+    }
+    model.forwardSequenceLengths.length = 0;
+
+    const events: GenerationStreamEvent[] = [];
+    for await (const event of (await engine.stream?.(request("second"))) ?? []) {
+      events.push(event);
+    }
+
+    expect(model.forwardSequenceLengths).toEqual([1, 1]);
+    expect(events.at(-1)).toEqual({
+      type: "done",
+      finishReason: "length",
+      usage: {
+        promptTokens: 7,
+        completionTokens: 2,
+        totalTokens: 9,
+        cacheReadTokens: 6,
+        cacheWriteTokens: 0,
+      },
+    });
+  });
+
+  test("prepares streaming message prompts before acquiring the model lane", async () => {
+    using model = new TinyModel();
+    const tokenizer = new TinyTokenizer();
+    const serveEvents: ServeEvent[] = [];
+    const engine = createTransformersGenerationEngine({
+      model,
+      tokenizer,
+      interactionProfile: chatProfile,
+      onEvent(event) {
+        serveEvents.push(event);
+      },
+    });
+
+    const stream = engine.stream;
+    if (stream === undefined) {
+      throw new Error("Expected transformers engine to expose stream.");
+    }
+    const events = await collectStreamEvents(stream, {
+      id: "stream-chat-prepare",
+      model: "tiny",
+      input: { kind: "messages", messages: [{ role: "user", content: "hi" }] },
+      sampling: { maxTokens: 1, temperature: 0 },
+      stream: true,
+      protocol: "openai.chat_completions",
+    });
+
+    expect(events.at(-1)).toMatchObject({ type: "done", finishReason: "length" });
+    const prepareIndex = serveEvents.findIndex(
+      (event) => event.type === "generation_prompt_prepare" && event.phase === "complete",
+    );
+    const laneIndex = serveEvents.findIndex((event) => event.type === "generation_model_lane_wait");
+    expect(prepareIndex).toBeGreaterThanOrEqual(0);
+    expect(laneIndex).toBeGreaterThanOrEqual(0);
+    expect(prepareIndex).toBeLessThan(laneIndex);
+    expect(serveEvents[prepareIndex]).toMatchObject({
+      type: "generation_prompt_prepare",
+      phase: "complete",
+      id: "stream-chat-prepare",
+      promptTokens: 7,
     });
   });
 

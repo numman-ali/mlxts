@@ -165,6 +165,7 @@ async function completionResponse(
             id,
             created,
             signal: streamAbort.signal,
+            abort: () => streamAbort.abort(),
             observer: streamObserver,
           }).then(
             (summary) => {
@@ -262,6 +263,7 @@ async function chatCompletionResponse(
             id,
             created,
             signal: streamAbort.signal,
+            abort: () => streamAbort.abort(),
             observer: streamObserver,
           }).then(
             (summary) => {

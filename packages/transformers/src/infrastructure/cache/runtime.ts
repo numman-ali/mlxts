@@ -3,7 +3,7 @@
  * @module
  */
 
-import { concatenate, type MxArray, retainArray, slice } from "@mlxts/core";
+import { add, concatenate, type MxArray, mxEval, retainArray, slice } from "@mlxts/core";
 import { recordTransformerRuntimeCounter } from "../runtime-profile";
 import {
   cacheTailView,
@@ -19,6 +19,8 @@ import {
   type TransformerCacheView,
 } from "./view";
 
+const LAYER_STATE_SNAPSHOT_BRAND: unique symbol = Symbol("LayerStateSnapshot");
+
 export type LayerState = {
   keys: MxArray | null;
   values: MxArray | null;
@@ -30,6 +32,14 @@ export type CacheAppendResult = {
   keys: MxArray;
   values: MxArray;
   ownsBuffers: boolean;
+};
+
+export type LayerStateSnapshot = {
+  keys: MxArray | null;
+  values: MxArray | null;
+  length: number;
+  cursor: number;
+  readonly [LAYER_STATE_SNAPSHOT_BRAND]: true;
 };
 
 export function createEmptyLayerState(): LayerState {
@@ -74,10 +84,6 @@ function visibleState(state: LayerState, length: number, context: string): Cache
   return createOwnedAppendResult(slice(keys, start, stop), slice(values, start, stop));
 }
 
-function visibleAppendState(state: LayerState, length: number, context: string): CacheAppendResult {
-  return visibleState(state, length, context);
-}
-
 export function materializeOwnedAppendResult(result: CacheAppendResult): {
   keys: MxArray;
   values: MxArray;
@@ -108,6 +114,67 @@ export function retainedLayerStateArrays(state: LayerState): MxArray[] {
   const visible = visibleState(state, state.length, "retainedLayerStateArrays");
   const owned = materializeOwnedAppendResult(visible);
   return [owned.keys, owned.values];
+}
+
+export function cloneCacheArray(value: MxArray): MxArray {
+  const clone = add(value, 0);
+  try {
+    mxEval(clone);
+    return clone;
+  } catch (error) {
+    clone.free();
+    throw error;
+  }
+}
+
+function visibleStateForSnapshot(state: LayerState): { keys: MxArray; values: MxArray } | null {
+  if (state.keys === null || state.values === null || state.length === 0) {
+    return null;
+  }
+  const visible = visibleState(state, state.length, "cloneLayerStateSnapshot");
+  return materializeOwnedAppendResult(visible);
+}
+
+export function cloneLayerStateSnapshot(state: LayerState): LayerStateSnapshot {
+  const visible = visibleStateForSnapshot(state);
+  if (visible === null) {
+    return {
+      keys: null,
+      values: null,
+      length: 0,
+      cursor: 0,
+      [LAYER_STATE_SNAPSHOT_BRAND]: true,
+    };
+  }
+  let keys: MxArray | null = null;
+  let values: MxArray | null = null;
+  try {
+    keys = cloneCacheArray(visible.keys);
+    values = cloneCacheArray(visible.values);
+    return {
+      keys,
+      values,
+      length: state.length,
+      cursor: state.cursor,
+      [LAYER_STATE_SNAPSHOT_BRAND]: true,
+    };
+  } catch (error) {
+    keys?.free();
+    values?.free();
+    throw error;
+  } finally {
+    visible.keys.free();
+    visible.values.free();
+  }
+}
+
+export function disposeLayerStateSnapshot(snapshot: LayerStateSnapshot): void {
+  snapshot.keys?.free();
+  snapshot.values?.free();
+  snapshot.keys = null;
+  snapshot.values = null;
+  snapshot.length = 0;
+  snapshot.cursor = 0;
 }
 
 export function disposeLayerState(state: LayerState): void {
@@ -156,7 +223,7 @@ export function appendFullCacheState(
   writeCacheRangeInPlace(state.values, values, state.length);
   state.length = requiredLength;
 
-  return visibleAppendState(state, requiredLength, "appendFullCacheState");
+  return visibleState(state, requiredLength, "appendFullCacheState");
 }
 
 function appendSlidingSingleTokenAtCursor(
@@ -178,7 +245,7 @@ function appendSlidingSingleTokenAtCursor(
   writeCacheRangeInPlace(state.keys, keys, state.cursor);
   writeCacheRangeInPlace(state.values, values, state.cursor);
   state.cursor = (state.cursor + 1) % windowSize;
-  return visibleAppendState(state, windowSize, "appendSlidingSingleTokenAtCursor");
+  return visibleState(state, windowSize, "appendSlidingSingleTokenAtCursor");
 }
 
 function appendSlidingIntoExistingCapacity(
@@ -209,7 +276,7 @@ function appendSlidingIntoExistingCapacity(
   writeCacheRangeInPlace(existingValues, values, state.length);
   state.length = Math.min(windowSize, state.length + updateLength);
   state.cursor = state.length === windowSize ? 0 : state.cursor;
-  return visibleAppendState(state, state.length, "appendSlidingIntoExistingCapacity");
+  return visibleState(state, state.length, "appendSlidingIntoExistingCapacity");
 }
 
 function appendSlidingWithBufferGrowth(
@@ -236,11 +303,7 @@ function appendSlidingWithBufferGrowth(
   recordTransformerRuntimeCounter("cache.buffer_replaced", 2);
   state.length += updateLength;
   state.cursor = state.length === windowSize ? 0 : state.cursor;
-  return visibleAppendState(
-    state,
-    Math.min(state.length, windowSize),
-    "appendSlidingWithBufferGrowth",
-  );
+  return visibleState(state, Math.min(state.length, windowSize), "appendSlidingWithBufferGrowth");
 }
 
 function mergeSlidingHistory(

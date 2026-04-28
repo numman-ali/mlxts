@@ -4,41 +4,24 @@
  */
 
 import type { Tokenizer } from "@mlxts/tokenizers";
-import {
-  type CausalLM,
-  generatePreparedTokenEvents,
-  generateTokenEvents,
-  type InteractionProfile,
-} from "@mlxts/transformers";
+import type { CausalLM, InteractionProfile } from "@mlxts/transformers";
 import { ModelExecutionLane, type ModelExecutionLaneStats } from "./model-execution-lane";
 import { transformersRuntimeStrategy } from "./serve-runtime-strategy";
 import { createContinuousTransformersGeneration } from "./transformers-engine-continuous";
 import {
   generateSinglePreparedRequest,
   prepareGenerationRequest,
+  streamSinglePreparedRequest,
 } from "./transformers-engine-generation";
-import { continuousBatchIneligibilityReason } from "./transformers-engine-routing";
+import { PromptPrefixCache } from "./transformers-engine-prefix-cache";
 import {
-  compileMessagePrompt,
-  createPrefillProgressReporter,
-  emitGenerationProgress,
-  enforceGenerationMemoryBudget,
-  enforcePromptTokenLimit,
-  enforceTotalTokenLimit,
-  generationOptions,
-  promptTokenCount,
-  promptTokenIds,
-} from "./transformers-engine-shared";
+  continuousBatchIneligibilityReason,
+  emitGenerationRouteDecision,
+} from "./transformers-engine-routing";
 import {
   createStaticTransformersGeneration,
   runStaticBatchOnModelLane,
 } from "./transformers-engine-static";
-import {
-  createStreamingDecodeState,
-  handleStreamingDoneEvent,
-  handleStreamingTokenEvent,
-  streamDecodeInterval,
-} from "./transformers-engine-streaming";
 import type {
   GenerationEngine,
   NormalizedGenerationRequest,
@@ -55,6 +38,7 @@ export type TransformersGenerationEngineOptions = {
   maxTotalTokens?: number;
   maxBatchSize?: number;
   batchWindowMs?: number;
+  prefillStepSize?: number;
   activePrefillStepSize?: number;
   activeDecodeStepsPerPrefillChunk?: number;
   streamDecodeInterval?: number;
@@ -121,44 +105,26 @@ function maxBatchSize(options: TransformersGenerationEngineOptions): number {
   return transformersRuntimeStrategy(options).scheduler.maxBatchSize;
 }
 
-function streamTokenEventsForRequest(
-  request: NormalizedGenerationRequest,
-  options: TransformersGenerationEngineOptions,
-  prompt: { tokenIds: readonly number[] } | null,
-  onPrefillProgress: Parameters<typeof generationOptions>[1],
-) {
-  if (request.input.kind === "text") {
-    return generateTokenEvents(
-      options.model,
-      options.tokenizer.encode(request.input.text, { addSpecialTokens: true }),
-      {
-        ...generationOptions(request, onPrefillProgress),
-        ...(request.sampling.ignoreEos === true || options.tokenizer.eosTokenIds.length === 0
-          ? {}
-          : { eosTokenIds: [...options.tokenizer.eosTokenIds] }),
-      },
-    );
-  }
-
-  return generatePreparedTokenEvents(
-    options.model,
-    { tokenIds: promptTokenIds(request, prompt) },
-    generationOptions(request, onPrefillProgress),
-  );
-}
-
 /** Create a text-generation engine from an already loaded CausalLM and tokenizer. */
 export function createTransformersGenerationEngine(
   options: TransformersGenerationEngineOptions,
 ): GenerationEngine {
   const strategy = transformersRuntimeStrategy(options);
   const lane = new ModelExecutionLane(strategy.scheduler.maxConcurrentRequests);
+  const promptPrefixCache = new PromptPrefixCache();
   const staticGeneration = createStaticTransformersGeneration(options, lane);
   const continuous = createContinuousTransformersGeneration(options, lane);
 
   function generate(
     request: NormalizedGenerationRequest,
   ): NormalizedGenerationResult | Promise<NormalizedGenerationResult> {
+    if (request.input.kind === "messages") {
+      emitGenerationRouteDecision(options, request, "single", false, "prompt_prefix_cache");
+      const prepared = prepareGenerationRequest(request, options);
+      return runOnModelLane(lane, options, request, () =>
+        generateSinglePreparedRequest(prepared, options, promptPrefixCache),
+      );
+    }
     const staticallyBatched = staticGeneration.generate(request);
     if (staticallyBatched !== null) {
       return staticallyBatched;
@@ -187,55 +153,32 @@ export function createTransformersGenerationEngine(
       return runStaticBatchOnModelLane(lane, options, requests);
     },
     async *stream(request) {
+      if (request.input.kind === "messages") {
+        emitGenerationRouteDecision(options, request, "single", false, "prompt_prefix_cache");
+        const prepared = prepareGenerationRequest(request, options);
+        const release = await acquireModelLane(lane, options, request);
+        try {
+          yield* streamSinglePreparedRequest(prepared, options, promptPrefixCache);
+        } finally {
+          release();
+        }
+        return;
+      }
       const scheduled = continuous.stream(request);
       if (scheduled !== null) {
         yield* scheduled;
         return;
       }
+      const prepared = prepareGenerationRequest(request, options);
       const release = await acquireModelLane(lane, options, request);
       try {
-        const prompt = compileMessagePrompt(request, options);
-        const promptTokens = promptTokenCount(request, options, prompt);
-        enforcePromptTokenLimit(options, request, promptTokens);
-        enforceTotalTokenLimit(options, request, promptTokens);
-        enforceGenerationMemoryBudget(options, request, promptTokens);
-        emitGenerationProgress(options, request, promptTokens, 0);
-        const onPrefillProgress = createPrefillProgressReporter(options, request, promptTokens);
-        const decodeInterval = streamDecodeInterval(options, request.sampling.stop);
-        const tokenEvents = streamTokenEventsForRequest(
-          request,
-          options,
-          prompt,
-          onPrefillProgress,
-        );
-        const state = createStreamingDecodeState(prompt);
-
-        for await (const event of tokenEvents) {
-          if (event.type === "token") {
-            const text = handleStreamingTokenEvent(
-              request,
-              options,
-              promptTokens,
-              decodeInterval,
-              state,
-              event,
-            );
-            if (text !== undefined) {
-              yield { type: "text", text };
-            }
-            continue;
-          }
-
-          const finished = handleStreamingDoneEvent(options, promptTokens, state, event);
-          if (finished.text !== undefined) {
-            yield { type: "text", text: finished.text };
-          }
-          yield finished.done;
-          return;
-        }
+        yield* streamSinglePreparedRequest(prepared, options);
       } finally {
         release();
       }
+    },
+    [Symbol.dispose]() {
+      promptPrefixCache[Symbol.dispose]();
     },
   };
 }

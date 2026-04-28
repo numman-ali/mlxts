@@ -37,6 +37,7 @@
   },
   "dependencies": {
     "@mlxts/core": "workspace:*",
+    "@mlxts/protocols": "workspace:*",
     "@mlxts/tokenizers": "workspace:*",
     "@mlxts/transformers": "workspace:*"
   },

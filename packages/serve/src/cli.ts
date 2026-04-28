@@ -86,6 +86,7 @@ export function formatServeReady(endpoint: string, options: ServeCliOptions): st
     [
       `Batch scheduler: max_batch=${options.maxBatchSize}`,
       `window_ms=${options.batchWindowMs}`,
+      `prefill=${options.prefillStepSize}`,
       `active_prefill=${options.activePrefillStepSize}`,
       `active_decode_quantum=${options.activeDecodeStepsPerPrefillChunk}`,
     ].join(" "),
@@ -173,12 +174,18 @@ export function formatServeEvent(event: ServeEvent): string {
       return `[generation] ${event.id} ${event.protocol} model=${event.model} input=${event.inputKind} max_tokens=${event.maxTokens} started`;
     case "generation_route_decision":
       return `[route] ${event.id} model=${event.model} route=${event.route} eligible=${event.eligible ? "yes" : "no"} reason=${event.reason} model_type=${event.modelType} scheduler=${event.schedulerMode} cache=${event.cacheBackend} attention=${event.attentionBackend} decoding=${event.decodingBackend} max_batch_size=${event.maxBatchSize}`;
+    case "generation_prompt_prepare":
+      return event.phase === "start"
+        ? `[prompt] ${event.id} model=${event.model} input=${event.inputKind} preparing`
+        : `[prompt] ${event.id} model=${event.model} input=${event.inputKind} prompt_tokens=${event.promptTokens} ready in ${formatDuration(event.durationMs)}`;
     case "generation_model_lane_wait":
       return `[queue] ${event.id} model=${event.model} lane=${event.lane} wait=${formatDuration(event.waitMs)} queued_ahead=${event.queuedAhead} in_flight_at_queue=${event.inFlightAtQueue} in_flight_at_dispatch=${event.inFlightAtDispatch} max_in_flight=${event.maxConcurrentJobs}`;
     case "generation_progress":
       return `[generation] ${event.id} progress prompt_tokens=${event.promptTokens} completion_tokens=${event.completionTokens}/${event.maxTokens}${formatMemoryUsage(event.memory)}`;
     case "generation_prefill_progress":
       return `[generation] ${event.id} prefill prompt_tokens=${event.promptTokens} prefill_tokens=${event.processedPrefillTokens}/${event.totalPrefillTokens} chunk_tokens=${event.chunkTokens}${formatMemoryUsage(event.memory)}`;
+    case "generation_prompt_cache":
+      return `[cache] ${event.id} ${event.result} prompt_tokens=${event.promptTokens} read_tokens=${event.cacheReadTokens} write_tokens=${event.cacheWriteTokens}`;
     case "generation_stream_chunk":
       return `[stream] ${event.id} chunk=${event.chunkIndex} bytes=${event.bytes} at=${formatDuration(event.elapsedMs)}`;
     case "generation_stream_end":
@@ -200,9 +207,11 @@ export function shouldLogServeEvent(event: ServeEvent, verbose: boolean): boolea
   switch (event.type) {
     case "generation_start":
     case "generation_route_decision":
+    case "generation_prompt_prepare":
     case "generation_model_lane_wait":
     case "generation_progress":
     case "generation_prefill_progress":
+    case "generation_prompt_cache":
     case "generation_stream_end":
     case "generation_batch_start":
     case "generation_scheduler_phase":
@@ -248,6 +257,7 @@ function toServeModelOptions(options: ServeCliOptions): ServeModelOptions {
     maxTotalTokens: options.maxTotalTokens,
     maxBatchSize: options.maxBatchSize,
     batchWindowMs: options.batchWindowMs,
+    prefillStepSize: options.prefillStepSize,
     activePrefillStepSize: options.activePrefillStepSize,
     activeDecodeStepsPerPrefillChunk: options.activeDecodeStepsPerPrefillChunk,
     streamDecodeInterval: options.streamDecodeInterval,
@@ -274,6 +284,7 @@ function toServeModelsOptions(options: ServeCliOptions): ServeModelsOptions {
     maxTotalTokens: options.maxTotalTokens,
     maxBatchSize: options.maxBatchSize,
     batchWindowMs: options.batchWindowMs,
+    prefillStepSize: options.prefillStepSize,
     activePrefillStepSize: options.activePrefillStepSize,
     activeDecodeStepsPerPrefillChunk: options.activeDecodeStepsPerPrefillChunk,
     streamDecodeInterval: options.streamDecodeInterval,

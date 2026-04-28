@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { array, mxEval } from "@mlxts/core";
+import { array, type MxArray, mxEval } from "@mlxts/core";
 import {
   BatchKVCache,
   cacheStateArrays,
@@ -10,6 +10,18 @@ import {
   SlidingWindowKVCache,
 } from "./index";
 import { updateAndFetchTransformerCacheView } from "./view";
+
+function cacheArrayLists(cache: { arrays(): MxArray[] }): unknown[] {
+  const arrays = cache.arrays();
+  try {
+    mxEval(...arrays);
+    return arrays.map((value) => value.toList());
+  } finally {
+    for (const value of arrays) {
+      value.free();
+    }
+  }
+}
 
 function runFullAppendScenario(cache: KVCache): void {
   using firstKeys = array([[[[1, 2]]]], "float32");
@@ -156,6 +168,111 @@ describe("Transformer caches", () => {
   test("managed LayerPatternKVCache full layers grow in chunks without losing earlier tokens", () => {
     using cache = new LayerPatternKVCache(1, [undefined]);
     runChunkGrowthScenario(cache);
+  });
+
+  test("managed KVCache snapshots fork exact and prefix-trimmed cache state", () => {
+    using cache = new KVCache(1);
+    using keys = array([[[[1], [2], [3]]]], "float32");
+    using values = array([[[[10], [20], [30]]]], "float32");
+    using view = cache.updateAndFetch(0, keys, values).keys;
+    cache.advance(3);
+    mxEval(view);
+
+    using snapshot = cache.snapshot();
+    expect(snapshot.offset).toBe(3);
+    expect(snapshot.trimmable).toBe(true);
+    expect(snapshot.canFork({ offset: 2 })).toBe(true);
+
+    using exact = snapshot.fork();
+    expect(exact.offset).toBe(3);
+    expect(cacheArrayLists(exact)).toEqual([[[[[1], [2], [3]]]], [[[[10], [20], [30]]]]]);
+
+    using prefix = snapshot.fork({ offset: 2 });
+    expect(prefix.offset).toBe(2);
+    expect(cacheArrayLists(prefix)).toEqual([[[[[1], [2]]]], [[[[10], [20]]]]]);
+  });
+
+  test("managed SlidingWindowKVCache snapshots preserve exact ring-buffer continuation", () => {
+    using cache = new SlidingWindowKVCache(1, 2);
+    using firstKeys = array([[[[1], [2]]]], "float32");
+    using firstValues = array([[[[10], [20]]]], "float32");
+    using secondKeys = array([[[[3]]]], "float32");
+    using secondValues = array([[[[30]]]], "float32");
+    using firstView = cache.updateAndFetch(0, firstKeys, firstValues).keys;
+    cache.advance(2);
+    using secondView = cache.updateAndFetch(0, secondKeys, secondValues).keys;
+    cache.advance(1);
+    mxEval(firstView, secondView);
+
+    using snapshot = cache.snapshot();
+    expect(snapshot.offset).toBe(3);
+    expect(snapshot.trimmable).toBe(false);
+    expect(snapshot.canFork()).toBe(true);
+    expect(snapshot.canFork({ offset: 2 })).toBe(false);
+
+    using fork = snapshot.fork();
+    expect(fork.offset).toBe(3);
+    expect(cacheArrayLists(fork)).toEqual([[[[[3], [2]]]], [[[[30], [20]]]]]);
+
+    using nextKeys = array([[[[4]]]], "float32");
+    using nextValues = array([[[[40]]]], "float32");
+    using originalNextView = cache.updateAndFetch(0, nextKeys, nextValues).keys;
+    using forkNextView = fork.updateAndFetch(0, nextKeys, nextValues).keys;
+    mxEval(originalNextView, forkNextView);
+    expect(originalNextView.toList()).toEqual([[[[3], [4]]]]);
+    expect(forkNextView.toList()).toEqual([[[[3], [4]]]]);
+  });
+
+  test("managed LayerPatternKVCache snapshots preserve mixed full and sliding layers exactly", () => {
+    using cache = new LayerPatternKVCache(2, [undefined, 2]);
+    using fullKeys = array([[[[1], [2], [3]]]], "float32");
+    using fullValues = array([[[[10], [20], [30]]]], "float32");
+    using slidingFirstKeys = array([[[[4], [5]]]], "float32");
+    using slidingFirstValues = array([[[[40], [50]]]], "float32");
+    using slidingSecondKeys = array([[[[6]]]], "float32");
+    using slidingSecondValues = array([[[[60]]]], "float32");
+    using fullView = cache.updateAndFetch(0, fullKeys, fullValues).keys;
+    using slidingFirstView = cache.updateAndFetch(1, slidingFirstKeys, slidingFirstValues).keys;
+    cache.advance(2);
+    using slidingSecondView = cache.updateAndFetch(1, slidingSecondKeys, slidingSecondValues).keys;
+    cache.advance(1);
+    mxEval(fullView, slidingFirstView, slidingSecondView);
+
+    expect(cache.isTrimmable()).toBe(false);
+    using snapshot = cache.snapshot();
+    expect(snapshot.trimmable).toBe(false);
+    expect(snapshot.canFork()).toBe(true);
+    expect(snapshot.canFork({ offset: 2 })).toBe(false);
+
+    using fork = snapshot.fork();
+    expect(fork.offset).toBe(3);
+    expect(cacheArrayLists(fork)).toEqual([
+      [[[[1], [2], [3]]]],
+      [[[[10], [20], [30]]]],
+      [[[[6], [5]]]],
+      [[[[60], [50]]]],
+    ]);
+
+    using nextKeys = array([[[[7]]]], "float32");
+    using nextValues = array([[[[70]]]], "float32");
+    using forkNextView = fork.updateAndFetch(1, nextKeys, nextValues).keys;
+    mxEval(forkNextView);
+    expect(forkNextView.toList()).toEqual([[[[6], [7]]]]);
+  });
+
+  test("managed KVCache snapshots cannot fork after disposal", () => {
+    using cache = new KVCache(1);
+    using keys = array([[[[1]]]], "float32");
+    using values = array([[[[10]]]], "float32");
+    using view = cache.updateAndFetch(0, keys, values).keys;
+    cache.advance(1);
+    mxEval(view);
+
+    const snapshot = cache.snapshot();
+    snapshot[Symbol.dispose]();
+    expect(snapshot.canFork()).toBe(false);
+    expect(() => snapshot.fork()).toThrow("cannot fork offset 1");
+    snapshot[Symbol.dispose]();
   });
 
   test("managed LayerPatternKVCache full layers support both owned fetches and borrowed cache views", () => {

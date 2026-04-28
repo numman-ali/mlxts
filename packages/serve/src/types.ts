@@ -86,7 +86,8 @@ export type GenerationRouteDecisionReason =
   | "unsupported_model_type"
   | "sliding_window_cache"
   | "sampled_generation"
-  | "repetition_penalty";
+  | "repetition_penalty"
+  | "prompt_prefix_cache";
 
 type ContinuousSchedulerCounts = {
   waiting: number;
@@ -254,6 +255,24 @@ export type ServeEvent =
       stream: boolean;
     }
   | {
+      type: "generation_prompt_prepare";
+      phase: "start";
+      id: string;
+      protocol: GenerationProtocol;
+      model: string;
+      inputKind: GenerationInput["kind"];
+    }
+  | {
+      type: "generation_prompt_prepare";
+      phase: "complete";
+      id: string;
+      protocol: GenerationProtocol;
+      model: string;
+      inputKind: GenerationInput["kind"];
+      promptTokens: number;
+      durationMs: number;
+    }
+  | {
       type: "generation_model_lane_wait";
       id: string;
       protocol: GenerationProtocol;
@@ -287,6 +306,16 @@ export type ServeEvent =
       chunkTokens: number;
       maxTokens: number;
       memory?: GenerationMemoryUsage;
+    }
+  | {
+      type: "generation_prompt_cache";
+      id: string;
+      protocol: GenerationProtocol;
+      model: string;
+      result: "hit" | "miss" | "write";
+      promptTokens: number;
+      cacheReadTokens: number;
+      cacheWriteTokens: number;
     }
   | {
       type: "generation_stream_chunk";
@@ -363,4 +392,5 @@ export type GenerationEngine = {
   stream?(
     request: NormalizedGenerationRequest,
   ): AsyncIterable<GenerationStreamEvent> | Promise<AsyncIterable<GenerationStreamEvent>>;
+  [Symbol.dispose]?(): void;
 };

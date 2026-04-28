@@ -24,7 +24,7 @@ describe("OpenAI Responses adapter", () => {
         text: { format: { type: "text" } },
         modalities: ["text"],
         truncation: "disabled",
-        chat_template_kwargs: { enable_thinking: false },
+        chat_template_kwargs: { enable_thinking: false, preserve_thinking: true },
       },
       { id: "resp-test" },
     );
@@ -49,7 +49,7 @@ describe("OpenAI Responses adapter", () => {
           { role: "system", content: "Be concise." },
           { role: "user", content: "Hello" },
         ],
-        chatTemplate: { enableThinking: false },
+        chatTemplate: { enableThinking: false, preserveThinking: true },
       },
       sampling: { maxTokens: 8, temperature: 0, topP: 0.9, topK: 20, seed: 123 },
       stream: false,
@@ -201,7 +201,13 @@ describe("OpenAI Responses adapter", () => {
         text: "Hi there.",
         reasoningContent: "Greet the user.",
         finishReason: "eos",
-        usage: { promptTokens: 3, completionTokens: 2, totalTokens: 5 },
+        usage: {
+          promptTokens: 3,
+          completionTokens: 2,
+          totalTokens: 5,
+          cacheReadTokens: 2,
+          cacheWriteTokens: 1,
+        },
       },
       { id: "resp-test", created: 123 },
     );
@@ -230,7 +236,7 @@ describe("OpenAI Responses adapter", () => {
       truncation: "disabled",
       usage: {
         input_tokens: 3,
-        input_tokens_details: { cached_tokens: 0 },
+        input_tokens_details: { cached_tokens: 2 },
         output_tokens: 2,
         output_tokens_details: { reasoning_tokens: 0 },
         total_tokens: 5,

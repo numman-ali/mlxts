@@ -17,6 +17,7 @@ const WORKSPACE_ORDER = [
   { label: "transformers", path: ["packages", "transformers"] },
   { label: "lora", path: ["packages", "lora"] },
   { label: "align", path: ["packages", "align"] },
+  { label: "protocols", path: ["packages", "protocols"] },
   { label: "serve", path: ["packages", "serve"] },
   { label: "agent", path: ["packages", "agent"] },
   { label: "nanogpt example", path: ["examples", "nanogpt"] },

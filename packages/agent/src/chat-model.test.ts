@@ -102,6 +102,75 @@ describe("createOpenAIChatAgentModel", () => {
     });
   });
 
+  test("parses Anthropic-style fallback reasoning separately from visible content", async () => {
+    const model = createOpenAIChatAgentModel({
+      endpoint: "http://localhost:8000/v1/chat/completions",
+      model: "mlx-community/Qwen3.6-27B-4bit",
+      fetch() {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              choices: [
+                {
+                  message: {
+                    content:
+                      "<antThinking>I should answer without exposing this.</antThinking>\n\nHello!",
+                  },
+                },
+              ],
+            }),
+            { status: 200 },
+          ),
+        );
+      },
+    });
+
+    const response = await model.complete({
+      iteration: 0,
+      messages: [{ role: "user", content: "hi" }],
+      tools: [],
+    });
+
+    expect(response).toEqual({
+      content: "Hello!",
+      reasoningContent: "I should answer without exposing this.",
+    });
+  });
+
+  test("parses Gemma thought-channel fallback reasoning separately from visible content", async () => {
+    const model = createOpenAIChatAgentModel({
+      endpoint: "http://localhost:8000/v1/chat/completions",
+      model: "mlx-community/gemma-4-31b-it-4bit",
+      fetch() {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              choices: [
+                {
+                  message: {
+                    content: "<|channel>thought\nI should answer.<channel|>\n\nHello!",
+                  },
+                },
+              ],
+            }),
+            { status: 200 },
+          ),
+        );
+      },
+    });
+
+    const response = await model.complete({
+      iteration: 0,
+      messages: [{ role: "user", content: "hi" }],
+      tools: [],
+    });
+
+    expect(response).toEqual({
+      content: "Hello!",
+      reasoningContent: "I should answer.",
+    });
+  });
+
   test("serializes prior reasoning and tool observations in multi-turn history", async () => {
     let requestBody: unknown;
     const model = createOpenAIChatAgentModel({
@@ -253,6 +322,43 @@ describe("createOpenAIChatAgentModel", () => {
     });
 
     expect(response).toEqual({ content: "Hello", reasoningContent: "I should answer." });
+  });
+
+  test("streams through Anthropic-style fallback reasoning tags", async () => {
+    const model = createOpenAIChatAgentModel({
+      endpoint: "http://localhost:8000",
+      model: "mlx-community/Qwen3.6-27B-4bit",
+      stream: true,
+      fetch() {
+        return Promise.resolve(
+          sseResponse([
+            {
+              choices: [
+                {
+                  delta: {
+                    content:
+                      "<antThinking>I should answer without exposing this.</antThinking>\n\nHel",
+                  },
+                },
+              ],
+            },
+            { choices: [{ delta: { content: "lo" } }] },
+            "[DONE]",
+          ]),
+        );
+      },
+    });
+
+    const response = await model.complete({
+      iteration: 0,
+      messages: [{ role: "user", content: "hi" }],
+      tools: [],
+    });
+
+    expect(response).toEqual({
+      content: "Hello",
+      reasoningContent: "I should answer without exposing this.",
+    });
   });
 
   test("streams open think tags as fallback reasoning when no reasoning delta is present", async () => {

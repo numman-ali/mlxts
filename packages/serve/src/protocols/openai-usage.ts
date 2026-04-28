@@ -32,7 +32,7 @@ function promptTokensDetails(usage: GenerationUsage): OpenAIPromptTokensDetails 
   const cacheReadTokens = usage.cacheReadTokens ?? 0;
   const cacheWriteTokens = usage.cacheWriteTokens ?? 0;
   return {
-    cached_tokens: cacheReadTokens + cacheWriteTokens,
+    cached_tokens: cacheReadTokens,
     cache_write_tokens: cacheWriteTokens,
   };
 }

@@ -4,6 +4,7 @@
  */
 
 import { aggregateAgentModelStream, streamOpenAIChatCompletionEvents } from "./chat-streaming";
+import { cleanReasoningFromText } from "./reasoning-tags";
 import { formatToolInstructions } from "./tool-calls";
 import type { AgentMessage, AgentModel, AgentTool, AgentToolCall } from "./types";
 
@@ -100,28 +101,6 @@ function requestBody(
       ? {}
       : { chat_template_kwargs: { enable_thinking: options.enableThinking } }),
   };
-}
-
-const THINK_OPEN = "<think>";
-const THINK_CLOSE = "</think>";
-
-function cleanReasoningFromText(text: string): { content: string; reasoningContent?: string } {
-  const openIndex = text.indexOf(THINK_OPEN);
-  const closeIndex = text.indexOf(THINK_CLOSE);
-  if (closeIndex < 0 && openIndex < 0) {
-    return { content: text.trim() };
-  }
-
-  if (closeIndex >= 0 && (openIndex < 0 || openIndex < closeIndex)) {
-    const reasoningStart = openIndex < 0 ? 0 : openIndex + THINK_OPEN.length;
-    const reasoning = text.slice(reasoningStart, closeIndex).trim();
-    const content = text.slice(closeIndex + THINK_CLOSE.length).trim();
-    return reasoning === "" ? { content } : { content, reasoningContent: reasoning };
-  }
-
-  const content = text.slice(0, openIndex).trim();
-  const reasoning = text.slice(openIndex + THINK_OPEN.length).trim();
-  return reasoning === "" ? { content } : { content, reasoningContent: reasoning };
 }
 
 function parseArguments(value: unknown): Record<string, unknown> {

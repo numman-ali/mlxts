@@ -18,9 +18,10 @@ function responseUsage(usage: GenerationUsage | undefined): OpenAIResponseUsage 
   }
   const inputTokens = usage.promptTokens ?? 0;
   const outputTokens = usage.completionTokens ?? 0;
+  const cachedTokens = usage.cacheReadTokens ?? 0;
   return {
     input_tokens: inputTokens,
-    input_tokens_details: { cached_tokens: 0 },
+    input_tokens_details: { cached_tokens: cachedTokens },
     output_tokens: outputTokens,
     output_tokens_details: { reasoning_tokens: 0 },
     total_tokens: usage.totalTokens ?? inputTokens + outputTokens,

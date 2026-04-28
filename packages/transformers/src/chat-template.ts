@@ -213,6 +213,31 @@ function messageForTemplate(message: ChatMessage): ChatTemplateMessage {
   };
 }
 
+const GEMMA_EMPTY_THOUGHT_CHANNEL = "<|channel>thought\n<channel|>";
+const GEMMA_MODEL_TURN_START = "<|turn>model\n";
+const GEMMA_TURN_BOUNDARY_MODEL_START = /(^|<turn\|>\n)<\|turn>model\n(?!<\|channel>thought\n)/g;
+
+function preserveGemmaEmptyThinking(
+  text: string,
+  renderOptions: {
+    enableThinking?: boolean;
+    preserveThinking?: boolean;
+  },
+): string {
+  if (
+    renderOptions.enableThinking !== false ||
+    renderOptions.preserveThinking !== true ||
+    !text.includes(GEMMA_MODEL_TURN_START)
+  ) {
+    return text;
+  }
+
+  return text.replace(
+    GEMMA_TURN_BOUNDARY_MODEL_START,
+    `$1${GEMMA_MODEL_TURN_START}${GEMMA_EMPTY_THOUGHT_CHANNEL}`,
+  );
+}
+
 /** Load a Hugging Face chat template for a local model directory or repo id. */
 export async function loadChatTemplate(
   source: string,
@@ -238,7 +263,7 @@ export async function loadChatTemplate(
   return {
     template: templateText,
     format(messages, renderOptions = {}) {
-      return template.render({
+      const rendered = template.render({
         messages: messages.map(messageForTemplate),
         tools: renderOptions.tools ?? [],
         bos_token: bosToken,
@@ -251,6 +276,7 @@ export async function loadChatTemplate(
           ? {}
           : { preserve_thinking: renderOptions.preserveThinking }),
       });
+      return preserveGemmaEmptyThinking(rendered, renderOptions);
     },
   };
 }

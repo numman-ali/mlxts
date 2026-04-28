@@ -38,6 +38,7 @@ describe("serve benchmark reports", () => {
         ignoreEos: true,
         maxBatchSize: 8,
         batchWindowMs: 2,
+        prefillStepSize: 512,
         activePrefillStepSize: 128,
         activeDecodeStepsPerPrefillChunk: 16,
         streamDecodeInterval: 1,
@@ -181,6 +182,79 @@ describe("serve benchmark reports", () => {
         serverStreamDurationMs: 80,
         serverStreamResult: "completed",
         serverStreamFinishReason: "length",
+      },
+    ]);
+  });
+
+  test("keeps server-side prefill timing separate from client TTFT", () => {
+    expect(
+      serverRequestTimingReports([
+        {
+          type: "generation_start",
+          id: "request",
+          protocol: "openai.completions",
+          model: "local",
+          inputKind: "tokens",
+          maxTokens: 8,
+          stream: true,
+          observedAtMs: 100,
+        },
+        {
+          type: "generation_model_lane_wait",
+          id: "request",
+          protocol: "openai.completions",
+          model: "local",
+          lane: "model",
+          waitMs: 0,
+          inFlightAtQueue: 0,
+          queuedAhead: 0,
+          inFlightAtDispatch: 1,
+          queuedAtDispatch: 0,
+          maxConcurrentJobs: 1,
+          observedAtMs: 110,
+        },
+        {
+          type: "generation_progress",
+          id: "request",
+          protocol: "openai.completions",
+          model: "local",
+          promptTokens: 129,
+          completionTokens: 0,
+          maxTokens: 8,
+          observedAtMs: 110,
+        },
+        {
+          type: "generation_prefill_progress",
+          id: "request",
+          protocol: "openai.completions",
+          model: "local",
+          promptTokens: 129,
+          processedPrefillTokens: 128,
+          totalPrefillTokens: 128,
+          chunkTokens: 128,
+          maxTokens: 8,
+          observedAtMs: 610,
+        },
+        {
+          type: "generation_stream_chunk",
+          id: "request",
+          protocol: "openai.completions",
+          model: "local",
+          chunkIndex: 1,
+          elapsedMs: 700,
+          bytes: 64,
+          observedAtMs: 800,
+        },
+      ]),
+    ).toMatchObject([
+      {
+        id: "request",
+        serverPrefillStartMs: 10,
+        serverPrefillEndMs: 510,
+        serverPrefillMs: 500,
+        serverPrefillTokens: 128,
+        serverPrefillTps: 256,
+        serverStreamFirstChunkMs: 700,
       },
     ]);
   });

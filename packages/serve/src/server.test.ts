@@ -16,6 +16,29 @@ function endpointFor(server: ReturnType<typeof Bun.serve>): string {
   return `http://${server.hostname}:${server.port}`;
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+function collectAnthropicTextDeltas(body: string): string {
+  let text = "";
+  for (const block of body.split("\n\n")) {
+    const dataLine = block.split("\n").find((line) => line.startsWith("data: "));
+    if (!dataLine) continue;
+
+    const data = dataLine.slice("data: ".length);
+    const event: unknown = JSON.parse(data);
+    if (!isRecord(event)) continue;
+
+    const delta = event.delta;
+    if (!isRecord(delta)) continue;
+    if (delta.type === "text_delta" && typeof delta.text === "string") {
+      text += delta.text;
+    }
+  }
+  return text;
+}
+
 describe("serve fetch handler", () => {
   test("responds to health checks", async () => {
     const fetch = createFetchHandler({
@@ -127,6 +150,7 @@ describe("serve fetch handler", () => {
         max_total_tokens: 4096,
         max_client_batch_size: 32,
         batch_window_ms: 1,
+        prefill_step_size: null,
         active_prefill_step_size: null,
         active_decode_steps_per_prefill_chunk: null,
         stream_decode_interval: 1,
@@ -164,6 +188,7 @@ describe("serve fetch handler", () => {
           mode: "auto",
           max_batch_size: 32,
           batch_window_ms: 1,
+          prefill_step_size: 512,
           active_prefill_step_size: 128,
           active_decode_steps_per_prefill_chunk: 16,
           max_concurrent_requests: 1,
@@ -851,7 +876,7 @@ describe("serve fetch handler", () => {
     );
     const text = await response.text();
 
-    expect(text).toContain('"text":"Hello "');
+    expect(collectAnthropicTextDeltas(text)).toBe("Hello ");
     expect(text).not.toContain("hidden");
     expect(text).toContain('"stop_reason":"stop_sequence"');
     expect(streamClosed).toBe(true);

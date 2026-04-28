@@ -22,6 +22,7 @@ import type {
   PrefillProgressEvent,
   TokenGenerationEvent,
   TransformerCache,
+  TransformerCacheSnapshot,
 } from "./types";
 
 class DeterministicGenerationModel implements CausalLM {
@@ -212,6 +213,46 @@ describe("generation", () => {
       { processedTokens: 2, totalTokens: 4, chunkTokens: 2 },
       { processedTokens: 4, totalTokens: 4, chunkTokens: 2 },
     ]);
+  });
+
+  test("generation helpers expose owned prompt-boundary cache snapshots", () => {
+    using model = new DeterministicGenerationModel();
+    const snapshots: TransformerCacheSnapshot[] = [];
+
+    const result = generateTokens(model, [0, 1, 2, 0, 1], {
+      maxTokens: 1,
+      temperature: 0,
+      eosTokenIds: [],
+      prefillStepSize: 2,
+      onPromptCacheSnapshot(event) {
+        snapshots.push(event.snapshot);
+        expect(event.offset).toBe(4);
+      },
+    });
+
+    try {
+      expect(result.tokenIds).toEqual([2]);
+      expect(snapshots).toHaveLength(1);
+      expect(snapshots[0]?.canFork({ offset: 4 })).toBe(true);
+    } finally {
+      for (const snapshot of snapshots) {
+        snapshot[Symbol.dispose]();
+      }
+    }
+  });
+
+  test("generation helpers keep sampler history separate from cache suffix input", () => {
+    using model = new DeterministicGenerationModel();
+
+    const result = generateTokens(model, [0], {
+      maxTokens: 1,
+      temperature: 0,
+      eosTokenIds: [],
+      repetitionPenalty: 100,
+      samplerHistoryTokenIds: [2],
+    });
+
+    expect(result.tokenIds).toEqual([1]);
   });
 
   test("generateBatchTokens supports per-row lengths and token events", () => {

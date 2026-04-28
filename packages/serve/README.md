@@ -63,6 +63,11 @@ generation at a time. `--stream-decode-interval <n>` controls how often the
 transformer engine decodes generated tokens into SSE text; the default is `1`
 for interactive chat responsiveness, while larger values can reduce tokenizer
 work on long-output throughput runs.
+`--prefill-step-size <n>` controls the cold prompt-prefill chunk size used
+before first-token decode. The default is `512`, which is fairness-biased for
+shared serving; larger values such as `2048` or `4096` can improve single-user
+long-prompt TTFT at the cost of bigger GPU bursts, larger temporary memory
+pressure, and slower cancellation between chunks.
 `--active-prefill-step-size <n>` and
 `--active-decode-steps-per-prefill-chunk <n>` tune the continuous scheduler's
 long-prefill fairness policy: active rows keep decoding for a bounded quantum,
@@ -268,10 +273,14 @@ in-process benchmarks that intentionally decode the full requested token count;
 normal serving behavior still honors EOS unless this extension is explicit.
 Pass `--stream` to drive the same rungs through SSE completions with
 `stream_options.include_usage=true`; streaming runs add mean time-to-first-token,
-prompt-to-first-token throughput, post-TTFT completion throughput, stream chunk
-gap timing, SSE chunk count, and streamed byte count. JSON reports also preserve
-the server `streamDecodeInterval`, per-request duration, TTFT, token counts,
-launch offset, streaming cadence, and finish reason. They also include
+prompt-to-first-token throughput, server-observed prefill timing/throughput,
+post-TTFT completion throughput, stream chunk gap timing, SSE chunk count, and
+streamed byte count. Treat `mean_prompt_to_first_token_tps` as a user-visible
+TTFT-derived rate, not raw model-prefill parity; use `mean_server_prefill_tps`
+and per-request `serverPrefillTps` when comparing serving prefill against
+`bench:generation:parity` prompt throughput. JSON reports also preserve the
+server `streamDecodeInterval`, per-request duration, TTFT, token counts, launch
+offset, streaming cadence, and finish reason. They also include
 benchmark-observed server event timelines per
 generation id, including route-decision timing, model-lane wait timing, prefill
 progress timing, first completion-progress timing, completion/error timing,

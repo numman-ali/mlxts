@@ -15,12 +15,14 @@ export type StreamObserver = {
 
 type StreamObserverOptions = {
   observer?: StreamObserver | undefined;
+  abort?: (() => void) | undefined;
 };
 
 export type StreamControlOptions = {
   id: string;
   created: number;
   signal?: AbortSignal;
+  abort?: () => void;
   observer?: StreamObserver;
 };
 
@@ -45,7 +47,12 @@ export function enqueueObservedSse(
   kind: StreamObserverChunkKind,
 ): void {
   const bytes = encodeSse(payload);
-  controller.enqueue(bytes);
+  try {
+    controller.enqueue(bytes);
+  } catch (error) {
+    options?.abort?.();
+    throw error;
+  }
   options?.observer?.observeChunk(bytes.byteLength, kind);
 }
 
@@ -87,7 +94,33 @@ export async function readStreamEvent(
     await iterator.return?.();
     return { type: "cancelled" };
   }
-  const next = await iterator.next();
+  if (signal === undefined) {
+    const next = await iterator.next();
+    if (next.done) {
+      return { type: "finished" };
+    }
+    return { type: "event", event: next.value };
+  }
+
+  let onAbort: (() => void) | undefined;
+  const cancelled = new Promise<"cancelled">((resolve) => {
+    onAbort = () => resolve("cancelled");
+    signal.addEventListener("abort", onAbort, { once: true });
+    if (signal.aborted) {
+      onAbort();
+    }
+  });
+  const nextPromise = iterator.next();
+  const raced = await Promise.race([nextPromise, cancelled]);
+  if (onAbort !== undefined) {
+    signal.removeEventListener("abort", onAbort);
+  }
+  if (raced === "cancelled") {
+    void nextPromise.catch(() => undefined);
+    await iterator.return?.();
+    return { type: "cancelled" };
+  }
+  const next = raced;
   if (next.done) {
     return { type: "finished" };
   }

@@ -142,6 +142,13 @@ function resolveServeModelsOptions(options: ServeModelsOptions): ResolvedServeMo
     ...(options.maxTotalTokens === undefined ? {} : { maxTotalTokens: options.maxTotalTokens }),
     ...(options.maxBatchSize === undefined ? {} : { maxBatchSize: options.maxBatchSize }),
     ...(options.batchWindowMs === undefined ? {} : { batchWindowMs: options.batchWindowMs }),
+    ...(options.prefillStepSize === undefined ? {} : { prefillStepSize: options.prefillStepSize }),
+    ...(options.activePrefillStepSize === undefined
+      ? {}
+      : { activePrefillStepSize: options.activePrefillStepSize }),
+    ...(options.activeDecodeStepsPerPrefillChunk === undefined
+      ? {}
+      : { activeDecodeStepsPerPrefillChunk: options.activeDecodeStepsPerPrefillChunk }),
     ...(options.streamDecodeInterval === undefined
       ? {}
       : { streamDecodeInterval: options.streamDecodeInterval }),

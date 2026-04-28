@@ -5,27 +5,27 @@
 
 import {
   type BatchGenerationOptions,
+  GenerationAbortError,
   type GenerationResult,
-  generateBatchTokens,
   generatePreparedTokenEvents,
   generateTokenEvents,
 } from "@mlxts/transformers";
-import { ServeError } from "./errors";
-import { type LinkedAbortSignal, linkAbortSignals } from "./server-abort";
 import type { TransformersGenerationEngineOptions } from "./transformers-engine";
 import {
-  emitGenerationRouteDecision,
-  staticBatchIneligibilityReason,
-} from "./transformers-engine-routing";
+  createPromptPrefixCacheSession,
+  type PromptPrefixCache,
+  type PromptPrefixCacheSession,
+  type PromptPrefixCacheUsage,
+} from "./transformers-engine-prefix-cache";
 import {
   applyStopSequences,
   type CompiledPrompt,
   compileMessagePrompt,
   createPrefillProgressReporter,
   createProgressReporter,
+  decodeGeneratedTokenIds,
   emitGenerationProgress,
   enforceGenerationMemoryBudget,
-  enforceGenerationMemoryBudgetForTokens,
   enforcePromptTokenLimit,
   enforceTotalTokenLimit,
   finishReason,
@@ -34,6 +34,12 @@ import {
   promptTokenIds,
   splitPromptOpenReasoning,
 } from "./transformers-engine-shared";
+import {
+  createStreamingDecodeState,
+  handleStreamingDoneEvent,
+  handleStreamingTokenEvent,
+  streamDecodeInterval,
+} from "./transformers-engine-streaming";
 import type { NormalizedGenerationRequest, NormalizedGenerationResult } from "./types";
 
 export type PreparedGenerationRequest = {
@@ -43,6 +49,44 @@ export type PreparedGenerationRequest = {
   tokenIds: readonly number[];
   batchOptions: BatchGenerationOptions;
 };
+
+function throwIfRequestAborted(request: NormalizedGenerationRequest, context: string): void {
+  if (request.abortSignal?.aborted === true) {
+    throw new GenerationAbortError(`${context}: generation was cancelled.`);
+  }
+}
+
+function emitPromptPrepareStart(
+  request: NormalizedGenerationRequest,
+  options: TransformersGenerationEngineOptions,
+): void {
+  options.onEvent?.({
+    type: "generation_prompt_prepare",
+    phase: "start",
+    id: request.id,
+    protocol: request.protocol,
+    model: request.model,
+    inputKind: request.input.kind,
+  });
+}
+
+function emitPromptPrepareComplete(
+  request: NormalizedGenerationRequest,
+  options: TransformersGenerationEngineOptions,
+  promptTokens: number,
+  durationMs: number,
+): void {
+  options.onEvent?.({
+    type: "generation_prompt_prepare",
+    phase: "complete",
+    id: request.id,
+    protocol: request.protocol,
+    model: request.model,
+    inputKind: request.input.kind,
+    promptTokens,
+    durationMs,
+  });
+}
 
 function batchGenerationOptions(
   request: NormalizedGenerationRequest,
@@ -55,7 +99,7 @@ function batchGenerationOptions(
       ? [...options.tokenizer.eosTokenIds]
       : undefined;
   return {
-    ...generationOptions(request),
+    ...generationOptions(options, request),
     ...(eosTokenIds === undefined ? {} : { eosTokenIds }),
     padTokenId: options.tokenizer.padTokenId ?? options.tokenizer.eosTokenIds[0] ?? 0,
   };
@@ -79,15 +123,20 @@ export function prepareGenerationRequest(
   request: NormalizedGenerationRequest,
   options: TransformersGenerationEngineOptions,
 ): PreparedGenerationRequest {
+  throwIfRequestAborted(request, "prepareGenerationRequest");
+  const startedAt = performance.now();
+  emitPromptPrepareStart(request, options);
   const prompt = compileMessagePrompt(request, options);
   const tokenIds =
     request.input.kind === "text"
       ? options.tokenizer.encode(request.input.text, { addSpecialTokens: true })
       : promptTokenIds(request, prompt);
   const promptTokens = promptTokenCount(request, options, prompt);
+  throwIfRequestAborted(request, "prepareGenerationRequest");
   enforcePromptTokenLimit(options, request, promptTokens);
   enforceTotalTokenLimit(options, request, promptTokens);
   enforceGenerationMemoryBudget(options, request, promptTokens);
+  emitPromptPrepareComplete(request, options, promptTokens, performance.now() - startedAt);
   return {
     request,
     prompt,
@@ -101,8 +150,9 @@ export function generatedResultToServeResult(
   prepared: PreparedGenerationRequest,
   options: TransformersGenerationEngineOptions,
   result: GenerationResult,
+  cacheUsage: PromptPrefixCacheUsage = { readTokens: 0, writeTokens: 0 },
 ): NormalizedGenerationResult {
-  const text = options.tokenizer.decode(result.tokenIds, { skipSpecialTokens: true });
+  const text = decodeGeneratedTokenIds(options, prepared.request, result.tokenIds);
   const reasoning = splitPromptOpenReasoning(prepared.prompt, text);
   const stopped = applyStopSequences(reasoning.text, prepared.request.sampling.stop);
 
@@ -117,7 +167,58 @@ export function generatedResultToServeResult(
       promptTokens: prepared.promptTokens,
       completionTokens: result.tokenIds.length,
       totalTokens: prepared.promptTokens + result.tokenIds.length,
+      ...(cacheUsage.readTokens === 0 && cacheUsage.writeTokens === 0
+        ? {}
+        : {
+            cacheReadTokens: cacheUsage.readTokens,
+            cacheWriteTokens: cacheUsage.writeTokens,
+          }),
     },
+  };
+}
+
+function emitPromptCacheEvent(
+  prepared: PreparedGenerationRequest,
+  options: TransformersGenerationEngineOptions,
+  result: "hit" | "miss" | "write",
+  cacheUsage: PromptPrefixCacheUsage,
+): void {
+  options.onEvent?.({
+    type: "generation_prompt_cache",
+    id: prepared.request.id,
+    protocol: prepared.request.protocol,
+    model: prepared.request.model,
+    result,
+    promptTokens: prepared.promptTokens,
+    cacheReadTokens: cacheUsage.readTokens,
+    cacheWriteTokens: cacheUsage.writeTokens,
+  });
+}
+
+function createPromptCacheSession(
+  prepared: PreparedGenerationRequest,
+  options: TransformersGenerationEngineOptions,
+  promptCache: PromptPrefixCache | undefined,
+): PromptPrefixCacheSession {
+  return createPromptPrefixCacheSession({
+    tokenIds: prepared.tokenIds,
+    enabled: prepared.request.input.kind === "messages",
+    ...(promptCache === undefined ? {} : { promptCache }),
+    onEvent(result, cacheUsage) {
+      emitPromptCacheEvent(prepared, options, result, cacheUsage);
+    },
+  });
+}
+
+function generationOptionsForPrepared(
+  prepared: PreparedGenerationRequest,
+  options: TransformersGenerationEngineOptions,
+  onPrefillProgress: ReturnType<typeof createPrefillProgressReporter>,
+  cacheSession: PromptPrefixCacheSession,
+) {
+  return {
+    ...generationOptions(options, prepared.request, onPrefillProgress),
+    ...cacheSession.generationOptions(),
   };
 }
 
@@ -125,26 +226,31 @@ function tokenEventsForPreparedRequest(
   prepared: PreparedGenerationRequest,
   options: TransformersGenerationEngineOptions,
   onPrefillProgress: ReturnType<typeof createPrefillProgressReporter>,
+  cacheSession: PromptPrefixCacheSession,
 ) {
+  const tokenIds = cacheSession.tokenIdsForGeneration();
+  const generation = generationOptionsForPrepared(
+    prepared,
+    options,
+    onPrefillProgress,
+    cacheSession,
+  );
   if (prepared.request.input.kind === "text") {
-    return generateTokenEvents(options.model, prepared.tokenIds, {
-      ...generationOptions(prepared.request, onPrefillProgress),
+    return generateTokenEvents(options.model, tokenIds, {
+      ...generation,
       ...(prepared.request.sampling.ignoreEos === true || options.tokenizer.eosTokenIds.length === 0
         ? {}
         : { eosTokenIds: [...options.tokenizer.eosTokenIds] }),
     });
   }
 
-  return generatePreparedTokenEvents(
-    options.model,
-    { tokenIds: promptTokenIds(prepared.request, prepared.prompt) },
-    generationOptions(prepared.request, onPrefillProgress),
-  );
+  return generatePreparedTokenEvents(options.model, { tokenIds }, generation);
 }
 
 export async function generateSinglePreparedRequest(
   prepared: PreparedGenerationRequest,
   options: TransformersGenerationEngineOptions,
+  promptCache?: PromptPrefixCache,
 ): Promise<NormalizedGenerationResult> {
   const onToken = createProgressReporter(options, prepared.request, prepared.promptTokens);
   const onPrefillProgress = createPrefillProgressReporter(
@@ -153,262 +259,91 @@ export async function generateSinglePreparedRequest(
     prepared.promptTokens,
   );
   emitGenerationProgress(options, prepared.request, prepared.promptTokens, 0);
+  const cacheSession = createPromptCacheSession(prepared, options, promptCache);
   const tokenIds: number[] = [];
   let finishReason: GenerationResult["finishReason"] = "length";
+  let cacheUsage: PromptPrefixCacheUsage = { readTokens: 0, writeTokens: 0 };
 
-  for await (const event of tokenEventsForPreparedRequest(prepared, options, onPrefillProgress)) {
-    if (event.type === "token") {
-      tokenIds.push(event.tokenId);
-      onToken(event.tokenId, tokenIds);
-      continue;
+  try {
+    for await (const event of tokenEventsForPreparedRequest(
+      prepared,
+      options,
+      onPrefillProgress,
+      cacheSession,
+    )) {
+      if (event.type === "token") {
+        tokenIds.push(event.tokenId);
+        onToken(event.tokenId, tokenIds);
+        continue;
+      }
+      tokenIds.length = 0;
+      tokenIds.push(...event.tokenIds);
+      finishReason = event.finishReason;
     }
-    tokenIds.length = 0;
-    tokenIds.push(...event.tokenIds);
-    finishReason = event.finishReason;
+  } finally {
+    cacheUsage = cacheSession.usage();
+    cacheSession[Symbol.dispose]();
   }
 
   const result: GenerationResult = { tokenIds, finishReason };
-  return generatedResultToServeResult(prepared, options, result);
+  return generatedResultToServeResult(prepared, options, result, cacheUsage);
 }
 
-function invalidBatchResult(): ServeError {
-  return new ServeError("The transformers generation engine produced an incomplete batch.", {
-    code: "invalid_engine_result",
-    status: 500,
-  });
-}
-
-function preparedAt(
-  preparedRequests: readonly PreparedGenerationRequest[],
-  index: number,
-): PreparedGenerationRequest {
-  const prepared = preparedRequests[index];
-  if (prepared === undefined) {
-    throw invalidBatchResult();
-  }
-  return prepared;
-}
-
-function addBatchGroup(groups: Map<string, number[]>, key: string, index: number): void {
-  const group = groups.get(key);
-  if (group === undefined) {
-    groups.set(key, [index]);
-    return;
-  }
-  group.push(index);
-}
-
-async function routePreparedRequests(
-  preparedRequests: readonly PreparedGenerationRequest[],
+export async function* streamSinglePreparedRequest(
+  prepared: PreparedGenerationRequest,
   options: TransformersGenerationEngineOptions,
-  results: (NormalizedGenerationResult | undefined)[],
-): Promise<Map<string, number[]>> {
-  const groups = new Map<string, number[]>();
-  for (let index = 0; index < preparedRequests.length; index += 1) {
-    const prepared = preparedAt(preparedRequests, index);
-    const reason = staticBatchIneligibilityReason(prepared.request, options);
-    if (reason !== "eligible") {
-      emitGenerationRouteDecision(options, prepared.request, "single", false, reason);
-      results[index] = await generateSinglePreparedRequest(prepared, options);
-      continue;
-    }
-    addBatchGroup(groups, batchOptionsKey(prepared.batchOptions), index);
-  }
-  return groups;
-}
-
-function batchGroupPrompts(
-  preparedRequests: readonly PreparedGenerationRequest[],
-  group: readonly number[],
-): readonly (readonly number[])[] {
-  return group.map((index) => preparedAt(preparedRequests, index).tokenIds);
-}
-
-function batchGroupMaxTokens(
-  preparedRequests: readonly PreparedGenerationRequest[],
-  group: readonly number[],
-): readonly number[] {
-  return group.map((index) => preparedAt(preparedRequests, index).request.sampling.maxTokens);
-}
-
-function batchGroupAbortSignalScope(
-  preparedRequests: readonly PreparedGenerationRequest[],
-  group: readonly number[],
-): LinkedAbortSignal | undefined {
-  const signals: AbortSignal[] = [];
-  for (const index of group) {
-    const signal = preparedAt(preparedRequests, index).request.abortSignal;
-    if (signal === undefined) {
-      continue;
-    }
-    signals.push(signal);
-  }
-  return signals.length === 0 ? undefined : linkAbortSignals(...signals);
-}
-
-function batchGroupOptions(
-  preparedRequests: readonly PreparedGenerationRequest[],
-  group: readonly number[],
-  abortSignal: AbortSignal | undefined,
-): BatchGenerationOptions {
-  const first = preparedAt(preparedRequests, firstGroupIndex(group));
-  return {
-    ...first.batchOptions,
-    maxTokens: batchGroupMaxTokens(preparedRequests, group),
-    ...(abortSignal === undefined ? {} : { abortSignal }),
-  };
-}
-
-function emitBatchStart(
-  preparedRequests: readonly PreparedGenerationRequest[],
-  group: readonly number[],
-  options: TransformersGenerationEngineOptions,
-): void {
-  const first = preparedAt(preparedRequests, firstGroupIndex(group));
-  const maxTokensByRequest = batchGroupMaxTokens(preparedRequests, group);
-  options.onEvent?.({
-    type: "generation_batch_start",
-    mode: "static",
-    model: first.request.model,
-    ids: group.map((index) => preparedAt(preparedRequests, index).request.id),
-    batchSize: group.length,
-    maxTokens: Math.max(...maxTokensByRequest),
-    maxTokensByRequest,
-  });
-  for (const index of group) {
-    const prepared = preparedAt(preparedRequests, index);
-    emitGenerationProgress(options, prepared.request, prepared.promptTokens, 0);
-  }
-}
-
-function firstGroupIndex(group: readonly number[]): number {
-  const firstIndex = group[0];
-  if (firstIndex === undefined) {
-    throw invalidBatchResult();
-  }
-  return firstIndex;
-}
-
-function assignBatchResults(
-  preparedRequests: readonly PreparedGenerationRequest[],
-  group: readonly number[],
-  generated: readonly GenerationResult[],
-  options: TransformersGenerationEngineOptions,
-  results: (NormalizedGenerationResult | undefined)[],
-): void {
-  for (let position = 0; position < group.length; position += 1) {
-    const index = group[position];
-    const result = generated[position];
-    if (index === undefined || result === undefined) {
-      throw invalidBatchResult();
-    }
-    const prepared = preparedAt(preparedRequests, index);
-    const serveResult = generatedResultToServeResult(prepared, options, result);
-    emitGenerationProgress(
-      options,
-      prepared.request,
-      prepared.promptTokens,
-      serveResult.usage?.completionTokens ?? 0,
-    );
-    results[index] = serveResult;
-  }
-}
-
-function runBatchGroup(
-  preparedRequests: readonly PreparedGenerationRequest[],
-  group: readonly number[],
-  options: TransformersGenerationEngineOptions,
-  results: (NormalizedGenerationResult | undefined)[],
-): void {
-  const maxPromptTokens = Math.max(
-    ...group.map((index) => preparedAt(preparedRequests, index).promptTokens),
-  );
-  const maxTotalTokens = Math.max(
-    ...group.map((index) => {
-      const prepared = preparedAt(preparedRequests, index);
-      return prepared.promptTokens + prepared.request.sampling.maxTokens;
-    }),
-  );
-  enforceGenerationMemoryBudgetForTokens(
+  promptCache?: PromptPrefixCache,
+) {
+  emitGenerationProgress(options, prepared.request, prepared.promptTokens, 0);
+  const onPrefillProgress = createPrefillProgressReporter(
     options,
-    maxPromptTokens,
-    Math.max(0, maxTotalTokens - maxPromptTokens),
-    undefined,
-    group.length,
+    prepared.request,
+    prepared.promptTokens,
   );
-  emitBatchStart(preparedRequests, group, options);
-  const abortScope = batchGroupAbortSignalScope(preparedRequests, group);
+  const decodeInterval = streamDecodeInterval(options, prepared.request.sampling.stop);
+  const state = createStreamingDecodeState(prepared.prompt);
+  const cacheSession = createPromptCacheSession(prepared, options, promptCache);
+
   try {
-    assignBatchResults(
-      preparedRequests,
-      group,
-      generateBatchTokens(
-        options.model,
-        batchGroupPrompts(preparedRequests, group),
-        batchGroupOptions(preparedRequests, group, abortScope?.signal),
-      ),
+    const tokenEvents = tokenEventsForPreparedRequest(
+      prepared,
       options,
-      results,
+      onPrefillProgress,
+      cacheSession,
     );
-  } finally {
-    abortScope?.dispose();
-  }
-}
-
-async function runBatchGroups(
-  preparedRequests: readonly PreparedGenerationRequest[],
-  groups: Iterable<readonly number[]>,
-  options: TransformersGenerationEngineOptions,
-  results: (NormalizedGenerationResult | undefined)[],
-): Promise<void> {
-  for (const group of groups) {
-    if (group.length === 1) {
-      const index = group[0];
-      if (index === undefined) {
-        throw invalidBatchResult();
+    for await (const event of tokenEvents) {
+      if (event.type === "token") {
+        const text = handleStreamingTokenEvent(
+          prepared.request,
+          options,
+          prepared.promptTokens,
+          decodeInterval,
+          state,
+          event,
+        );
+        if (text !== undefined) {
+          yield { type: "text", text } as const;
+        }
+        continue;
       }
-      const prepared = preparedAt(preparedRequests, index);
-      emitGenerationRouteDecision(
-        options,
+
+      const finished = handleStreamingDoneEvent(
         prepared.request,
-        "single",
-        false,
-        "single_request_group",
+        options,
+        prepared.promptTokens,
+        state,
+        event,
+        cacheSession.usage(),
       );
-      results[index] = await generateSinglePreparedRequest(prepared, options);
-      continue;
+      if (finished.text !== undefined) {
+        yield { type: "text", text: finished.text } as const;
+      }
+      yield finished.done;
+      return;
     }
-    for (const index of group) {
-      const prepared = preparedAt(preparedRequests, index);
-      emitGenerationRouteDecision(options, prepared.request, "static", true, "eligible");
-    }
-    runBatchGroup(preparedRequests, group, options, results);
+  } finally {
+    cacheSession[Symbol.dispose]();
   }
-}
-
-function completedBatchResults(
-  results: readonly (NormalizedGenerationResult | undefined)[],
-): NormalizedGenerationResult[] {
-  const completed: NormalizedGenerationResult[] = [];
-  for (const result of results) {
-    if (result === undefined) {
-      throw invalidBatchResult();
-    }
-    completed.push(result);
-  }
-  return completed;
-}
-
-async function generateBatchForPreparedRequests(
-  preparedRequests: readonly PreparedGenerationRequest[],
-  options: TransformersGenerationEngineOptions,
-): Promise<NormalizedGenerationResult[]> {
-  const results: (NormalizedGenerationResult | undefined)[] = Array.from({
-    length: preparedRequests.length,
-  });
-  const groups = await routePreparedRequests(preparedRequests, options, results);
-  await runBatchGroups(preparedRequests, groups.values(), options, results);
-  return completedBatchResults(results);
 }
 
 /** Generate one non-streaming request through the transformer-backed engine. */
@@ -417,15 +352,4 @@ export function generateTransformersRequest(
   options: TransformersGenerationEngineOptions,
 ): Promise<NormalizedGenerationResult> {
   return generateSinglePreparedRequest(prepareGenerationRequest(request, options), options);
-}
-
-/** Generate a non-streaming request batch through static batching when eligible. */
-export function generateTransformersBatch(
-  requests: readonly NormalizedGenerationRequest[],
-  options: TransformersGenerationEngineOptions,
-): Promise<NormalizedGenerationResult[]> {
-  return generateBatchForPreparedRequests(
-    requests.map((request) => prepareGenerationRequest(request, options)),
-    options,
-  );
 }

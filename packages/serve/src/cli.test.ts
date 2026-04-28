@@ -53,6 +53,7 @@ describe("serve CLI args", () => {
         maxTotalTokens: 4096,
         maxBatchSize: 32,
         batchWindowMs: 1,
+        prefillStepSize: 512,
         activePrefillStepSize: 128,
         activeDecodeStepsPerPrefillChunk: 16,
         streamDecodeInterval: 1,
@@ -83,6 +84,8 @@ describe("serve CLI args", () => {
       "16",
       "--batch-window-ms",
       "4",
+      "--prefill-step-size",
+      "1024",
       "--active-prefill-step-size",
       "256",
       "--active-decode-steps-per-prefill-chunk",
@@ -118,6 +121,7 @@ describe("serve CLI args", () => {
         maxTotalTokens: 1536,
         maxBatchSize: 16,
         batchWindowMs: 4,
+        prefillStepSize: 1024,
         activePrefillStepSize: 256,
         activeDecodeStepsPerPrefillChunk: 24,
         streamDecodeInterval: 2,
@@ -184,6 +188,11 @@ describe("serve CLI args", () => {
       kind: "help",
       exitCode: 1,
       message: 'Expected --batch-window-ms to be a non-negative integer, got "-1".',
+    });
+    expect(parseServeArgs(["model", "--prefill-step-size", "0"])).toMatchObject({
+      kind: "help",
+      exitCode: 1,
+      message: 'Expected --prefill-step-size to be a positive integer, got "0".',
     });
     expect(parseServeArgs(["model", "--active-prefill-step-size", "0"])).toMatchObject({
       kind: "help",
@@ -312,6 +321,7 @@ describe("serve CLI args", () => {
       maxTotalTokens: 256,
       maxBatchSize: 8,
       batchWindowMs: 2,
+      prefillStepSize: 512,
       activePrefillStepSize: 128,
       activeDecodeStepsPerPrefillChunk: 16,
       streamDecodeInterval: 1,
@@ -327,7 +337,7 @@ describe("serve CLI args", () => {
     expect(formatServeReady("http://127.0.0.1:8000", options)).not.toContain("temperature");
     expect(formatServeReady("http://127.0.0.1:8000", options)).toContain("Prompt-token limit: 128");
     expect(formatServeReady("http://127.0.0.1:8000", options)).toContain(
-      "Batch scheduler: max_batch=8 window_ms=2 active_prefill=128 active_decode_quantum=16",
+      "Batch scheduler: max_batch=8 window_ms=2 prefill=512 active_prefill=128 active_decode_quantum=16",
     );
     expect(formatServeReady("http://127.0.0.1:8000", options)).toContain(
       "Streaming decode interval: 1 token(s)",
@@ -395,6 +405,30 @@ describe("serve CLI args", () => {
       }),
     ).toBe(
       "[route] cmpl-test model=mlx-community/Qwen3.6-27B-4bit route=single eligible=no reason=unsupported_model_type model_type=qwen3_5_text scheduler=auto cache=managed attention=auto decoding=model max_batch_size=32",
+    );
+    expect(
+      formatServeEvent({
+        type: "generation_prompt_prepare",
+        phase: "start",
+        id: "cmpl-test",
+        protocol: "openai.chat_completions",
+        model: "mlx-community/Qwen3.6-27B-4bit",
+        inputKind: "messages",
+      }),
+    ).toBe("[prompt] cmpl-test model=mlx-community/Qwen3.6-27B-4bit input=messages preparing");
+    expect(
+      formatServeEvent({
+        type: "generation_prompt_prepare",
+        phase: "complete",
+        id: "cmpl-test",
+        protocol: "openai.chat_completions",
+        model: "mlx-community/Qwen3.6-27B-4bit",
+        inputKind: "messages",
+        promptTokens: 4096,
+        durationMs: 1234,
+      }),
+    ).toBe(
+      "[prompt] cmpl-test model=mlx-community/Qwen3.6-27B-4bit input=messages prompt_tokens=4096 ready in 1.2s",
     );
     expect(
       formatServeEvent({
@@ -676,6 +710,19 @@ describe("serve CLI args", () => {
     expect(
       shouldLogServeEvent(
         {
+          type: "generation_prompt_prepare",
+          phase: "start",
+          id: "cmpl-test",
+          protocol: "openai.chat_completions",
+          model: "mlx-community/Qwen3.6-27B-4bit",
+          inputKind: "messages",
+        },
+        false,
+      ),
+    ).toBe(true);
+    expect(
+      shouldLogServeEvent(
+        {
           type: "generation_model_lane_wait",
           id: "cmpl-test",
           protocol: "openai.chat_completions",
@@ -762,6 +809,7 @@ describe("serve CLI args", () => {
         expect(options.maxPromptTokens).toBe(4096);
         expect(options.maxBatchSize).toBe(32);
         expect(options.batchWindowMs).toBe(1);
+        expect(options.prefillStepSize).toBe(512);
         expect(options.activePrefillStepSize).toBe(128);
         expect(options.activeDecodeStepsPerPrefillChunk).toBe(16);
         expect(options.streamDecodeInterval).toBe(1);

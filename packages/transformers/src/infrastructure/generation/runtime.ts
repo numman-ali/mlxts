@@ -146,7 +146,7 @@ export function generateWithCache(
   cache: TransformerCache,
   onToken?: (tokenId: number, generatedTokenIds: readonly number[]) => void,
 ): GenerationResult {
-  using samplerState = new SamplerState(promptTokenIds, options);
+  using samplerState = new SamplerState(options.samplerHistoryTokenIds ?? promptTokenIds, options);
   const initialPrompt =
     promptTokenIds.length > 1
       ? prefillPromptCache(
@@ -173,6 +173,7 @@ export function generateWithCache(
   let nextToken: MxArray | null = null;
 
   try {
+    emitPromptCacheSnapshot(cache, options);
     throwIfGenerationAborted(options.abortSignal, "generateTokens");
     currentToken = predictNextTokenWithState(
       model,
@@ -225,6 +226,20 @@ export function generateWithCache(
   return { tokenIds: generated, finishReason };
 }
 
+export function emitPromptCacheSnapshot(cache: TransformerCache, options: GenerationOptions): void {
+  if (options.onPromptCacheSnapshot === undefined || cache.offset <= 0) {
+    return;
+  }
+
+  const snapshot = cache.snapshot();
+  try {
+    options.onPromptCacheSnapshot({ offset: snapshot.offset, snapshot });
+  } catch (error) {
+    snapshot[Symbol.dispose]();
+    throw error;
+  }
+}
+
 export function generateWithoutCache(
   model: CausalLM,
   promptTokenIds: readonly number[],
@@ -235,7 +250,7 @@ export function generateWithoutCache(
   generated: number[],
   onToken?: (tokenId: number, generatedTokenIds: readonly number[]) => void,
 ): GenerationResult {
-  const samplerState = new SamplerState(promptTokenIds, options);
+  const samplerState = new SamplerState(options.samplerHistoryTokenIds ?? promptTokenIds, options);
   const runningPrompt = [...promptTokenIds];
   const initialInputEmbeddings = retainPromptInputEmbeddings(
     promptTokenIds,

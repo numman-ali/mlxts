@@ -8,11 +8,23 @@ import { parseOpenAIChatToolCallPayload } from "./openai-chat-tool-calls";
 
 const TOOL_CALL_OPEN = "<tool_call>";
 const TOOL_CALL_CLOSE = "</tool_call>";
+const GEMMA_TOOL_CALL_OPEN = "<|tool_call>";
+const GEMMA_TOOL_CALL_CLOSE = "<tool_call|>";
+const GEMMA_TOOL_RESPONSE_OPEN = "<|tool_response>";
+const GEMMA_TOOL_RESPONSE_CLOSE = "<tool_response|>";
+const TOOL_CALL_OPEN_MARKERS = [TOOL_CALL_OPEN, GEMMA_TOOL_CALL_OPEN] as const;
+const GENERATED_CONTROL_MARKERS = [GEMMA_TOOL_RESPONSE_OPEN, GEMMA_TOOL_RESPONSE_CLOSE] as const;
+const MAX_TOOL_CALL_OPEN_LENGTH = Math.max(
+  ...TOOL_CALL_OPEN_MARKERS.map((marker) => marker.length),
+  ...GENERATED_CONTROL_MARKERS.map((marker) => marker.length),
+);
 
 type ToolCallStreamState = {
   buffer: string;
   mode: "content" | "tool_call";
   nextToolCallIndex: number;
+  openMarker: string;
+  closeMarker: string;
 };
 
 function pushContent(deltas: OpenAIChatCompletionStreamDelta[], text: string): void {
@@ -43,12 +55,12 @@ function pushToolCall(
     });
     state.nextToolCallIndex += 1;
   } catch {
-    pushContent(deltas, `${TOOL_CALL_OPEN}${payload}${TOOL_CALL_CLOSE}`);
+    pushContent(deltas, `${state.openMarker}${payload}${state.closeMarker}`);
   }
 }
 
 function flushSafeContentTail(state: ToolCallStreamState): string {
-  const safeLength = Math.max(0, state.buffer.length - (TOOL_CALL_OPEN.length - 1));
+  const safeLength = Math.max(0, state.buffer.length - (MAX_TOOL_CALL_OPEN_LENGTH - 1));
   const emitted = state.buffer.slice(0, safeLength);
   state.buffer = state.buffer.slice(safeLength);
   return emitted;
@@ -58,15 +70,39 @@ function consumeContentBuffer(
   state: ToolCallStreamState,
   deltas: OpenAIChatCompletionStreamDelta[],
 ): boolean {
-  const openIndex = state.buffer.indexOf(TOOL_CALL_OPEN);
-  if (openIndex < 0) {
+  const toolCallMatches = TOOL_CALL_OPEN_MARKERS.map((marker) => ({
+    marker,
+    index: state.buffer.indexOf(marker),
+  })).filter((match) => match.index >= 0);
+  const controlMatches = GENERATED_CONTROL_MARKERS.map((marker) => ({
+    marker,
+    index: state.buffer.indexOf(marker),
+  })).filter((match) => match.index >= 0);
+  const toolCallMatch = toolCallMatches.sort((left, right) => left.index - right.index)[0];
+  const controlMatch = controlMatches.sort((left, right) => left.index - right.index)[0];
+  if (toolCallMatch === undefined && controlMatch === undefined) {
     const emitted = flushSafeContentTail(state);
     pushContent(deltas, emitted);
     return emitted === "";
   }
 
-  pushContent(deltas, state.buffer.slice(0, openIndex));
-  state.buffer = state.buffer.slice(openIndex + TOOL_CALL_OPEN.length);
+  if (
+    controlMatch !== undefined &&
+    (toolCallMatch === undefined || controlMatch.index < toolCallMatch.index)
+  ) {
+    pushContent(deltas, state.buffer.slice(0, controlMatch.index));
+    state.buffer = state.buffer.slice(controlMatch.index + controlMatch.marker.length);
+    return false;
+  }
+
+  if (toolCallMatch === undefined) {
+    return true;
+  }
+  state.openMarker = toolCallMatch.marker;
+  state.closeMarker =
+    toolCallMatch.marker === GEMMA_TOOL_CALL_OPEN ? GEMMA_TOOL_CALL_CLOSE : TOOL_CALL_CLOSE;
+  pushContent(deltas, state.buffer.slice(0, toolCallMatch.index));
+  state.buffer = state.buffer.slice(toolCallMatch.index + toolCallMatch.marker.length);
   state.mode = "tool_call";
   return false;
 }
@@ -75,13 +111,13 @@ function consumeToolCallBuffer(
   state: ToolCallStreamState,
   deltas: OpenAIChatCompletionStreamDelta[],
 ): boolean {
-  const closeIndex = state.buffer.indexOf(TOOL_CALL_CLOSE);
+  const closeIndex = state.buffer.indexOf(state.closeMarker);
   if (closeIndex < 0) {
     return true;
   }
 
   pushToolCall(state, deltas, state.buffer.slice(0, closeIndex));
-  state.buffer = state.buffer.slice(closeIndex + TOOL_CALL_CLOSE.length);
+  state.buffer = state.buffer.slice(closeIndex + state.closeMarker.length);
   state.mode = "content";
   return false;
 }
@@ -112,7 +148,10 @@ function flushToolCallStream(state: ToolCallStreamState): OpenAIChatCompletionSt
   }
 
   const deltas: OpenAIChatCompletionStreamDelta[] = [];
-  pushContent(deltas, state.mode === "content" ? state.buffer : `${TOOL_CALL_OPEN}${state.buffer}`);
+  pushContent(
+    deltas,
+    state.mode === "content" ? state.buffer : `${state.openMarker}${state.buffer}`,
+  );
   state.buffer = "";
   state.mode = "content";
   return deltas;
@@ -134,7 +173,13 @@ export function createOpenAIChatCompletionToolCallStream(enabled: boolean): {
     };
   }
 
-  const state: ToolCallStreamState = { buffer: "", mode: "content", nextToolCallIndex: 0 };
+  const state: ToolCallStreamState = {
+    buffer: "",
+    mode: "content",
+    nextToolCallIndex: 0,
+    openMarker: TOOL_CALL_OPEN,
+    closeMarker: TOOL_CALL_CLOSE,
+  };
   return {
     push(text) {
       return appendToolCallStreamChunk(state, text);

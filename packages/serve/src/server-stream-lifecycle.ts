@@ -19,6 +19,7 @@ type EventSink = {
 };
 
 type DisposableAbortScope = {
+  abort?(): void;
   dispose(): void;
 };
 
@@ -70,6 +71,7 @@ export function completeGenerationStream(
 
 /** Finish a failed HTTP generation stream. */
 export function failGenerationStream(context: StreamLifecycleContext, error: unknown): void {
+  context.abortScope.abort?.();
   context.abortScope.dispose();
   const durationMs = performance.now() - context.generationStartedAt;
   context.observer.end("error", "error", durationMs);

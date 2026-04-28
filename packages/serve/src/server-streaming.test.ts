@@ -268,6 +268,68 @@ describe("server streaming helpers", () => {
     expect(text).toContain("data: [DONE]");
   });
 
+  test("chat SSE strips Gemma tool-response sentinel after structured tool calls", async () => {
+    const chat = normalizeOpenAIChatCompletionRequest(
+      {
+        model: "tiny",
+        messages: [{ role: "user", content: "List files" }],
+        tools: [{ type: "function", function: { name: "list_files" } }],
+        stream: true,
+      },
+      { id: "chat-gemma-tools" },
+    );
+
+    const { text } = await collectSse((controller) =>
+      writeChatStreamEvents(
+        controller,
+        streamEvents(
+          {
+            type: "text",
+            text: '<|tool_call>call:list_files{path:<|"|>.<|"|>}<tool_call|>',
+          },
+          { type: "text", text: "<|tool_response>" },
+          { type: "done", finishReason: "eos" },
+        ),
+        chat,
+        { id: "chat-gemma-tools", created: 123 },
+      ),
+    );
+    const payloads = parseSsePayloads(text) as Array<{
+      choices: Array<{
+        delta?: {
+          content?: string;
+          tool_calls?: Array<{
+            index: number;
+            id?: string;
+            type?: string;
+            function?: { name?: string; arguments?: string };
+          }>;
+        };
+        finish_reason?: string | null;
+      }>;
+    }>;
+    const content = payloads
+      .flatMap((payload) => payload.choices)
+      .map((choice) => choice.delta?.content)
+      .filter((value): value is string => value !== undefined)
+      .join("");
+    const toolCalls = payloads.flatMap((payload) =>
+      payload.choices.flatMap((choice) => choice.delta?.tool_calls ?? []),
+    );
+
+    expect(content).toBe("");
+    expect(toolCalls).toEqual([
+      {
+        index: 0,
+        id: "call_1",
+        type: "function",
+        function: { name: "list_files", arguments: '{"path":"."}' },
+      },
+    ]);
+    expect(payloads.at(-1)?.choices[0]?.finish_reason).toBe("tool_calls");
+    expect(text).not.toContain("<|tool_response>");
+  });
+
   test("chat SSE keeps malformed tool-call envelopes visible", async () => {
     const chat = normalizeOpenAIChatCompletionRequest(
       {

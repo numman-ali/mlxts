@@ -16,6 +16,7 @@ The repo is package-first now. The canonical product surface is the extracted
 - `@mlxts/lora`
 - `@mlxts/align`
 - `@mlxts/quantize`
+- `@mlxts/protocols`
 - `@mlxts/serve`
 - `@mlxts/agent`
 
@@ -51,6 +52,7 @@ packages/
   tokenizers/   Tokenizer implementations
   transformers/ Hugging Face checkpoint loading, model families, generation
   quantize/     Quantization primitives and checkpoint conversion support
+  protocols/    Shared protocol helpers for serve/agent wire semantics
   lora/         Adapter layers, injection, merge helpers
   align/        SFT/DPO data prep and recipe helpers
   serve/        Local OpenAI-compatible serving and scheduling surfaces

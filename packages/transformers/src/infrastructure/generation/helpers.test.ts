@@ -1,7 +1,12 @@
 import { describe, expect, test } from "bun:test";
 import type { ParameterTree } from "@mlxts/core";
 import { array, type MxArray, retainArray, zeros } from "@mlxts/core";
-import type { CausalLM, ForwardOptions, TransformerCache } from "../../types";
+import type {
+  CausalLM,
+  ForwardOptions,
+  TransformerCache,
+  TransformerCacheSnapshot,
+} from "../../types";
 import {
   inputTensor,
   prefillPromptCache,
@@ -31,6 +36,10 @@ class FakeCache implements TransformerCache {
 
   isTrimmable(): boolean {
     return true;
+  }
+
+  snapshot(): TransformerCacheSnapshot {
+    throw new Error("FakeCache.snapshot should not be called in generation helper tests.");
   }
 
   arrays(): MxArray[] {

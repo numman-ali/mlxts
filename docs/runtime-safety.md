@@ -77,7 +77,7 @@ Available tools that do not require modifying the hot path:
 
 - **One eval per token in steady state.** The decode loop should have exactly one `mxEval` (or `mxAsyncEval` + deferred read) per generated token. Additional synchronization points indicate a bug.
 - **Sampling stays on GPU.** Logit tensors should not cross to CPU for sampling. The token ID crosses as a 4-byte scalar via `.item()`, not the full vocab-sized logit vector.
-- **Prefill is chunked.** Prompts longer than `prefillStepSize` are processed in chunks with cache-only eval and `clearMemoryCache()` between chunks. Transformer generation defaults to `2048`; serving currently passes `512` to favor short-arrival fairness during long-prefill workloads.
+- **Prefill is chunked.** Prompts longer than `prefillStepSize` are processed in chunks with cache-only eval and `clearMemoryCache()` between chunks. Transformer generation defaults to `2048`; serving defaults to a configurable `512` (`--prefill-step-size`) to favor short-arrival fairness during long-prefill workloads. Single-user runs can raise it deliberately, but must recheck TTFT, memory, cancellation cadence, and mixed-request fairness.
 - **GPU never idles between tokens.** Async eval double-buffering ensures the next forward pass is dispatched before the current token's result is read.
 
 ### Forward pass performance invariants

@@ -23,6 +23,7 @@ import {
 import { extractOpenAIChatToolCalls } from "./openai-chat-tool-calls";
 import { parseOpenAIStopSequences } from "./openai-stop";
 import { formatOpenAICompletionLikeUsage } from "./openai-usage";
+import { splitReasoningTags } from "./reasoning-tags";
 
 export type {
   OpenAIChatCompletionChunk,
@@ -70,8 +71,6 @@ export type NormalizedChatCompletion = {
 };
 
 const DEFAULT_CHAT_MAX_TOKENS = 16;
-const THINK_OPEN = "<think>";
-const THINK_CLOSE = "</think>";
 
 function stringField(record: Record<string, unknown>, key: string): string {
   const value = record[key];
@@ -298,8 +297,18 @@ function chatTemplateOptions(record: Record<string, unknown>) {
   };
 }
 
+const TOOL_CALL_BLOCK_PATTERN =
+  /(?:<tool_call>|<\|tool_call>)[\s\S]*?(?:<\/tool_call>|<tool_call\|>)/g;
+const GENERATED_CHAT_CONTROL_PATTERN =
+  /<\|turn>|<turn\|>|<\|think\|>|<\|tool_response>|<tool_response\|>/g;
+
 function sanitizeReasoningContent(text: string): string {
-  return text.replace(/<tool_call>[\s\S]*?<\/tool_call>/g, "").trim();
+  return text.replace(TOOL_CALL_BLOCK_PATTERN, "").trim();
+}
+
+/** Remove Gemma-style generated control markers after reasoning/tool parsing has consumed them. */
+export function stripGeneratedChatControlTokens(text: string): string {
+  return text.replace(GENERATED_CHAT_CONTROL_PATTERN, "");
 }
 
 function reasoningSplit(content: string, reasoning: string) {
@@ -308,25 +317,10 @@ function reasoningSplit(content: string, reasoning: string) {
 }
 
 function splitReasoningContent(text: string): { content: string; reasoningContent?: string } {
-  const openIndex = text.indexOf(THINK_OPEN);
-  const closeIndex = text.indexOf(THINK_CLOSE);
-  if (closeIndex < 0 && openIndex < 0) {
-    return { content: text.trim() };
-  }
-
-  if (closeIndex >= 0 && (openIndex < 0 || openIndex < closeIndex)) {
-    const reasoningStart = openIndex < 0 ? 0 : openIndex + THINK_OPEN.length;
-    const contentPrefix = openIndex > 0 ? text.slice(0, openIndex).trimEnd() : "";
-    const contentSuffix = text.slice(closeIndex + THINK_CLOSE.length).trimStart();
-    const content =
-      contentPrefix === "" ? contentSuffix.trim() : `${contentPrefix}\n${contentSuffix}`.trim();
-    return reasoningSplit(content, text.slice(reasoningStart, closeIndex));
-  }
-
-  return reasoningSplit(
-    text.slice(0, openIndex).trimEnd(),
-    text.slice(openIndex + THINK_OPEN.length),
-  );
+  const split = splitReasoningTags(text);
+  return split.reasoningContent === undefined
+    ? split
+    : reasoningSplit(split.content, split.reasoningContent);
 }
 
 function finishReason(reason: NormalizedFinishReason): OpenAIChatCompletionChoice["finish_reason"] {
@@ -422,7 +416,7 @@ export function formatOpenAIChatCompletionResponse(
   const extractedToolCalls = hasToolOutputEnabled(chat)
     ? extractOpenAIChatToolCalls(reasoning.content)
     : null;
-  const content = extractedToolCalls?.content ?? reasoning.content;
+  const content = stripGeneratedChatControlTokens(extractedToolCalls?.content ?? reasoning.content);
   return {
     id: options.id,
     object: "chat.completion",

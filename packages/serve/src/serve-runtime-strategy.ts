@@ -6,6 +6,7 @@
 export type ServeRuntimeKnobs = {
   maxBatchSize?: number;
   batchWindowMs?: number;
+  prefillStepSize?: number;
   activePrefillStepSize?: number;
   activeDecodeStepsPerPrefillChunk?: number;
   streamDecodeInterval?: number;
@@ -16,6 +17,7 @@ export type ServeRuntimeKnobs = {
 export type ServeRuntimeDefaults = {
   maxBatchSize: number;
   batchWindowMs: number;
+  prefillStepSize: number;
   activePrefillStepSize: number;
   activeDecodeStepsPerPrefillChunk: number;
   streamDecodeInterval: number;
@@ -27,6 +29,7 @@ export type ServeSchedulerStrategy = {
   mode: "auto";
   maxBatchSize: number;
   batchWindowMs: number;
+  prefillStepSize: number;
   activePrefillStepSize: number;
   activeDecodeStepsPerPrefillChunk: number;
   maxConcurrentRequests: number;
@@ -72,6 +75,7 @@ export type ServeRuntimeStrategyInfo = {
     mode: "auto";
     max_batch_size: number;
     batch_window_ms: number;
+    prefill_step_size: number;
     active_prefill_step_size: number;
     active_decode_steps_per_prefill_chunk: number;
     max_concurrent_requests: number;
@@ -100,9 +104,12 @@ export type ServeRuntimeStrategyInfo = {
       };
 };
 
+export const DEFAULT_SERVE_PREFILL_STEP_SIZE = 512;
+
 export const TRANSFORMERS_ENGINE_RUNTIME_DEFAULTS: ServeRuntimeDefaults = {
   maxBatchSize: 1,
   batchWindowMs: 0,
+  prefillStepSize: DEFAULT_SERVE_PREFILL_STEP_SIZE,
   activePrefillStepSize: 128,
   activeDecodeStepsPerPrefillChunk: 16,
   streamDecodeInterval: 1,
@@ -168,6 +175,12 @@ export function resolveServeRuntimeStrategy(
       requireNonNegativeInteger,
       "batchWindowMs",
     ),
+    prefillStepSize: runtimeValue(
+      options.prefillStepSize,
+      defaults.prefillStepSize,
+      requirePositiveInteger,
+      "prefillStepSize",
+    ),
     activePrefillStepSize: runtimeValue(
       options.activePrefillStepSize,
       defaults.activePrefillStepSize,
@@ -226,6 +239,7 @@ export function formatServeRuntimeStrategyInfo(
       mode: strategy.scheduler.mode,
       max_batch_size: strategy.scheduler.maxBatchSize,
       batch_window_ms: strategy.scheduler.batchWindowMs,
+      prefill_step_size: strategy.scheduler.prefillStepSize,
       active_prefill_step_size: strategy.scheduler.activePrefillStepSize,
       active_decode_steps_per_prefill_chunk: strategy.scheduler.activeDecodeStepsPerPrefillChunk,
       max_concurrent_requests: strategy.scheduler.maxConcurrentRequests,

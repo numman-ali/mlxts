@@ -10,6 +10,7 @@ import {
   DEFAULT_MODEL_SERVER_MAX_PROMPT_TOKENS,
   DEFAULT_MODEL_SERVER_MAX_TOTAL_TOKENS,
   DEFAULT_MODEL_SERVER_PORT,
+  DEFAULT_MODEL_SERVER_PREFILL_STEP_SIZE,
   DEFAULT_MODEL_SERVER_STREAM_DECODE_INTERVAL,
 } from "./model-server";
 
@@ -29,6 +30,7 @@ export type ServeCliOptions = {
   maxTotalTokens: number;
   maxBatchSize: number;
   batchWindowMs: number;
+  prefillStepSize: number;
   activePrefillStepSize: number;
   activeDecodeStepsPerPrefillChunk: number;
   streamDecodeInterval: number;
@@ -64,6 +66,7 @@ type ParseState = {
   maxTotalTokens: number;
   maxBatchSize: number;
   batchWindowMs: number;
+  prefillStepSize: number;
   activePrefillStepSize: number;
   activeDecodeStepsPerPrefillChunk: number;
   streamDecodeInterval: number;
@@ -144,6 +147,7 @@ function createParseState(): ParseState {
     maxTotalTokens: DEFAULT_MODEL_SERVER_MAX_TOTAL_TOKENS,
     maxBatchSize: DEFAULT_MODEL_SERVER_MAX_BATCH_SIZE,
     batchWindowMs: DEFAULT_MODEL_SERVER_BATCH_WINDOW_MS,
+    prefillStepSize: DEFAULT_MODEL_SERVER_PREFILL_STEP_SIZE,
     activePrefillStepSize: DEFAULT_MODEL_SERVER_ACTIVE_PREFILL_STEP_SIZE,
     activeDecodeStepsPerPrefillChunk: DEFAULT_MODEL_SERVER_ACTIVE_DECODE_STEPS_PER_PREFILL_CHUNK,
     streamDecodeInterval: DEFAULT_MODEL_SERVER_STREAM_DECODE_INTERVAL,
@@ -224,6 +228,14 @@ function applyFlag(state: ParseState, argv: readonly string[], index: number): n
       return index + 1;
     case "--active-prefill-step-size":
       state.activePrefillStepSize = readIntegerFlag(
+        arg,
+        argv[index + 1],
+        (value) => value > 0,
+        "a positive integer",
+      );
+      return index + 1;
+    case "--prefill-step-size":
+      state.prefillStepSize = readIntegerFlag(
         arg,
         argv[index + 1],
         (value) => value > 0,
@@ -357,6 +369,7 @@ function stateToOptions(state: ParseState): ServeCliParseResult {
       maxTotalTokens: state.maxTotalTokens,
       maxBatchSize: state.maxBatchSize,
       batchWindowMs: state.batchWindowMs,
+      prefillStepSize: state.prefillStepSize,
       activePrefillStepSize: state.activePrefillStepSize,
       activeDecodeStepsPerPrefillChunk: state.activeDecodeStepsPerPrefillChunk,
       streamDecodeInterval: state.streamDecodeInterval,
@@ -392,6 +405,7 @@ export function formatServeUsage(): string {
     `  --max-total-tokens <n>      Reject prompt_tokens + max_tokens above this cap (default: ${DEFAULT_MODEL_SERVER_MAX_TOTAL_TOKENS})`,
     `  --max-batch-size <n>        Admission micro-batch size per model instance (default: ${DEFAULT_MODEL_SERVER_MAX_BATCH_SIZE})`,
     `  --batch-window-ms <n>       Wait window before flushing a micro-batch (default: ${DEFAULT_MODEL_SERVER_BATCH_WINDOW_MS})`,
+    `  --prefill-step-size <n>     Cold prompt-prefill chunk size (default: ${DEFAULT_MODEL_SERVER_PREFILL_STEP_SIZE})`,
     [
       "  --active-prefill-step-size <n>",
       `Prompt-prefill chunk size while rows are decoding (default: ${DEFAULT_MODEL_SERVER_ACTIVE_PREFILL_STEP_SIZE})`,

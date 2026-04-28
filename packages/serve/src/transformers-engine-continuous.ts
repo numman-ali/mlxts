@@ -397,6 +397,7 @@ export function createContinuousTransformersGeneration(
       })
       .then((result) => {
         const finished = handleStreamingDone(
+          prepared.request,
           options,
           prepared.promptTokens,
           decodeState,
