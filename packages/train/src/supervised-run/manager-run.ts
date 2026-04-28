@@ -14,46 +14,37 @@ import {
   writeRunSpec,
   writeRunStatus,
 } from "./files";
-import {
-  generateRunId,
-  getFlag,
-  nowIso,
-  packageRoot,
-  repoRoot,
-  trainerArgsFrom,
-} from "./manager-args";
+import { generateRunId, getFlag, nowIso, stripFlag, trainerArgsFrom } from "./manager-args";
 
-function stripFlag(args: string[], key: string, takesValue = true): string[] {
-  const stripped: string[] = [];
-  for (let index = 0; index < args.length; index++) {
-    if (args[index] !== `--${key}`) {
-      const value = args[index];
-      if (value !== undefined) {
-        stripped.push(value);
-      }
-      continue;
-    }
-    if (takesValue) {
-      index += 1;
-    }
-  }
-  return stripped;
+export type SupervisedRunManagerRunOptions = {
+  repoRoot: string;
+  packageRoot: string;
+  runsDirectoryName?: string | undefined;
+  pathFlags?: ReadonlySet<string> | undefined;
+  runIdLabel?: ((args: string[]) => string) | undefined;
+  supervisorCommand: (runDirectory: string) => string[];
+  supervisorCwd?: string | undefined;
+  statusCommand: (runId: string) => string;
+};
+
+function runDirectoryFor(options: SupervisedRunManagerRunOptions, runId: string): string {
+  return runDir(options.repoRoot, runId, options.runsDirectoryName);
 }
 
 function writeStartFiles(
   runId: string,
   trainerArgs: string[],
   stallTimeoutSeconds: number,
+  options: SupervisedRunManagerRunOptions,
   resumedFrom?: string,
 ): string {
-  const root = repoRoot();
-  const directory = runDir(root, runId);
+  const directory = runDirectoryFor(options, runId);
   ensureRunDir(directory);
   const spec: RunSpec = {
     runId,
     createdAt: nowIso(),
-    repoRoot: root,
-    packageRoot: packageRoot(),
+    repoRoot: options.repoRoot,
+    packageRoot: options.packageRoot,
     checkpointDir: checkpointsDir(directory),
     stallTimeoutSeconds,
     trainerArgs,
@@ -74,9 +65,9 @@ function writeStartFiles(
   return directory;
 }
 
-function startSupervisor(runDirectory: string): number {
-  const child = Bun.spawn(["bun", "run", "src/run/supervisor.ts", "--run-dir", runDirectory], {
-    cwd: packageRoot(),
+function startSupervisor(runDirectory: string, options: SupervisedRunManagerRunOptions): number {
+  const child = Bun.spawn(options.supervisorCommand(runDirectory), {
+    cwd: options.supervisorCwd ?? options.packageRoot,
     detached: true,
     env: process.env,
     stdin: "ignore",
@@ -87,10 +78,14 @@ function startSupervisor(runDirectory: string): number {
   return child.pid ?? 0;
 }
 
-export function startRun(args: string[], resumedFrom?: string): void {
+export function startRun(
+  args: string[],
+  options: SupervisedRunManagerRunOptions,
+  resumedFrom?: string,
+): void {
   const requestedName = getFlag(args, "name");
-  const runId = requestedName ?? generateRunId(args);
-  const directory = runDir(repoRoot(), runId);
+  const runId = requestedName ?? generateRunId(args, options.runIdLabel);
+  const directory = runDirectoryFor(options, runId);
   if (existsSync(directory)) {
     throw new Error(`Run "${runId}" already exists`);
   }
@@ -102,7 +97,7 @@ export function startRun(args: string[], resumedFrom?: string): void {
     throw new Error("start requires --stall-timeout-sec to be a positive number");
   }
 
-  const trainerBaseArgs = trainerArgsFrom(args);
+  const trainerBaseArgs = trainerArgsFrom(args, options.pathFlags);
   const trainerArgs = [
     ...trainerBaseArgs,
     "--json",
@@ -111,28 +106,32 @@ export function startRun(args: string[], resumedFrom?: string): void {
     "--checkpoint-dir",
     checkpointsDir(directory),
   ];
-  writeStartFiles(runId, trainerArgs, stallTimeoutSeconds, resumedFrom);
-  const supervisorPid = startSupervisor(directory);
+  writeStartFiles(runId, trainerArgs, stallTimeoutSeconds, options, resumedFrom);
+  const supervisorPid = startSupervisor(directory, options);
   writeRunStatus(directory, {
     ...readRunStatus(directory),
     supervisorPid,
     updatedAt: nowIso(),
   });
   process.stdout.write(
-    `Started run ${runId}\n  dir: ${directory}\n  supervisor pid: ${supervisorPid}\n  status: (from examples/nanogpt/) bun run manager status --name ${runId}\n`,
+    `Started run ${runId}\n  dir: ${directory}\n  supervisor pid: ${supervisorPid}\n  status: ${options.statusCommand(runId)}\n`,
   );
 }
 
-function resolveExistingRun(runId: string): string {
-  const directory = runDir(repoRoot(), runId);
+function resolveExistingRun(runId: string, options: SupervisedRunManagerRunOptions): string {
+  const directory = runDirectoryFor(options, runId);
   if (!existsSync(directory)) {
     throw new Error(`Unknown run "${runId}"`);
   }
   return directory;
 }
 
-export function writeControl(runId: string, command: RunControlCommand): void {
-  const directory = resolveExistingRun(runId);
+export function writeControl(
+  runId: string,
+  command: RunControlCommand,
+  options: SupervisedRunManagerRunOptions,
+): void {
+  const directory = resolveExistingRun(runId, options);
   const status = readRunStatus(directory);
   if (
     status.state === "stopped" ||
@@ -169,14 +168,14 @@ export function writeControl(runId: string, command: RunControlCommand): void {
   process.stdout.write(`Requested graceful stop for run ${runId}\n`);
 }
 
-export function resumeRun(args: string[]): void {
+export function resumeRun(args: string[], options: SupervisedRunManagerRunOptions): void {
   const fromRunId = getFlag(args, "from");
   if (fromRunId === undefined) {
     throw new Error("resume requires --from <run-id>");
   }
 
   const requestedName = getFlag(args, "name");
-  const directory = resolveExistingRun(fromRunId);
+  const directory = resolveExistingRun(fromRunId, options);
   const spec = readRunSpec(directory);
   const status = readRunStatus(directory);
   const latestCheckpoint = status.latestResumeCheckpoint ?? status.latestCheckpoint;
@@ -202,10 +201,14 @@ export function resumeRun(args: string[]): void {
   trainerArgs = stripFlag(trainerArgs, "warm-start");
   trainerArgs = stripFlag(trainerArgs, "preset");
 
-  const overrides = trainerArgsFrom(args);
+  const overrides = trainerArgsFrom(args, options.pathFlags);
   const mergedArgs = [...trainerArgs, ...overrides, "--resume", latestCheckpoint];
   if (requestedName !== undefined) {
     mergedArgs.push("--name", requestedName);
   }
-  startRun([...mergedArgs, "--stall-timeout-sec", String(stallTimeoutSeconds)], latestCheckpoint);
+  startRun(
+    [...mergedArgs, "--stall-timeout-sec", String(stallTimeoutSeconds)],
+    options,
+    latestCheckpoint,
+  );
 }

@@ -123,44 +123,11 @@ function readStringArray(value: unknown, context: string): string[] {
   return value.map((entry, index) => readString(entry, `${context}[${index}]`));
 }
 
-function readOptionalBoolean(value: unknown): boolean | undefined {
-  return typeof value === "boolean" ? value : undefined;
-}
-
 function readOptionalConfig(value: unknown): RunStatus["config"] {
   if (!isRecord(value)) {
     return undefined;
   }
-
-  const nLayer = readOptionalNumber(value.nLayer);
-  const nHead = readOptionalNumber(value.nHead);
-  const nEmbd = readOptionalNumber(value.nEmbd);
-  const blockSize = readOptionalNumber(value.blockSize);
-  const dropout = readOptionalNumber(value.dropout);
-  const gradientCheckpointing = readOptionalBoolean(value.gradientCheckpointing);
-  const vocabSize = readOptionalNumber(value.vocabSize);
-
-  if (
-    nLayer === undefined ||
-    nHead === undefined ||
-    nEmbd === undefined ||
-    blockSize === undefined ||
-    dropout === undefined ||
-    gradientCheckpointing === undefined ||
-    vocabSize === undefined
-  ) {
-    return undefined;
-  }
-
-  return {
-    nLayer,
-    nHead,
-    nEmbd,
-    blockSize,
-    dropout,
-    gradientCheckpointing,
-    vocabSize,
-  };
+  return Object.fromEntries(Object.entries(value));
 }
 
 function isRunState(value: unknown): value is RunState {

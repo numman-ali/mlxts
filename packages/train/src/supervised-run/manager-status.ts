@@ -1,5 +1,5 @@
 import { existsSync } from "fs";
-import type { GPTConfig } from "../config";
+
 import type { RunStatus } from "./files";
 import {
   deriveOperatorHealth,
@@ -10,7 +10,12 @@ import {
   readRunStatus,
   runDir,
 } from "./files";
-import { repoRoot } from "./manager-args";
+
+export type SupervisedRunStatusOptions = {
+  repoRoot: string;
+  runsDirectoryName?: string | undefined;
+  formatBatchLine?: ((payload: StatusPayload) => string) | undefined;
+};
 
 function processMetrics(pid: number | undefined): {
   processState?: string | undefined;
@@ -39,8 +44,8 @@ function processMetrics(pid: number | undefined): {
   };
 }
 
-function resolveExistingRun(runId: string): string {
-  const directory = runDir(repoRoot(), runId);
+function resolveExistingRun(runId: string, options: SupervisedRunStatusOptions): string {
+  const directory = runDir(options.repoRoot, runId, options.runsDirectoryName);
   if (!existsSync(directory)) {
     throw new Error(`Unknown run "${runId}"`);
   }
@@ -58,7 +63,8 @@ export type StatusPayload = {
   lastProgressAt?: string | undefined;
   supervisorPid?: number | undefined;
   trainerPid?: number | undefined;
-  config?: GPTConfig | undefined;
+  preset?: string | undefined;
+  config?: RunStatus["config"] | undefined;
   parameterCount?: number | undefined;
   step?: number | undefined;
   maxSteps?: number | undefined;
@@ -99,8 +105,11 @@ export type StatusPayload = {
   stallReason?: string | undefined;
 };
 
-function createStatusPayload(runId: string): StatusPayload {
-  const directory = resolveExistingRun(runId);
+export function createStatusPayload(
+  runId: string,
+  options: SupervisedRunStatusOptions,
+): StatusPayload {
+  const directory = resolveExistingRun(runId, options);
   const spec = readRunSpec(directory);
   const control = readRunControl(directory);
   const status = readRunStatus(directory);
@@ -118,6 +127,7 @@ function createStatusPayload(runId: string): StatusPayload {
     lastProgressAt: status.lastProgressAt,
     supervisorPid: status.supervisorPid,
     trainerPid: status.trainerPid,
+    preset: status.preset,
     config: status.config,
     parameterCount: status.parameterCount,
     step: status.step,
@@ -168,13 +178,6 @@ function formatOptionalNumber(value: number | undefined, digits = 4): string {
   return value === undefined ? "-" : value.toFixed(digits);
 }
 
-function formatGradientCheckpointing(config: GPTConfig | undefined): string {
-  if (config?.gradientCheckpointing === undefined) {
-    return "-";
-  }
-  return String(config.gradientCheckpointing);
-}
-
 function formatTokensPerSec(value: number | undefined): string {
   return value === undefined ? "-" : Math.round(value).toLocaleString();
 }
@@ -200,13 +203,17 @@ function formatEarlyStopLine(payload: StatusPayload): string {
   return `  early stop: ${formatEarlyStopPatience(payload.earlyStopPatience)}  min delta: ${formatOptionalNumber(payload.earlyStopMinDelta)}`;
 }
 
-function statusLines(payload: StatusPayload): string[] {
+function defaultBatchLine(payload: StatusPayload): string {
+  return `  batch: ${payload.batchSize ?? "-"}  grad accum: ${payload.gradAccumSteps ?? "-"}`;
+}
+
+function statusLines(payload: StatusPayload, options: SupervisedRunStatusOptions): string[] {
   return [
     `Run ${payload.runId}`,
     `  state: ${payload.state}`,
     formatOperatorHealthLine(payload),
     `  step: ${payload.step ?? "-"} / ${payload.maxSteps ?? "-"}`,
-    `  batch: ${payload.batchSize ?? "-"}  grad accum: ${payload.gradAccumSteps ?? "-"}  gradient checkpointing: ${formatGradientCheckpointing(payload.config)}`,
+    options.formatBatchLine?.(payload) ?? defaultBatchLine(payload),
     `  stall timeout: ${payload.stallTimeoutSeconds ?? "-"}s`,
     `  loss: ${formatOptionalNumber(payload.lastStepLoss)}  val: ${formatOptionalNumber(payload.lastValLoss)}`,
     formatBestValLine(payload),
@@ -224,26 +231,34 @@ function statusLines(payload: StatusPayload): string[] {
   ];
 }
 
-function formatStatusPayload(payload: StatusPayload): string {
-  return `${statusLines(payload).join("\n")}\n`;
+export function formatStatusPayload(
+  payload: StatusPayload,
+  options: SupervisedRunStatusOptions,
+): string {
+  return `${statusLines(payload, options).join("\n")}\n`;
 }
 
-export function printStatus(runId: string, asJson: boolean): void {
-  const payload = createStatusPayload(runId);
+export function printStatus(
+  runId: string,
+  asJson: boolean,
+  options: SupervisedRunStatusOptions,
+): void {
+  const payload = createStatusPayload(runId, options);
   if (asJson) {
     process.stdout.write(`${JSON.stringify(payload)}\n`);
     return;
   }
-  process.stdout.write(formatStatusPayload(payload));
+  process.stdout.write(formatStatusPayload(payload, options));
 }
 
 export async function watchRun(
   runId: string,
   intervalSeconds: number,
   asJson: boolean,
+  options: SupervisedRunStatusOptions,
 ): Promise<void> {
   while (true) {
-    printStatus(runId, asJson);
+    printStatus(runId, asJson, options);
     await Bun.sleep(intervalSeconds * 1000);
   }
 }

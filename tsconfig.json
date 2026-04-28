@@ -11,6 +11,7 @@
       "@mlxts/nn": ["packages/nn/src/index.ts"],
       "@mlxts/optimizers": ["packages/optimizers/src/index.ts"],
       "@mlxts/train": ["packages/train/src/index.ts"],
+      "@mlxts/train/supervised-run": ["packages/train/src/supervised-run/index.ts"],
       "@mlxts/data": ["packages/data/src/index.ts"],
       "@mlxts/quantize": ["packages/quantize/src/index.ts"],
       "@mlxts/lora": ["packages/lora/src/index.ts"],

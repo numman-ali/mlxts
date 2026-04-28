@@ -1,20 +1,32 @@
 import { existsSync, mkdirSync, readdirSync } from "fs";
 import { join, resolve } from "path";
 
-export function packageRootFromRunDir(runDir: string): string {
-  return resolve(runDir, "..", "..", "examples", "nanogpt");
+export const DEFAULT_RUNS_DIRECTORY_NAME = ".supervised-runs";
+
+export function packageRootFromRunDir(
+  runDirectory: string,
+  packagePathFromRepoRoot: string,
+): string {
+  return resolve(runDirectory, "..", "..", packagePathFromRepoRoot);
 }
 
 export function repoRootFromPackageRoot(packageRoot: string): string {
   return resolve(packageRoot, "..", "..");
 }
 
-export function runsRoot(repoRoot: string): string {
-  return join(repoRoot, ".nanogpt-runs");
+export function runsRoot(
+  repoRoot: string,
+  runsDirectoryName = DEFAULT_RUNS_DIRECTORY_NAME,
+): string {
+  return join(repoRoot, runsDirectoryName);
 }
 
-export function runDir(repoRoot: string, runId: string): string {
-  return join(runsRoot(repoRoot), runId);
+export function runDir(
+  repoRoot: string,
+  runId: string,
+  runsDirectoryName = DEFAULT_RUNS_DIRECTORY_NAME,
+): string {
+  return join(runsRoot(repoRoot, runsDirectoryName), runId);
 }
 
 export function checkpointsDir(runDirectory: string): string {

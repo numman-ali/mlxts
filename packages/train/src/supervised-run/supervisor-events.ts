@@ -1,4 +1,3 @@
-import type { GPTConfig } from "../config";
 import {
   appendEvent,
   clearRunControl,
@@ -35,44 +34,11 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function readBoolean(value: unknown): boolean | undefined {
-  return typeof value === "boolean" ? value : undefined;
-}
-
-function readConfig(value: unknown): GPTConfig | undefined {
+function readConfig(value: unknown): RunStatus["config"] {
   if (!isRecord(value)) {
     return undefined;
   }
-
-  const nLayer = readNumber(value.nLayer);
-  const nHead = readNumber(value.nHead);
-  const nEmbd = readNumber(value.nEmbd);
-  const blockSize = readNumber(value.blockSize);
-  const dropout = readNumber(value.dropout);
-  const gradientCheckpointing = readBoolean(value.gradientCheckpointing);
-  const vocabSize = readNumber(value.vocabSize);
-
-  if (
-    nLayer === undefined ||
-    nHead === undefined ||
-    nEmbd === undefined ||
-    blockSize === undefined ||
-    dropout === undefined ||
-    gradientCheckpointing === undefined ||
-    vocabSize === undefined
-  ) {
-    return undefined;
-  }
-
-  return {
-    nLayer,
-    nHead,
-    nEmbd,
-    blockSize,
-    dropout,
-    gradientCheckpointing,
-    vocabSize,
-  };
+  return Object.fromEntries(Object.entries(value));
 }
 
 export function readEvent(line: string): Record<string, unknown> | null {

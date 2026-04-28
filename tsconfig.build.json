@@ -6,6 +6,7 @@
       "@mlxts/nn": ["packages/nn/dist/index.d.ts"],
       "@mlxts/optimizers": ["packages/optimizers/dist/index.d.ts"],
       "@mlxts/train": ["packages/train/dist/index.d.ts"],
+      "@mlxts/train/supervised-run": ["packages/train/dist/supervised-run/index.d.ts"],
       "@mlxts/data": ["packages/data/dist/index.d.ts"],
       "@mlxts/quantize": ["packages/quantize/dist/index.d.ts"],
       "@mlxts/lora": ["packages/lora/dist/index.d.ts"],

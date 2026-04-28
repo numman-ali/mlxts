@@ -1,6 +1,7 @@
-import type { GPTConfig } from "../config";
-
 export const DEFAULT_STALL_TIMEOUT_SECONDS = 600;
+
+export type EmptyRunStatusExtras = Record<never, never>;
+export type RunStatusConfig = unknown;
 
 export type RunState =
   | "starting"
@@ -32,7 +33,7 @@ export type RunControl = {
   requestedAt: string;
 };
 
-export type RunStatus = {
+export type RunStatus<TExtras extends object = EmptyRunStatusExtras> = {
   runId: string;
   state: RunState;
   startedAt: string;
@@ -44,7 +45,7 @@ export type RunStatus = {
   supervisorPid?: number | undefined;
   trainerPid?: number | undefined;
   preset?: string | undefined;
-  config?: GPTConfig | undefined;
+  config?: RunStatusConfig | undefined;
   parameterCount?: number | undefined;
   step?: number | undefined;
   maxSteps?: number | undefined;
@@ -76,7 +77,7 @@ export type RunStatus = {
   controlCommand?: RunControlCommand | undefined;
   controlRequestedAt?: string | undefined;
   stallReason?: string | undefined;
-};
+} & TExtras;
 
 export type RunHealth = {
   supervisorAlive: boolean;

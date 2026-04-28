@@ -11,3 +11,7 @@ Snapshot checkpoints (lightweight model saves) and resume checkpoints (optimizer
 Schedules are pure `(step) => lr` functions. Training state on the schedule object is forbidden.
 
 Gradient helpers — `accumulateGradients`, `accumulateGradientTrees`, `clipGradientTree`, `gradientNorm`, `freeGradientTree`, `evalGradientTree`, `scaleGradientTree` — own gradient lifetime. Callers using these helpers do not call `mxEval` on grads directly.
+
+`supervised-run/` owns file-backed process supervision for long supervised runs: run directories, status/control files, JSONL events, heartbeats, stall detection, and manager CLI plumbing. It does not own model presets, acceptance thresholds, sample generation, or model-family config typing.
+
+Supervised-run helpers launch caller-provided trainer commands. They do not become a `Trainer`, lifecycle hook registry, or hidden training framework.
