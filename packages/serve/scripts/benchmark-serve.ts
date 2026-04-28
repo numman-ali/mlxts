@@ -9,7 +9,7 @@ import {
   loadInteractionProfile,
   loadPretrainedTokenizer,
 } from "../../transformers/src";
-import { serveLoadedModel } from "../src/model-server";
+import { serveLoadedModel } from "../src/model-loading/server";
 import type { ServeEvent } from "../src/types";
 import { type RequestMetrics, runCompletionRequest } from "./benchmark-serve-completions";
 import {

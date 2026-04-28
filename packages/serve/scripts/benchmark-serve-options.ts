@@ -1,4 +1,4 @@
-import { DEFAULT_SERVE_PREFILL_STEP_SIZE } from "../src/serve-runtime-strategy";
+import { DEFAULT_SERVE_PREFILL_STEP_SIZE } from "../src/runtime/strategy";
 
 export type MatrixMode = "cartesian" | "zip";
 export type SamplingMode = "model-defaults" | "greedy";

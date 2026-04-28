@@ -22,11 +22,12 @@ and the configured utilization budget, and skip rather than fake certainty when
 the model config is not understood. A preflight pass is not a throughput
 scheduler guarantee.
 
-The structural target for `src/` is role-based folders: `http/`, `streaming/`,
-`engine/`, `protocols/`, `admission/`, `runtime/`, `observability/`,
-`model-loading/`, and `media/`. Until the folder restructure lands, avoid new
-top-level prefix families. New work should either fit an existing role or move
-with the relevant restructure tranche.
+`src/` is organized into role-based folders: `http/`, `streaming/`, `engine/`,
+`protocols/`, `admission/`, `runtime/`, `observability/`, `model-loading/`,
+and `media/`. Do not add new top-level source files. New protocol adapters land
+in `protocols/`. New stream writers land in `streaming/writer-*.ts`. New cache
+backends, scheduler variants, attention dispatch, and decoding strategies land
+in `engine/`, with subfolders only when one role grows past five files.
 
 Keep engine, protocol, HTTP, and streaming roles separate. The engine executes
 generation against a `CausalLM` and does not parse wire bodies or format wire

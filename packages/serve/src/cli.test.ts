@@ -10,7 +10,7 @@ import {
   runServeCli,
   shouldLogServeEvent,
 } from "./cli";
-import type { RunningModelServer } from "./model-server";
+import type { RunningModelServer } from "./model-loading/server";
 
 const ROUTE_STRATEGY = {
   schedulerMode: "auto",

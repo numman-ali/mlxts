@@ -7,8 +7,12 @@ import {
   type ServeCliOptions,
   type ServeCliParseResult,
 } from "./cli-options";
-import { type RunningModelServer, type ServeModelOptions, serveModel } from "./model-server";
-import { type ServeModelsOptions, serveModels } from "./model-sources";
+import {
+  type RunningModelServer,
+  type ServeModelOptions,
+  serveModel,
+} from "./model-loading/server";
+import { type ServeModelsOptions, serveModels } from "./model-loading/sources";
 import type { GenerationMemoryUsage, ServeEvent } from "./types";
 
 export type { ServeCliOptions, ServeCliParseResult };

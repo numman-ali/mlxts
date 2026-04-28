@@ -89,11 +89,11 @@ type ServeRegressionSpec = {
 };
 
 const FOCUSED_TESTS = [
-  "packages/serve/src/server.test.ts",
-  "packages/serve/src/server-streaming.test.ts",
-  "packages/serve/src/transformers-engine.test.ts",
-  "packages/serve/src/model-server.test.ts",
-  "packages/serve/src/batching-engine.test.ts",
+  "packages/serve/src/http/server.test.ts",
+  "packages/serve/src/streaming/writer-openai.test.ts",
+  "packages/serve/src/engine/engine.test.ts",
+  "packages/serve/src/model-loading/server.test.ts",
+  "packages/serve/src/admission/batching.test.ts",
   "packages/serve/src/protocols/openai-completions.test.ts",
   "packages/serve/src/protocols/openai-chat-completions.test.ts",
   "packages/serve/src/protocols/openai-responses.test.ts",

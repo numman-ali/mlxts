@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { DEFAULT_SERVE_PREFILL_STEP_SIZE } from "../src/serve-runtime-strategy";
+import { DEFAULT_SERVE_PREFILL_STEP_SIZE } from "../src/runtime/strategy";
 import {
   buildServeBenchmarkRungs,
   expectedCompletionTokensForRung,

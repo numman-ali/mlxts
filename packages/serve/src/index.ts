@@ -6,24 +6,42 @@
 export {
   createMicroBatchingGenerationEngine,
   type MicroBatchingGenerationEngineOptions,
-} from "./batching-engine";
+} from "./admission/batching";
 export {
   type ConcurrencyLimitGenerationEngineOptions,
   createConcurrencyLimitGenerationEngine,
-} from "./concurrency-engine";
+} from "./admission/concurrency";
+export {
+  createRequestLimitGenerationEngine,
+  type RequestLimitGenerationEngineOptions,
+} from "./admission/request-limits";
+export {
+  createQwen3_5ImageContentAdapter,
+  type LoadedContentPrompt,
+  type TransformersContentAdapter,
+  type TransformersContentAdapterLoadContext,
+  type TransformersContentAdapterModelContext,
+} from "./engine/content";
+export {
+  createTransformersGenerationEngine,
+  type TransformersGenerationEngineOptions,
+} from "./engine/index";
 export { ServeError } from "./errors";
 export {
-  effectiveTotalTokenLimit,
-  estimateGenerationMemory,
-  type GenerationMemoryEstimate,
-  type ModelAdmissionMetadata,
-  modelAdmissionMetadata,
-  modelContextWindow,
-} from "./model-context";
+  formatServeInfoResponse,
+  type ServeInfoResponse,
+  type ServeRuntimeLimits,
+} from "./http/route-info";
+export {
+  createFetchHandler,
+  type ServeAppOptions,
+  type ServeServerOptions,
+  startServeServer,
+} from "./http/server";
 export {
   createModelRouterGenerationEngine,
   type ModelRouterGenerationEngineOptions,
-} from "./model-router";
+} from "./model-loading/router";
 export {
   DEFAULT_MODEL_SERVER_BATCH_WINDOW_MS,
   DEFAULT_MODEL_SERVER_GPU_MEMORY_UTILIZATION,
@@ -43,7 +61,7 @@ export {
   serveLoadedModel,
   serveLoadedModels,
   serveModel,
-} from "./model-server";
+} from "./model-loading/server";
 export {
   type ServeModelSourceEntry,
   type ServeModelsOptions,
@@ -51,7 +69,7 @@ export {
   type ServeModelsRuntime,
   serveModels,
   serveModelsWithRuntime,
-} from "./model-sources";
+} from "./model-loading/sources";
 export {
   type AnthropicContentBlock,
   type AnthropicMessageResponse,
@@ -107,31 +125,13 @@ export {
   type OpenAIResponseUsage,
 } from "./protocols/openai-responses";
 export {
-  createRequestLimitGenerationEngine,
-  type RequestLimitGenerationEngineOptions,
-} from "./request-limits";
-export {
-  createFetchHandler,
-  type ServeAppOptions,
-  type ServeServerOptions,
-  startServeServer,
-} from "./server";
-export {
-  formatServeInfoResponse,
-  type ServeInfoResponse,
-  type ServeRuntimeLimits,
-} from "./server-info";
-export {
-  createTransformersGenerationEngine,
-  type TransformersGenerationEngineOptions,
-} from "./transformers-engine";
-export {
-  createQwen3_5ImageContentAdapter,
-  type LoadedContentPrompt,
-  type TransformersContentAdapter,
-  type TransformersContentAdapterLoadContext,
-  type TransformersContentAdapterModelContext,
-} from "./transformers-engine-content";
+  effectiveTotalTokenLimit,
+  estimateGenerationMemory,
+  type GenerationMemoryEstimate,
+  type ModelAdmissionMetadata,
+  modelAdmissionMetadata,
+  modelContextWindow,
+} from "./runtime/model-context";
 export type {
   GenerationContentMessage,
   GenerationContentPart,

@@ -12,7 +12,7 @@ import {
   DEFAULT_MODEL_SERVER_PORT,
   DEFAULT_MODEL_SERVER_PREFILL_STEP_SIZE,
   DEFAULT_MODEL_SERVER_STREAM_DECODE_INTERVAL,
-} from "./model-server";
+} from "./model-loading/server";
 
 export type ServeCliModelOption = {
   source: string;
