@@ -22,11 +22,40 @@ and the configured utilization budget, and skip rather than fake certainty when
 the model config is not understood. A preflight pass is not a throughput
 scheduler guarantee.
 
+The structural target for `src/` is role-based folders: `http/`, `streaming/`,
+`engine/`, `protocols/`, `admission/`, `runtime/`, `observability/`,
+`model-loading/`, and `media/`. Until the folder restructure lands, avoid new
+top-level prefix families. New work should either fit an existing role or move
+with the relevant restructure tranche.
+
+Keep engine, protocol, HTTP, and streaming roles separate. The engine executes
+generation against a `CausalLM` and does not parse wire bodies or format wire
+responses. Protocol adapters parse and format wire shapes, but do not touch
+model execution or admission budgets. HTTP is the `Request`/`Response` layer.
+Streaming is the only layer that touches SSE controllers.
+
 Do not call admission micro-batching continuous batching. True continuous
 batching needs a scheduler-owned decode loop plus batch-aware cache semantics in
 `@mlxts/transformers`. That route is now real for eligible LLaMA-like, Qwen
 3.6 text, and Gemma 3/4 layer-pattern requests; keep claims tied to the exact
 route evidence and do not imply prefix/paged cache or multimodal batching.
+
+Family-owned cache, serve-owned scheduling. Serve manipulates
+`TransformerCacheSnapshot` and `TransformerCache` only through public snapshot,
+fork, store, and dispose operations. KV layout, layer-pattern handling,
+recurrent state, and quantized storage stay in `@mlxts/transformers`; serve owns
+matching, identity gating, eviction, accounting, metrics, and protocol usage.
+
+Serve owns media transport, bounded host-side I/O, decode, cancellation, and
+model-lane scheduling. Model-family preprocessing - smart resize, patch tokens,
+grid metadata, image token expansion, and vision tower wiring - stays in
+`@mlxts/transformers`. The seam is protocol-neutral content in and prepared
+prompt out.
+
+SSE writers should share lifecycle scaffolding. Heartbeats, stream
+observability, stop filtering, and reasoning-tag streams are common machinery;
+each protocol writer owns only its protocol-specific state machine and terminal
+wire chunks.
 
 For full-KV continuous batching, long waiting prompts must be chunk-prefilled
 between active decode steps rather than forwarded as one admission wall. For

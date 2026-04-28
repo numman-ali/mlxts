@@ -14,6 +14,6 @@ Compile-strategy plumbing stays under `transforms-*.ts`. The public surface hold
 
 `fast.ts` mirrors MLX Python's `mx.fast` namespace; the namespace re-export pattern stays intact.
 
-Public tensor-producing primitives join the canonical tracked-op list in `scripts/check-tensor-lifetimes` when they land.
+Public tensor-producing primitives join `TRACKED_TENSOR_PRODUCING_CALL_NAMES` in `scripts/runtime-sensitive-ops.ts` when they land. The guard is `bun run check:tensor-lifetimes`, implemented by `scripts/check-visible-tensor-lifetimes.ts`.
 
 Creation symbols return a `Pointer` by value. Operation symbols take an output pointer and return `i32` status checked through `checkStatus`. Property getters return values directly.

@@ -280,7 +280,7 @@ Restructuring relieves cap pressure on 6 files and restores the 30-second readab
 
 🟢✓ **OpenResponses naming consistent** in AGENTS.md, serve/AGENTS.md, serve/README.md, MEMORY Tier 2. Two stale matches in legacy docs (above).
 
-🟢✓ **Per-package READMEs all present** (13/13 packages, 6/7 examples — `chat-canary` is data-only). Quality is reasonable; not all are equally tight.
+🟢✓ **Per-package READMEs all present** (13/13 packages, 6/7 examples — `nanogpt` is the missing example README; `chat-canary` has one despite being data-only). Quality is reasonable; not all are equally tight.
 
 ---
 
@@ -290,7 +290,7 @@ Restructuring relieves cap pressure on 6 files and restores the 30-second readab
 
 The cross-package dependency graph matches the declared layer graph. Family-owned-cache vs serve-owned-scheduling is honored. CausalLM is the universal contract. MoE is a block-level swap. Image transport (serve) vs preprocessing (transformers) is at the right line.
 
-The two real boundary smells are: (a) `transformers/src/lora-module-traversal.ts` partially duplicates `@mlxts/lora/src/traversal.ts`, and (b) the `expectTrainableModule(model: CausalLM)` instanceof escape that appears in two examples — meaning `CausalLM` should expose this without runtime narrowing.
+The two real boundary smells are: (a) `transformers/src/lora-module-traversal.ts` partially duplicates `@mlxts/lora/src/traversal.ts`, and (b) the `expectTrainableModule(model: CausalLM)` instanceof escape that appears in two examples. The fix is a typed `@mlxts/transformers` helper, not a wider `CausalLM` contract.
 
 ### 5.2 Endpoint convergence is real, not aspirational
 
@@ -576,7 +576,7 @@ DELETE:
 
 ## 9. Remediation Backlog (Tiered)
 
-**Status (2026-04-28)**: Phase A (per-package AGENTS.md set for the 11 packages without one + slim CLAUDE.md) merged in commit `ef7e0d8`. The Tier 3 fence-only governance items in §10 ("add per-package AGENTS.md", "codify family-seam patterns", etc.) are partially live; remediation tranches below assume that baseline.
+**Status (2026-04-28)**: Phase A (per-package AGENTS.md set for the 11 packages without one + slim CLAUDE.md) merged in commit `ef7e0d8`. The serve and transformers structural AGENTS guidance was tightened immediately after; remediation tranches below assume that governance baseline.
 
 ### Tier 1 — Structural must-fix before next features
 
@@ -611,10 +611,10 @@ Low-risk doc and folder cleanup. Bundle alongside Tier 1, but do not gate next-f
 ### Tier 3 — Fence-only via per-package AGENTS.md
 
 The remaining drift is preventable rather than acute:
-- Add per-package AGENTS.md to the 11 packages without one (§7.1 table).
-- Codify family-seam patterns (`runtime/` subfolder, full-vs-lean tier) in transformers AGENTS.md.
-- Codify serve folder discipline + engine-vs-protocol-vs-HTTP split in serve AGENTS.md.
-- Codify reasoning-tag and protocols-package boundary in protocols/agent AGENTS.md.
+- Keep per-package AGENTS.md files current as package boundaries move.
+- Keep family-seam patterns (`runtime/` subfolder, full-vs-lean tier) current in transformers AGENTS.md.
+- Keep serve folder discipline + engine-vs-protocol-vs-HTTP split current in serve AGENTS.md.
+- Keep reasoning-tag and protocols-package boundary current in protocols/agent AGENTS.md.
 - Codify supervised-run "production code" status in nanogpt AGENTS.md.
 - The `nanogpt/dist/` build artifact: either delete or document as editor convenience.
 - The `quantize/providers/` empty folder: either populate or remove until needed.

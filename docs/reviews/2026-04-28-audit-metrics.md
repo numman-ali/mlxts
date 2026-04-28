@@ -94,7 +94,7 @@ The 500-line cap is doing its job, but pressure is high — many files within ~4
 - HAVE: serve, transformers (2/13)
 - MISSING: core, nn, optimizers, train, data, tokenizers, lora, align, quantize, protocols, agent (11/13)
 - ALL 13 packages have README.md
-- ALL examples except `chat-canary` (data-only) have README.md
+- ALL examples except `nanogpt` have README.md; `chat-canary` has a README despite being data-only
 
 ## Top Files by Export Density
 - 32: transformers/scripts/benchmark-common.ts (script)
