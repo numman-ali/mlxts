@@ -158,7 +158,7 @@ Fast tokenization with support for HuggingFace tokenizer formats.
 | Tekken | `tekken.json` loading for modern Mistral tokenizers |
 | Encoding | Batch encode/decode, offset tracking, special tokens |
 
-**Dependencies:** `@mlxts/core` (minimal — mostly standalone)
+**Dependencies:** none
 
 **Source origin:** Extracted from the former `examples/nanogpt/src/tokenizer.ts`. The package now owns the char tokenizer plus pretrained `tokenizer.json`, SentencePiece, and Tekken loading for the Phase 7 decoder families.
 
@@ -193,7 +193,7 @@ All transformer-based model architectures — the mlxts equivalent of HuggingFac
 | Generation | `generateText()` / `generateTokens()` / `generateStep()` with KV cache and sampling |
 | Weight loading | Load from safetensors via `@mlxts/core` with internal pretrained snapshot inspection |
 
-**Dependencies:** `@mlxts/core`, `@mlxts/nn`, `@mlxts/tokenizers`, `@huggingface/hub`, `@huggingface/jinja`
+**Dependencies:** `@mlxts/core`, `@mlxts/lora`, `@mlxts/nn`, `@mlxts/quantize`, `@mlxts/tokenizers`, `@huggingface/hub`, `@huggingface/jinja`
 
 **Architecture pattern:** An explicit registry maps `model_type` to family
 parsers and model constructors. Shared LLaMA-like structure lives under
@@ -294,7 +294,7 @@ slices.
 | Benchmarking | endpoint `bench:serve` and Qwen/Gemma regression matrices with route, scheduler, stream, and memory evidence |
 | Protocol adapters | OpenAI chat/completions, narrow text Responses, and bounded Anthropic Messages over one shared request model; embeddings and broader content/tool semantics remain future adapters |
 
-**Dependencies:** `@mlxts/core`, `@mlxts/nn`, `@mlxts/protocols`, `@mlxts/transformers`, `@mlxts/tokenizers`
+**Dependencies:** `@mlxts/core`, `@mlxts/protocols`, `@mlxts/transformers`, `@mlxts/tokenizers`
 
 **Runtime:** `Bun.serve()` — no Express, no Node HTTP.
 
@@ -524,24 +524,19 @@ mlxts/                                # Monorepo root
 ## Dependency Graph
 
 ```
-@mlxts/core                           # Leaf — MxArray, ops, transforms, FFI, everything MLX
-  ├── @mlxts/nn                       # Core only (imports MxArray directly)
-  ├── @mlxts/optimizers               # Core + nn (Optimizer.update accepts Module)
-  ├── @mlxts/tokenizers               # Core (minimal)
-  └── @mlxts/data                     # Core only
-
-@mlxts/train                          # Core + nn + optimizers
-@mlxts/lora                           # Core + nn
-@mlxts/align                          # Core + data + lora + nn + tokenizers + train + transformers
-
-@mlxts/transformers                   # Core + nn + tokenizers + official HF JS
-@mlxts/protocols                      # Leaf — shared protocol text helpers
-@mlxts/serve                          # Core + nn + protocols + transformers + tokenizers
-@mlxts/agent                          # Protocols + local tool loop
-@mlxts/quantize                       # Core + nn
-@mlxts/eval                           # Core + transformers + tokenizers + data
-
-@mlxts/cli                            # All packages (imports per subcommand)
+@mlxts/core -> none
+@mlxts/protocols -> none
+@mlxts/tokenizers -> none
+@mlxts/nn -> @mlxts/core
+@mlxts/data -> @mlxts/core
+@mlxts/optimizers -> @mlxts/core, @mlxts/nn
+@mlxts/train -> @mlxts/core, @mlxts/nn, @mlxts/optimizers
+@mlxts/lora -> @mlxts/core, @mlxts/nn
+@mlxts/quantize -> @mlxts/core, @mlxts/nn
+@mlxts/transformers -> @mlxts/core, @mlxts/lora, @mlxts/nn, @mlxts/quantize, @mlxts/tokenizers
+@mlxts/align -> @mlxts/core, @mlxts/data, @mlxts/lora, @mlxts/nn, @mlxts/tokenizers, @mlxts/train, @mlxts/transformers
+@mlxts/serve -> @mlxts/core, @mlxts/protocols, @mlxts/tokenizers, @mlxts/transformers
+@mlxts/agent -> @mlxts/protocols
 ```
 
 ---

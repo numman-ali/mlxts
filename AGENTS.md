@@ -230,6 +230,10 @@ bun run check:runtime-review
 # Check for suspicious nested tensor-producing calls
 bun run check:tensor-lifetimes
 
+# Check package governance
+bun run check:per-package-agents
+bun run check:cross-package-imports
+
 # Generation and serving benchmarks
 bun run bench:generation
 bun run bench:generation:parity
