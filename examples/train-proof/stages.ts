@@ -1,7 +1,7 @@
-import { applyLoRAToModule, mergeLoRAInModule } from "@mlxts/lora";
-import { QuantizedLinear } from "@mlxts/nn";
+import { applyLoRAToModule, assertQuantizedBasePreserved, mergeLoRAInModule } from "@mlxts/lora";
 import {
   type CausalLM,
+  expectTrainableModule,
   type InteractionProfile,
   loadCausalLM,
   resolveLoRATargets,
@@ -14,7 +14,6 @@ import {
   evaluatePreferenceDatasetLoss,
   evaluatePreferenceMetrics,
   evaluateSupervisionDatasetLoss,
-  expectTrainableModule,
   readPadTokenId,
   runPreferenceTrainingSteps,
   runSupervisionTrainingSteps,
@@ -168,16 +167,17 @@ export async function runQLoRAStage(
     args.seed + 1,
     1e-4,
   );
-  const merged = mergeLoRAInModule(expectTrainableModule(model));
+  const trainableModule = expectTrainableModule(model);
+  const merged = mergeLoRAInModule(trainableModule);
   const after = evaluateSupervisionDatasetLoss(
     model,
     data.supervisionEval,
     padTokenId,
     args.batchSize,
   );
-  const lastLayer = model.config.numHiddenLayers - 1;
-  const lastProjection = readLastLlamaQProjection(model, lastLayer);
-  const preservedQuantizedBase = lastProjection instanceof QuantizedLinear;
+  for (const target of merged.targets) {
+    assertQuantizedBasePreserved(trainableModule, target);
+  }
 
   return {
     stage: "qlora",
@@ -188,35 +188,11 @@ export async function runQLoRAStage(
       `preset=${appliedLoRA.preset}`,
       `target_count=${appliedLoRA.targets.length}`,
       `merged_targets=${merged.targets.length}`,
-      `quantized_base_preserved=${preservedQuantizedBase}`,
+      "quantized_base_preserved=true",
       `train_examples=${data.supervisionTrain.length}`,
       `eval_examples=${data.supervisionEval.length}`,
     ],
   };
-}
-
-function readLastLlamaQProjection(model: CausalLM, layerIndex: number): unknown {
-  const backbone = Reflect.get(model, "model");
-  if (typeof backbone !== "object" || backbone === null) {
-    return null;
-  }
-
-  const layers = Reflect.get(backbone, "layers");
-  if (!Array.isArray(layers)) {
-    return null;
-  }
-
-  const layer = layers[layerIndex];
-  if (typeof layer !== "object" || layer === null) {
-    return null;
-  }
-
-  const selfAttention = Reflect.get(layer, "selfAttention");
-  if (typeof selfAttention !== "object" || selfAttention === null) {
-    return null;
-  }
-
-  return Reflect.get(selfAttention, "qProjection");
 }
 
 export async function runSFTStage(

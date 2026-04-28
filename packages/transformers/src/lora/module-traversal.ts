@@ -67,11 +67,16 @@ function visitChildModules(module: Module, visitor: (slot: ModuleSlot) => void, 
   }
 }
 
-export function expectCausalLMModule(model: CausalLM): Module {
+/** Narrow a loaded CausalLM to its trainable nn.Module implementation. */
+export function expectTrainableModule(model: CausalLM): Module {
   if (!(model instanceof Module)) {
     throw new Error("transformers: expected a loaded CausalLM backed by nn.Module.");
   }
   return model;
+}
+
+export function expectCausalLMModule(model: CausalLM): Module {
+  return expectTrainableModule(model);
 }
 
 export function collectLinearModulePaths(model: CausalLM): string[] {

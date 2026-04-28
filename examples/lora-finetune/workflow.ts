@@ -1,5 +1,6 @@
 import { applyLoRAToModule, mergeLoRAInModule } from "@mlxts/lora";
 import {
+  expectTrainableModule,
   loadCausalLM,
   loadCausalLMAdapters,
   resolveLoRATargets,
@@ -13,7 +14,6 @@ import { loadRawMessages, prepareSupervisionExamples } from "./data";
 import {
   ensureQuantizedSnapshot,
   evaluateDatasetLoss,
-  expectTrainableModule,
   loadAssets,
   readPadTokenId,
   runTrainingSteps,

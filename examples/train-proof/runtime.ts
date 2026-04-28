@@ -7,7 +7,6 @@ import {
   type PreferenceEvalMetrics,
 } from "@mlxts/align";
 import type { ChatMessage, PreferenceExample, TokenSupervisionExample } from "@mlxts/data";
-import { Module } from "@mlxts/nn";
 import { Adam } from "@mlxts/optimizers";
 import {
   type CausalLM,
@@ -111,13 +110,6 @@ export async function ensureQuantizedSnapshot(source: string, outputDir: string)
     overwrite: true,
   });
   return outputDir;
-}
-
-export function expectTrainableModule(model: CausalLM): Module {
-  if (!(model instanceof Module)) {
-    throw new Error("training proof: expected a loaded CausalLM backed by nn.Module.");
-  }
-  return model;
 }
 
 export function evaluateSupervisionDatasetLoss(

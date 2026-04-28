@@ -1,6 +1,5 @@
 import { evaluateSupervisionDatasetLoss, runSupervisionTrainingSteps } from "@mlxts/align";
 import type { ChatMessage, TokenSupervisionExample } from "@mlxts/data";
-import { Module } from "@mlxts/nn";
 import { Adam } from "@mlxts/optimizers";
 import {
   type CausalLM,
@@ -14,13 +13,6 @@ import {
 import { existsSync, readdirSync, rmSync } from "fs";
 
 import type { LoadedAssets } from "./types";
-
-export function expectTrainableModule(model: CausalLM): Module {
-  if (!(model instanceof Module)) {
-    throw new Error("lora-finetune: expected a loaded CausalLM backed by nn.Module.");
-  }
-  return model;
-}
 
 function requireChatTemplate(
   profile: InteractionProfile,

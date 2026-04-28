@@ -3,6 +3,7 @@ import { treeFlatten } from "@mlxts/core";
 import { Linear, LoRALinear, Module, QuantizedLinear } from "@mlxts/nn";
 
 import { applyLoRAToModule, mergeLoRAInModule, removeLoRAFromModule } from "./apply-module";
+import { assertQuantizedBasePreserved } from "./quantized-base";
 
 class AttentionBlock extends Module {
   qProjection = new Linear(64, 64);
@@ -105,6 +106,20 @@ describe("applyLoRAToModule", () => {
     const merged = mergeLoRAInModule(model);
     expect(merged.targets).toEqual(["model.layers.1.qProjection"]);
     expect(model.model.layers[1]?.qProjection).toBeInstanceOf(QuantizedLinear);
+    expect(assertQuantizedBasePreserved(model, "model.layers.1.qProjection")).toBeInstanceOf(
+      QuantizedLinear,
+    );
+  });
+
+  test("quantized base assertions reject dense or missing targets", () => {
+    using model = new TinyModel();
+
+    expect(() => assertQuantizedBasePreserved(model, "model.layers.0.qProjection")).toThrow(
+      'lora: expected a quantized base at "model.layers.0.qProjection"',
+    );
+    expect(() => assertQuantizedBasePreserved(model, "model.layers.9.qProjection")).toThrow(
+      'lora: expected a quantized base at "model.layers.9.qProjection", but no linear target was found.',
+    );
   });
 
   test("supports exact path targeting outside the default key selection", () => {

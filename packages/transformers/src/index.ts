@@ -72,6 +72,7 @@ export {
   type SaveCausalLMAdaptersOptions,
   saveCausalLMAdapters,
 } from "./lora/adapters";
+export { expectTrainableModule } from "./lora/module-traversal";
 export {
   type LoRATargetPreset,
   type ResolvedLoRATargets,
