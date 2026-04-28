@@ -2,30 +2,22 @@
 
 ## Project: mlxts
 
-TypeScript-native ML stack for Apple Silicon. MLX bindings, neural networks, training, pretrained model loading and generation.
+TypeScript-native ML stack for Apple Silicon. MLX bindings, neural networks,
+training, pretrained model loading, generation, and serving.
 
-Read PLAN.md for current phase and priorities.
-Read AGENTS.md for architecture decisions and coding conventions.
-Read docs/agentic-loop.md for the engineering workflow.
-Read docs/design-reasoning.md for why we make the design choices we do.
-Read docs/ecosystem-structure.md for the @mlxts/* package map.
+Per-package AGENTS.md files auto-inject when files inside that package are
+touched. Read the package's AGENTS.md before editing files inside it.
 
-## Current Phase
+Always read first:
+- AGENTS.md — repo doctrine
+- MEMORY.md Tier 1 — durable cross-session sharp edges
+- continuity.md — current-phase handoff state
 
-Phase 1–4: Complete (core bindings, autograd, nn, nanoGPT).
-Phase 5: Ecosystem Restructure — complete. Renamed to mlxts, extracted @mlxts/* packages.
-Phase 6: Publish Core Packages — complete. Modern transformer primitives in @mlxts/nn.
-Phase 6.5: Modern Transformer Primitives — complete.
-Phase 7: Model Architectures — **in progress**. Dense text families (LLaMA, Mistral, Gemma) working. Expanding to Phi-3, Gemma 3, Mistral 3. MoE (Phase 7f) follows.
+Then as needed:
+- PLAN.md for phase status and exit criteria
+- docs/agentic-loop.md for the engineering workflow
+- docs/design-reasoning.md for the reasoning behind structural choices
+- docs/ecosystem-structure.md for the @mlxts/* package map
+- docs/runtime-safety.md and docs/runtime-optimization-matrix.md for hot paths
 
-## Quick Reference
-
-- Runtime: Bun
-- Test: `bun test`
-- Build native: `cd packages/core && bun run build:native`
-- Typecheck: `bun run typecheck`
-- Lint: `bun run lint`
-- Full validation: `bun run validate`
-- Build all packages: `bun run build`
-- API docs: `bun run docs:api`
-- Pack dry run: `bun run pack:dry-run`
+Build, test, gate, and bench commands live in AGENTS.md § Build Commands.
