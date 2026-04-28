@@ -7,6 +7,7 @@ import { jsonResponse, ServeError } from "./errors";
 import { formatOpenAIResponse, normalizeOpenAIResponseRequest } from "./protocols/openai-responses";
 import { linkAbortSignals, withAbortSignal } from "./server-abort";
 import { emitGenerationComplete, emitGenerationError, emitGenerationStart } from "./server-events";
+import { readJson } from "./server-json";
 import { writeOpenAIResponseStreamEvents } from "./server-responses-streaming";
 import { completeGenerationStream, failGenerationStream } from "./server-stream-lifecycle";
 import { createGenerationStreamObserver } from "./server-stream-observability";
@@ -33,16 +34,6 @@ type ResponseStreamControl = {
   abort(): void;
   dispose(): void;
 };
-
-async function readJson(request: Request): Promise<unknown> {
-  try {
-    return await request.json();
-  } catch {
-    throw new ServeError("Request body must be valid JSON.", {
-      code: "invalid_json",
-    });
-  }
-}
 
 function streamNotSupported(): ServeError {
   return new ServeError("This generation engine does not support streaming yet.", {

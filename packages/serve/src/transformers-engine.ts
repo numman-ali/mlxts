@@ -8,6 +8,11 @@ import type { CausalLM, InteractionProfile } from "@mlxts/transformers";
 import { ServeError } from "./errors";
 import { ModelExecutionLane, type ModelExecutionLaneStats } from "./model-execution-lane";
 import { transformersRuntimeStrategy } from "./serve-runtime-strategy";
+import {
+  loadContentGenerationRequest,
+  prepareLoadedContentGenerationRequest,
+  type TransformersContentAdapter,
+} from "./transformers-engine-content";
 import { createContinuousTransformersGeneration } from "./transformers-engine-continuous";
 import {
   generateSinglePreparedRequest,
@@ -45,6 +50,7 @@ export type TransformersGenerationEngineOptions = {
   streamDecodeInterval?: number;
   maxConcurrentRequests?: number;
   gpuMemoryUtilization?: number;
+  contentAdapter?: TransformersContentAdapter;
   onEvent?: (event: ServeEvent) => void;
 };
 
@@ -108,7 +114,7 @@ function maxBatchSize(options: TransformersGenerationEngineOptions): number {
 
 function rejectMediaInput(): never {
   throw new ServeError(
-    "The transformers generation engine has accepted media-shaped input, but this model-serving route does not prepare media tensors yet.",
+    "The transformers generation engine accepted media-shaped input, but this loaded model does not prepare media tensors.",
     { code: "unsupported_input", param: "messages" },
   );
 }
@@ -145,7 +151,16 @@ export function createTransformersGenerationEngine(
   ): NormalizedGenerationResult | Promise<NormalizedGenerationResult> {
     if (request.input.kind === "content") {
       emitGenerationRouteDecision(options, request, "single", false, "media_input");
-      return rejectMediaInput();
+      if (options.contentAdapter === undefined) {
+        return rejectMediaInput();
+      }
+      return (async () => {
+        const loaded = await loadContentGenerationRequest(request, options);
+        return await runOnModelLane(lane, options, request, async () => {
+          const prepared = await prepareLoadedContentGenerationRequest(loaded, options);
+          return await generateSinglePreparedRequest(prepared, options);
+        });
+      })();
     }
     if (request.input.kind === "messages") {
       emitGenerationRouteDecision(options, request, "single", false, "prompt_prefix_cache");
@@ -185,7 +200,18 @@ export function createTransformersGenerationEngine(
     async *stream(request) {
       if (request.input.kind === "content") {
         emitGenerationRouteDecision(options, request, "single", false, "media_input");
-        rejectMediaInput();
+        if (options.contentAdapter === undefined) {
+          rejectMediaInput();
+        }
+        const loaded = await loadContentGenerationRequest(request, options);
+        const release = await acquireModelLane(lane, options, request);
+        try {
+          const prepared = await prepareLoadedContentGenerationRequest(loaded, options);
+          yield* streamSinglePreparedRequest(prepared, options);
+        } finally {
+          release();
+        }
+        return;
       }
       if (request.input.kind === "messages") {
         emitGenerationRouteDecision(options, request, "single", false, "prompt_prefix_cache");

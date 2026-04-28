@@ -9,6 +9,7 @@ import {
   type GenerationResult,
   generatePreparedTokenEvents,
   generateTokenEvents,
+  type PreparedPrompt,
 } from "@mlxts/transformers";
 import { ServeError } from "./errors";
 import type { TransformersGenerationEngineOptions } from "./transformers-engine";
@@ -48,6 +49,7 @@ export type PreparedGenerationRequest = {
   prompt: CompiledPrompt | null;
   promptTokens: number;
   tokenIds: readonly number[];
+  preparedPrompt?: PreparedPrompt;
   batchOptions: BatchGenerationOptions;
 };
 
@@ -96,7 +98,7 @@ function emitPromptPrepareComplete(
   });
 }
 
-function batchGenerationOptions(
+export function batchGenerationOptions(
   request: NormalizedGenerationRequest,
   options: TransformersGenerationEngineOptions,
 ): BatchGenerationOptions {
@@ -239,13 +241,17 @@ function tokenEventsForPreparedRequest(
   onPrefillProgress: ReturnType<typeof createPrefillProgressReporter>,
   cacheSession: PromptPrefixCacheSession,
 ) {
-  const tokenIds = cacheSession.tokenIdsForGeneration();
   const generation = generationOptionsForPrepared(
     prepared,
     options,
     onPrefillProgress,
     cacheSession,
   );
+  if (prepared.preparedPrompt !== undefined) {
+    return generatePreparedTokenEvents(options.model, prepared.preparedPrompt, generation);
+  }
+
+  const tokenIds = cacheSession.tokenIdsForGeneration();
   if (prepared.request.input.kind === "text") {
     return generateTokenEvents(options.model, tokenIds, {
       ...generation,
@@ -256,6 +262,11 @@ function tokenEventsForPreparedRequest(
   }
 
   return generatePreparedTokenEvents(options.model, { tokenIds }, generation);
+}
+
+function disposePreparedPrompt(prepared: PreparedGenerationRequest): void {
+  prepared.preparedPrompt?.inputEmbeddings?.free();
+  prepared.preparedPrompt?.positionIds?.free();
 }
 
 export async function generateSinglePreparedRequest(
@@ -294,6 +305,7 @@ export async function generateSinglePreparedRequest(
   } finally {
     cacheUsage = cacheSession.usage();
     cacheSession[Symbol.dispose]();
+    disposePreparedPrompt(prepared);
   }
 
   const result: GenerationResult = { tokenIds, finishReason };
@@ -354,6 +366,7 @@ export async function* streamSinglePreparedRequest(
     }
   } finally {
     cacheSession[Symbol.dispose]();
+    disposePreparedPrompt(prepared);
   }
 }
 

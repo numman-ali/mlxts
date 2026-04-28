@@ -14,8 +14,12 @@ export {
 export {
   expandQwen3_5ImageTokens,
   prepareQwen3_5ImagePrompt,
+  QWEN3_5_IMAGE_MARKER,
 } from "./families/qwen3_5/conditional";
-export { loadQwen3_5ForConditionalGeneration } from "./families/qwen3_5/load";
+export {
+  loadQwen3_5ForConditionalGeneration,
+  shouldLoadQwen3_5ForConditionalGeneration,
+} from "./families/qwen3_5/load";
 export {
   type DecodedQwen3_5Image,
   loadQwen3_5VisionPreprocessor,
@@ -92,6 +96,7 @@ export type {
   LoadPretrainedTokenizerOptions,
   LoadSourceOptions,
   PrefillProgressEvent,
+  PreparedPrompt,
   PretrainedLoadProgressEvent,
   PromptCacheSnapshotEvent,
   SamplerOptions,

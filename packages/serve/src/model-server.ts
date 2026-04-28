@@ -4,10 +4,16 @@
  */
 
 import {
+  type CausalLM,
+  type LoadSourceOptions,
   loadCausalLM,
   loadInteractionProfile,
   loadPretrainedTokenizer,
+  loadQwen3_5ForConditionalGeneration,
+  loadQwen3_5VisionPreprocessor,
+  type Qwen3_5VisionPreprocessorConfig,
   resolvePretrainedSource,
+  shouldLoadQwen3_5ForConditionalGeneration,
 } from "@mlxts/transformers";
 import { modelAdmissionMetadata } from "./model-context";
 import { createModelRouterGenerationEngine } from "./model-router";
@@ -27,6 +33,7 @@ import { createRequestLimitGenerationEngine } from "./request-limits";
 import { createServeMetrics, createServeMetricsSink } from "./serve-metrics";
 import { startServeServer } from "./server";
 import { createTransformersGenerationEngine } from "./transformers-engine";
+import { createQwen3_5ImageContentAdapter } from "./transformers-engine-content";
 import type { GenerationEngine } from "./types";
 
 export {
@@ -61,6 +68,14 @@ export type RunningModelServer = Disposable & {
 export type ServeModelRuntime = {
   resolvePretrainedSource: typeof resolvePretrainedSource;
   loadCausalLM: typeof loadCausalLM;
+  loadQwen3_5ForConditionalGeneration?: (
+    source: string,
+    options?: LoadSourceOptions,
+  ) => Promise<CausalLM>;
+  loadQwen3_5VisionPreprocessor?: (
+    source: string,
+    options?: LoadSourceOptions,
+  ) => Promise<Qwen3_5VisionPreprocessorConfig>;
   loadPretrainedTokenizer: typeof loadPretrainedTokenizer;
   loadInteractionProfile: typeof loadInteractionProfile;
   serveLoadedModel: typeof serveLoadedModel;
@@ -91,6 +106,7 @@ function createLoadedModelEngine(
     ...(model.interactionProfile === undefined
       ? {}
       : { interactionProfile: model.interactionProfile }),
+    ...(model.contentAdapter === undefined ? {} : { contentAdapter: model.contentAdapter }),
     ...(options.onEvent === undefined ? {} : { onEvent: options.onEvent }),
   });
   return createRequestLimitGenerationEngine({
@@ -208,6 +224,9 @@ export function serveLoadedModel(options: ServeLoadedModelOptions): RunningModel
         ...(resolved.interactionProfile === undefined
           ? {}
           : { interactionProfile: resolved.interactionProfile }),
+        ...(resolved.contentAdapter === undefined
+          ? {}
+          : { contentAdapter: resolved.contentAdapter }),
         modelId: resolved.modelId,
       },
     ],
@@ -221,10 +240,44 @@ export async function serveModel(options: ServeModelOptions): Promise<RunningMod
   return serveModelWithRuntime(options, {
     resolvePretrainedSource,
     loadCausalLM,
+    loadQwen3_5ForConditionalGeneration,
+    loadQwen3_5VisionPreprocessor,
     loadPretrainedTokenizer,
     loadInteractionProfile,
     serveLoadedModel,
   });
+}
+
+function canLoadQwenConditional(runtime: ServeModelRuntime): boolean {
+  return (
+    runtime.loadQwen3_5ForConditionalGeneration !== undefined &&
+    runtime.loadQwen3_5VisionPreprocessor !== undefined
+  );
+}
+
+async function loadModelForSource(
+  source: string,
+  loadOptions: ReturnType<typeof snapshotOptions>,
+  runtime: ServeModelRuntime,
+  loadQwenConditional: boolean,
+) {
+  if (loadQwenConditional && runtime.loadQwen3_5ForConditionalGeneration !== undefined) {
+    return runtime.loadQwen3_5ForConditionalGeneration(source, loadOptions);
+  }
+  return runtime.loadCausalLM(source, loadOptions);
+}
+
+async function loadContentAdapterForSource(
+  source: string,
+  loadOptions: ReturnType<typeof snapshotOptions>,
+  runtime: ServeModelRuntime,
+  loadQwenConditional: boolean,
+) {
+  if (!loadQwenConditional || runtime.loadQwen3_5VisionPreprocessor === undefined) {
+    return undefined;
+  }
+  const preprocessor = await runtime.loadQwen3_5VisionPreprocessor(source, loadOptions);
+  return createQwen3_5ImageContentAdapter(preprocessor);
 }
 
 export async function serveModelWithRuntime(
@@ -234,14 +287,24 @@ export async function serveModelWithRuntime(
   const resolved = resolveServeOptions(options);
   const loadOptions = snapshotOptions(resolved);
   const localSource = await runtime.resolvePretrainedSource(resolved.source, loadOptions);
-  const model = await runtime.loadCausalLM(localSource, loadOptions);
+  const loadQwenConditional =
+    canLoadQwenConditional(runtime) &&
+    (await shouldLoadQwen3_5ForConditionalGeneration(localSource));
+  const model = await loadModelForSource(localSource, loadOptions, runtime, loadQwenConditional);
   try {
     const tokenizer = await runtime.loadPretrainedTokenizer(localSource, loadOptions);
     const interactionProfile = await runtime.loadInteractionProfile(localSource, loadOptions);
+    const contentAdapter = await loadContentAdapterForSource(
+      localSource,
+      loadOptions,
+      runtime,
+      loadQwenConditional,
+    );
     return runtime.serveLoadedModel({
       model,
       tokenizer,
       interactionProfile,
+      ...(contentAdapter === undefined ? {} : { contentAdapter }),
       modelId: resolved.modelId,
       ...runtimeServeOptions(resolved),
       disposeModelOnStop: true,

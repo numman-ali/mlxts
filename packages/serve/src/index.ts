@@ -125,6 +125,13 @@ export {
   createTransformersGenerationEngine,
   type TransformersGenerationEngineOptions,
 } from "./transformers-engine";
+export {
+  createQwen3_5ImageContentAdapter,
+  type LoadedContentPrompt,
+  type TransformersContentAdapter,
+  type TransformersContentAdapterLoadContext,
+  type TransformersContentAdapterModelContext,
+} from "./transformers-engine-content";
 export type {
   GenerationContentMessage,
   GenerationContentPart,

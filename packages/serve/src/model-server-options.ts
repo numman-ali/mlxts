@@ -16,6 +16,7 @@ import {
   requirePositiveFraction,
   requirePositiveInteger,
 } from "./serve-runtime-strategy";
+import type { TransformersContentAdapter } from "./transformers-engine-content";
 import { DEFAULT_STREAM_DECODE_INTERVAL } from "./transformers-engine-streaming";
 import type { ServeEvent } from "./types";
 
@@ -55,6 +56,7 @@ export type ServeLoadedModelOptions = ModelServerRuntimeOptions & {
   model: CausalLM;
   tokenizer: Tokenizer;
   interactionProfile?: InteractionProfile;
+  contentAdapter?: TransformersContentAdapter;
   modelId: string;
   disposeModelOnStop?: boolean;
 };
@@ -63,6 +65,7 @@ export type LoadedModelServerEntry = {
   model: CausalLM;
   tokenizer: Tokenizer;
   interactionProfile?: InteractionProfile;
+  contentAdapter?: TransformersContentAdapter;
   modelId: string;
 };
 
@@ -103,6 +106,7 @@ export type ResolvedLoadedModelOptions = ResolvedRuntimeOptions & {
   model: CausalLM;
   tokenizer: Tokenizer;
   interactionProfile?: InteractionProfile;
+  contentAdapter?: TransformersContentAdapter;
   modelId: string;
   disposeModelOnStop: boolean;
 };
@@ -111,6 +115,7 @@ export type ResolvedLoadedModelEntry = {
   model: CausalLM;
   tokenizer: Tokenizer;
   interactionProfile?: InteractionProfile;
+  contentAdapter?: TransformersContentAdapter;
   modelId: string;
 };
 
@@ -206,6 +211,7 @@ export function resolveLoadedOptions(options: ServeLoadedModelOptions): Resolved
     ...(options.interactionProfile === undefined
       ? {}
       : { interactionProfile: options.interactionProfile }),
+    ...(options.contentAdapter === undefined ? {} : { contentAdapter: options.contentAdapter }),
     modelId: requireNonEmpty("modelId", options.modelId),
     disposeModelOnStop: options.disposeModelOnStop ?? false,
   };
@@ -218,6 +224,7 @@ function resolveLoadedModelEntry(entry: LoadedModelServerEntry): ResolvedLoadedM
     ...(entry.interactionProfile === undefined
       ? {}
       : { interactionProfile: entry.interactionProfile }),
+    ...(entry.contentAdapter === undefined ? {} : { contentAdapter: entry.contentAdapter }),
     modelId: requireNonEmpty("modelId", entry.modelId),
   };
 }

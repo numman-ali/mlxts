@@ -36,6 +36,7 @@ import {
   type ServeRuntimeLimits,
   serveInfoResponse,
 } from "./server-info";
+import { readJson } from "./server-json";
 import { openAIResponsesRouteResponse } from "./server-responses";
 import { completeGenerationStream, failGenerationStream } from "./server-stream-lifecycle";
 import { createGenerationStreamObserver } from "./server-stream-observability";
@@ -89,16 +90,6 @@ const GENERATION_ROUTE_PATTERN = /^\/v1\/(?:completions|chat\/completions|respon
 
 function routeMayRunGeneration(method: string, pathname: string): boolean {
   return method === "POST" && GENERATION_ROUTE_PATTERN.test(pathname);
-}
-
-async function readJson(request: Request): Promise<unknown> {
-  try {
-    return await request.json();
-  } catch {
-    throw new ServeError("Request body must be valid JSON.", {
-      code: "invalid_json",
-    });
-  }
 }
 
 function authorize(request: Request, apiKey: string | undefined): void {

@@ -37,6 +37,9 @@ import { Qwen3_5VisionModel } from "./vision";
 
 export { countQwen3_5ImageTokens, createQwen3_5MmTokenTypeIds, expandQwen3_5ImageTokens };
 
+/** Text marker that Qwen chat templates use for one image placeholder. */
+export const QWEN3_5_IMAGE_MARKER = "<|vision_start|><|image_pad|><|vision_end|>";
+
 /** Prepare a Qwen 3.5 multimodal prompt against a loaded Qwen 3.5 conditional checkpoint. */
 export function prepareQwen3_5ImagePrompt(
   model: CausalLM,

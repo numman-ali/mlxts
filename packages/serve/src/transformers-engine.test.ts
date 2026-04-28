@@ -157,6 +157,21 @@ class TinyModel implements CausalLM {
   [Symbol.dispose](): void {}
 }
 
+class PreparedPromptModel extends TinyModel {
+  readonly forwardedInputEmbeddingShapes: number[][] = [];
+  readonly forwardedPositionIdShapes: number[][] = [];
+
+  override forward(inputIds: MxArray, options?: ForwardOptions): MxArray {
+    if (options?.inputEmbeddings !== undefined) {
+      this.forwardedInputEmbeddingShapes.push([...options.inputEmbeddings.shape]);
+    }
+    if (options?.positionIds !== undefined) {
+      this.forwardedPositionIdShapes.push([...options.positionIds.shape]);
+    }
+    return super.forward(inputIds, options);
+  }
+}
+
 class CountingCacheSnapshot implements TransformerCacheSnapshot {
   readonly offset: number;
   readonly trimmable: boolean;
@@ -425,7 +440,7 @@ describe("transformers generation engine", () => {
     expect(waits.every((event) => event.waitMs >= 0)).toBe(true);
   });
 
-  test("rejects media content before text-only prompt preparation", () => {
+  test("rejects media content without a model-family content adapter", () => {
     using model = new TinyModel();
     const tokenizer = new TinyTokenizer();
     const events: ServeEvent[] = [];
@@ -457,7 +472,7 @@ describe("transformers generation engine", () => {
         stream: false,
         protocol: "openai.chat_completions",
       }),
-    ).toThrow("media-shaped input");
+    ).toThrow("does not prepare media tensors");
 
     expect(events).toContainEqual({
       type: "generation_route_decision",
@@ -474,7 +489,7 @@ describe("transformers generation engine", () => {
     });
   });
 
-  test("rejects batched media content before text-only prompt preparation", async () => {
+  test("rejects batched media content without a model-family content adapter", async () => {
     using model = new TinyModel();
     const tokenizer = new TinyTokenizer();
     const events: ServeEvent[] = [];
@@ -512,7 +527,7 @@ describe("transformers generation engine", () => {
           protocol: "openai.chat_completions",
         },
       ]),
-    ).rejects.toThrow("media-shaped input");
+    ).rejects.toThrow("does not prepare media tensors");
 
     expect(events).toContainEqual({
       type: "generation_route_decision",
@@ -527,6 +542,226 @@ describe("transformers generation engine", () => {
       ...ROUTE_STRATEGY,
       stream: false,
     });
+  });
+
+  test("generates media content through prepared prompt tensors", async () => {
+    using model = new PreparedPromptModel();
+    const tokenizer = new TinyTokenizer();
+    const events: ServeEvent[] = [];
+    const engine = createTransformersGenerationEngine({
+      model,
+      tokenizer,
+      contentAdapter: {
+        async load(request) {
+          expect(request.input.kind).toBe("content");
+          return {
+            prompt: { text: "user:<image>", tokenIds: [0, 1] },
+            preparePrompt() {
+              return {
+                tokenIds: [0, 1],
+                inputEmbeddings: array([[[0], [1]]], "float32"),
+                positionIds: array([[0, 1]], "int32"),
+              };
+            },
+          };
+        },
+      },
+      onEvent(event) {
+        events.push(event);
+      },
+    });
+
+    const result = await engine.generate({
+      id: "media-prepared",
+      model: "tiny",
+      input: {
+        kind: "content",
+        messages: [
+          {
+            role: "user",
+            content: [
+              { kind: "text", text: "Describe this." },
+              {
+                kind: "image",
+                source: { kind: "data", mediaType: "image/png", data: "AA==" },
+              },
+            ],
+          },
+        ],
+      },
+      sampling: { maxTokens: 2, temperature: 0 },
+      stream: false,
+      protocol: "openai.chat_completions",
+    });
+
+    expect(result.text).toBe("cc");
+    expect(result.usage).toEqual({ promptTokens: 2, completionTokens: 2, totalTokens: 4 });
+    expect(model.forwardedInputEmbeddingShapes).toContainEqual([1, 1, 1]);
+    expect(model.forwardedPositionIdShapes).toContainEqual([1, 1]);
+    expect(events).toContainEqual({
+      type: "generation_route_decision",
+      id: "media-prepared",
+      protocol: "openai.chat_completions",
+      model: "tiny",
+      route: "single",
+      eligible: false,
+      reason: "media_input",
+      modelType: "serve-test",
+      maxBatchSize: 1,
+      ...ROUTE_STRATEGY,
+      stream: false,
+    });
+  });
+
+  test("streams media content through prepared prompt tensors", async () => {
+    using model = new PreparedPromptModel();
+    const tokenizer = new TinyTokenizer();
+    const engine = createTransformersGenerationEngine({
+      model,
+      tokenizer,
+      contentAdapter: {
+        async load() {
+          return {
+            prompt: { text: "user:<image>", tokenIds: [0, 1] },
+            preparePrompt() {
+              return {
+                tokenIds: [0, 1],
+                inputEmbeddings: array([[[0], [1]]], "float32"),
+                positionIds: array([[0, 1]], "int32"),
+              };
+            },
+          };
+        },
+      },
+    });
+    const stream = engine.stream;
+    if (stream === undefined) {
+      throw new Error("Expected transformers engine to expose stream.");
+    }
+
+    const events = await collectStreamEvents(stream, {
+      id: "media-stream",
+      model: "tiny",
+      input: {
+        kind: "content",
+        messages: [
+          {
+            role: "user",
+            content: [
+              { kind: "text", text: "Describe this." },
+              {
+                kind: "image",
+                source: { kind: "data", mediaType: "image/png", data: "AA==" },
+              },
+            ],
+          },
+        ],
+      },
+      sampling: { maxTokens: 2, temperature: 0 },
+      stream: true,
+      protocol: "openai.chat_completions",
+    });
+
+    expect(events).toEqual([
+      { type: "text", text: "c" },
+      { type: "text", text: "c" },
+      {
+        type: "done",
+        finishReason: "length",
+        usage: { promptTokens: 2, completionTokens: 2, totalTokens: 4 },
+      },
+    ]);
+    expect(model.forwardedInputEmbeddingShapes).toContainEqual([1, 1, 1]);
+    expect(model.forwardedPositionIdShapes).toContainEqual([1, 1]);
+  });
+
+  test("loads media content before acquiring the model lane", async () => {
+    using model = new PreparedPromptModel();
+    const tokenizer = new TinyTokenizer();
+    const order: string[] = [];
+    const engine = createTransformersGenerationEngine({
+      model,
+      tokenizer,
+      contentAdapter: {
+        async load() {
+          order.push("load");
+          return {
+            prompt: { text: "user:<image>", tokenIds: [0, 1] },
+            preparePrompt() {
+              order.push("prepare");
+              return {
+                tokenIds: [0, 1],
+                inputEmbeddings: array([[[0], [1]]], "float32"),
+              };
+            },
+          };
+        },
+      },
+      onEvent(event) {
+        if (event.type === "generation_model_lane_wait") {
+          order.push("lane");
+        }
+      },
+    });
+
+    await engine.generate({
+      id: "media-lane-order",
+      model: "tiny",
+      input: {
+        kind: "content",
+        messages: [{ role: "user", content: [{ kind: "text", text: "Describe this." }] }],
+      },
+      sampling: { maxTokens: 1, temperature: 0 },
+      stream: false,
+      protocol: "openai.chat_completions",
+    });
+
+    expect(order).toEqual(["load", "lane", "prepare"]);
+  });
+
+  test("rejects aborted media content before loading or acquiring the model lane", async () => {
+    using model = new PreparedPromptModel();
+    const tokenizer = new TinyTokenizer();
+    const events: ServeEvent[] = [];
+    let loaded = false;
+    const controller = new AbortController();
+    controller.abort();
+    const engine = createTransformersGenerationEngine({
+      model,
+      tokenizer,
+      contentAdapter: {
+        async load() {
+          loaded = true;
+          return {
+            prompt: { text: "user:<image>", tokenIds: [0, 1] },
+            preparePrompt() {
+              return { tokenIds: [0, 1] };
+            },
+          };
+        },
+      },
+      onEvent(event) {
+        events.push(event);
+      },
+    });
+
+    await expect(
+      engine.generate({
+        id: "media-aborted",
+        model: "tiny",
+        input: {
+          kind: "content",
+          messages: [{ role: "user", content: [{ kind: "text", text: "Describe this." }] }],
+        },
+        sampling: { maxTokens: 1, temperature: 0 },
+        stream: false,
+        protocol: "openai.chat_completions",
+        abortSignal: controller.signal,
+      }),
+    ).rejects.toThrow("cancelled");
+
+    expect(loaded).toBe(false);
+    expect(events.some((event) => event.type === "generation_model_lane_wait")).toBe(false);
   });
 
   test("applies text stop sequences above token-level EOS handling", async () => {

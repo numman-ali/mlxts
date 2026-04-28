@@ -129,6 +129,8 @@ function testRuntime(options: {
   calls: string[];
   models?: FakeModel[];
   failOn?: string;
+  loadQwenConditional?: boolean;
+  recordContentAdapters?: boolean;
 }): ServeModelsRuntime {
   const models = options.models ?? [new FakeModel(), new FakeModel()];
   return {
@@ -140,7 +142,7 @@ function testRuntime(options: {
       if (options.failOn === `resolve:${source}`) {
         throw new Error(`resolve failed:${source}`);
       }
-      return `/snapshots/${source}`;
+      return source.startsWith("/") ? source : `/snapshots/${source}`;
     },
     async loadCausalLM(source) {
       options.calls.push(`model:${source}`);
@@ -167,8 +169,40 @@ function testRuntime(options: {
       }
       return fakeInteractionProfile;
     },
+    ...(options.loadQwenConditional === true
+      ? {
+          async loadQwen3_5ForConditionalGeneration(source) {
+            options.calls.push(`qwen-conditional-model:${source}`);
+            const model = models.shift();
+            if (model === undefined) {
+              throw new Error("missing fake model");
+            }
+            return model;
+          },
+          async loadQwen3_5VisionPreprocessor(source) {
+            options.calls.push(`qwen-preprocessor:${source}`);
+            return {
+              size: { shortestEdge: 3136, longestEdge: 50176 },
+              patchSize: 16,
+              temporalPatchSize: 2,
+              mergeSize: 2,
+              imageMean: [0.5, 0.5, 0.5],
+              imageStd: [0.5, 0.5, 0.5],
+              processorClass: "Qwen3VLProcessor",
+              imageProcessorType: "Qwen2VLImageProcessorFast",
+            };
+          },
+        }
+      : {}),
     serveLoadedModels(serveOptions) {
       const modelIds = serveOptions.models.map((model) => model.modelId);
+      if (options.recordContentAdapters === true) {
+        options.calls.push(
+          `content-adapters:${serveOptions.models
+            .map((model) => (model.contentAdapter === undefined ? "no" : "yes"))
+            .join(",")}`,
+        );
+      }
       options.calls.push(
         `serve:${modelIds.join(",")}:${serveOptions.apiKey}:${serveOptions.maxBatchSize}:${serveOptions.disposeModelsOnStop}`,
       );
@@ -178,6 +212,19 @@ function testRuntime(options: {
       return fakeRunningServer(modelIds);
     },
   };
+}
+
+function createQwenConditionalDirectory(): string {
+  const directory = `${Bun.env.TMPDIR ?? "/tmp"}/mlxts-qwen-conditional-${crypto.randomUUID()}`;
+  const result = Bun.spawnSync(["mkdir", "-p", directory]);
+  if (result.exitCode !== 0) {
+    throw new Error("failed to create temporary Qwen checkpoint directory");
+  }
+  return directory;
+}
+
+function removeDirectory(path: string): void {
+  Bun.spawnSync(["rm", "-rf", path]);
 }
 
 describe("serveModels", () => {
@@ -273,5 +320,47 @@ describe("serveModels", () => {
 
     expect(first.disposeCount).toBe(1);
     expect(second.disposeCount).toBe(1);
+  });
+
+  test("loads Qwen conditional checkpoints with an image content adapter", async () => {
+    const calls: string[] = [];
+    const directory = createQwenConditionalDirectory();
+    await Bun.write(
+      `${directory}/config.json`,
+      JSON.stringify({
+        model_type: "qwen3_5",
+        architectures: ["Qwen3_5ForConditionalGeneration"],
+        vision_config: { hidden_size: 8 },
+      }),
+    );
+    const runtime = testRuntime({
+      calls,
+      loadQwenConditional: true,
+      recordContentAdapters: true,
+    });
+
+    try {
+      const running = await serveModelsWithRuntime(
+        {
+          models: [{ source: directory, modelId: "mlx-community/Qwen3.6-27B-4bit" }],
+          localFilesOnly: true,
+        },
+        runtime,
+      );
+
+      expect(running.modelIds).toEqual(["mlx-community/Qwen3.6-27B-4bit"]);
+      expect(calls).toEqual([
+        `resolve:${directory}:undefined:true`,
+        `qwen-conditional-model:${directory}`,
+        `tokenizer:${directory}`,
+        `profile:${directory}`,
+        `qwen-preprocessor:${directory}`,
+        "content-adapters:yes",
+        "serve:mlx-community/Qwen3.6-27B-4bit:undefined:undefined:true",
+      ]);
+      running.stop();
+    } finally {
+      removeDirectory(directory);
+    }
   });
 });

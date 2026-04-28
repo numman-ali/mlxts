@@ -4,19 +4,23 @@
  */
 
 import type {
+  CausalLM,
   LoadSourceOptions,
   loadCausalLM,
   loadInteractionProfile,
   loadPretrainedTokenizer,
   PretrainedLoadProgressEvent,
+  Qwen3_5VisionPreprocessorConfig,
   resolvePretrainedSource,
 } from "@mlxts/transformers";
+import { shouldLoadQwen3_5ForConditionalGeneration } from "@mlxts/transformers";
 import {
   type LoadedModelServerEntry,
   type RunningModelServer,
   type ServeLoadedModelsOptions,
   serveLoadedModels,
 } from "./model-server";
+import { createQwen3_5ImageContentAdapter } from "./transformers-engine-content";
 
 type SourceLoadOptions = Omit<LoadSourceOptions, "onProgress">;
 
@@ -40,6 +44,14 @@ export type ServeModelsOptions = Omit<ServeLoadedModelsOptions, "models" | "disp
 export type ServeModelsRuntime = {
   resolvePretrainedSource: typeof resolvePretrainedSource;
   loadCausalLM: typeof loadCausalLM;
+  loadQwen3_5ForConditionalGeneration?: (
+    source: string,
+    options?: LoadSourceOptions,
+  ) => Promise<CausalLM>;
+  loadQwen3_5VisionPreprocessor?: (
+    source: string,
+    options?: LoadSourceOptions,
+  ) => Promise<Qwen3_5VisionPreprocessorConfig>;
   loadPretrainedTokenizer: typeof loadPretrainedTokenizer;
   loadInteractionProfile: typeof loadInteractionProfile;
   serveLoadedModels: typeof serveLoadedModels;
@@ -197,19 +209,55 @@ function disposeModelAfterFailure(model: LoadedModelServerEntry["model"], error:
   throw error;
 }
 
+async function loadModel(
+  entry: ResolvedModelSourceEntry,
+  runtime: ServeModelsRuntime,
+  loadQwenConditional: boolean,
+): Promise<LoadedModelServerEntry["model"]> {
+  if (loadQwenConditional && runtime.loadQwen3_5ForConditionalGeneration !== undefined) {
+    return runtime.loadQwen3_5ForConditionalGeneration(entry.source, entry.loadOptions);
+  }
+  return runtime.loadCausalLM(entry.source, entry.loadOptions);
+}
+
+async function loadContentAdapter(
+  entry: ResolvedModelSourceEntry,
+  runtime: ServeModelsRuntime,
+  loadQwenConditional: boolean,
+) {
+  if (!loadQwenConditional || runtime.loadQwen3_5VisionPreprocessor === undefined) {
+    return undefined;
+  }
+  const preprocessor = await runtime.loadQwen3_5VisionPreprocessor(entry.source, entry.loadOptions);
+  return createQwen3_5ImageContentAdapter(preprocessor);
+}
+
+function canLoadQwenConditional(runtime: ServeModelsRuntime): boolean {
+  return (
+    runtime.loadQwen3_5ForConditionalGeneration !== undefined &&
+    runtime.loadQwen3_5VisionPreprocessor !== undefined
+  );
+}
+
 async function loadModelEntry(
   entry: ResolvedModelSourceEntry,
   runtime: ServeModelsRuntime,
 ): Promise<LoadedModelServerEntry> {
   const localSource = await runtime.resolvePretrainedSource(entry.source, entry.loadOptions);
-  const model = await runtime.loadCausalLM(localSource, entry.loadOptions);
+  const resolvedEntry = { ...entry, source: localSource };
+  const loadQwenConditional =
+    canLoadQwenConditional(runtime) &&
+    (await shouldLoadQwen3_5ForConditionalGeneration(localSource));
+  const model = await loadModel(resolvedEntry, runtime, loadQwenConditional);
   try {
     const tokenizer = await runtime.loadPretrainedTokenizer(localSource, entry.loadOptions);
     const interactionProfile = await runtime.loadInteractionProfile(localSource, entry.loadOptions);
+    const contentAdapter = await loadContentAdapter(resolvedEntry, runtime, loadQwenConditional);
     return {
       model,
       tokenizer,
       interactionProfile,
+      ...(contentAdapter === undefined ? {} : { contentAdapter }),
       modelId: entry.modelId,
     };
   } catch (error) {
@@ -243,6 +291,8 @@ export async function serveModels(options: ServeModelsOptions): Promise<RunningM
   return serveModelsWithRuntime(options, {
     resolvePretrainedSource: runtime.resolvePretrainedSource,
     loadCausalLM: runtime.loadCausalLM,
+    loadQwen3_5ForConditionalGeneration: runtime.loadQwen3_5ForConditionalGeneration,
+    loadQwen3_5VisionPreprocessor: runtime.loadQwen3_5VisionPreprocessor,
     loadPretrainedTokenizer: runtime.loadPretrainedTokenizer,
     loadInteractionProfile: runtime.loadInteractionProfile,
     serveLoadedModels,

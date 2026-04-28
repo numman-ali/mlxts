@@ -6,6 +6,7 @@ import type {
   CausalLM,
   ForwardOptions,
   InteractionProfile,
+  Qwen3_5VisionPreprocessorConfig,
   TransformerCache,
 } from "@mlxts/transformers";
 import { KVCache } from "@mlxts/transformers";
@@ -156,6 +157,17 @@ class GeneratingModel extends FakeModel {
 
   override createCache(): TransformerCache {
     return new KVCache(this.layerCount);
+  }
+}
+
+class PreparedGeneratingModel extends GeneratingModel {
+  readonly forwardedInputEmbeddingShapes: number[][] = [];
+
+  override forward(inputIds: MxArray, options?: ForwardOptions): MxArray {
+    if (options?.inputEmbeddings !== undefined) {
+      this.forwardedInputEmbeddingShapes.push([...options.inputEmbeddings.shape]);
+    }
+    return super.forward(inputIds, options);
   }
 }
 
@@ -480,6 +492,58 @@ describe("serveLoadedModel", () => {
     expect(qwen.disposeCount).toBe(1);
   });
 
+  test("serves OpenAI chat image content through a loaded content adapter", async () => {
+    const model = new PreparedGeneratingModel();
+    const running = serveLoadedModel({
+      model,
+      tokenizer: new GeneratingTokenizer(),
+      modelId: "mlx-community/Qwen3.6-27B-4bit",
+      port: 0,
+      contentAdapter: {
+        async load() {
+          return {
+            prompt: { text: "user:<image>", tokenIds: [0, 1] },
+            preparePrompt() {
+              return {
+                tokenIds: [0, 1],
+                inputEmbeddings: array([[[0], [1]]], "float32"),
+              };
+            },
+          };
+        },
+      },
+    });
+
+    try {
+      const response = await fetch(`${running.endpoint}/v1/chat/completions`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          model: "mlx-community/Qwen3.6-27B-4bit",
+          messages: [
+            {
+              role: "user",
+              content: [
+                { type: "text", text: "Describe this." },
+                { type: "image_url", image_url: { url: "data:image/png;base64,AA==" } },
+              ],
+            },
+          ],
+          max_tokens: 2,
+          temperature: 0,
+        }),
+      });
+
+      expect(response.status).toBe(200);
+      expect(await response.json()).toMatchObject({
+        choices: [{ message: { role: "assistant", content: "cc" } }],
+      });
+      expect(model.forwardedInputEmbeddingShapes).toContainEqual([1, 1, 1]);
+    } finally {
+      running.stop();
+    }
+  });
+
   test("validates operator-facing server options before binding", () => {
     const model = new FakeModel();
     const tokenizer = new FakeTokenizer();
@@ -665,6 +729,75 @@ describe("serveLoadedModel", () => {
     running.stop();
   });
 
+  test("loads single Qwen conditional checkpoints with an image content adapter", async () => {
+    const model = new FakeModel();
+    const calls: string[] = [];
+    const directory = createQwenConditionalDirectory();
+    await Bun.write(
+      `${directory}/config.json`,
+      JSON.stringify({
+        model_type: "qwen3_5",
+        architectures: ["Qwen3_5ForConditionalGeneration"],
+        vision_config: { hidden_size: 8 },
+      }),
+    );
+    const runtime: ServeModelRuntime = {
+      async resolvePretrainedSource(source, options) {
+        calls.push(`resolve:${source}:${options?.localFilesOnly}`);
+        return directory;
+      },
+      async loadCausalLM() {
+        throw new Error("single Qwen conditional checkpoints should not use loadCausalLM");
+      },
+      async loadQwen3_5ForConditionalGeneration(source) {
+        calls.push(`qwen-conditional-model:${source}`);
+        return model;
+      },
+      async loadQwen3_5VisionPreprocessor(source) {
+        calls.push(`qwen-preprocessor:${source}`);
+        return qwenPreprocessorConfig;
+      },
+      async loadPretrainedTokenizer(source) {
+        calls.push(`tokenizer:${source}`);
+        return new FakeTokenizer();
+      },
+      async loadInteractionProfile(source) {
+        calls.push(`profile:${source}`);
+        return fakeInteractionProfile;
+      },
+      serveLoadedModel(options) {
+        calls.push(
+          `serve:${options.modelId}:${options.contentAdapter === undefined ? "no" : "yes"}`,
+        );
+        return fakeRunningServer(options.modelId);
+      },
+    };
+
+    try {
+      const running = await serveModelWithRuntime(
+        {
+          source: "repo/qwen",
+          modelId: "mlx-community/Qwen3.6-27B-4bit",
+          localFilesOnly: true,
+        },
+        runtime,
+      );
+
+      expect(running.modelId).toBe("mlx-community/Qwen3.6-27B-4bit");
+      expect(calls).toEqual([
+        "resolve:repo/qwen:true",
+        `qwen-conditional-model:${directory}`,
+        `tokenizer:${directory}`,
+        `profile:${directory}`,
+        `qwen-preprocessor:${directory}`,
+        "serve:mlx-community/Qwen3.6-27B-4bit:yes",
+      ]);
+      running.stop();
+    } finally {
+      removeDirectory(directory);
+    }
+  });
+
   test("disposes loaded models when tokenizer loading fails", async () => {
     const model = new FakeModel();
     const runtime: ServeModelRuntime = {
@@ -723,3 +856,30 @@ function fakeRunningServer(modelId: string) {
     },
   };
 }
+
+function createQwenConditionalDirectory(): string {
+  const directory = `${Bun.env.TMPDIR ?? "/tmp"}/mlxts-single-qwen-${crypto.randomUUID()}`;
+  const result = Bun.spawnSync(["mkdir", "-p", directory]);
+  if (result.exitCode !== 0) {
+    throw new Error("failed to create temporary Qwen checkpoint directory");
+  }
+  return directory;
+}
+
+function removeDirectory(path: string): void {
+  Bun.spawnSync(["rm", "-rf", path]);
+}
+
+const qwenPreprocessorConfig: Qwen3_5VisionPreprocessorConfig = {
+  size: {
+    shortestEdge: 56,
+    longestEdge: 256,
+  },
+  patchSize: 14,
+  temporalPatchSize: 2,
+  mergeSize: 2,
+  imageMean: [0, 0, 0],
+  imageStd: [1, 1, 1],
+  processorClass: null,
+  imageProcessorType: null,
+};
