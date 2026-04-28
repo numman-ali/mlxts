@@ -1,5 +1,5 @@
-import { collectLinearModulePaths } from "./lora-module-traversal";
-import type { CausalLM } from "./types";
+import type { CausalLM } from "../types";
+import { collectLinearModulePaths } from "./module-traversal";
 
 /** Named LoRA target bundles for causal decoder fine-tuning. */
 export type LoRATargetPreset = "attention" | "attention+mlp" | "all-linear";

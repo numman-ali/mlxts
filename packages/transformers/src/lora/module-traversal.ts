@@ -1,6 +1,6 @@
 import { Linear, LoRALinear, Module, QuantizedLinear } from "@mlxts/nn";
 
-import type { CausalLM } from "./types";
+import type { CausalLM } from "../types";
 
 type ModuleSlot = {
   path: string;

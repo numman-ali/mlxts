@@ -5,9 +5,9 @@ import { LoRALinear } from "@mlxts/nn";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
-import { loadCausalLMAdapters, saveCausalLMAdapters } from "./lora-adapters";
-import { collectLoRAWrapperStates, expectCausalLMModule } from "./lora-module-traversal";
-import { resolveLoRATargets } from "./lora-targets";
+import { loadCausalLMAdapters, saveCausalLMAdapters } from "./lora/adapters";
+import { collectLoRAWrapperStates, expectCausalLMModule } from "./lora/module-traversal";
+import { resolveLoRATargets } from "./lora/targets";
 import { resolveFamily } from "./registry";
 import type { CausalLM } from "./types";
 

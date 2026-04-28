@@ -9,9 +9,9 @@ import type { LoRAConfig } from "@mlxts/lora";
 import { applyLoRAToModule, loadLoRAAdapters, saveLoRAAdapters } from "@mlxts/lora";
 import { mkdirSync } from "fs";
 
-import { collectLoRAWrapperStates, expectCausalLMModule } from "./lora-module-traversal";
-import { resolveFamily } from "./registry";
-import type { CausalLM } from "./types";
+import { resolveFamily } from "../registry";
+import type { CausalLM } from "../types";
+import { collectLoRAWrapperStates, expectCausalLMModule } from "./module-traversal";
 
 /** Supported on-disk adapter formats for transformer-owned causal LM adapter I/O. */
 export type CausalLMAdapterFormat = "mlxts" | "peft";

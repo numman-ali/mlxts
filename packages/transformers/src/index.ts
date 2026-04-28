@@ -71,13 +71,13 @@ export {
   loadCausalLMAdapters,
   type SaveCausalLMAdaptersOptions,
   saveCausalLMAdapters,
-} from "./lora-adapters";
+} from "./lora/adapters";
 export {
   type LoRATargetPreset,
   type ResolvedLoRATargets,
   type ResolveLoRATargetsOptions,
   resolveLoRATargets,
-} from "./lora-targets";
+} from "./lora/targets";
 export { disposePreparedPrompt, slicePreparedPrompt } from "./prepared-prompt";
 export type { QuantizedSnapshotResult, QuantizePretrainedSnapshotOptions } from "./quantize";
 export { quantizePretrainedSnapshot } from "./quantize";
