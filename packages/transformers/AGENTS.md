@@ -60,3 +60,24 @@ and attention dispatch; they do not become model-config flags.
   first non-empty generated answer line while still printing the full response.
   Broad Qwen context-window claims need early, middle, and late marker evidence,
   not only the default late-position needle.
+
+## Forward-readiness Checklist
+
+- New lean family: adds `families/<name>/{config.ts, weights.ts}`, registers in
+  `registry.ts`, and dispatches to `llama-like/`. Subtle differences such as
+  norm offset, activation, and embedding scale live in config flags consumed by
+  the shared backbone.
+- New full family: owns `model.ts`, `attention.ts`, `block.ts`, `mlp.ts`,
+  `norm.ts`, `config.ts`, `weights.ts`, and `types.ts`. A `runtime/` subfolder
+  exists when compile-keyed transforms or shape-memoized helpers cross 100 LOC.
+  Intent-named subfolders exist when the family grows past roughly 12 files at
+  one level.
+- New cache backend: extends `infrastructure/cache/` with a new variant.
+  Family-owned snapshot/fork declares `layerKinds` per layer. Consumers dispatch
+  on `CacheLayerKind`, not on family identifiers.
+- New attention backend: introduces a semantic attention call surface in
+  `infrastructure/` before backend choice appears across family `attention.ts`
+  files.
+- New decoding strategy: extends `infrastructure/generation/` and the cache
+  trim/restore contract. Decoding flags do not live on family configs.
+- Vestigial cleanup: deletes top-level family directories without owned files.
