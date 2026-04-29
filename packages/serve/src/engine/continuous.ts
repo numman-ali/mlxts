@@ -10,6 +10,7 @@ import {
   createContinuousBatchTokenScheduler,
 } from "@mlxts/transformers";
 import { createContinuousSchedulerTokenBudget } from "../admission/continuous-budget";
+import { continuousSchedulerMemoryBudgetOptions } from "../admission/continuous-memory";
 import { linkAbortSignals } from "../http/abort";
 import { transformersRuntimeStrategy } from "../runtime/strategy";
 import type {
@@ -127,6 +128,8 @@ function schedulerCounts(event: ContinuousBatchSchedulerEvent) {
     maxScheduledCompletionTokens: event.maxScheduledCompletionTokens,
     scheduledTotalTokens: event.scheduledTotalTokens,
     maxScheduledTotalTokens: event.maxScheduledTotalTokens,
+    scheduledMemoryBytes: event.scheduledMemoryBytes,
+    maxScheduledMemoryBytes: event.maxScheduledMemoryBytes,
   };
 }
 
@@ -311,6 +314,7 @@ export function createContinuousTransformersGeneration(
 ): ContinuousTransformersGeneration {
   const schedulers = new Map<string, SchedulerEntry>();
   const strategy = transformersRuntimeStrategy(options);
+  const memoryBudget = continuousSchedulerMemoryBudgetOptions(options.model, strategy);
   const admissionController = createContinuousSchedulerTokenBudget({
     maxBatchSize: strategy.scheduler.maxBatchSize,
     ...(options.maxGeneratedTokens === undefined
@@ -318,6 +322,7 @@ export function createContinuousTransformersGeneration(
       : { maxGeneratedTokens: options.maxGeneratedTokens }),
     ...(options.maxPromptTokens === undefined ? {} : { maxPromptTokens: options.maxPromptTokens }),
     ...(options.maxTotalTokens === undefined ? {} : { maxTotalTokens: options.maxTotalTokens }),
+    ...memoryBudget,
   });
 
   function schedulerFor(prepared: PreparedGenerationRequest): SchedulerEntry {

@@ -123,6 +123,8 @@ function trial(overrides: Partial<TrialMetrics> = {}): TrialMetrics {
         schedulerMaxScheduledCompletionTokens: null,
         schedulerScheduledTotalTokens: null,
         schedulerMaxScheduledTotalTokens: null,
+        schedulerScheduledMemoryBytes: null,
+        schedulerMaxScheduledMemoryBytes: null,
         serverPrefillStartMs: null,
         serverPrefillEndMs: null,
         serverPrefillMs: null,
@@ -492,6 +494,8 @@ describe("serve regression matrix", () => {
           schedulerMaxScheduledCompletionTokens: 8,
           schedulerScheduledTotalTokens: 16,
           schedulerMaxScheduledTotalTokens: 32,
+          schedulerScheduledMemoryBytes: 1024,
+          schedulerMaxScheduledMemoryBytes: 4096,
         },
         {
           ...baseServerRequest,
@@ -509,6 +513,8 @@ describe("serve regression matrix", () => {
           schedulerMaxScheduledCompletionTokens: 8,
           schedulerScheduledTotalTokens: 16,
           schedulerMaxScheduledTotalTokens: 32,
+          schedulerScheduledMemoryBytes: 2048,
+          schedulerMaxScheduledMemoryBytes: 4096,
         },
       ],
     });
@@ -538,6 +544,21 @@ describe("serve regression matrix", () => {
         continuousBudget,
       ),
     ).toThrow("scheduler token pressure");
+    expect(() =>
+      assertServeReportBudget(
+        "qwen",
+        report(
+          trial({
+            ...continuousMetrics,
+            serverRequests: continuousMetrics.serverRequests.map((request) => ({
+              ...request,
+              schedulerScheduledMemoryBytes: null,
+            })),
+          }),
+        ),
+        continuousBudget,
+      ),
+    ).toThrow("scheduler memory pressure");
   });
 
   test("budgets mixed rungs against per-request generation targets", () => {
@@ -1187,6 +1208,8 @@ describe("serve regression matrix", () => {
           schedulerScheduledCompletionTokens: 16,
           schedulerMaxScheduledTotalTokens: 1024,
           schedulerScheduledTotalTokens: 156,
+          schedulerMaxScheduledMemoryBytes: 4096,
+          schedulerScheduledMemoryBytes: 2048,
           serverStreamChunks: 15,
           serverStreamBytes: 4500,
           serverStreamTtftMs: 180,

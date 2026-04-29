@@ -220,15 +220,15 @@ The next work should stay ordered around architecture truth:
 3. Keep the typed internal serving/runtime strategy seam as the path for new
    backend choices. The current seam reports implemented behavior only:
    scheduler `auto`, managed model-precision cache, attention `auto`,
-   model-native decoding, streaming decode cadence, and admit-only memory
-   preflight.
+   model-native decoding, streaming decode cadence, admit-only memory preflight,
+   and continuous scheduled-memory reservation.
 4. Harden the scheduler: continuous routes now use one model-level reservation
-   budget with separate prompt, completion, and aggregate total caps. Serving
-   exposes `--prefill-step-size` for cold prompt-prefill chunks and keeps the
-   default at a fairness-biased `512` so short arrivals can get admitted between
-   long-prefill chunks. The next passes should add stronger fairness controls
-   and keep explicit per-row decode state for sampler, stop, reasoning, and
-   future logits processors.
+   budget with separate prompt, completion, aggregate total, and estimated
+   memory caps. Serving exposes `--prefill-step-size` for cold prompt-prefill
+   chunks and keeps the default at a fairness-biased `512` so short arrivals can
+   get admitted between long-prefill chunks. The next passes should add stronger
+   fairness controls and keep explicit per-row decode state for sampler, stop,
+   reasoning, and future logits processors.
 5. Deepen cache backends behind stable contracts. Prompt-prefix cache reuse now
    covers single message/chat requests and continuous-scheduler prompt-cache
    hits through family-owned snapshot/fork semantics, one-row batch-cache

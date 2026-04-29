@@ -29,6 +29,8 @@ const SCHEDULER_TOKENS = {
   maxScheduledCompletionTokens: 128,
   scheduledTotalTokens: 128,
   maxScheduledTotalTokens: 512,
+  scheduledMemoryBytes: 1024,
+  maxScheduledMemoryBytes: 4096,
 };
 
 describe("serve CLI args", () => {
@@ -500,7 +502,7 @@ describe("serve CLI args", () => {
         ...SCHEDULER_TOKENS,
       }),
     ).toBe(
-      "[scheduler] continuous cmpl-a prefill_start queued=2.0ms prompt_tokens=4096 max_tokens=64 waiting=0 prefilling=1 active=1/8 scheduled_tokens=128/512 scheduled_prompt_tokens=96/384 scheduled_completion_tokens=32/128",
+      "[scheduler] continuous cmpl-a prefill_start queued=2.0ms prompt_tokens=4096 max_tokens=64 waiting=0 prefilling=1 active=1/8 scheduled_tokens=128/512 scheduled_prompt_tokens=96/384 scheduled_completion_tokens=32/128 scheduled_memory=1.0 KB/4.1 KB",
     );
     expect(
       formatServeEvent({
@@ -522,7 +524,7 @@ describe("serve CLI args", () => {
         ...SCHEDULER_TOKENS,
       }),
     ).toBe(
-      "[scheduler] continuous cmpl-a deferred reason=scheduled_token_budget queued=3.0ms prompt_tokens=4096 max_tokens=64 waiting=1 prefilling=0 active=1/8 scheduled_tokens=128/512 scheduled_prompt_tokens=96/384 scheduled_completion_tokens=32/128",
+      "[scheduler] continuous cmpl-a deferred reason=scheduled_token_budget queued=3.0ms prompt_tokens=4096 max_tokens=64 waiting=1 prefilling=0 active=1/8 scheduled_tokens=128/512 scheduled_prompt_tokens=96/384 scheduled_completion_tokens=32/128 scheduled_memory=1.0 KB/4.1 KB",
     );
     expect(
       formatServeEvent({
@@ -543,7 +545,7 @@ describe("serve CLI args", () => {
         ...SCHEDULER_TOKENS,
       }),
     ).toBe(
-      "[scheduler] continuous admitted size=2 wait_ms=1.5,2.5 max_tokens=64 per_request=32,64 ids=cmpl-a,cmpl-b waiting=0 prefilling=0 active=2/8 scheduled_tokens=128/512 scheduled_prompt_tokens=96/384 scheduled_completion_tokens=32/128",
+      "[scheduler] continuous admitted size=2 wait_ms=1.5,2.5 max_tokens=64 per_request=32,64 ids=cmpl-a,cmpl-b waiting=0 prefilling=0 active=2/8 scheduled_tokens=128/512 scheduled_prompt_tokens=96/384 scheduled_completion_tokens=32/128 scheduled_memory=1.0 KB/4.1 KB",
     );
     expect(
       formatServeEvent({
@@ -563,7 +565,7 @@ describe("serve CLI args", () => {
         ...SCHEDULER_TOKENS,
       }),
     ).toBe(
-      "[scheduler] continuous cmpl-a first_token at=4.0ms queued=4.0ms completion_tokens=1 waiting=0 prefilling=0 active=2/8 scheduled_tokens=128/512 scheduled_prompt_tokens=96/384 scheduled_completion_tokens=32/128",
+      "[scheduler] continuous cmpl-a first_token at=4.0ms queued=4.0ms completion_tokens=1 waiting=0 prefilling=0 active=2/8 scheduled_tokens=128/512 scheduled_prompt_tokens=96/384 scheduled_completion_tokens=32/128 scheduled_memory=1.0 KB/4.1 KB",
     );
     expect(
       formatServeEvent({
@@ -584,7 +586,7 @@ describe("serve CLI args", () => {
         ...SCHEDULER_TOKENS,
       }),
     ).toBe(
-      "[scheduler] continuous cmpl-a finished reason=length elapsed=12.0ms completion_tokens=64 waiting=0 prefilling=0 active=0/8 scheduled_tokens=128/512 scheduled_prompt_tokens=96/384 scheduled_completion_tokens=32/128",
+      "[scheduler] continuous cmpl-a finished reason=length elapsed=12.0ms completion_tokens=64 waiting=0 prefilling=0 active=0/8 scheduled_tokens=128/512 scheduled_prompt_tokens=96/384 scheduled_completion_tokens=32/128 scheduled_memory=1.0 KB/4.1 KB",
     );
     expect(
       formatServeEvent({
@@ -604,7 +606,7 @@ describe("serve CLI args", () => {
         ...SCHEDULER_TOKENS,
       }),
     ).toBe(
-      "[scheduler] continuous cmpl-a cancelled elapsed=3.0ms completion_tokens=0 waiting=0 prefilling=0 active=0/8 scheduled_tokens=128/512 scheduled_prompt_tokens=96/384 scheduled_completion_tokens=32/128",
+      "[scheduler] continuous cmpl-a cancelled elapsed=3.0ms completion_tokens=0 waiting=0 prefilling=0 active=0/8 scheduled_tokens=128/512 scheduled_prompt_tokens=96/384 scheduled_completion_tokens=32/128 scheduled_memory=1.0 KB/4.1 KB",
     );
     expect(
       formatServeEvent({

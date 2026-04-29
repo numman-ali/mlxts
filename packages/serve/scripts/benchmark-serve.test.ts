@@ -15,6 +15,8 @@ const SCHEDULER_TOKENS = {
   maxScheduledCompletionTokens: 8,
   scheduledTotalTokens: 12,
   maxScheduledTotalTokens: 32,
+  scheduledMemoryBytes: 1024,
+  maxScheduledMemoryBytes: 4096,
 };
 
 describe("serve benchmark reports", () => {
@@ -419,6 +421,8 @@ describe("serve benchmark reports", () => {
         schedulerMaxScheduledCompletionTokens: 8,
         schedulerScheduledTotalTokens: 12,
         schedulerMaxScheduledTotalTokens: 32,
+        schedulerScheduledMemoryBytes: 1024,
+        schedulerMaxScheduledMemoryBytes: 4096,
       },
     ]);
   });

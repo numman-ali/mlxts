@@ -21,7 +21,7 @@ function request(
 }
 
 function requireBudget(
-  options: { maxPromptTokens?: number; maxGeneratedTokens?: number; maxTotalTokens?: number },
+  options: Omit<Parameters<typeof createContinuousSchedulerTokenBudget>[0], "maxBatchSize">,
   maxBatchSize: number,
 ): ContinuousBatchAdmissionController {
   const budget = createContinuousSchedulerTokenBudget({ ...options, maxBatchSize });
@@ -54,6 +54,8 @@ describe("continuous scheduler token budget", () => {
       maxScheduledCompletionTokens: 4,
       scheduledTotalTokens: 5,
       maxScheduledTotalTokens: 12,
+      scheduledMemoryBytes: 0,
+      maxScheduledMemoryBytes: null,
     });
     expect(budget.tryReserve(request(1, 4, "completion-bound"))).toEqual({
       type: "deferred",
@@ -64,6 +66,8 @@ describe("continuous scheduler token budget", () => {
       maxScheduledCompletionTokens: 4,
       scheduledTotalTokens: 5,
       maxScheduledTotalTokens: 12,
+      scheduledMemoryBytes: 0,
+      maxScheduledMemoryBytes: null,
     });
     expect(budget.tryReserve(request(9, 1, "too-large-prompt"))).toEqual({
       type: "rejected",
@@ -107,6 +111,8 @@ describe("continuous scheduler token budget", () => {
       maxScheduledCompletionTokens: 100,
       scheduledTotalTokens: 50,
       maxScheduledTotalTokens: 100,
+      scheduledMemoryBytes: 0,
+      maxScheduledMemoryBytes: null,
     });
     const unsubscribe = budget.onRelease(() => {
       wakeups += 1;
@@ -131,5 +137,52 @@ describe("continuous scheduler token budget", () => {
         maxBatchSize: 1,
       }),
     ).toBeUndefined();
+  });
+
+  test("defers, rejects, and releases scheduled-memory reservations", () => {
+    const budget = requireBudget(
+      {
+        maxScheduledMemoryBytes: 100,
+        estimateMemoryBytes(request) {
+          return request.totalTokens * 10;
+        },
+      },
+      2,
+    );
+    const first = reserve(budget, request(4, 1, "first"));
+
+    expect(budget.snapshot()).toEqual({
+      scheduledPromptTokens: 4,
+      maxScheduledPromptTokens: null,
+      scheduledCompletionTokens: 1,
+      maxScheduledCompletionTokens: null,
+      scheduledTotalTokens: 5,
+      maxScheduledTotalTokens: null,
+      scheduledMemoryBytes: 50,
+      maxScheduledMemoryBytes: 100,
+    });
+    expect(budget.tryReserve(request(4, 2, "memory-bound"))).toEqual({
+      type: "deferred",
+      reason: "scheduled_memory_budget",
+      scheduledPromptTokens: 4,
+      maxScheduledPromptTokens: null,
+      scheduledCompletionTokens: 1,
+      maxScheduledCompletionTokens: null,
+      scheduledTotalTokens: 5,
+      maxScheduledTotalTokens: null,
+      scheduledMemoryBytes: 50,
+      maxScheduledMemoryBytes: 100,
+    });
+    expect(budget.tryReserve(request(10, 1, "too-large-memory"))).toEqual({
+      type: "rejected",
+      message:
+        "Continuous scheduler request too-large-memory requires estimated memory 110 B, exceeding the model-level scheduled memory budget of 100 B.",
+    });
+
+    first[Symbol.dispose]();
+
+    expect(budget.tryReserve(request(4, 2, "memory-bound"))).toMatchObject({
+      type: "reserved",
+    });
   });
 });

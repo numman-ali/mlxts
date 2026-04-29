@@ -334,6 +334,8 @@ class TestTokenBudget implements ContinuousBatchAdmissionController {
       maxScheduledCompletionTokens: this.#maxScheduledTotalTokens,
       scheduledTotalTokens: this.#scheduledTotalTokens,
       maxScheduledTotalTokens: this.#maxScheduledTotalTokens,
+      scheduledMemoryBytes: 0,
+      maxScheduledMemoryBytes: null,
     };
   }
 

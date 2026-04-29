@@ -96,25 +96,26 @@ long-prefill fairness policy: active rows keep decoding for a bounded quantum,
 then long prompt-prefill work resumes in smaller chunks so short streamed
 requests do not wait behind multi-second prefill slices.
 
-Eligible continuous-scheduler requests also share a model-level scheduled-token
-reservation budget derived from `max_total_tokens * max_batch_size`. This keeps
+Eligible continuous-scheduler requests also share a model-level reservation
+budget derived from token limits and estimated memory headroom. This keeps
 multiple scheduler keys, for example different sampling defaults, from
-silently over-admitting more total prompt-plus-generation work than the model
-instance was configured to carry. The budget is internal and derived from
-existing limits; it is not a separate operator flag yet.
+silently over-admitting more prompt, generation, total, or estimated cache work
+than the model instance was configured to carry. The budget is internal and
+derived from existing limits plus `--gpu-memory-utilization`; it is not a
+separate operator flag yet.
 
 `GET /info` is a lightweight operator endpoint for confirming the served model
 ids, enabled wire routes, configured request limits, per-model admission
 metadata, selected runtime strategy, and whether the current engine exposes
 streaming or batch generation. The reported strategy is derived from currently
 implemented behavior: scheduler `auto`, managed model-precision cache, attention
-`auto`, model-native decoding, streaming decode cadence, and admit-only memory
-preflight when configured. The context metadata is an admission view, not a
-memory guarantee: long Qwen contexts still need operator-set prompt/total limits
-that fit the machine. The memory preflight is deliberately conservative and
-machine-specific; it is a guardrail before prefill starts, not a promise that
-every later scheduler or multi-request workload will fit. It does not expose
-local paths, cache locations, access tokens, or queue internals.
+`auto`, model-native decoding, streaming decode cadence, admit-only memory
+preflight, and continuous scheduled-memory reservation when configured. The
+context metadata is an admission view, not a memory guarantee: long Qwen
+contexts still need operator-set prompt/total limits that fit the machine. The
+memory preflight and scheduler memory budget are deliberately conservative and
+machine-specific guardrails, not a serve-wide process memory allocator. They do
+not expose local paths, cache locations, access tokens, or queue internals.
 
 `GET /metrics` exposes Prometheus text-format metrics from the same structured
 serve events used by logs and benchmark reports. Labels are deliberately
@@ -123,12 +124,13 @@ served model ids collapse to `__unknown__` when the model list is known, and
 request ids/prompts/errors are not labels. The surface currently covers HTTP
 request counts/latency/in-flight gauges, generation starts/completions/errors,
 token totals and histograms, route decisions, model-lane waits, scheduler
-phases, batch sizes, prefill chunks, stream terminal results, server-side TTFT,
-SSE frame/byte counts, output frame counts, and latest MLX allocator memory
-gauges. Stream TTFT is measured inside the server from generation start to the
-first output-bearing SSE frame; benchmark TTFT remains client-observed and is
-kept separate. Scraping `/metrics` is excluded from HTTP counters so Prometheus
-polling does not dominate local operator signals.
+phases, scheduler token and estimated-memory pressure, batch sizes, prefill
+chunks, stream terminal results, server-side TTFT, SSE frame/byte counts, output
+frame counts, and latest MLX allocator memory gauges. Stream TTFT is measured
+inside the server from generation start to the first output-bearing SSE frame;
+benchmark TTFT remains client-observed and is kept separate. Scraping
+`/metrics` is excluded from HTTP counters so Prometheus polling does not
+dominate local operator signals.
 
 Generation start, admission micro-batch, static batch start, completion, and
 errors are logged by default so native generation failures leave a useful last
@@ -396,10 +398,10 @@ offset, streaming cadence, and finish reason. They also include
 benchmark-observed server event timelines per
 generation id, including route-decision timing, model-lane wait timing, prefill
 progress timing, first completion-progress timing, completion/error timing,
-continuous-scheduler queue timing, scheduled-token pressure, server-side stream
-TTFT/result/chunk/byte evidence, and the largest silent gap between server
-events. Staggered or concurrent runs can therefore be inspected without relying
-only on trial averages.
+continuous-scheduler queue timing, scheduled-token and scheduled-memory
+pressure, server-side stream TTFT/result/chunk/byte evidence, and the largest
+silent gap between server events. Staggered or concurrent runs can therefore be
+inspected without relying only on trial averages.
 Use `--stream-decode-interval` on `mlxts-serve` or `streamDecodeInterval` in
 programmatic serving when you need an explicit tradeoff between per-token chat
 responsiveness and lower tokenizer overhead.

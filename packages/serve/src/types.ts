@@ -171,6 +171,8 @@ type ContinuousSchedulerCounts = {
   maxScheduledCompletionTokens: number | null;
   scheduledTotalTokens: number;
   maxScheduledTotalTokens: number | null;
+  scheduledMemoryBytes: number;
+  maxScheduledMemoryBytes: number | null;
 };
 
 type ContinuousSchedulerTiming = {
@@ -205,7 +207,8 @@ type ContinuousSchedulerServeEvent =
         reason:
           | "scheduled_prompt_budget"
           | "scheduled_completion_budget"
-          | "scheduled_token_budget";
+          | "scheduled_token_budget"
+          | "scheduled_memory_budget";
         promptTokens: number;
         maxTokens: number;
       })

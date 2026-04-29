@@ -506,7 +506,7 @@ function evidenceFailures(metrics: TrialMetrics, budget: ServeRegressionBudget):
     failures.push(`server_requests ${metrics.serverRequests.length} < ${budget.minServerRequests}`);
   }
   if (budget.expectSchedulerTokenPressure) {
-    const missing = metrics.serverRequests.filter(
+    const missingTokenPressure = metrics.serverRequests.filter(
       (request) =>
         request.route === "continuous" &&
         (request.schedulerScheduledPromptTokens === null ||
@@ -516,9 +516,24 @@ function evidenceFailures(metrics: TrialMetrics, budget: ServeRegressionBudget):
           request.schedulerScheduledTotalTokens === null ||
           request.schedulerMaxScheduledTotalTokens === null),
     );
-    if (missing.length > 0) {
+    if (missingTokenPressure.length > 0) {
       failures.push(
-        `server_requests missing scheduler token pressure: ${missing.map((request) => request.id).join(",")}`,
+        `server_requests missing scheduler token pressure: ${missingTokenPressure
+          .map((request) => request.id)
+          .join(",")}`,
+      );
+    }
+    const missingMemoryPressure = metrics.serverRequests.filter(
+      (request) =>
+        request.route === "continuous" &&
+        (request.schedulerScheduledMemoryBytes === null ||
+          request.schedulerMaxScheduledMemoryBytes === null),
+    );
+    if (missingMemoryPressure.length > 0) {
+      failures.push(
+        `server_requests missing scheduler memory pressure: ${missingMemoryPressure
+          .map((request) => request.id)
+          .join(",")}`,
       );
     }
   }

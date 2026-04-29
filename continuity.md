@@ -33,6 +33,11 @@ text endpoints while benchmark and scheduler work continues.
   from client-observed TTFT. Reports now also expose protocol usage cache
   tokens plus server-event prompt-prefix cache hits, writes, and read/write
   tokens.
+- **Continuous memory admission**: continuous serving uses the existing
+  model-level reservation controller for prompt, completion, aggregate total,
+  and estimated memory pressure. Memory estimation remains serve-owned and
+  config-derived; scheduler events, metrics, CLI logs, and benchmark reports
+  expose scheduled memory pressure when the guard is active.
 - **Image serving**: Qwen image transport, host decode, and prepared-prompt
   cache shipped with explicit boundary — serve owns I/O and decode, transformers
   owns preprocessing and prompt expansion.
@@ -101,8 +106,9 @@ Full evidence ladder lives in
   candidates before the existing LCP and family-owned `canFork()` gate. Paged
   attention and cache-tensor block deduplication remain later cache-backend
   work.
-- Real serving memory preflight should reject admission deterministically
-  based on family geometry + cache layout, not advisory warnings.
+- Next memory work is multi-model pool management: model-load estimates, idle
+  eviction, pinned models, and active-request abort policy when one loaded model
+  needs to shed KV pressure.
 - Use `bun run bench:serve --stream` for huge prompt rungs; buffered JSON is
   a poor acceptance shape when client TTFT exceeds a few minutes.
 - For publishable parity claims, use

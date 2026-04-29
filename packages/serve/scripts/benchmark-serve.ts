@@ -78,6 +78,8 @@ export type ServerRequestTimingReport = {
   schedulerMaxScheduledCompletionTokens: number | null;
   schedulerScheduledTotalTokens: number | null;
   schedulerMaxScheduledTotalTokens: number | null;
+  schedulerScheduledMemoryBytes: number | null;
+  schedulerMaxScheduledMemoryBytes: number | null;
   serverPrefillStartMs: number | null;
   serverPrefillEndMs: number | null;
   serverPrefillMs: number | null;
@@ -567,6 +569,8 @@ function schedulerTokenFields(
   | "schedulerMaxScheduledCompletionTokens"
   | "schedulerScheduledTotalTokens"
   | "schedulerMaxScheduledTotalTokens"
+  | "schedulerScheduledMemoryBytes"
+  | "schedulerMaxScheduledMemoryBytes"
 > {
   const event = slice.schedulerEvents[slice.schedulerEvents.length - 1];
   return {
@@ -579,6 +583,8 @@ function schedulerTokenFields(
     schedulerMaxScheduledCompletionTokens: event?.maxScheduledCompletionTokens ?? null,
     schedulerScheduledTotalTokens: event?.scheduledTotalTokens ?? null,
     schedulerMaxScheduledTotalTokens: event?.maxScheduledTotalTokens ?? null,
+    schedulerScheduledMemoryBytes: event?.scheduledMemoryBytes ?? null,
+    schedulerMaxScheduledMemoryBytes: event?.maxScheduledMemoryBytes ?? null,
   };
 }
 

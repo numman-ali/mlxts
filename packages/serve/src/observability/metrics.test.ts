@@ -129,6 +129,8 @@ describe("serve metrics", () => {
       maxScheduledCompletionTokens: 8,
       scheduledTotalTokens: 13,
       maxScheduledTotalTokens: 16,
+      scheduledMemoryBytes: 1024,
+      maxScheduledMemoryBytes: 4096,
     });
 
     const text = metrics.format();
@@ -184,6 +186,12 @@ describe("serve metrics", () => {
     );
     expect(text).toContain(
       'mlxts_serve_scheduler_tokens{model="known",mode="continuous",state="scheduled_completion"} 8',
+    );
+    expect(text).toContain(
+      'mlxts_serve_scheduler_memory_bytes{model="known",mode="continuous",state="scheduled"} 1024',
+    );
+    expect(text).toContain(
+      'mlxts_serve_scheduler_memory_bytes{model="known",mode="continuous",state="max_scheduled"} 4096',
     );
     expect(text).toContain(
       'mlxts_serve_generation_route_decisions_total{model="__unknown__",protocol="openai.completions",route="single",eligible="false",reason="unsupported_model_type",model_type="odd\\"model",scheduler="auto",cache="managed",attention="auto",decoding="model",stream="false"} 1',

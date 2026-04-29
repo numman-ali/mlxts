@@ -166,5 +166,7 @@ export function continuousBatchQueueSnapshot(
     maxScheduledCompletionTokens: admission?.maxScheduledCompletionTokens ?? null,
     scheduledTotalTokens: admission?.scheduledTotalTokens ?? prefillingTokens + activeTotalTokens,
     maxScheduledTotalTokens: admission?.maxScheduledTotalTokens ?? null,
+    scheduledMemoryBytes: admission?.scheduledMemoryBytes ?? 0,
+    maxScheduledMemoryBytes: admission?.maxScheduledMemoryBytes ?? null,
   };
 }

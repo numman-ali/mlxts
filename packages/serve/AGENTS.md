@@ -19,8 +19,9 @@ every advertised model window fits local memory.
 Memory preflight stays best-effort and honest. It estimates cache and prefill
 memory from family config geometry, compares it with current MLX active memory
 and the configured utilization budget, and skips rather than fakes certainty
-when the model config is not understood. A preflight pass is not a throughput
-scheduler guarantee.
+when the model config is not understood. Continuous routes also reserve
+estimated request memory against a model-level scheduler budget when config
+geometry and MLX memory telemetry are available.
 
 `src/` is organized into role-based folders: `http/`, `streaming/`, `engine/`,
 `protocols/`, `admission/`, `runtime/`, `observability/`, `model-loading/`,

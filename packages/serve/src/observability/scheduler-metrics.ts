@@ -32,6 +32,12 @@ export class ServeSchedulerMetrics {
     type: "gauge",
     labelNames: ["model", "mode", "state"],
   });
+  readonly #memory = new NumberMetric({
+    name: "mlxts_serve_scheduler_memory_bytes",
+    help: "Latest continuous scheduler estimated memory pressure.",
+    type: "gauge",
+    labelNames: ["model", "mode", "state"],
+  });
   readonly #deferrals = new NumberMetric({
     name: "mlxts_serve_scheduler_deferrals_total",
     help: "Continuous scheduler admission deferrals by bounded reason.",
@@ -74,6 +80,7 @@ export class ServeSchedulerMetrics {
       ...this.#phases.format(),
       ...this.#requests.format(),
       ...this.#tokens.format(),
+      ...this.#memory.format(),
       ...this.#deferrals.format(),
       ...this.#queuedDurations.format(),
     ];
@@ -100,6 +107,10 @@ export class ServeSchedulerMetrics {
     }
     if (event.maxScheduledTotalTokens !== null) {
       this.#tokens.set([model, event.mode, "max_scheduled_total"], event.maxScheduledTotalTokens);
+    }
+    this.#memory.set([model, event.mode, "scheduled"], event.scheduledMemoryBytes);
+    if (event.maxScheduledMemoryBytes !== null) {
+      this.#memory.set([model, event.mode, "max_scheduled"], event.maxScheduledMemoryBytes);
     }
   }
 }
