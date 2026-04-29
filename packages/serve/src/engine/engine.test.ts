@@ -9,6 +9,7 @@ import {
   type CausalLM,
   type ForwardOptions,
   type InteractionProfile,
+  KVCache,
   type TransformerBatchCache,
   type TransformerCache,
   type TransformerCacheForkOptions,
@@ -162,6 +163,43 @@ class TinyModel implements CausalLM {
   }
 
   [Symbol.dispose](): void {}
+}
+
+class CacheWritingTinyModel extends TinyModel {
+  constructor() {
+    super({ family: "llama", modelType: "llama", layerKinds: ["full"] });
+  }
+
+  override createCache(): TransformerCache {
+    return new KVCache(this.layerCount);
+  }
+
+  override forward(inputIds: MxArray, options?: ForwardOptions): MxArray {
+    const [batchSize, sequenceLength] = inputIds.shape;
+    if (batchSize === undefined || sequenceLength === undefined) {
+      throw new Error("CacheWritingTinyModel.forward expected rank-2 token ids.");
+    }
+    if (options?.cache !== undefined) {
+      using keys = array(
+        Array.from({ length: batchSize }, (_row, rowIndex) => [
+          Array.from({ length: sequenceLength }, (_token, tokenIndex) => [rowIndex + tokenIndex]),
+        ]),
+        "float32",
+      );
+      using values = array(
+        Array.from({ length: batchSize }, (_row, rowIndex) => [
+          Array.from({ length: sequenceLength }, (_token, tokenIndex) => [
+            10 + rowIndex + tokenIndex,
+          ]),
+        ]),
+        "float32",
+      );
+      const updated = options.cache.updateAndFetch(0, keys, values);
+      updated.keys.free();
+      updated.values.free();
+    }
+    return super.forward(inputIds, options);
+  }
 }
 
 class PreparedPromptModel extends TinyModel {
@@ -1124,6 +1162,68 @@ describe("transformers generation engine", () => {
       reason: "prompt_prefix_cache",
       modelType: "serve-test",
       maxBatchSize: 1,
+      ...ROUTE_STRATEGY,
+      stream: false,
+    });
+    expect(events).toContainEqual({
+      type: "generation_prompt_cache",
+      id: "second",
+      protocol: "openai.chat_completions",
+      model: "tiny",
+      result: "hit",
+      promptTokens: 7,
+      cacheReadTokens: 6,
+      cacheWriteTokens: 0,
+    });
+  });
+
+  test("reuses message prompt prefixes through continuous batch cache seeding", async () => {
+    using model = new CacheWritingTinyModel();
+    const tokenizer = new TinyTokenizer();
+    const events: ServeEvent[] = [];
+    const engine = createTransformersGenerationEngine({
+      model,
+      tokenizer,
+      interactionProfile: chatProfile,
+      maxBatchSize: 2,
+      batchWindowMs: 1,
+      onEvent(event) {
+        events.push(event);
+      },
+    });
+    const request = (id: string): NormalizedGenerationRequest => ({
+      id,
+      model: "tiny",
+      input: { kind: "messages", messages: [{ role: "user", content: "hi" }] },
+      sampling: { maxTokens: 1, temperature: 0 },
+      stream: false,
+      protocol: "openai.chat_completions",
+    });
+
+    const first = await engine.generate(request("first"));
+    model.forwardSequenceLengths.length = 0;
+    events.length = 0;
+    const second = await engine.generate(request("second"));
+
+    expect(first.usage).toMatchObject({ cacheWriteTokens: 6, cacheReadTokens: 0 });
+    expect(second.usage).toEqual({
+      promptTokens: 7,
+      completionTokens: 1,
+      totalTokens: 8,
+      cacheReadTokens: 6,
+      cacheWriteTokens: 0,
+    });
+    expect(model.forwardSequenceLengths).toEqual([1]);
+    expect(events).toContainEqual({
+      type: "generation_route_decision",
+      id: "second",
+      protocol: "openai.chat_completions",
+      model: "tiny",
+      route: "continuous",
+      eligible: true,
+      reason: "eligible",
+      modelType: "llama",
+      maxBatchSize: 2,
       ...ROUTE_STRATEGY,
       stream: false,
     });

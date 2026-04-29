@@ -21,6 +21,7 @@ import {
   type CacheLayerKind,
   cacheLayerKindsFromAttentionTypes,
 } from "../../../infrastructure/cache";
+import { disposeLayerStateSnapshot } from "../../../infrastructure/cache/runtime";
 import { INTERNAL_CACHE_VIEW, type TransformerCacheView } from "../../../infrastructure/cache/view";
 import type { TransformerBatchCache, TransformerCache } from "../../../types";
 import type { Qwen3_5LayerType } from "../types";
@@ -174,9 +175,7 @@ export class Qwen3_5TextBatchCache implements TransformerBatchCache {
     const padding = validateBatchMetadata(leftPadding);
     this.#fullAttentionCache = new BatchKVCache(this.#layerTypes.length, padding);
     this.#linearLeftPadding = [...padding];
-    this.#linearStates = this.#layerTypes.map((layerType) =>
-      layerType === "linear_attention" ? emptyLinearState() : emptyLinearState(),
-    );
+    this.#linearStates = this.#layerTypes.map(() => emptyLinearState());
   }
 
   get layerCount(): number {
@@ -272,6 +271,40 @@ export class Qwen3_5TextBatchCache implements TransformerBatchCache {
       nextState.recurrentState = null;
     }
     this.#linearLeftPadding = [...this.#linearLeftPadding, ...other.#linearLeftPadding];
+  }
+
+  restoreFromCache(batchIndex: number, source: TransformerCache): void {
+    if (!(source instanceof Qwen3_5TextCache)) {
+      throw new Error("Qwen3_5TextBatchCache.restoreFromCache: expected a Qwen text cache source.");
+    }
+    if (this.batchSize !== 1 || batchIndex !== 0) {
+      throw new Error(
+        "Qwen3_5TextBatchCache.restoreFromCache: seeded restore requires one batch row.",
+      );
+    }
+    if (
+      source.layerCount !== this.layerCount ||
+      source.layerKinds.some((kind, index) => kind !== this.#layerKinds[index])
+    ) {
+      throw new Error("Qwen3_5TextBatchCache.restoreFromCache: layer patterns must match.");
+    }
+
+    for (let layerIndex = 0; layerIndex < this.#layerTypes.length; layerIndex += 1) {
+      if (this.#layerTypes[layerIndex] === "full_attention") {
+        const snapshot = source.cloneFullAttentionLayerState(layerIndex);
+        try {
+          this.#fullAttentionCache.restoreLayerState(layerIndex, snapshot);
+        } finally {
+          disposeLayerStateSnapshot(snapshot);
+        }
+        continue;
+      }
+      const state = source.linearState(layerIndex);
+      this.updateLinearState(layerIndex, state.convState, state.recurrentState);
+    }
+
+    this.#fullAttentionCache.advance(source.offset);
+    this.#linearLeftPadding = [0];
   }
 
   extract(batchIndex: number): TransformerCache {

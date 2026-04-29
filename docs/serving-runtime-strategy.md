@@ -229,13 +229,13 @@ The next work should stay ordered around architecture truth:
    long-prefill chunks. The next passes should add stronger fairness controls
    and keep explicit per-row decode state for sampler, stop, reasoning, and
    future logits processors.
-5. Deepen cache backends behind stable contracts. The first prompt-prefix cache
-   tranche now covers single message/chat requests through family-owned
-   snapshot/fork semantics and OpenAI-compatible cache read/write accounting.
-   The next proof is live repeated-turn Qwen/Gemma/Pi evidence, then widening
-   reuse into batch-native or paged-cache scheduler paths without regressing
-   uncached continuous fairness.
-6. After single-request prefix-cache semantics are proven in live acceptance,
+5. Deepen cache backends behind stable contracts. Prompt-prefix cache reuse now
+   covers single message/chat requests and continuous-scheduler prompt-cache
+   hits through family-owned snapshot/fork semantics, one-row batch-cache
+   restore, and OpenAI-compatible cache read/write accounting. The next proof is
+   paged or block-deduplicated reuse without regressing uncached continuous
+   fairness.
+6. After managed prefix-cache semantics are proven in live acceptance,
    deepen rotating/max-KV policy, quantized KV, paged KV, and later TurboQuant
    or tiered SSD storage. Lossy or compressed cache strategies need quality
    evidence as well as speed/memory evidence.

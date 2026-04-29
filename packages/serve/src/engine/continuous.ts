@@ -20,11 +20,13 @@ import type {
 import type { ModelExecutionLane } from "./execution-lane";
 import {
   batchOptionsKey,
+  createPromptCacheSession,
   generatedResultToServeResult,
   type PreparedGenerationRequest,
   prepareGenerationRequest,
 } from "./generation";
 import type { TransformersGenerationEngineOptions } from "./index";
+import type { PromptPrefixCache } from "./prefix-cache";
 import {
   continuousBatchIneligibilityReason,
   emitGenerationRouteDecision,
@@ -246,6 +248,16 @@ function schedulerKey(prepared: PreparedGenerationRequest): string {
   return batchOptionsKey(prepared.batchOptions);
 }
 
+function promptCacheEnabled(
+  prepared: PreparedGenerationRequest,
+  promptCache: PromptPrefixCache | undefined,
+): boolean {
+  return (
+    promptCache !== undefined &&
+    (prepared.request.input.kind === "messages" || prepared.promptCacheIdentity !== undefined)
+  );
+}
+
 type StreamQueueState = {
   events: GenerationStreamEvent[];
   notify: (() => void) | null;
@@ -295,6 +307,7 @@ async function* readStreamQueue(state: StreamQueueState): AsyncIterable<Generati
 export function createContinuousTransformersGeneration(
   options: TransformersGenerationEngineOptions,
   lane: ModelExecutionLane,
+  promptCache?: PromptPrefixCache,
 ): ContinuousTransformersGeneration {
   const schedulers = new Map<string, SchedulerEntry>();
   const strategy = transformersRuntimeStrategy(options);
@@ -328,6 +341,7 @@ export function createContinuousTransformersGeneration(
     prepared: PreparedGenerationRequest,
   ): Promise<NormalizedGenerationResult> {
     const entry = schedulerFor(prepared);
+    const cacheSession = createPromptCacheSession(prepared, options, promptCache);
     entry.modelsByRequestId.set(prepared.request.id, prepared.request.model);
     emitGenerationProgress(options, prepared.request, prepared.promptTokens, 0);
     const onPrefillProgress = createPrefillProgressReporter(
@@ -336,19 +350,28 @@ export function createContinuousTransformersGeneration(
       prepared.promptTokens,
     );
     const onToken = createProgressReporter(options, prepared.request, prepared.promptTokens);
+    const cachedPrefixLength = cacheSession.cachedPrefixLength();
+    const prefixCache = cacheSession.takeCache();
+    const usePromptCache = promptCacheEnabled(prepared, promptCache);
     try {
       const result = await entry.scheduler.enqueue({
         id: prepared.request.id,
         promptTokenIds: prepared.tokenIds,
         maxTokens: prepared.request.sampling.maxTokens,
+        ...(cachedPrefixLength === 0 ? {} : { cachedPrefixLength }),
+        ...(prefixCache === undefined ? {} : { prefixCache }),
         ...(prepared.request.abortSignal === undefined
           ? {}
           : { abortSignal: prepared.request.abortSignal }),
         onPrefillProgress,
+        ...(usePromptCache
+          ? { onPromptCacheSnapshot: (event) => cacheSession.onPromptCacheSnapshot(event) }
+          : {}),
         onToken,
       });
-      return generatedResultToServeResult(prepared, options, result);
+      return generatedResultToServeResult(prepared, options, result, cacheSession.usage());
     } finally {
+      cacheSession[Symbol.dispose]();
       entry.modelsByRequestId.delete(prepared.request.id);
     }
   }
@@ -357,6 +380,7 @@ export function createContinuousTransformersGeneration(
     prepared: PreparedGenerationRequest,
   ): AsyncIterable<GenerationStreamEvent> {
     const entry = schedulerFor(prepared);
+    const cacheSession = createPromptCacheSession(prepared, options, promptCache);
     const abortScope = linkAbortSignals(prepared.request.abortSignal);
     const state: StreamQueueState = {
       events: [],
@@ -373,52 +397,62 @@ export function createContinuousTransformersGeneration(
       prepared.request,
       prepared.promptTokens,
     );
-    const scheduled = entry.scheduler
-      .enqueue({
-        id: prepared.request.id,
-        promptTokenIds: prepared.tokenIds,
-        maxTokens: prepared.request.sampling.maxTokens,
-        abortSignal: abortScope.signal,
-        onPrefillProgress,
-        onToken(tokenId, generatedTokenIds) {
-          const text = handleStreamingTokenDelta(
+    const cachedPrefixLength = cacheSession.cachedPrefixLength();
+    const prefixCache = cacheSession.takeCache();
+    const usePromptCache = promptCacheEnabled(prepared, promptCache);
+    let scheduled: Promise<void> | undefined;
+    try {
+      scheduled = entry.scheduler
+        .enqueue({
+          id: prepared.request.id,
+          promptTokenIds: prepared.tokenIds,
+          maxTokens: prepared.request.sampling.maxTokens,
+          ...(cachedPrefixLength === 0 ? {} : { cachedPrefixLength }),
+          ...(prefixCache === undefined ? {} : { prefixCache }),
+          abortSignal: abortScope.signal,
+          onPrefillProgress,
+          ...(usePromptCache
+            ? { onPromptCacheSnapshot: (event) => cacheSession.onPromptCacheSnapshot(event) }
+            : {}),
+          onToken(tokenId, generatedTokenIds) {
+            const text = handleStreamingTokenDelta(
+              prepared.request,
+              options,
+              prepared.promptTokens,
+              decodeInterval,
+              decodeState,
+              tokenId,
+              generatedTokenIds.length,
+            );
+            if (text !== undefined) {
+              enqueueStreamEvent(state, { type: "text", text });
+            }
+          },
+        })
+        .then((result) => {
+          const finished = handleStreamingDone(
             prepared.request,
             options,
             prepared.promptTokens,
-            decodeInterval,
             decodeState,
-            tokenId,
-            generatedTokenIds.length,
+            result.tokenIds,
+            result.finishReason,
+            cacheSession.usage(),
           );
-          if (text !== undefined) {
-            enqueueStreamEvent(state, { type: "text", text });
+          if (finished.text !== undefined) {
+            enqueueStreamEvent(state, { type: "text", text: finished.text });
           }
-        },
-      })
-      .then((result) => {
-        const finished = handleStreamingDone(
-          prepared.request,
-          options,
-          prepared.promptTokens,
-          decodeState,
-          result.tokenIds,
-          result.finishReason,
-        );
-        if (finished.text !== undefined) {
-          enqueueStreamEvent(state, { type: "text", text: finished.text });
-        }
-        enqueueStreamEvent(state, finished.done);
-        finishStreamQueue(state);
-      })
-      .catch((error) => finishStreamQueue(state, error));
-
-    try {
+          enqueueStreamEvent(state, finished.done);
+          finishStreamQueue(state);
+        })
+        .catch((error) => finishStreamQueue(state, error));
       yield* readStreamQueue(state);
     } finally {
       if (!state.done) {
         abortScope.abort();
       }
-      await scheduled.catch(() => undefined);
+      await scheduled?.catch(() => undefined);
+      cacheSession[Symbol.dispose]();
       abortScope.dispose();
       entry.modelsByRequestId.delete(prepared.request.id);
     }

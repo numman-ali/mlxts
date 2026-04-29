@@ -212,6 +212,10 @@ abstract class CacheBase implements TransformerCache {
     return state;
   }
 
+  cloneLayerState(layerIndex: number): LayerStateSnapshot {
+    return cloneLayerStateSnapshot(this.layerState(layerIndex));
+  }
+
   protected appendLayer(layerIndex: number, keys: MxArray, values: MxArray): CacheAppendResult {
     return appendFullCacheState(this.layerState(layerIndex), keys, values);
   }

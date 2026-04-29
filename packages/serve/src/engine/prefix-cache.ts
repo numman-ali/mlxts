@@ -43,6 +43,8 @@ type PromptPrefixGenerationOptions = Pick<
 export type PromptPrefixCacheSession = Disposable & {
   tokenIdsForGeneration(): readonly number[];
   cachedPrefixLength(): number;
+  takeCache(): TransformerCache | undefined;
+  onPromptCacheSnapshot(event: PromptCacheSnapshotEvent): void;
   generationOptions(): PromptPrefixGenerationOptions;
   usage(): PromptPrefixCacheUsage;
 };
@@ -231,6 +233,12 @@ class DisabledPromptPrefixCacheSession implements PromptPrefixCacheSession {
     return 0;
   }
 
+  takeCache(): TransformerCache | undefined {
+    return undefined;
+  }
+
+  onPromptCacheSnapshot(_event: PromptCacheSnapshotEvent): void {}
+
   generationOptions(): PromptPrefixGenerationOptions {
     return {};
   }
@@ -246,7 +254,7 @@ class ActivePromptPrefixCacheSession implements PromptPrefixCacheSession {
   readonly #promptCache: PromptPrefixCache;
   readonly #tokenIds: readonly number[];
   readonly #identity: PromptPrefixCacheIdentity | undefined;
-  readonly #cache: TransformerCache | null;
+  #cache: TransformerCache | null;
   readonly #readTokens: number;
   #writeTokens = 0;
   readonly #onEvent: NonNullable<PromptPrefixCacheSessionOptions["onEvent"]> | undefined;
@@ -271,20 +279,24 @@ class ActivePromptPrefixCacheSession implements PromptPrefixCacheSession {
     return this.#readTokens;
   }
 
+  takeCache(): TransformerCache | undefined {
+    const cache = this.#cache;
+    this.#cache = null;
+    return cache ?? undefined;
+  }
+
+  onPromptCacheSnapshot(event: PromptCacheSnapshotEvent): void {
+    const storedTokens = this.#promptCache.store(this.#tokenIds, event.snapshot, this.#identity);
+    this.#writeTokens = Math.max(0, storedTokens - this.#readTokens);
+    this.#onEvent?.("write", this.usage());
+  }
+
   generationOptions(): PromptPrefixGenerationOptions {
     return {
       ...(this.#cache === null
         ? {}
         : { cache: this.#cache, samplerHistoryTokenIds: this.#tokenIds }),
-      onPromptCacheSnapshot: (event: PromptCacheSnapshotEvent) => {
-        const storedTokens = this.#promptCache.store(
-          this.#tokenIds,
-          event.snapshot,
-          this.#identity,
-        );
-        this.#writeTokens = Math.max(0, storedTokens - this.#readTokens);
-        this.#onEvent?.("write", this.usage());
-      },
+      onPromptCacheSnapshot: (event: PromptCacheSnapshotEvent) => this.onPromptCacheSnapshot(event),
     };
   }
 

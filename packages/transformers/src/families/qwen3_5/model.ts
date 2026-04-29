@@ -173,8 +173,25 @@ export class Qwen3_5TextCausalLM extends Module implements CausalLM {
   }
 
   /** Create the Qwen-specific hybrid cache for static batched generation. */
-  createBatchCache(leftPadding: readonly number[]): Qwen3_5TextBatchCache {
-    return new Qwen3_5TextBatchCache(this.config.layerTypes, leftPadding);
+  createBatchCache(
+    leftPadding: readonly number[],
+    seedCaches?: readonly TransformerCache[],
+  ): Qwen3_5TextBatchCache {
+    const cache = new Qwen3_5TextBatchCache(this.config.layerTypes, leftPadding);
+    try {
+      if (seedCaches !== undefined) {
+        for (let index = 0; index < seedCaches.length; index += 1) {
+          const seed = seedCaches[index];
+          if (seed !== undefined) {
+            cache.restoreFromCache(index, seed);
+          }
+        }
+      }
+      return cache;
+    } catch (error) {
+      cache[Symbol.dispose]();
+      throw error;
+    }
   }
 
   forward(inputIds: MxArray, options?: ForwardOptions): MxArray;

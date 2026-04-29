@@ -217,7 +217,7 @@ function emitPromptCacheEvent(
   });
 }
 
-function createPromptCacheSession(
+export function createPromptCacheSession(
   prepared: PreparedGenerationRequest,
   options: TransformersGenerationEngineOptions,
   promptCache: PromptPrefixCache | undefined,

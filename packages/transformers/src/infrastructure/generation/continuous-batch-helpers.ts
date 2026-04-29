@@ -1,7 +1,6 @@
 import {
   argmax,
   array,
-  clearMemoryCache,
   concatenate,
   type MxArray,
   mxAsyncEval,
@@ -16,18 +15,12 @@ import type {
   BatchGenerationOptions,
   CausalLM,
   GenerationResult,
-  PrefillProgressEvent,
   SamplerOptions,
   TransformerBatchCache,
 } from "../../types";
 import { SamplerState } from "../sampling";
-import { createBatchCacheForModel } from "./batch-cache-factory";
 import { GenerationAbortError } from "./cancellation";
-import type {
-  ContinuousBatchTokenRequest,
-  PrefillingRequest,
-  ScheduledRequest,
-} from "./continuous-batch-types";
+import type { ContinuousBatchTokenRequest, ScheduledRequest } from "./continuous-batch-types";
 import { takeLastLogits } from "./helpers";
 
 type AbortablePrefillRequest = {
@@ -68,6 +61,28 @@ export function samplerOptionsFrom(options: SamplerOptions): SamplerOptions {
   };
 }
 
+function normalizedCachedPrefixLength(request: ContinuousBatchTokenRequest): number {
+  const cachedPrefixLength = request.cachedPrefixLength ?? 0;
+  if (
+    !Number.isInteger(cachedPrefixLength) ||
+    cachedPrefixLength < 0 ||
+    cachedPrefixLength >= request.promptTokenIds.length
+  ) {
+    throw new Error(
+      `ContinuousBatchTokenScheduler: cachedPrefixLength must be an integer within the reusable prompt boundary, got ${cachedPrefixLength}.`,
+    );
+  }
+  if (request.prefixCache === undefined && cachedPrefixLength !== 0) {
+    throw new Error("ContinuousBatchTokenScheduler: cachedPrefixLength requires a prefixCache.");
+  }
+  if (request.prefixCache !== undefined && request.prefixCache.offset !== cachedPrefixLength) {
+    throw new Error(
+      "ContinuousBatchTokenScheduler: prefixCache offset must match cachedPrefixLength.",
+    );
+  }
+  return cachedPrefixLength;
+}
+
 export function createScheduledRequest(
   id: string,
   request: ContinuousBatchTokenRequest,
@@ -75,6 +90,7 @@ export function createScheduledRequest(
   resolve: (result: GenerationResult) => void,
   reject: (error: unknown) => void,
 ): ScheduledRequest {
+  const cachedPrefixLength = normalizedCachedPrefixLength(request);
   return {
     id,
     promptTokenIds: request.promptTokenIds,
@@ -86,10 +102,15 @@ export function createScheduledRequest(
     firstTokenEmitted: false,
     finishReason: "length",
     admissionDeferred: false,
+    cachedPrefixLength,
+    ...(request.prefixCache === undefined ? {} : { prefixCache: request.prefixCache }),
     ...(request.abortSignal === undefined ? {} : { abortSignal: request.abortSignal }),
     ...(request.onPrefillProgress === undefined
       ? {}
       : { onPrefillProgress: request.onPrefillProgress }),
+    ...(request.onPromptCacheSnapshot === undefined
+      ? {}
+      : { onPromptCacheSnapshot: request.onPromptCacheSnapshot }),
     ...(request.onToken === undefined ? {} : { onToken: request.onToken }),
     resolve,
     reject,
@@ -188,67 +209,46 @@ export function shouldChunkInitialRows(
     .some((request) => request.promptTokenIds.length - 1 > prefillStepSize);
 }
 
-function leftPadPrompts(
-  prompts: readonly (readonly number[])[],
-  padTokenId: number,
-): { padded: number[][]; leftPadding: number[] } {
-  const maxLength = Math.max(...prompts.map((prompt) => prompt.length));
-  const padded: number[][] = [];
-  const leftPadding: number[] = [];
-
-  for (const prompt of prompts) {
-    const padding = maxLength - prompt.length;
-    leftPadding.push(padding);
-    padded.push([...Array<number>(padding).fill(padTokenId), ...prompt]);
-  }
-
-  return { padded, leftPadding };
+function requestNeedsPrefillLane(request: ScheduledRequest): boolean {
+  return request.cachedPrefixLength > 0;
 }
 
-export function prefillReadyBatch(
-  model: CausalLM,
-  rows: readonly { promptTokenIds: readonly number[]; samplerState: SamplerState }[],
-  padTokenId: number,
-  options: SamplerOptions,
-): { cache: TransformerBatchCache; nextToken: MxArray } {
-  const prompts = rows.map((row) => row.promptTokenIds);
-  const { padded, leftPadding } = leftPadPrompts(prompts, padTokenId);
-  const cache = createBatchCacheForModel(model, leftPadding, "ContinuousBatchTokenScheduler");
-  using promptInput = array(padded, "int32");
-  const nextToken = sampleNextBatchToken(
-    model,
-    promptInput,
-    cache,
-    rows.map((row) => row.samplerState),
-    options,
-  );
-  return { cache, nextToken };
+export function shouldUsePrefillLane(
+  waiting: readonly ScheduledRequest[],
+  count: number,
+  prefillStepSize: number,
+): boolean {
+  if (shouldChunkInitialRows(waiting, count, prefillStepSize)) {
+    return true;
+  }
+  return waiting.slice(0, count).some(requestNeedsPrefillLane);
 }
 
-export function takeReadyPrefillingRow(
-  model: CausalLM,
-  prefilling: PrefillingRequest[],
-  index: number,
-): { request: ScheduledRequest; cache: TransformerBatchCache; nextToken: MxArray } | null {
-  const prefillingRow = prefilling[index];
-  if (prefillingRow === undefined) {
-    return null;
+export function tokenTensorToIds(tokens: MxArray): number[] {
+  const [batchSize, width] = tokens.shape;
+  if (batchSize === undefined || width !== 1 || tokens.shape.length !== 2) {
+    throw new Error(
+      `ContinuousBatchTokenScheduler: expected token tensor shape [batch, 1], got [${tokens.shape.join(", ")}].`,
+    );
   }
-  const tail = prefillingRow.request.promptTokenIds.slice(prefillingRow.cursor);
-  using tailInput = array([tail], "int32");
-  const nextToken = sampleNextBatchToken(
-    model,
-    tailInput,
-    prefillingRow.cache,
-    [prefillingRow.request.samplerState],
-    prefillingRow.request.samplerOptions,
-  );
-  const [ready] = prefilling.splice(index, 1);
-  if (ready === undefined) {
-    nextToken.free();
-    return null;
+
+  if (batchSize === 1) {
+    return [tokens.item()];
   }
-  return { request: ready.request, cache: ready.cache, nextToken };
+
+  return Array.from(tokens.toTypedArray(), (value) => Number(value));
+}
+
+export function tokenRows(tokens: MxArray, indices: readonly number[]): MxArray {
+  using indexTensor = array([...indices], "int32");
+  return takeAxis(tokens, indexTensor, 0);
+}
+
+export function nextInputTensor(tokens: MxArray, keepPositions: readonly number[]): MxArray {
+  if (tokens.shape[0] === keepPositions.length) {
+    return retainArray(tokens);
+  }
+  return tokenRows(tokens, keepPositions);
 }
 
 function sampleGreedyBatchTokenTensor(logits: MxArray, context: string): MxArray {
@@ -260,25 +260,6 @@ function sampleGreedyBatchTokenTensor(logits: MxArray, context: string): MxArray
   }
   using greedy = argmax(logits, -1);
   return reshape(greedy, [batchSize, 1]);
-}
-
-export function sampleNextBatchToken(
-  model: CausalLM,
-  inputIds: MxArray,
-  cache: TransformerBatchCache,
-  samplerStates: readonly SamplerState[],
-  options: SamplerOptions,
-): MxArray {
-  using logits = model.forward(inputIds, { cache });
-  using lastLogits = takeLastLogits(logits, "ContinuousBatchTokenScheduler");
-  const nextToken = sampleBatchTokenTensor(
-    lastLogits,
-    samplerStates,
-    options,
-    "ContinuousBatchTokenScheduler",
-  );
-  mxAsyncEval(nextToken);
-  return nextToken;
 }
 
 function sampleBatchTokenTensor(
@@ -340,73 +321,23 @@ function sampleBatchTokenTensor(
   }
 }
 
-function materializeBatchCacheState(cache: TransformerBatchCache): boolean {
-  const stateArrays = cache.arrays();
-  try {
-    if (stateArrays.length === 0) {
-      return false;
-    }
-    mxEval(...stateArrays);
-    return true;
-  } finally {
-    for (const stateArray of stateArrays) {
-      stateArray.free();
-    }
-  }
-}
-
-export function prefillPromptChunk(
+export function sampleNextBatchToken(
   model: CausalLM,
-  promptTokenIds: readonly number[],
+  inputIds: MxArray,
   cache: TransformerBatchCache,
-  cursor: number,
-  prefillStepSize: number,
-  remainingPrefillTokens: number,
-): { cursor: number; event: PrefillProgressEvent } {
-  const chunkSize = Math.min(prefillStepSize, remainingPrefillTokens);
-  const chunk = promptTokenIds.slice(cursor, cursor + chunkSize);
-  using chunkInput = array([chunk], "int32");
-  using chunkLogits = model.forward(chunkInput, { cache });
-  if (!materializeBatchCacheState(cache)) {
-    mxEval(chunkLogits);
-  }
-  const nextCursor = cursor + chunkSize;
-  clearMemoryCache();
-  return {
-    cursor: nextCursor,
-    event: {
-      processedTokens: nextCursor,
-      totalTokens: Math.max(promptTokenIds.length - 1, 0),
-      chunkTokens: chunkSize,
-    },
-  };
-}
-
-export function tokenTensorToIds(tokens: MxArray): number[] {
-  const [batchSize, width] = tokens.shape;
-  if (batchSize === undefined || width !== 1 || tokens.shape.length !== 2) {
-    throw new Error(
-      `ContinuousBatchTokenScheduler: expected token tensor shape [batch, 1], got [${tokens.shape.join(", ")}].`,
-    );
-  }
-
-  if (batchSize === 1) {
-    return [tokens.item()];
-  }
-
-  return Array.from(tokens.toTypedArray(), (value) => Number(value));
-}
-
-export function tokenRows(tokens: MxArray, indices: readonly number[]): MxArray {
-  using indexTensor = array([...indices], "int32");
-  return takeAxis(tokens, indexTensor, 0);
-}
-
-export function nextInputTensor(tokens: MxArray, keepPositions: readonly number[]): MxArray {
-  if (tokens.shape[0] === keepPositions.length) {
-    return retainArray(tokens);
-  }
-  return tokenRows(tokens, keepPositions);
+  samplerStates: readonly SamplerState[],
+  options: SamplerOptions,
+): MxArray {
+  using logits = model.forward(inputIds, { cache });
+  using lastLogits = takeLastLogits(logits, "ContinuousBatchTokenScheduler");
+  const nextToken = sampleBatchTokenTensor(
+    lastLogits,
+    samplerStates,
+    options,
+    "ContinuousBatchTokenScheduler",
+  );
+  mxAsyncEval(nextToken);
+  return nextToken;
 }
 
 export function combineCurrentTokens(left: MxArray | null, right: MxArray): MxArray {

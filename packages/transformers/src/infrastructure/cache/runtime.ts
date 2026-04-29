@@ -177,6 +177,18 @@ export function disposeLayerStateSnapshot(snapshot: LayerStateSnapshot): void {
   snapshot.cursor = 0;
 }
 
+export function restoreLayerStateSnapshot(state: LayerState, snapshot: LayerStateSnapshot): void {
+  disposeLayerState(state);
+  state.keys = snapshot.keys;
+  state.values = snapshot.values;
+  state.length = snapshot.length;
+  state.cursor = snapshot.cursor;
+  snapshot.keys = null;
+  snapshot.values = null;
+  snapshot.length = 0;
+  snapshot.cursor = 0;
+}
+
 export function disposeLayerState(state: LayerState): void {
   state.keys?.free();
   state.values?.free();

@@ -10,7 +10,7 @@ import {
   cacheLayerKindsFromAttentionTypes,
   KVCache,
 } from "../../../infrastructure/cache";
-import { cloneCacheArray } from "../../../infrastructure/cache/runtime";
+import { cloneCacheArray, type LayerStateSnapshot } from "../../../infrastructure/cache/runtime";
 import { INTERNAL_CACHE_VIEW, type TransformerCacheView } from "../../../infrastructure/cache/view";
 import type {
   TransformerCache,
@@ -427,6 +427,20 @@ export class Qwen3_5TextCache implements TransformerCache {
       );
     }
     return layer.state;
+  }
+
+  cloneFullAttentionLayerState(layerIndex: number): LayerStateSnapshot {
+    const layer = assertLayerIndex(
+      this.#layers,
+      layerIndex,
+      "Qwen3_5TextCache.cloneFullAttentionLayerState",
+    );
+    if (layer.type !== "full_attention") {
+      throw new Error(
+        `Qwen3_5TextCache.cloneFullAttentionLayerState: layer ${layerIndex} is ${layer.type}; full-attention state only exists on full_attention layers.`,
+      );
+    }
+    return layer.cache.cloneLayerState(0);
   }
 
   updateLinearState(

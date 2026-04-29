@@ -78,9 +78,9 @@ Full evidence ladder lives in
 - Next scheduler tranche is cache-semantics work: chunked prefill fairness,
   streaming collectors, sampled batch decode, then Qwen hybrid recurrent /
   full-attention caches and Gemma sliding/global caches.
-- Prefix-cache next tranche is batch/paged longest-common-prefix reuse. The
-  single-request repeated-turn path is now live-regression guarded across Qwen
-  and Gemma message protocols.
+- Prefix-cache cache-hit seeding now reaches continuous scheduler rows through
+  one-row managed batch-cache restore. Paged/block-deduplicated longest-prefix
+  reuse remains the next cache-backend tranche.
 - Real serving memory preflight should reject admission deterministically
   based on family geometry + cache layout, not advisory warnings.
 - Use `bun run bench:serve --stream` for huge prompt rungs; buffered JSON is

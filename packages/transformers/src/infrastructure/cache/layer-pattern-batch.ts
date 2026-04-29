@@ -21,8 +21,10 @@ import {
   createEmptyLayerState,
   createTransformerCacheViewFromResult,
   disposeLayerState,
+  disposeLayerStateSnapshot,
   type LayerState,
   materializeOwnedAppendResult,
+  restoreLayerStateSnapshot,
   retainedLayerStateArrays,
 } from "./runtime";
 import { LayerPatternKVCache } from "./single";
@@ -158,6 +160,41 @@ export class LayerPatternBatchKVCache implements TransformerBatchCache {
     ];
     this.#offsets = [...this.#offsets, ...other.#offsets];
     this.#logicalLength = targetLogicalLength;
+  }
+
+  restoreFromCache(batchIndex: number, source: TransformerCache): void {
+    if (!(source instanceof LayerPatternKVCache)) {
+      throw new Error(
+        "LayerPatternBatchKVCache.restoreFromCache: expected a layer-pattern cache source.",
+      );
+    }
+    if (this.batchSize !== 1 || batchIndex !== 0) {
+      throw new Error(
+        "LayerPatternBatchKVCache.restoreFromCache: seeded restore requires one batch row.",
+      );
+    }
+    if (
+      source.layerCount !== this.layerCount ||
+      source.layerKinds.some((kind, index) => kind !== this.#layerKinds[index])
+    ) {
+      throw new Error("LayerPatternBatchKVCache.restoreFromCache: layer patterns must match.");
+    }
+
+    for (let layerIndex = 0; layerIndex < this.#layers.length; layerIndex += 1) {
+      const layer = this.#layers[layerIndex];
+      if (layer === undefined) {
+        throw new Error("LayerPatternBatchKVCache.restoreFromCache: missing target layer.");
+      }
+      const snapshot = source.cloneLayerState(layerIndex);
+      try {
+        restoreLayerStateSnapshot(layer, snapshot);
+      } finally {
+        disposeLayerStateSnapshot(snapshot);
+      }
+    }
+    this.#leftPadding = [0];
+    this.#offsets = [source.offset];
+    this.#logicalLength = source.offset;
   }
 
   extract(batchIndex: number): TransformerCache {

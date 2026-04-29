@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { array, type MxArray, type ParameterTree } from "@mlxts/core";
+import { array, type MxArray, mxEval, type ParameterTree } from "@mlxts/core";
 import { createContinuousBatchTokenScheduler, GenerationAbortError } from "../../generation";
 import type {
   BaseModelConfig,
@@ -21,6 +21,7 @@ class TrackingBatchCache implements TransformerBatchCache {
   readonly inner: BatchKVCache;
   extendCount = 0;
   filterCount = 0;
+  disposed = false;
 
   constructor(leftPadding: readonly number[]) {
     this.inner = new BatchKVCache(1, leftPadding);
@@ -96,7 +97,24 @@ class TrackingBatchCache implements TransformerBatchCache {
   }
 
   [Symbol.dispose](): void {
+    this.disposed = true;
     this.inner[Symbol.dispose]();
+  }
+}
+
+class DisposablePrefixCache extends KVCache {
+  disposed = false;
+
+  constructor(offset = 0) {
+    super(1);
+    if (offset > 0) {
+      this.advance(offset);
+    }
+  }
+
+  override [Symbol.dispose](): void {
+    this.disposed = true;
+    super[Symbol.dispose]();
   }
 }
 
@@ -165,6 +183,35 @@ class DeterministicBatchModel implements CausalLM {
   [Symbol.dispose](): void {}
 }
 
+class CacheWritingBatchModel extends DeterministicBatchModel {
+  override forward(inputIds: MxArray, options?: ForwardOptions): MxArray {
+    const [batchSize, sequenceLength] = inputIds.shape;
+    if (batchSize === undefined || sequenceLength === undefined) {
+      throw new Error("CacheWritingBatchModel.forward expected rank-2 token ids.");
+    }
+    if (options?.cache !== undefined) {
+      using keys = array(
+        Array.from({ length: batchSize }, (_row, rowIndex) => [
+          Array.from({ length: sequenceLength }, (_token, tokenIndex) => [rowIndex + tokenIndex]),
+        ]),
+        "float32",
+      );
+      using values = array(
+        Array.from({ length: batchSize }, (_row, rowIndex) => [
+          Array.from({ length: sequenceLength }, (_token, tokenIndex) => [
+            10 + rowIndex + tokenIndex,
+          ]),
+        ]),
+        "float32",
+      );
+      const updated = options.cache.updateAndFetch(0, keys, values);
+      updated.keys.free();
+      updated.values.free();
+    }
+    return super.forward(inputIds, options);
+  }
+}
+
 class ModelOwnedBatchCacheModel extends DeterministicBatchModel {
   readonly createdBatchCaches: TrackingBatchCache[] = [];
 
@@ -172,6 +219,27 @@ class ModelOwnedBatchCacheModel extends DeterministicBatchModel {
     const cache = new TrackingBatchCache(leftPadding);
     this.createdBatchCaches.push(cache);
     return cache;
+  }
+}
+
+class ThrowingSeedBatchCacheModel extends DeterministicBatchModel {
+  createBatchCache(
+    leftPadding: readonly number[],
+    seedCaches?: readonly TransformerCache[],
+  ): TransformerBatchCache {
+    if (seedCaches !== undefined) {
+      throw new Error("seed restore failed");
+    }
+    return new TrackingBatchCache(leftPadding);
+  }
+}
+
+class WrongOffsetSeedBatchCacheModel extends DeterministicBatchModel {
+  createdCache: TrackingBatchCache | null = null;
+
+  createBatchCache(leftPadding: readonly number[]): TransformerBatchCache {
+    this.createdCache = new TrackingBatchCache(leftPadding);
+    return this.createdCache;
   }
 }
 
@@ -301,6 +369,66 @@ describe("continuous batch token scheduler", () => {
         eosTokenIds: [],
       }),
     ).toThrow("prefillStepSize must be >= 1");
+  });
+
+  test("disposes transferred prefix cache on synchronous zero-token completion", async () => {
+    using model = new DeterministicBatchModel();
+    const prefixCache = new DisposablePrefixCache();
+    const scheduler = createContinuousBatchTokenScheduler(model, {
+      maxBatchSize: 1,
+      temperature: 0,
+      eosTokenIds: [],
+    });
+
+    await expect(
+      scheduler.enqueue({
+        promptTokenIds: [0],
+        maxTokens: 0,
+        prefixCache,
+      }),
+    ).resolves.toEqual({ tokenIds: [], finishReason: "length" });
+    expect(prefixCache.disposed).toBe(true);
+  });
+
+  test("disposes transferred prefix cache on already-aborted enqueue", () => {
+    using model = new DeterministicBatchModel();
+    const controller = new AbortController();
+    const prefixCache = new DisposablePrefixCache();
+    const scheduler = createContinuousBatchTokenScheduler(model, {
+      maxBatchSize: 1,
+      temperature: 0,
+      eosTokenIds: [],
+    });
+    controller.abort();
+
+    expect(() =>
+      scheduler.enqueue({
+        promptTokenIds: [0],
+        maxTokens: 1,
+        prefixCache,
+        abortSignal: controller.signal,
+      }),
+    ).toThrow(GenerationAbortError);
+    expect(prefixCache.disposed).toBe(true);
+  });
+
+  test("disposes transferred prefix cache on invalid prompt enqueue", () => {
+    using model = new DeterministicBatchModel();
+    const prefixCache = new DisposablePrefixCache();
+    const scheduler = createContinuousBatchTokenScheduler(model, {
+      maxBatchSize: 1,
+      temperature: 0,
+      eosTokenIds: [],
+    });
+
+    expect(() =>
+      scheduler.enqueue({
+        promptTokenIds: [],
+        maxTokens: 1,
+        prefixCache,
+      }),
+    ).toThrow("promptTokenIds must contain at least one token");
+    expect(prefixCache.disposed).toBe(true);
   });
 
   test("admits a row after decode has started", async () => {
@@ -452,6 +580,121 @@ describe("continuous batch token scheduler", () => {
     await expect(second).resolves.toEqual({ tokenIds: [2, 2], finishReason: "length" });
     expect(model.createdBatchCaches.length).toBeGreaterThan(1);
     expect(model.createdBatchCaches.some((cache) => cache.extendCount > 0)).toBe(true);
+  });
+
+  test("seeds a prefilling row from a cached prefix and snapshots the extended boundary", async () => {
+    using model = new CacheWritingBatchModel();
+    const prefixCache = model.createCache();
+    using prefixInput = array([[1, 2, 3]], "int32");
+    using prefixLogits = model.forward(prefixInput, { cache: prefixCache });
+    mxEval(prefixLogits);
+    model.forwardSequenceLengths.length = 0;
+
+    const snapshots: number[] = [];
+    const scheduler = createContinuousBatchTokenScheduler(model, {
+      maxBatchSize: 2,
+      temperature: 0,
+      eosTokenIds: [],
+    });
+
+    const result = await scheduler.enqueue({
+      id: "cached",
+      promptTokenIds: [1, 2, 3, 4, 5],
+      maxTokens: 1,
+      prefixCache,
+      cachedPrefixLength: 3,
+      onPromptCacheSnapshot(event) {
+        snapshots.push(event.offset);
+        event.snapshot[Symbol.dispose]();
+      },
+    });
+
+    expect(result).toEqual({ tokenIds: [2], finishReason: "length" });
+    expect(model.forwardSequenceLengths).toEqual([1, 1]);
+    expect(snapshots).toEqual([4]);
+  });
+
+  test("keeps cold snapshot-only rows on the full batch prefill path", async () => {
+    using model = new CacheWritingBatchModel();
+    const snapshots: string[] = [];
+    const scheduler = createContinuousBatchTokenScheduler(model, {
+      maxBatchSize: 2,
+      temperature: 0,
+      eosTokenIds: [],
+    });
+
+    const first = scheduler.enqueue({
+      id: "first",
+      promptTokenIds: [1, 2],
+      maxTokens: 1,
+      onPromptCacheSnapshot(event) {
+        snapshots.push(`first:${event.offset}`);
+        event.snapshot[Symbol.dispose]();
+      },
+    });
+    const second = scheduler.enqueue({
+      id: "second",
+      promptTokenIds: [3, 4],
+      maxTokens: 1,
+      onPromptCacheSnapshot(event) {
+        snapshots.push(`second:${event.offset}`);
+        event.snapshot[Symbol.dispose]();
+      },
+    });
+
+    await expect(first).resolves.toEqual({ tokenIds: [2], finishReason: "length" });
+    await expect(second).resolves.toEqual({ tokenIds: [2], finishReason: "length" });
+    expect(model.forwardBatchSizes.slice(0, 2)).toEqual([2, 2]);
+    expect(model.forwardSequenceLengths.slice(0, 2)).toEqual([1, 1]);
+    expect(snapshots).toEqual(["first:1", "second:1"]);
+  });
+
+  test("keeps seeded restore failures request-local", async () => {
+    using model = new ThrowingSeedBatchCacheModel();
+    const prefixCache = new DisposablePrefixCache(1);
+    const scheduler = createContinuousBatchTokenScheduler(model, {
+      maxBatchSize: 2,
+      temperature: 0,
+      eosTokenIds: [],
+    });
+
+    const failing = scheduler.enqueue({
+      id: "failing",
+      promptTokenIds: [1, 2],
+      maxTokens: 1,
+      prefixCache,
+      cachedPrefixLength: 1,
+    });
+    const healthy = scheduler.enqueue({
+      id: "healthy",
+      promptTokenIds: [0],
+      maxTokens: 1,
+    });
+
+    await expect(failing).rejects.toThrow("seed restore failed");
+    await expect(healthy).resolves.toEqual({ tokenIds: [2], finishReason: "length" });
+    expect(prefixCache.disposed).toBe(true);
+  });
+
+  test("disposes model-owned batch caches when seeded restore validation fails", async () => {
+    using model = new WrongOffsetSeedBatchCacheModel();
+    const prefixCache = new DisposablePrefixCache(1);
+    const scheduler = createContinuousBatchTokenScheduler(model, {
+      maxBatchSize: 1,
+      temperature: 0,
+      eosTokenIds: [],
+    });
+
+    await expect(
+      scheduler.enqueue({
+        promptTokenIds: [1, 2],
+        maxTokens: 1,
+        prefixCache,
+        cachedPrefixLength: 1,
+      }),
+    ).rejects.toThrow("seeded batch cache did not preserve source cache offsets");
+    expect(prefixCache.disposed).toBe(true);
+    expect(model.createdCache?.disposed).toBe(true);
   });
 
   test("protects active decode for a bounded quantum while chunking a long waiting prompt", async () => {

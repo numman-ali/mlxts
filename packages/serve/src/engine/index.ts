@@ -9,6 +9,7 @@ import { ServeError } from "../errors";
 import { transformersRuntimeStrategy } from "../runtime/strategy";
 import type {
   GenerationEngine,
+  GenerationStreamEvent,
   NormalizedGenerationRequest,
   NormalizedGenerationResult,
   ServeEvent,
@@ -18,7 +19,10 @@ import {
   prepareLoadedContentGenerationRequest,
   type TransformersContentAdapter,
 } from "./content";
-import { createContinuousTransformersGeneration } from "./continuous";
+import {
+  type ContinuousTransformersGeneration,
+  createContinuousTransformersGeneration,
+} from "./continuous";
 import { ModelExecutionLane, type ModelExecutionLaneStats } from "./execution-lane";
 import {
   generateSinglePreparedRequest,
@@ -28,6 +32,8 @@ import {
 import { PromptPrefixCache } from "./prefix-cache";
 import { continuousBatchIneligibilityReason, emitGenerationRouteDecision } from "./routing";
 import { createStaticTransformersGeneration, runStaticBatchOnModelLane } from "./static";
+
+type StaticTransformersGeneration = ReturnType<typeof createStaticTransformersGeneration>;
 
 export type TransformersGenerationEngineOptions = {
   model: CausalLM;
@@ -130,6 +136,132 @@ function rejectMediaBatchInputs(
   }
 }
 
+function generateContentRequest(
+  lane: ModelExecutionLane,
+  options: TransformersGenerationEngineOptions,
+  promptPrefixCache: PromptPrefixCache,
+  request: NormalizedGenerationRequest,
+): Promise<NormalizedGenerationResult> {
+  emitGenerationRouteDecision(options, request, "single", false, "media_input");
+  if (options.contentAdapter === undefined) {
+    return rejectMediaInput();
+  }
+  return (async () => {
+    const loaded = await loadContentGenerationRequest(request, options);
+    return await runOnModelLane(lane, options, request, async () => {
+      const prepared = await prepareLoadedContentGenerationRequest(loaded, options);
+      return await generateSinglePreparedRequest(prepared, options, promptPrefixCache);
+    });
+  })();
+}
+
+function generateMessageRequest(
+  lane: ModelExecutionLane,
+  options: TransformersGenerationEngineOptions,
+  promptPrefixCache: PromptPrefixCache,
+  continuous: ContinuousTransformersGeneration,
+  request: NormalizedGenerationRequest,
+): NormalizedGenerationResult | Promise<NormalizedGenerationResult> {
+  if (maxBatchSize(options) > 1) {
+    const scheduled = continuous.generate(request);
+    if (scheduled !== null) {
+      return scheduled;
+    }
+  } else {
+    emitGenerationRouteDecision(options, request, "single", false, "prompt_prefix_cache");
+  }
+  const prepared = prepareGenerationRequest(request, options);
+  return runOnModelLane(lane, options, request, () =>
+    generateSinglePreparedRequest(prepared, options, promptPrefixCache),
+  );
+}
+
+function generateTextRequest(
+  lane: ModelExecutionLane,
+  options: TransformersGenerationEngineOptions,
+  staticGeneration: StaticTransformersGeneration,
+  continuous: ContinuousTransformersGeneration,
+  request: NormalizedGenerationRequest,
+): NormalizedGenerationResult | Promise<NormalizedGenerationResult> {
+  const staticallyBatched = staticGeneration.generate(request);
+  if (staticallyBatched !== null) {
+    return staticallyBatched;
+  }
+  const scheduled = continuous.generate(request);
+  if (scheduled !== null) {
+    return scheduled;
+  }
+  const prepared = prepareGenerationRequest(request, options);
+  return runOnModelLane(lane, options, request, () =>
+    generateSinglePreparedRequest(prepared, options),
+  );
+}
+
+async function* streamContentRequest(
+  lane: ModelExecutionLane,
+  options: TransformersGenerationEngineOptions,
+  promptPrefixCache: PromptPrefixCache,
+  request: NormalizedGenerationRequest,
+): AsyncIterable<GenerationStreamEvent> {
+  emitGenerationRouteDecision(options, request, "single", false, "media_input");
+  if (options.contentAdapter === undefined) {
+    rejectMediaInput();
+  }
+  const loaded = await loadContentGenerationRequest(request, options);
+  const release = await acquireModelLane(lane, options, request);
+  try {
+    const prepared = await prepareLoadedContentGenerationRequest(loaded, options);
+    yield* streamSinglePreparedRequest(prepared, options, promptPrefixCache);
+  } finally {
+    release();
+  }
+}
+
+async function* streamMessageRequest(
+  lane: ModelExecutionLane,
+  options: TransformersGenerationEngineOptions,
+  promptPrefixCache: PromptPrefixCache,
+  continuous: ContinuousTransformersGeneration,
+  request: NormalizedGenerationRequest,
+): AsyncIterable<GenerationStreamEvent> {
+  if (maxBatchSize(options) > 1) {
+    const scheduled = continuous.stream(request);
+    if (scheduled !== null) {
+      yield* scheduled;
+      return;
+    }
+  } else {
+    emitGenerationRouteDecision(options, request, "single", false, "prompt_prefix_cache");
+  }
+  const prepared = prepareGenerationRequest(request, options);
+  const release = await acquireModelLane(lane, options, request);
+  try {
+    yield* streamSinglePreparedRequest(prepared, options, promptPrefixCache);
+  } finally {
+    release();
+  }
+}
+
+async function* streamTextRequest(
+  lane: ModelExecutionLane,
+  options: TransformersGenerationEngineOptions,
+  continuous: ContinuousTransformersGeneration,
+  request: NormalizedGenerationRequest,
+): AsyncIterable<GenerationStreamEvent> {
+  const scheduled = continuous.stream(request);
+  if (scheduled !== null) {
+    yield* scheduled;
+    return;
+  }
+  const prepared = prepareGenerationRequest(request, options);
+  const release = await acquireModelLane(lane, options, request);
+  try {
+    yield* streamSinglePreparedRequest(prepared, options);
+  } finally {
+    release();
+  }
+}
+
 /** Create a text-generation engine from an already loaded CausalLM and tokenizer. */
 export function createTransformersGenerationEngine(
   options: TransformersGenerationEngineOptions,
@@ -138,43 +270,18 @@ export function createTransformersGenerationEngine(
   const lane = new ModelExecutionLane(strategy.scheduler.maxConcurrentRequests);
   const promptPrefixCache = new PromptPrefixCache();
   const staticGeneration = createStaticTransformersGeneration(options, lane);
-  const continuous = createContinuousTransformersGeneration(options, lane);
+  const continuous = createContinuousTransformersGeneration(options, lane, promptPrefixCache);
 
   function generate(
     request: NormalizedGenerationRequest,
   ): NormalizedGenerationResult | Promise<NormalizedGenerationResult> {
     if (request.input.kind === "content") {
-      emitGenerationRouteDecision(options, request, "single", false, "media_input");
-      if (options.contentAdapter === undefined) {
-        return rejectMediaInput();
-      }
-      return (async () => {
-        const loaded = await loadContentGenerationRequest(request, options);
-        return await runOnModelLane(lane, options, request, async () => {
-          const prepared = await prepareLoadedContentGenerationRequest(loaded, options);
-          return await generateSinglePreparedRequest(prepared, options, promptPrefixCache);
-        });
-      })();
+      return generateContentRequest(lane, options, promptPrefixCache, request);
     }
     if (request.input.kind === "messages") {
-      emitGenerationRouteDecision(options, request, "single", false, "prompt_prefix_cache");
-      const prepared = prepareGenerationRequest(request, options);
-      return runOnModelLane(lane, options, request, () =>
-        generateSinglePreparedRequest(prepared, options, promptPrefixCache),
-      );
+      return generateMessageRequest(lane, options, promptPrefixCache, continuous, request);
     }
-    const staticallyBatched = staticGeneration.generate(request);
-    if (staticallyBatched !== null) {
-      return staticallyBatched;
-    }
-    const scheduled = continuous.generate(request);
-    if (scheduled !== null) {
-      return scheduled;
-    }
-    const prepared = prepareGenerationRequest(request, options);
-    return runOnModelLane(lane, options, request, () =>
-      generateSinglePreparedRequest(prepared, options),
-    );
+    return generateTextRequest(lane, options, staticGeneration, continuous, request);
   }
 
   return {
@@ -193,42 +300,13 @@ export function createTransformersGenerationEngine(
     },
     async *stream(request) {
       if (request.input.kind === "content") {
-        emitGenerationRouteDecision(options, request, "single", false, "media_input");
-        if (options.contentAdapter === undefined) {
-          rejectMediaInput();
-        }
-        const loaded = await loadContentGenerationRequest(request, options);
-        const release = await acquireModelLane(lane, options, request);
-        try {
-          const prepared = await prepareLoadedContentGenerationRequest(loaded, options);
-          yield* streamSinglePreparedRequest(prepared, options, promptPrefixCache);
-        } finally {
-          release();
-        }
+        yield* streamContentRequest(lane, options, promptPrefixCache, request);
         return;
       }
       if (request.input.kind === "messages") {
-        emitGenerationRouteDecision(options, request, "single", false, "prompt_prefix_cache");
-        const prepared = prepareGenerationRequest(request, options);
-        const release = await acquireModelLane(lane, options, request);
-        try {
-          yield* streamSinglePreparedRequest(prepared, options, promptPrefixCache);
-        } finally {
-          release();
-        }
-        return;
-      }
-      const scheduled = continuous.stream(request);
-      if (scheduled !== null) {
-        yield* scheduled;
-        return;
-      }
-      const prepared = prepareGenerationRequest(request, options);
-      const release = await acquireModelLane(lane, options, request);
-      try {
-        yield* streamSinglePreparedRequest(prepared, options);
-      } finally {
-        release();
+        yield* streamMessageRequest(lane, options, promptPrefixCache, continuous, request);
+      } else {
+        yield* streamTextRequest(lane, options, continuous, request);
       }
     },
     [Symbol.dispose]() {

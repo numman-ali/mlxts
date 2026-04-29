@@ -253,6 +253,47 @@ describe("Qwen3_5TextBatchCache", () => {
     }
   });
 
+  test("restores one-row hybrid batch state from a single Qwen cache", () => {
+    using source = new Qwen3_5TextCache(["linear_attention", "full_attention"]);
+    using fullKeys = array([[[[1], [2]]]], "float32");
+    using fullValues = array([[[[10], [20]]]], "float32");
+    using fullView = source.updateAndFetch(1, fullKeys, fullValues).keys;
+    using convState = array([[[3, 4]]], "float32");
+    using recurrentState = array([[[[5]]]], "float32");
+    source.updateLinearState(0, convState, recurrentState);
+    source.advance(2);
+    mxEval(fullView);
+
+    using batch = new Qwen3_5TextBatchCache(["linear_attention", "full_attention"], [0]);
+    batch.restoreFromCache(0, source);
+
+    expect(batch.offsets).toEqual([2]);
+    expect(batch.leftPadding).toEqual([0]);
+    expect(batch.linearState(0).convState?.toList()).toEqual([[[3, 4]]]);
+    expect(batch.linearState(0).recurrentState?.toList()).toEqual([[[[5]]]]);
+
+    const extracted = batch.extract(0);
+    try {
+      expect(extracted.offset).toBe(2);
+      const arrays = extracted.arrays();
+      try {
+        mxEval(...arrays);
+        expect(arrays.map((value) => value.toList())).toEqual([
+          [[[3, 4]]],
+          [[[[5]]]],
+          [[[[1], [2]]]],
+          [[[[10], [20]]]],
+        ]);
+      } finally {
+        for (const value of arrays) {
+          value.free();
+        }
+      }
+    } finally {
+      extracted[Symbol.dispose]();
+    }
+  });
+
   test("filters full and linear state by active rows", () => {
     using cache = new Qwen3_5TextBatchCache(["linear_attention", "full_attention"], [1, 0]);
     using convState = array([[[4, 5]], [[6, 7]]], "float32");

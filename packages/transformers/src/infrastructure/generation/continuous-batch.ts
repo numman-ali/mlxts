@@ -27,13 +27,10 @@ import {
   disposePrefillingCaches,
   dropAbortedActiveRows,
   integerAtLeast,
-  prefillPromptChunk,
-  prefillReadyBatch,
   rejectAbortedPrefillingRows,
   remainingPrefillTokens,
   samplerOptionsFrom,
-  shouldChunkInitialRows,
-  takeReadyPrefillingRow,
+  shouldUsePrefillLane,
   validateContinuousBatchOptions,
   yieldToScheduler,
 } from "./continuous-batch-helpers";
@@ -47,6 +44,12 @@ import {
   resolveActivePrefillStepSize,
   shouldPrioritizeActiveDecode,
 } from "./continuous-batch-policy";
+import {
+  emitPrefillingPromptCacheSnapshot,
+  prefillPromptChunk,
+  prefillReadyBatch,
+  takeReadyPrefillingRow,
+} from "./continuous-batch-prefill";
 import { ContinuousBatchTelemetry } from "./continuous-batch-telemetry";
 import {
   type ContinuousBatchAdmissionController,
@@ -59,6 +62,7 @@ import {
 } from "./continuous-batch-types";
 import { AdmissionReleaseWakeup } from "./continuous-batch-wakeup";
 import { resolveGenerationOptions } from "./defaults";
+
 /** Scheduler-owned continuous decode loop for batch-cache-capable models. */
 export class ContinuousBatchTokenScheduler {
   readonly #model: CausalLM;
@@ -108,29 +112,42 @@ export class ContinuousBatchTokenScheduler {
   }
 
   enqueue(request: ContinuousBatchTokenRequest): Promise<GenerationResult> {
-    if (request.promptTokenIds.length === 0) {
-      throw new Error(
-        "ContinuousBatchTokenScheduler: promptTokenIds must contain at least one token.",
-      );
-    }
-    if (!Number.isInteger(request.maxTokens) || request.maxTokens < 0) {
-      throw new Error(
-        `ContinuousBatchTokenScheduler: maxTokens must be >= 0, got ${request.maxTokens}.`,
-      );
-    }
-    throwIfGenerationAborted(request.abortSignal, "ContinuousBatchTokenScheduler");
-    if (request.maxTokens === 0) {
-      return Promise.resolve({ tokenIds: [], finishReason: "length" });
+    try {
+      if (request.promptTokenIds.length === 0) {
+        throw new Error(
+          "ContinuousBatchTokenScheduler: promptTokenIds must contain at least one token.",
+        );
+      }
+      if (!Number.isInteger(request.maxTokens) || request.maxTokens < 0) {
+        throw new Error(
+          `ContinuousBatchTokenScheduler: maxTokens must be >= 0, got ${request.maxTokens}.`,
+        );
+      }
+      throwIfGenerationAborted(request.abortSignal, "ContinuousBatchTokenScheduler");
+      if (request.maxTokens === 0) {
+        request.prefixCache?.[Symbol.dispose]();
+        return Promise.resolve({ tokenIds: [], finishReason: "length" });
+      }
+    } catch (error) {
+      request.prefixCache?.[Symbol.dispose]();
+      throw error;
     }
 
     return new Promise((resolve, reject) => {
-      const entry = createScheduledRequest(
-        request.id ?? `continuous-${this.#nextId}`,
-        request,
-        this.#samplerOptions,
-        resolve,
-        reject,
-      );
+      let entry: ScheduledRequest;
+      try {
+        entry = createScheduledRequest(
+          request.id ?? `continuous-${this.#nextId}`,
+          request,
+          this.#samplerOptions,
+          resolve,
+          reject,
+        );
+      } catch (error) {
+        request.prefixCache?.[Symbol.dispose]();
+        reject(error);
+        return;
+      }
       this.#nextId += 1;
       attachScheduledRequestAbort(entry, {
         waiting: this.#waiting,
@@ -251,7 +268,7 @@ export class ContinuousBatchTokenScheduler {
     }
     if (this.#active.length === 0 && this.#prefilling.length === 0) {
       const count = Math.min(capacity, this.#waiting.length);
-      if (shouldChunkInitialRows(this.#waiting, count, this.#prefillStepSize)) {
+      if (shouldUsePrefillLane(this.#waiting, count, this.#prefillStepSize)) {
         let started = false;
         for (let index = 0; index < count; index += 1) {
           started = this.#startPrefillingRow() || started;
@@ -304,10 +321,26 @@ export class ContinuousBatchTokenScheduler {
     if (request === undefined) {
       return false;
     }
+    const seedCaches = request.prefixCache === undefined ? undefined : [request.prefixCache];
+    let cache: TransformerBatchCache;
+    try {
+      cache = createBatchCacheForModel(
+        this.#model,
+        [0],
+        "ContinuousBatchTokenScheduler",
+        seedCaches,
+      );
+    } catch (error) {
+      cleanupScheduledRequest(request);
+      request.reject(error);
+      return true;
+    }
+    request.prefixCache?.[Symbol.dispose]();
+    delete request.prefixCache;
     this.#prefilling.push({
       request,
-      cache: createBatchCacheForModel(this.#model, [0], "ContinuousBatchTokenScheduler"),
-      cursor: 0,
+      cache,
+      cursor: request.cachedPrefixLength,
     });
     this.#telemetry.prefillStart(request, this.#snapshot());
     return true;
@@ -351,6 +384,11 @@ export class ContinuousBatchTokenScheduler {
   }
 
   #finishPrefillingRow(index: number): boolean {
+    const prefilling = this.#prefilling[index];
+    if (prefilling === undefined) {
+      return false;
+    }
+    emitPrefillingPromptCacheSnapshot(prefilling);
     const ready = takeReadyPrefillingRow(this.#model, this.#prefilling, index);
     if (ready === null) {
       return false;

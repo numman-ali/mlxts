@@ -28,6 +28,8 @@ export function cleanupScheduledRequest(entry: ScheduledRequest): void {
   }
   entry.admissionReservation?.[Symbol.dispose]();
   delete entry.admissionReservation;
+  entry.prefixCache?.[Symbol.dispose]();
+  delete entry.prefixCache;
   entry.samplerState[Symbol.dispose]();
 }
 

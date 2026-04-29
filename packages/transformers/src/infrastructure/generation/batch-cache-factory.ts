@@ -3,10 +3,13 @@
  * @module
  */
 
-import type { CausalLM, TransformerBatchCache } from "../../types";
+import type { CausalLM, TransformerBatchCache, TransformerCache } from "../../types";
 import { BatchKVCache, cacheLayerKindFromAttentionType, LayerPatternBatchKVCache } from "../cache";
 
-type BatchCacheFactory = (leftPadding: readonly number[]) => unknown;
+type BatchCacheFactory = (
+  leftPadding: readonly number[],
+  seedCaches?: readonly TransformerCache[],
+) => unknown;
 
 function isBatchCacheFactory(value: unknown): value is BatchCacheFactory {
   return typeof value === "function";
@@ -35,12 +38,16 @@ function createModelOwnedBatchCache(
   model: CausalLM,
   leftPadding: readonly number[],
   context: string,
+  seedCaches: readonly TransformerCache[] | undefined,
 ): TransformerBatchCache | null {
   const factory = Reflect.get(model, "createBatchCache");
   if (!isBatchCacheFactory(factory)) {
     return null;
   }
-  const cache = Reflect.apply(factory, model, [leftPadding]);
+  const cache = Reflect.apply(factory, model, [
+    leftPadding,
+    ...(seedCaches === undefined ? [] : [seedCaches]),
+  ]);
   if (!isTransformerBatchCache(cache)) {
     throw new Error(`${context}: model-owned batch cache is not a TransformerBatchCache.`);
   }
@@ -85,18 +92,90 @@ function gemmaLayerWindowSizes(model: CausalLM, context: string): (number | unde
   return layerWindowSizes;
 }
 
+function validateSeedCaches(
+  leftPadding: readonly number[],
+  seedCaches: readonly TransformerCache[] | undefined,
+  context: string,
+): void {
+  if (seedCaches === undefined) {
+    return;
+  }
+  if (seedCaches.length !== leftPadding.length) {
+    throw new Error(`${context}: seeded batch cache requires one seed per batch row.`);
+  }
+  if (seedCaches.length !== 1 || leftPadding.length !== 1) {
+    throw new Error(`${context}: seeded batch cache currently requires one batch row.`);
+  }
+}
+
+function restoreManagedSeedCache(
+  cache: TransformerBatchCache,
+  seedCache: TransformerCache,
+  context: string,
+): void {
+  if (cache instanceof BatchKVCache) {
+    cache.restoreFromCache(0, seedCache);
+    return;
+  }
+  if (cache instanceof LayerPatternBatchKVCache) {
+    cache.restoreFromCache(0, seedCache);
+    return;
+  }
+  throw new Error(`${context}: seeded batch cache requires a model-owned restore implementation.`);
+}
+
+function assertSeededOffsets(
+  cache: TransformerBatchCache,
+  seedCaches: readonly TransformerCache[] | undefined,
+  context: string,
+): void {
+  if (seedCaches === undefined) {
+    return;
+  }
+  for (let index = 0; index < seedCaches.length; index += 1) {
+    const seedCache = seedCaches[index];
+    const offset = cache.offsets[index];
+    if (seedCache !== undefined && offset !== seedCache.offset) {
+      throw new Error(`${context}: seeded batch cache did not preserve source cache offsets.`);
+    }
+  }
+}
+
 /** Create the most specific batch cache a model can consume. */
 export function createBatchCacheForModel(
   model: CausalLM,
   leftPadding: readonly number[],
   context: string,
+  seedCaches?: readonly TransformerCache[],
 ): TransformerBatchCache {
-  const modelOwnedCache = createModelOwnedBatchCache(model, leftPadding, context);
+  validateSeedCaches(leftPadding, seedCaches, context);
+  const modelOwnedCache = createModelOwnedBatchCache(model, leftPadding, context, seedCaches);
   if (modelOwnedCache !== null) {
-    return modelOwnedCache;
+    try {
+      assertSeededOffsets(modelOwnedCache, seedCaches, context);
+      return modelOwnedCache;
+    } catch (error) {
+      modelOwnedCache[Symbol.dispose]();
+      throw error;
+    }
   }
   const layerWindowSizes = gemmaLayerWindowSizes(model, context);
-  return layerWindowSizes === null
-    ? new BatchKVCache(model.layerCount, leftPadding)
-    : new LayerPatternBatchKVCache(model.layerCount, leftPadding, layerWindowSizes);
+  const cache =
+    layerWindowSizes === null
+      ? new BatchKVCache(model.layerCount, leftPadding)
+      : new LayerPatternBatchKVCache(model.layerCount, leftPadding, layerWindowSizes);
+  if (seedCaches !== undefined) {
+    try {
+      const seedCache = seedCaches[0];
+      if (seedCache === undefined) {
+        throw new Error(`${context}: seeded batch cache is missing row 0.`);
+      }
+      restoreManagedSeedCache(cache, seedCache, context);
+      assertSeededOffsets(cache, seedCaches, context);
+    } catch (error) {
+      cache[Symbol.dispose]();
+      throw error;
+    }
+  }
+  return cache;
 }

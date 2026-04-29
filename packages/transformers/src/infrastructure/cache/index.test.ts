@@ -212,6 +212,28 @@ describe("Transformer caches", () => {
     expect(cacheArrayLists(prefix)).toEqual([[[[[1], [2]]]], [[[[10], [20]]]]]);
   });
 
+  test("managed BatchKVCache restores one-row state from a single full-KV cache", () => {
+    using source = new KVCache(1);
+    using keys = array([[[[1], [2]]]], "float32");
+    using values = array([[[[10], [20]]]], "float32");
+    using view = source.updateAndFetch(0, keys, values).keys;
+    source.advance(2);
+    mxEval(view);
+
+    using batch = new BatchKVCache(1, [0]);
+    batch.restoreFromCache(0, source);
+
+    expect(batch.offsets).toEqual([2]);
+    expect(batch.length).toBe(2);
+    const extracted = batch.extract(0);
+    try {
+      expect(extracted.offset).toBe(2);
+      expect(cacheArrayLists(extracted)).toEqual([[[[[1], [2]]]], [[[[10], [20]]]]]);
+    } finally {
+      extracted[Symbol.dispose]();
+    }
+  });
+
   test("managed SlidingWindowKVCache snapshots preserve exact ring-buffer continuation", () => {
     using cache = new SlidingWindowKVCache(1, 2);
     using firstKeys = array([[[[1], [2]]]], "float32");
@@ -278,6 +300,30 @@ describe("Transformer caches", () => {
     using forkNextView = fork.updateAndFetch(1, nextKeys, nextValues).keys;
     mxEval(forkNextView);
     expect(forkNextView.toList()).toEqual([[[[6], [7]]]]);
+  });
+
+  test("managed LayerPatternBatchKVCache restores exact sliding cursor state", () => {
+    using source = new LayerPatternKVCache(1, [2]);
+    using firstKeys = array([[[[1], [2]]]], "float32");
+    using firstValues = array([[[[10], [20]]]], "float32");
+    using secondKeys = array([[[[3]]]], "float32");
+    using secondValues = array([[[[30]]]], "float32");
+    using firstView = source.updateAndFetch(0, firstKeys, firstValues).keys;
+    source.advance(2);
+    using secondView = source.updateAndFetch(0, secondKeys, secondValues).keys;
+    source.advance(1);
+    mxEval(firstView, secondView);
+
+    using batch = new LayerPatternBatchKVCache(1, [0], [2]);
+    batch.restoreFromCache(0, source);
+    expect(batch.offsets).toEqual([3]);
+    expect(batch.length).toBe(3);
+
+    using nextKeys = array([[[[4]]]], "float32");
+    using nextValues = array([[[[40]]]], "float32");
+    using restoredNextView = batch.updateAndFetch(0, nextKeys, nextValues).keys;
+    mxEval(restoredNextView);
+    expect(restoredNextView.toList()).toEqual([[[[3], [4]]]]);
   });
 
   test("managed KVCache snapshots cannot fork after disposal", () => {

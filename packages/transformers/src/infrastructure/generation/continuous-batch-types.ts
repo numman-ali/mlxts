@@ -2,8 +2,10 @@ import type {
   BatchGenerationOptions,
   GenerationResult,
   PrefillProgressEvent,
+  PromptCacheSnapshotEvent,
   SamplerOptions,
   TransformerBatchCache,
+  TransformerCache,
 } from "../../types";
 import type { SamplerState } from "../sampling";
 import type {
@@ -64,10 +66,13 @@ export type ScheduledRequest = {
   firstTokenEmitted: boolean;
   finishReason: GenerationResult["finishReason"];
   admissionDeferred: boolean;
+  cachedPrefixLength: number;
   admissionReservation?: ContinuousBatchAdmissionReservation;
+  prefixCache?: TransformerCache;
   abortSignal?: AbortSignal;
   onAbort?: () => void;
   onPrefillProgress?: (event: PrefillProgressEvent) => void;
+  onPromptCacheSnapshot?: (event: PromptCacheSnapshotEvent) => void;
   onToken?: (tokenId: number, generatedTokenIds: readonly number[]) => void;
   resolve(result: GenerationResult): void;
   reject(error: unknown): void;
@@ -105,7 +110,12 @@ export type ContinuousBatchTokenRequest = {
   id?: string;
   promptTokenIds: readonly number[];
   maxTokens: number;
+  /** Restored single-request prefix cache owned by the scheduler after enqueue. */
+  prefixCache?: TransformerCache;
+  /** Logical prompt tokens already represented by `prefixCache`. */
+  cachedPrefixLength?: number;
   abortSignal?: AbortSignal;
   onPrefillProgress?: (event: PrefillProgressEvent) => void;
+  onPromptCacheSnapshot?: (event: PromptCacheSnapshotEvent) => void;
   onToken?: (tokenId: number, generatedTokenIds: readonly number[]) => void;
 };
