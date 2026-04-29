@@ -127,13 +127,18 @@ export class PromptPrefixTokenBlockStore {
 
   /** Retain a block-chain handle for the provided reusable prompt tokens. */
   retain(tokenIds: readonly number[]): PromptPrefixTokenBlockHandle {
-    const hashes: string[] = [];
-    let parentHash = ROOT_BLOCK_HASH;
+    const hashes = this.hashesFor(tokenIds);
+    const retainedHashes: string[] = [];
 
     try {
       for (let start = 0; start < tokenIds.length; start += this.#blockSize) {
         const blockTokenIds = tokenIds.slice(start, start + this.#blockSize);
-        const hash = this.#hashBlock(parentHash, blockTokenIds);
+        const hash = hashes[start / this.#blockSize];
+        const parentHash =
+          start === 0 ? ROOT_BLOCK_HASH : (hashes[start / this.#blockSize - 1] ?? ROOT_BLOCK_HASH);
+        if (hash === undefined) {
+          throw new Error("PromptPrefixTokenBlockStore: missing block hash.");
+        }
         const existing = this.#blocks.get(hash);
         if (existing === undefined) {
           this.#blocks.set(hash, {
@@ -151,15 +156,27 @@ export class PromptPrefixTokenBlockStore {
           }
           existing.refCount += 1;
         }
-        hashes.push(hash);
-        parentHash = hash;
+        retainedHashes.push(hash);
       }
     } catch (error) {
-      this.release(hashes);
+      this.release(retainedHashes);
       throw error;
     }
 
     return new PromptPrefixTokenBlockHandle(this, hashes, tokenIds.length, this.#blockSize);
+  }
+
+  /** Return the parent-linked block hashes for a prompt-token prefix. */
+  hashesFor(tokenIds: readonly number[]): readonly string[] {
+    const hashes: string[] = [];
+    let parentHash = ROOT_BLOCK_HASH;
+    for (let start = 0; start < tokenIds.length; start += this.#blockSize) {
+      const blockTokenIds = tokenIds.slice(start, start + this.#blockSize);
+      const hash = this.#hashBlock(parentHash, blockTokenIds);
+      hashes.push(hash);
+      parentHash = hash;
+    }
+    return hashes;
   }
 
   /** Return current token-block retention counters. */
@@ -227,6 +244,11 @@ export class PromptPrefixTokenBlockHandle implements Disposable {
       blockCount: this.#hashes.length,
       blockAlignedTokenLength: Math.floor(this.#tokenLength / this.#blockSize) * this.#blockSize,
     };
+  }
+
+  /** Return retained block hashes for internal prompt-cache indexing. */
+  hashes(): readonly string[] {
+    return [...this.#hashes];
   }
 
   [Symbol.dispose](): void {

@@ -212,6 +212,7 @@ describe("PromptPrefixCache", () => {
     using cache = new PromptPrefixCache({ maxEntries: 2, blockSize: 2 });
     expect(cache.stats()).toEqual({
       entries: 0,
+      indexedBlockHashes: 0,
       tokenBlocks: {
         blockSize: 2,
         blockCount: 0,
@@ -228,6 +229,7 @@ describe("PromptPrefixCache", () => {
     expect(cache.store([1, 2, 3, 9, 10], second)).toBe(4);
     expect(cache.stats()).toEqual({
       entries: 2,
+      indexedBlockHashes: 3,
       tokenBlocks: {
         blockSize: 2,
         blockCount: 3,
@@ -243,6 +245,7 @@ describe("PromptPrefixCache", () => {
     expect(third.disposeCount).toBe(0);
     expect(cache.stats()).toEqual({
       entries: 2,
+      indexedBlockHashes: 3,
       tokenBlocks: {
         blockSize: 2,
         blockCount: 3,
@@ -291,6 +294,29 @@ describe("PromptPrefixCache", () => {
     hit?.cache[Symbol.dispose]();
   });
 
+  test("full scan can replace an indexed hit that undercovers the selected block", () => {
+    using cache = new PromptPrefixCache({
+      maxEntries: 2,
+      blockSize: 2,
+      hashBlock: (_parentHash, tokenIds) =>
+        tokenIds.length === 2 && tokenIds[0] === 1 && (tokenIds[1] === 2 || tokenIds[1] === 9)
+          ? "forced-collision"
+          : `stable:${tokenIds.join(",")}`,
+    });
+    const fallbackSnapshot = new FakeSnapshot(1);
+    const collisionSnapshot = new FakeSnapshot(2);
+    expect(cache.store([1, 99], fallbackSnapshot)).toBe(1);
+    expect(cache.store([1, 9, 99], collisionSnapshot)).toBe(2);
+
+    const hit = cache.lookup([1, 2, 3]);
+
+    expect(hit?.readTokens).toBe(1);
+    expect(hit?.source.tokenLength).toBe(1);
+    expect(fallbackSnapshot.forkOffsets).toEqual([1]);
+    expect(collisionSnapshot.forkOffsets).toEqual([]);
+    hit?.cache[Symbol.dispose]();
+  });
+
   test("releases token blocks for immediately rejected stores", () => {
     using cache = new PromptPrefixCache({ maxEntries: 1, blockSize: 2 });
     const retained = new FakeSnapshot(4);
@@ -303,6 +329,7 @@ describe("PromptPrefixCache", () => {
     expect(rejected.disposeCount).toBe(1);
     expect(cache.stats()).toEqual({
       entries: 1,
+      indexedBlockHashes: 2,
       tokenBlocks: {
         blockSize: 2,
         blockCount: 2,
