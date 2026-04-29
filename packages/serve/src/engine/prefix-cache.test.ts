@@ -147,11 +147,16 @@ describe("PromptPrefixCache", () => {
     const exactHit = exactCache.lookup([1, 2, 3, 4, 5]);
     expect(exactHit?.matchType).toBe("exact");
     expect(exactHit?.readTokens).toBe(4);
-    expect(exactHit?.source).toEqual({
+    expect(exactHit?.source).toMatchObject({
       tokenLength: 4,
       snapshotOffset: 4,
       layerKinds: ["full"],
       trimmable: true,
+    });
+    expect(exactHit?.source.tokenBlocks).toMatchObject({
+      blockSize: 64,
+      blockCount: 1,
+      blockAlignedTokenLength: 0,
     });
     exactHit?.cache[Symbol.dispose]();
 
@@ -194,13 +199,118 @@ describe("PromptPrefixCache", () => {
 
     const hit = cache.lookup([1, 2, 3, 4, 5, 6]);
     expect(hit?.matchType).toBe("exact");
-    expect(hit?.source).toEqual({
+    expect(hit?.source).toMatchObject({
       tokenLength: 5,
       snapshotOffset: 5,
       layerKinds: ["full", "linear-recurrent"],
       trimmable: false,
     });
     hit?.cache[Symbol.dispose]();
+  });
+
+  test("deduplicates retained token blocks and releases evicted entries", () => {
+    using cache = new PromptPrefixCache({ maxEntries: 2, blockSize: 2 });
+    expect(cache.stats()).toEqual({
+      entries: 0,
+      tokenBlocks: {
+        blockSize: 2,
+        blockCount: 0,
+        blockReferences: 0,
+        uniqueTokenCount: 0,
+        referencedTokenCount: 0,
+      },
+    });
+
+    const first = new FakeSnapshot(4);
+    const second = new FakeSnapshot(4);
+    const third = new FakeSnapshot(4);
+    expect(cache.store([1, 2, 3, 4, 5], first)).toBe(4);
+    expect(cache.store([1, 2, 3, 9, 10], second)).toBe(4);
+    expect(cache.stats()).toEqual({
+      entries: 2,
+      tokenBlocks: {
+        blockSize: 2,
+        blockCount: 3,
+        blockReferences: 4,
+        uniqueTokenCount: 6,
+        referencedTokenCount: 8,
+      },
+    });
+
+    expect(cache.store([1, 2, 7, 8, 9], third)).toBe(4);
+    expect(first.disposeCount).toBe(1);
+    expect(second.disposeCount).toBe(0);
+    expect(third.disposeCount).toBe(0);
+    expect(cache.stats()).toEqual({
+      entries: 2,
+      tokenBlocks: {
+        blockSize: 2,
+        blockCount: 3,
+        blockReferences: 4,
+        uniqueTokenCount: 6,
+        referencedTokenCount: 8,
+      },
+    });
+
+    const hit = cache.lookup([1, 2, 3, 9, 10]);
+    expect(hit?.source.tokenBlocks).toMatchObject({
+      blockSize: 2,
+      blockCount: 2,
+      blockAlignedTokenLength: 4,
+    });
+    hit?.cache[Symbol.dispose]();
+  });
+
+  test("falls back to a shorter reusable entry when a longer match cannot fork", () => {
+    using cache = new PromptPrefixCache({ maxEntries: 2, blockSize: 2 });
+    const longSnapshot = new FakeSnapshot(4, { maxForkOffset: 3 });
+    const shortSnapshot = new FakeSnapshot(2);
+    expect(cache.store([1, 2, 3, 4, 5], longSnapshot)).toBe(4);
+    expect(cache.store([1, 2, 9], shortSnapshot)).toBe(2);
+
+    const hit = cache.lookup([1, 2, 3, 4, 5]);
+    expect(hit?.readTokens).toBe(2);
+    expect(hit?.matchType).toBe("prefix");
+    expect(longSnapshot.forkOffsets).toEqual([]);
+    expect(shortSnapshot.forkOffsets).toEqual([2]);
+    hit?.cache[Symbol.dispose]();
+  });
+
+  test("media identity misses do not shadow compatible shorter entries", () => {
+    using cache = new PromptPrefixCache({ maxEntries: 2, blockSize: 2 });
+    const mediaSnapshot = new FakeSnapshot(3);
+    const textSnapshot = new FakeSnapshot(2);
+    expect(cache.store([1, 2, 3, 4], mediaSnapshot, { contentKeys: ["image:first"] })).toBe(3);
+    expect(cache.store([1, 2, 9], textSnapshot)).toBe(2);
+
+    const hit = cache.lookup([1, 2, 5]);
+    expect(hit?.readTokens).toBe(2);
+    expect(hit?.source.tokenLength).toBe(2);
+    expect(mediaSnapshot.forkOffsets).toEqual([]);
+    expect(textSnapshot.forkOffsets).toEqual([2]);
+    hit?.cache[Symbol.dispose]();
+  });
+
+  test("releases token blocks for immediately rejected stores", () => {
+    using cache = new PromptPrefixCache({ maxEntries: 1, blockSize: 2 });
+    const retained = new FakeSnapshot(4);
+    const rejected = new FakeSnapshot(2);
+
+    expect(cache.store([1, 2, 3, 4, 5], retained)).toBe(4);
+    expect(cache.store([9, 10, 11], rejected)).toBe(2);
+
+    expect(retained.disposeCount).toBe(0);
+    expect(rejected.disposeCount).toBe(1);
+    expect(cache.stats()).toEqual({
+      entries: 1,
+      tokenBlocks: {
+        blockSize: 2,
+        blockCount: 2,
+        blockReferences: 2,
+        uniqueTokenCount: 4,
+        referencedTokenCount: 4,
+      },
+    });
   });
 
   test("requires matching media identities for media-aware entries", () => {
@@ -229,6 +339,10 @@ describe("PromptPrefixCache", () => {
   });
 
   test("disposes snapshots that cannot be retained", () => {
+    expect(() => new PromptPrefixCache({ blockSize: 0 })).toThrow(
+      "blockSize must be a positive integer",
+    );
+
     using disabled = new PromptPrefixCache(0);
     const ignored = new FakeSnapshot(5);
     expect(disabled.store(tokenRange(1, 6), ignored)).toBe(0);

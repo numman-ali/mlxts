@@ -81,8 +81,9 @@ Full evidence ladder lives in
 - Prefix-cache cache-hit seeding now reaches continuous scheduler rows through
   one-row managed batch-cache restore. Hits now classify exact, shorter-prefix,
   longer-source trim, and LCP reuse and expose source `CacheLayerKind` /
-  trimmability metadata; paged/block-deduplicated storage remains the next
-  cache-backend tranche.
+  trimmability metadata. Serve now also retains prompt-token block chains with
+  ref-counted deduplication and stats; block-indexed lookup and paged attention
+  remain later cache-backend work.
 - Real serving memory preflight should reject admission deterministically
   based on family geometry + cache layout, not advisory warnings.
 - Use `bun run bench:serve --stream` for huge prompt rungs; buffered JSON is
