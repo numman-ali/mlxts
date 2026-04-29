@@ -96,6 +96,7 @@ export function formatServeReady(endpoint: string, options: ServeCliOptions): st
     ].join(" "),
     `Streaming decode interval: ${options.streamDecodeInterval} token(s)`,
     `Model execution lanes: max_in_flight=${options.maxConcurrentRequests}`,
+    `Prompt-prefix cache entries: ${options.promptPrefixCacheMaxEntries}`,
     "",
     "Try:",
     [
@@ -270,6 +271,7 @@ function toServeModelOptions(options: ServeCliOptions): ServeModelOptions {
     activeDecodeStepsPerPrefillChunk: options.activeDecodeStepsPerPrefillChunk,
     streamDecodeInterval: options.streamDecodeInterval,
     maxConcurrentRequests: options.maxConcurrentRequests,
+    promptPrefixCacheMaxEntries: options.promptPrefixCacheMaxEntries,
     gpuMemoryUtilization: options.gpuMemoryUtilization,
     ...(options.revision === undefined ? {} : { revision: options.revision }),
     ...(options.accessToken === undefined ? {} : { accessToken: options.accessToken }),
@@ -297,6 +299,7 @@ function toServeModelsOptions(options: ServeCliOptions): ServeModelsOptions {
     activeDecodeStepsPerPrefillChunk: options.activeDecodeStepsPerPrefillChunk,
     streamDecodeInterval: options.streamDecodeInterval,
     maxConcurrentRequests: options.maxConcurrentRequests,
+    promptPrefixCacheMaxEntries: options.promptPrefixCacheMaxEntries,
     gpuMemoryUtilization: options.gpuMemoryUtilization,
     ...(options.revision === undefined ? {} : { revision: options.revision }),
     ...(options.accessToken === undefined ? {} : { accessToken: options.accessToken }),

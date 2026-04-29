@@ -14,6 +14,7 @@ import type { TransformersContentAdapter } from "../engine/content";
 import { DEFAULT_STREAM_DECODE_INTERVAL } from "../engine/streaming";
 import {
   DEFAULT_SERVE_PREFILL_STEP_SIZE,
+  DEFAULT_SERVE_PROMPT_PREFIX_CACHE_MAX_ENTRIES,
   requireNonNegativeInteger,
   requirePositiveFraction,
   requirePositiveInteger,
@@ -32,6 +33,8 @@ export const DEFAULT_MODEL_SERVER_ACTIVE_PREFILL_STEP_SIZE = 128;
 export const DEFAULT_MODEL_SERVER_ACTIVE_DECODE_STEPS_PER_PREFILL_CHUNK = 16;
 export const DEFAULT_MODEL_SERVER_STREAM_DECODE_INTERVAL = DEFAULT_STREAM_DECODE_INTERVAL;
 export const DEFAULT_MODEL_SERVER_MAX_CONCURRENT_REQUESTS = 1;
+export const DEFAULT_MODEL_SERVER_PROMPT_PREFIX_CACHE_MAX_ENTRIES =
+  DEFAULT_SERVE_PROMPT_PREFIX_CACHE_MAX_ENTRIES;
 export const DEFAULT_MODEL_SERVER_GPU_MEMORY_UTILIZATION = 0.9;
 
 export type ModelServerRuntimeOptions = {
@@ -47,6 +50,7 @@ export type ModelServerRuntimeOptions = {
   activeDecodeStepsPerPrefillChunk?: number;
   streamDecodeInterval?: number;
   maxConcurrentRequests?: number;
+  promptPrefixCacheMaxEntries?: number;
   gpuMemoryUtilization?: number;
   apiKey?: string;
   onEvent?: (event: ServeEvent) => void;
@@ -97,6 +101,7 @@ export type ResolvedRuntimeOptions = {
   activeDecodeStepsPerPrefillChunk: number;
   streamDecodeInterval: number;
   maxConcurrentRequests: number;
+  promptPrefixCacheMaxEntries: number;
   gpuMemoryUtilization: number;
   apiKey?: string;
   onEvent?: (event: ServeEvent) => void;
@@ -141,6 +146,13 @@ function requireNonEmpty(name: string, value: string): string {
   return value;
 }
 
+function resolvePromptPrefixCacheMaxEntries(value: number | undefined): number {
+  return requirePositiveInteger(
+    "promptPrefixCacheMaxEntries",
+    value ?? DEFAULT_MODEL_SERVER_PROMPT_PREFIX_CACHE_MAX_ENTRIES,
+  );
+}
+
 export function resolveRuntimeOptions(options: ModelServerRuntimeOptions): ResolvedRuntimeOptions {
   const maxBatchSize = requirePositiveInteger(
     "maxBatchSize",
@@ -171,6 +183,9 @@ export function resolveRuntimeOptions(options: ModelServerRuntimeOptions): Resol
     "maxConcurrentRequests",
     options.maxConcurrentRequests ?? DEFAULT_MODEL_SERVER_MAX_CONCURRENT_REQUESTS,
   );
+  const promptPrefixCacheMaxEntries = resolvePromptPrefixCacheMaxEntries(
+    options.promptPrefixCacheMaxEntries,
+  );
   const gpuMemoryUtilization = requirePositiveFraction(
     "gpuMemoryUtilization",
     options.gpuMemoryUtilization ?? DEFAULT_MODEL_SERVER_GPU_MEMORY_UTILIZATION,
@@ -197,6 +212,7 @@ export function resolveRuntimeOptions(options: ModelServerRuntimeOptions): Resol
     activeDecodeStepsPerPrefillChunk,
     streamDecodeInterval,
     maxConcurrentRequests,
+    promptPrefixCacheMaxEntries,
     gpuMemoryUtilization,
     ...(options.apiKey === undefined ? {} : { apiKey: options.apiKey }),
     ...(options.onEvent === undefined ? {} : { onEvent: options.onEvent }),
@@ -297,6 +313,7 @@ export function runtimeServeOptions(options: ResolvedRuntimeOptions): ModelServe
     activeDecodeStepsPerPrefillChunk: options.activeDecodeStepsPerPrefillChunk,
     streamDecodeInterval: options.streamDecodeInterval,
     maxConcurrentRequests: options.maxConcurrentRequests,
+    promptPrefixCacheMaxEntries: options.promptPrefixCacheMaxEntries,
     gpuMemoryUtilization: options.gpuMemoryUtilization,
     ...(options.apiKey === undefined ? {} : { apiKey: options.apiKey }),
     ...(options.onEvent === undefined ? {} : { onEvent: options.onEvent }),

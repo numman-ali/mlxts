@@ -85,6 +85,10 @@ generation at a time. `--stream-decode-interval <n>` controls how often the
 transformer engine decodes generated tokens into SSE text; the default is `1`
 for interactive chat responsiveness, while larger values can reduce tokenizer
 work on long-output throughput runs.
+`--prompt-prefix-cache-max-entries <n>` bounds retained prompt-boundary
+snapshots per served model. The default keeps one snapshot; raise it
+deliberately for divergent repeated-turn agents that should reuse more than the
+most recent compatible prompt prefix.
 `--prefill-step-size <n>` controls the cold prompt-prefill chunk size used
 before first-token decode. The default is `512`, which is fairness-biased for
 shared serving; larger values such as `2048` or `4096` can improve single-user
@@ -292,6 +296,7 @@ const server = await serveModel({
   batchWindowMs: 2,
   streamDecodeInterval: 1,
   maxConcurrentRequests: 1,
+  promptPrefixCacheMaxEntries: 1,
 });
 
 console.log(server.endpoint);
@@ -314,6 +319,7 @@ const server = await serveModels({
   ],
   port: 8000,
   maxConcurrentRequests: 1,
+  promptPrefixCacheMaxEntries: 1,
 });
 
 console.log(server.modelIds);

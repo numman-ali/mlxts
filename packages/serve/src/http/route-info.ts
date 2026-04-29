@@ -29,6 +29,7 @@ export type ServeRuntimeLimits = {
   activeDecodeStepsPerPrefillChunk?: number;
   streamDecodeInterval?: number;
   maxConcurrentRequests?: number;
+  promptPrefixCacheMaxEntries?: number;
   gpuMemoryUtilization?: number;
 };
 
@@ -60,6 +61,7 @@ export type ServeInfoResponse = {
     active_decode_steps_per_prefill_chunk: number | null;
     stream_decode_interval: number | null;
     max_concurrent_requests: number | null;
+    prompt_prefix_cache_max_entries: number | null;
     gpu_memory_utilization: number | null;
   };
   capabilities: {
@@ -155,6 +157,7 @@ export function formatServeInfoResponse(options: ServeInfoOptions): ServeInfoRes
       active_decode_steps_per_prefill_chunk: numberOrNull(limits.activeDecodeStepsPerPrefillChunk),
       stream_decode_interval: numberOrNull(limits.streamDecodeInterval),
       max_concurrent_requests: numberOrNull(limits.maxConcurrentRequests),
+      prompt_prefix_cache_max_entries: numberOrNull(limits.promptPrefixCacheMaxEntries),
       gpu_memory_utilization: numberOrNull(limits.gpuMemoryUtilization),
     },
     capabilities: {

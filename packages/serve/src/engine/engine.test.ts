@@ -72,6 +72,12 @@ class SpecialTokenTokenizer extends TinyTokenizer {
   }
 }
 
+class CharCodeTokenizer extends TinyTokenizer {
+  override encode(text: string): number[] {
+    return Array.from(text, (char) => char.charCodeAt(0));
+  }
+}
+
 type TinyModelConfig = Partial<BaseModelConfig> & {
   slidingWindow?: number;
   layerTypes?: string[];
@@ -377,6 +383,14 @@ const qwenThinkingReplayProfile: InteractionProfile = {
       text: messages.map((message) => `${message.role}:${message.content}`).join("\n"),
       tokenIds,
     };
+  },
+};
+
+const contentOnlyChatProfile: InteractionProfile = {
+  ...chatProfile,
+  compileMessages(tokenizer, messages) {
+    const text = messages.map((message) => message.content).join("\n");
+    return { text, tokenIds: tokenizer.encode(text) };
   },
 };
 
@@ -1244,6 +1258,57 @@ describe("transformers generation engine", () => {
       result: "hit",
       promptTokens: 7,
       cacheReadTokens: 6,
+      cacheWriteTokens: 0,
+    });
+  });
+
+  test("retains configured divergent prompt-prefix entries", async () => {
+    using model = new CacheWritingTinyModel();
+    const tokenizer = new CharCodeTokenizer();
+    const events: ServeEvent[] = [];
+    const engine = createTransformersGenerationEngine({
+      model,
+      tokenizer,
+      interactionProfile: contentOnlyChatProfile,
+      maxBatchSize: 1,
+      promptPrefixCacheMaxEntries: 2,
+      onEvent(event) {
+        events.push(event);
+      },
+    });
+    const request = (id: string, content: string): NormalizedGenerationRequest => ({
+      id,
+      model: "tiny",
+      input: { kind: "messages", messages: [{ role: "user", content }] },
+      sampling: { maxTokens: 1, temperature: 0 },
+      stream: false,
+      protocol: "openai.chat_completions",
+    });
+
+    const first = await engine.generate(request("first", "alpha"));
+    const second = await engine.generate(request("second", "bravo"));
+    model.forwardSequenceLengths.length = 0;
+    events.length = 0;
+    const third = await engine.generate(request("third", "alpha"));
+
+    expect(first.usage).toMatchObject({ cacheWriteTokens: 4, cacheReadTokens: 0 });
+    expect(second.usage).toMatchObject({ cacheWriteTokens: 4, cacheReadTokens: 0 });
+    expect(third.usage).toEqual({
+      promptTokens: 5,
+      completionTokens: 1,
+      totalTokens: 6,
+      cacheReadTokens: 4,
+      cacheWriteTokens: 0,
+    });
+    expect(model.forwardSequenceLengths).toEqual([1]);
+    expect(events).toContainEqual({
+      type: "generation_prompt_cache",
+      id: "third",
+      protocol: "openai.chat_completions",
+      model: "tiny",
+      result: "hit",
+      promptTokens: 5,
+      cacheReadTokens: 4,
       cacheWriteTokens: 0,
     });
   });

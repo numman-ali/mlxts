@@ -11,6 +11,7 @@ import {
   DEFAULT_MODEL_SERVER_MAX_TOTAL_TOKENS,
   DEFAULT_MODEL_SERVER_PORT,
   DEFAULT_MODEL_SERVER_PREFILL_STEP_SIZE,
+  DEFAULT_MODEL_SERVER_PROMPT_PREFIX_CACHE_MAX_ENTRIES,
   DEFAULT_MODEL_SERVER_STREAM_DECODE_INTERVAL,
 } from "./model-loading/server";
 
@@ -35,6 +36,7 @@ export type ServeCliOptions = {
   activeDecodeStepsPerPrefillChunk: number;
   streamDecodeInterval: number;
   maxConcurrentRequests: number;
+  promptPrefixCacheMaxEntries: number;
   gpuMemoryUtilization: number;
   revision?: string;
   accessToken?: string;
@@ -71,6 +73,7 @@ type ParseState = {
   activeDecodeStepsPerPrefillChunk: number;
   streamDecodeInterval: number;
   maxConcurrentRequests: number;
+  promptPrefixCacheMaxEntries: number;
   gpuMemoryUtilization: number;
   revision?: string;
   accessToken?: string;
@@ -152,6 +155,7 @@ function createParseState(): ParseState {
     activeDecodeStepsPerPrefillChunk: DEFAULT_MODEL_SERVER_ACTIVE_DECODE_STEPS_PER_PREFILL_CHUNK,
     streamDecodeInterval: DEFAULT_MODEL_SERVER_STREAM_DECODE_INTERVAL,
     maxConcurrentRequests: DEFAULT_MODEL_SERVER_MAX_CONCURRENT_REQUESTS,
+    promptPrefixCacheMaxEntries: DEFAULT_MODEL_SERVER_PROMPT_PREFIX_CACHE_MAX_ENTRIES,
     gpuMemoryUtilization: DEFAULT_MODEL_SERVER_GPU_MEMORY_UTILIZATION,
     localFilesOnly: false,
     verbose: false,
@@ -266,6 +270,14 @@ function applyFlag(state: ParseState, argv: readonly string[], index: number): n
         "a positive integer",
       );
       return index + 1;
+    case "--prompt-prefix-cache-max-entries":
+      state.promptPrefixCacheMaxEntries = readIntegerFlag(
+        arg,
+        argv[index + 1],
+        (value) => value > 0,
+        "a positive integer",
+      );
+      return index + 1;
     case "--gpu-memory-utilization":
       state.gpuMemoryUtilization = readNumberFlag(
         arg,
@@ -374,6 +386,7 @@ function stateToOptions(state: ParseState): ServeCliParseResult {
       activeDecodeStepsPerPrefillChunk: state.activeDecodeStepsPerPrefillChunk,
       streamDecodeInterval: state.streamDecodeInterval,
       maxConcurrentRequests: state.maxConcurrentRequests,
+      promptPrefixCacheMaxEntries: state.promptPrefixCacheMaxEntries,
       gpuMemoryUtilization: state.gpuMemoryUtilization,
       ...(state.revision === undefined ? {} : { revision: state.revision }),
       ...(state.accessToken === undefined ? {} : { accessToken: state.accessToken }),
@@ -416,6 +429,7 @@ export function formatServeUsage(): string {
     ].join("  "),
     `  --stream-decode-interval <n>  Decode/flush streaming text every n generated token(s) (default: ${DEFAULT_MODEL_SERVER_STREAM_DECODE_INTERVAL})`,
     `  --max-concurrent-requests <n>  Max in-flight jobs per served model (default: ${DEFAULT_MODEL_SERVER_MAX_CONCURRENT_REQUESTS})`,
+    `  --prompt-prefix-cache-max-entries <n>  Retained prompt-prefix snapshots per served model (default: ${DEFAULT_MODEL_SERVER_PROMPT_PREFIX_CACHE_MAX_ENTRIES})`,
     `  --gpu-memory-utilization <f>   Reject estimated requests above this fraction of MLX memory limit (default: ${DEFAULT_MODEL_SERVER_GPU_MEMORY_UTILIZATION})`,
     "  --revision <ref>            Hugging Face revision when source is a repo id",
     "  --access-token <token>      Hugging Face access token for private or gated repos",

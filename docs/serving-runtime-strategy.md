@@ -232,8 +232,11 @@ The next work should stay ordered around architecture truth:
 5. Deepen cache backends behind stable contracts. Prompt-prefix cache reuse now
    covers single message/chat requests and continuous-scheduler prompt-cache
    hits through family-owned snapshot/fork semantics, one-row batch-cache
-   restore, and OpenAI-compatible cache read/write accounting. The next proof is
-   paged or block-deduplicated reuse without regressing uncached continuous
+   restore, bounded operator-configured snapshot retention, and
+   OpenAI-compatible cache read/write accounting. The default retains one
+   prompt-boundary snapshot per served model; multi-entry retention is explicit
+   through the typed runtime strategy. The next proof is paged or
+   block-deduplicated tensor reuse without regressing uncached continuous
    fairness.
 6. After managed prefix-cache semantics are proven in live acceptance,
    deepen rotating/max-KV policy, quantized KV, paged KV, and later TurboQuant

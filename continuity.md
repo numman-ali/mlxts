@@ -33,6 +33,11 @@ text endpoints while benchmark and scheduler work continues.
   from client-observed TTFT. Reports now also expose protocol usage cache
   tokens plus server-event prompt-prefix cache hits, writes, and read/write
   tokens.
+- **Prompt-prefix cache retention**: serve keeps the default at one retained
+  prompt-boundary snapshot per served model, but `promptPrefixCacheMaxEntries`
+  and `--prompt-prefix-cache-max-entries` now let operators retain multiple
+  divergent repeated-turn prefixes without changing family-owned snapshot/fork
+  cache semantics.
 - **Continuous memory admission**: continuous serving uses the existing
   model-level reservation controller for prompt, completion, aggregate total,
   and estimated memory pressure. Memory estimation remains serve-owned and
@@ -98,6 +103,11 @@ Full evidence ladder lives in
   `continuous:eligible` for text requests (`30.972` Qwen post-TTFT tok/s,
   `82.759` Gemma post-TTFT tok/s); media-shaped Anthropic requests route
   through the existing single-request content path.
+- Prompt-prefix cache retention knob passed focused serve tests, all
+  `packages/serve` tests, `bun run validate`, and
+  `bun run regression:qwen-gemma -- --profile quick`. Default retention remains
+  one snapshot, so existing real-regression prompt-cache requirements stay
+  unchanged.
 
 ## Next Work
 
@@ -112,9 +122,10 @@ Full evidence ladder lives in
   longer-source trim, and LCP reuse and expose source `CacheLayerKind` /
   trimmability metadata. Serve retains prompt-token block chains with
   ref-counted deduplication and uses a block-hash index to narrow lookup
-  candidates before the existing LCP and family-owned `canFork()` gate. Paged
-  attention and cache-tensor block deduplication remain later cache-backend
-  work.
+  candidates before the existing LCP and family-owned `canFork()` gate. The
+  served retention limit is now an explicit runtime/CLI knob. Paged attention,
+  byte-budgeted eviction, and cache-tensor block deduplication remain later
+  cache-backend work.
 - Next memory work is multi-model pool management: model-load estimates, idle
   eviction, pinned models, and active-request abort policy when one loaded model
   needs to shed KV pressure.

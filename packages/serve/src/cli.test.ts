@@ -60,6 +60,7 @@ describe("serve CLI args", () => {
         activeDecodeStepsPerPrefillChunk: 16,
         streamDecodeInterval: 1,
         maxConcurrentRequests: 1,
+        promptPrefixCacheMaxEntries: 1,
         gpuMemoryUtilization: 0.9,
         localFilesOnly: false,
         verbose: false,
@@ -96,6 +97,8 @@ describe("serve CLI args", () => {
       "2",
       "--max-concurrent-requests",
       "2",
+      "--prompt-prefix-cache-max-entries",
+      "3",
       "--gpu-memory-utilization",
       "0.75",
       "--revision",
@@ -128,6 +131,7 @@ describe("serve CLI args", () => {
         activeDecodeStepsPerPrefillChunk: 24,
         streamDecodeInterval: 2,
         maxConcurrentRequests: 2,
+        promptPrefixCacheMaxEntries: 3,
         gpuMemoryUtilization: 0.75,
         revision: "main",
         accessToken: "hf_secret",
@@ -218,6 +222,11 @@ describe("serve CLI args", () => {
       kind: "help",
       exitCode: 1,
       message: 'Expected --max-concurrent-requests to be a positive integer, got "0".',
+    });
+    expect(parseServeArgs(["model", "--prompt-prefix-cache-max-entries", "0"])).toMatchObject({
+      kind: "help",
+      exitCode: 1,
+      message: 'Expected --prompt-prefix-cache-max-entries to be a positive integer, got "0".',
     });
     expect(parseServeArgs(["model", "--gpu-memory-utilization", "1.5"])).toMatchObject({
       kind: "help",
@@ -328,6 +337,7 @@ describe("serve CLI args", () => {
       activeDecodeStepsPerPrefillChunk: 16,
       streamDecodeInterval: 1,
       maxConcurrentRequests: 1,
+      promptPrefixCacheMaxEntries: 1,
       gpuMemoryUtilization: 0.75,
       localFilesOnly: false,
       verbose: false,
@@ -346,6 +356,9 @@ describe("serve CLI args", () => {
     );
     expect(formatServeReady("http://127.0.0.1:8000", options)).toContain(
       "Model execution lanes: max_in_flight=1",
+    );
+    expect(formatServeReady("http://127.0.0.1:8000", options)).toContain(
+      "Prompt-prefix cache entries: 1",
     );
     expect(formatServeReady("http://127.0.0.1:8000", options)).toContain("GPU memory budget: 75%");
     expect(publicBindWarning(options)).toContain("exposes the endpoint");
@@ -816,6 +829,7 @@ describe("serve CLI args", () => {
         expect(options.activeDecodeStepsPerPrefillChunk).toBe(16);
         expect(options.streamDecodeInterval).toBe(1);
         expect(options.maxConcurrentRequests).toBe(1);
+        expect(options.promptPrefixCacheMaxEntries).toBe(1);
         expect(options.gpuMemoryUtilization).toBe(0.9);
         return running;
       },
@@ -854,6 +868,7 @@ describe("serve CLI args", () => {
           { source: "repo/gemma", modelId: "gemma" },
           { source: "repo/qwen", modelId: "qwen" },
         ]);
+        expect(options.promptPrefixCacheMaxEntries).toBe(1);
         return running;
       },
       log(message) {

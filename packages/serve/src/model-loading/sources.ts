@@ -71,6 +71,12 @@ type ResolvedServeModelsOptions = Omit<
   models: readonly ResolvedModelSourceEntry[];
 };
 
+type ResolvedServeModelsRuntimeOptions = Omit<ResolvedServeModelsOptions, "models">;
+type PromptPrefixCacheRetentionOption = Pick<
+  ResolvedServeModelsRuntimeOptions,
+  "promptPrefixCacheMaxEntries"
+>;
+
 function requireNonEmpty(name: string, value: string): string {
   if (value.trim() === "") {
     throw new Error(`${name} must be a non-empty string.`);
@@ -138,13 +144,16 @@ function resolveSourceEntry(
   };
 }
 
-function resolveServeModelsOptions(options: ServeModelsOptions): ResolvedServeModelsOptions {
-  const models = requireSourceModels(options.models).map((model, index) =>
-    resolveSourceEntry(model, index, options),
-  );
-  requireDistinctModelIds(models);
+function promptPrefixCacheRetentionOption(
+  value: number | undefined,
+): PromptPrefixCacheRetentionOption {
+  return value === undefined ? {} : { promptPrefixCacheMaxEntries: value };
+}
+
+function resolveServeModelsRuntimeOptions(
+  options: ServeModelsOptions,
+): ResolvedServeModelsRuntimeOptions {
   return {
-    models,
     ...(options.hostname === undefined ? {} : { hostname: options.hostname }),
     ...(options.port === undefined ? {} : { port: options.port }),
     ...(options.maxGeneratedTokens === undefined
@@ -167,11 +176,23 @@ function resolveServeModelsOptions(options: ServeModelsOptions): ResolvedServeMo
     ...(options.maxConcurrentRequests === undefined
       ? {}
       : { maxConcurrentRequests: options.maxConcurrentRequests }),
+    ...promptPrefixCacheRetentionOption(options.promptPrefixCacheMaxEntries),
     ...(options.gpuMemoryUtilization === undefined
       ? {}
       : { gpuMemoryUtilization: options.gpuMemoryUtilization }),
     ...(options.apiKey === undefined ? {} : { apiKey: options.apiKey }),
     ...(options.onEvent === undefined ? {} : { onEvent: options.onEvent }),
+  };
+}
+
+function resolveServeModelsOptions(options: ServeModelsOptions): ResolvedServeModelsOptions {
+  const models = requireSourceModels(options.models).map((model, index) =>
+    resolveSourceEntry(model, index, options),
+  );
+  requireDistinctModelIds(models);
+  return {
+    models,
+    ...resolveServeModelsRuntimeOptions(options),
   };
 }
 

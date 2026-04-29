@@ -195,6 +195,7 @@ describe("serveLoadedModel", () => {
       activePrefillStepSize: 64,
       activeDecodeStepsPerPrefillChunk: 7,
       maxConcurrentRequests: 1,
+      promptPrefixCacheMaxEntries: 3,
       gpuMemoryUtilization: 0.75,
       disposeModelOnStop: true,
     });
@@ -222,6 +223,7 @@ describe("serveLoadedModel", () => {
           active_decode_steps_per_prefill_chunk: 7,
           stream_decode_interval: 1,
           max_concurrent_requests: 1,
+          prompt_prefix_cache_max_entries: 3,
           gpu_memory_utilization: 0.75,
         },
         runtime_strategy: {
@@ -237,6 +239,7 @@ describe("serveLoadedModel", () => {
           cache: {
             backend: "managed",
             precision: "model",
+            prompt_prefix_max_entries: 3,
           },
           attention: {
             backend: "auto",
@@ -767,6 +770,14 @@ describe("serveLoadedModel", () => {
       serveLoadedModel({
         model,
         tokenizer,
+        modelId: "bad-prefix-cache-retention",
+        promptPrefixCacheMaxEntries: 0,
+      }),
+    ).toThrow("promptPrefixCacheMaxEntries must be a positive integer.");
+    expect(() =>
+      serveLoadedModel({
+        model,
+        tokenizer,
         modelId: "bad-memory-budget",
         gpuMemoryUtilization: 1.5,
       }),
@@ -799,7 +810,7 @@ describe("serveLoadedModel", () => {
       },
       serveLoadedModel(options) {
         calls.push(
-          `serve:${options.modelId}:${options.apiKey}:${options.maxPromptTokens}:${options.maxTotalTokens}:${options.maxBatchSize}:${options.batchWindowMs}:${options.prefillStepSize}:${options.activePrefillStepSize}:${options.activeDecodeStepsPerPrefillChunk}:${options.streamDecodeInterval}:${options.maxConcurrentRequests}:${options.gpuMemoryUtilization}:${options.disposeModelOnStop}`,
+          `serve:${options.modelId}:${options.apiKey}:${options.maxPromptTokens}:${options.maxTotalTokens}:${options.maxBatchSize}:${options.batchWindowMs}:${options.prefillStepSize}:${options.activePrefillStepSize}:${options.activeDecodeStepsPerPrefillChunk}:${options.streamDecodeInterval}:${options.maxConcurrentRequests}:${options.promptPrefixCacheMaxEntries}:${options.gpuMemoryUtilization}:${options.disposeModelOnStop}`,
         );
         return fakeRunningServer(options.modelId);
       },
@@ -819,6 +830,7 @@ describe("serveLoadedModel", () => {
         activeDecodeStepsPerPrefillChunk: 7,
         streamDecodeInterval: 2,
         maxConcurrentRequests: 2,
+        promptPrefixCacheMaxEntries: 5,
         gpuMemoryUtilization: 0.8,
       },
       runtime,
@@ -830,7 +842,7 @@ describe("serveLoadedModel", () => {
       "model:/snapshots/qwen",
       "tokenizer:/snapshots/qwen",
       "profile:/snapshots/qwen",
-      "serve:mlx-community/Qwen3.6-27B-4bit:secret:4096:4096:16:3:1024:64:7:2:2:0.8:true",
+      "serve:mlx-community/Qwen3.6-27B-4bit:secret:4096:4096:16:3:1024:64:7:2:2:5:0.8:true",
     ]);
     expect(model.disposeCount).toBe(0);
     running.stop();

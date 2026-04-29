@@ -49,6 +49,7 @@ export {
   DEFAULT_MODEL_SERVER_MAX_TOTAL_TOKENS,
   DEFAULT_MODEL_SERVER_PORT,
   DEFAULT_MODEL_SERVER_PREFILL_STEP_SIZE,
+  DEFAULT_MODEL_SERVER_PROMPT_PREFIX_CACHE_MAX_ENTRIES,
   DEFAULT_MODEL_SERVER_STREAM_DECODE_INTERVAL,
   type LoadedModelServerEntry,
   type ModelServerRuntimeOptions,
@@ -102,6 +103,7 @@ function createLoadedModelEngine(
     activeDecodeStepsPerPrefillChunk: options.activeDecodeStepsPerPrefillChunk,
     streamDecodeInterval: options.streamDecodeInterval,
     maxConcurrentRequests: options.maxConcurrentRequests,
+    promptPrefixCacheMaxEntries: options.promptPrefixCacheMaxEntries,
     gpuMemoryUtilization: options.gpuMemoryUtilization,
     ...(model.interactionProfile === undefined
       ? {}
@@ -201,6 +203,7 @@ export function serveLoadedModels(options: ServeLoadedModelsOptions): RunningMod
       activeDecodeStepsPerPrefillChunk: resolved.activeDecodeStepsPerPrefillChunk,
       streamDecodeInterval: resolved.streamDecodeInterval,
       maxConcurrentRequests: resolved.maxConcurrentRequests,
+      promptPrefixCacheMaxEntries: resolved.promptPrefixCacheMaxEntries,
       gpuMemoryUtilization: resolved.gpuMemoryUtilization,
     },
     abortSignal: abortController.signal,

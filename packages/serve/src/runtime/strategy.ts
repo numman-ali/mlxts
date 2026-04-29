@@ -11,6 +11,7 @@ export type ServeRuntimeKnobs = {
   activeDecodeStepsPerPrefillChunk?: number;
   streamDecodeInterval?: number;
   maxConcurrentRequests?: number;
+  promptPrefixCacheMaxEntries?: number;
   gpuMemoryUtilization?: number;
 };
 
@@ -22,6 +23,7 @@ export type ServeRuntimeDefaults = {
   activeDecodeStepsPerPrefillChunk: number;
   streamDecodeInterval: number;
   maxConcurrentRequests: number;
+  promptPrefixCacheMaxEntries: number;
   gpuMemoryUtilization?: number;
 };
 
@@ -38,6 +40,7 @@ export type ServeSchedulerStrategy = {
 export type ServeCacheStrategy = {
   backend: "managed";
   precision: "model";
+  promptPrefixMaxEntries: number;
 };
 
 export type ServeAttentionStrategy = {
@@ -83,6 +86,7 @@ export type ServeRuntimeStrategyInfo = {
   cache: {
     backend: "managed";
     precision: "model";
+    prompt_prefix_max_entries: number;
   };
   attention: {
     backend: "auto";
@@ -105,6 +109,7 @@ export type ServeRuntimeStrategyInfo = {
 };
 
 export const DEFAULT_SERVE_PREFILL_STEP_SIZE = 512;
+export const DEFAULT_SERVE_PROMPT_PREFIX_CACHE_MAX_ENTRIES = 1;
 
 export const TRANSFORMERS_ENGINE_RUNTIME_DEFAULTS: ServeRuntimeDefaults = {
   maxBatchSize: 1,
@@ -114,6 +119,7 @@ export const TRANSFORMERS_ENGINE_RUNTIME_DEFAULTS: ServeRuntimeDefaults = {
   activeDecodeStepsPerPrefillChunk: 16,
   streamDecodeInterval: 1,
   maxConcurrentRequests: 1,
+  promptPrefixCacheMaxEntries: DEFAULT_SERVE_PROMPT_PREFIX_CACHE_MAX_ENTRIES,
 };
 
 export function requirePositiveInteger(name: string, value: number): number {
@@ -213,6 +219,12 @@ export function resolveServeRuntimeStrategy(
     cache: {
       backend: "managed",
       precision: "model",
+      promptPrefixMaxEntries: runtimeValue(
+        options.promptPrefixCacheMaxEntries,
+        defaults.promptPrefixCacheMaxEntries,
+        requirePositiveInteger,
+        "promptPrefixCacheMaxEntries",
+      ),
     },
     attention: {
       backend: "auto",
@@ -247,6 +259,7 @@ export function formatServeRuntimeStrategyInfo(
     cache: {
       backend: strategy.cache.backend,
       precision: strategy.cache.precision,
+      prompt_prefix_max_entries: strategy.cache.promptPrefixMaxEntries,
     },
     attention: {
       backend: strategy.attention.backend,
