@@ -596,6 +596,61 @@ describe("serveLoadedModel", () => {
     }
   });
 
+  test("serves Anthropic image content through a loaded content adapter", async () => {
+    const model = new PreparedGeneratingModel();
+    const running = serveLoadedModel({
+      model,
+      tokenizer: new GeneratingTokenizer(),
+      modelId: "mlx-community/Qwen3.6-27B-4bit",
+      port: 0,
+      contentAdapter: {
+        async load() {
+          return {
+            prompt: { text: "user:<image>", tokenIds: [0, 1] },
+            preparePrompt() {
+              return {
+                tokenIds: [0, 1],
+                inputEmbeddings: array([[[0], [1]]], "float32"),
+              };
+            },
+          };
+        },
+      },
+    });
+
+    try {
+      const response = await fetch(`${running.endpoint}/v1/messages`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          model: "mlx-community/Qwen3.6-27B-4bit",
+          messages: [
+            {
+              role: "user",
+              content: [
+                { type: "text", text: "Describe this." },
+                {
+                  type: "image",
+                  source: { type: "base64", media_type: "image/png", data: "AA==" },
+                },
+              ],
+            },
+          ],
+          max_tokens: 2,
+          temperature: 0,
+        }),
+      });
+
+      expect(response.status).toBe(200);
+      expect(await response.json()).toMatchObject({
+        content: [{ type: "text", text: "cc" }],
+      });
+      expect(model.forwardedInputEmbeddingShapes).toContainEqual([1, 1, 1]);
+    } finally {
+      running.stop();
+    }
+  });
+
   test("validates operator-facing server options before binding", () => {
     const model = new FakeModel();
     const tokenizer = new FakeTokenizer();

@@ -40,7 +40,10 @@ text endpoints while benchmark and scheduler work continues.
   expose scheduled memory pressure when the guard is active.
 - **Image serving**: Qwen image transport, host decode, and prepared-prompt
   cache shipped with explicit boundary — serve owns I/O and decode, transformers
-  owns preprocessing and prompt expansion.
+  owns preprocessing and prompt expansion. OpenAI Chat/OpenResponses accept
+  data-url images; Anthropic Messages accepts local base64 user image blocks
+  through the same content route. Remote/file image sources remain rejected
+  until transport policy exists.
 - **Qwen conditional serving**: top-level Qwen 3.5 / 3.6 conditional
   checkpoints expose the Qwen text batch-cache surface for text-only continuous
   serving. Media/content requests still route as `media_input` and stay off
@@ -85,10 +88,16 @@ Full evidence ladder lives in
   warmed repeat logged `cache hit read_tokens=16 write_tokens=0` and returned
   `prompt_tokens_details.cached_tokens=16`.
 - Post-fix `bun run regression:qwen-gemma -- --profile real` passed. Qwen
-  decode smoke reported `generation_tps=29.024`; Qwen serve rungs routed
+  decode smoke reported `generation_tps=29.027`; Qwen serve rungs routed
   `continuous:eligible` through protocol health and mixed fairness, including
   `max_continuous_batch=8` and Qwen mixed `32768x128+128x32` passing with
-  `max_stream_chunk_gap_ms=648.1`. Gemma real decode and serve rungs passed too.
+  `max_stream_chunk_gap_ms=658.4`. Gemma real decode and serve rungs passed too.
+- Anthropic image-message tranche passed focused serving tests, all
+  `packages/serve` tests, `bun run validate`, and the real Qwen/Gemma
+  regression. The real protocol rungs kept Anthropic Messages
+  `continuous:eligible` for text requests (`30.972` Qwen post-TTFT tok/s,
+  `82.759` Gemma post-TTFT tok/s); media-shaped Anthropic requests route
+  through the existing single-request content path.
 
 ## Next Work
 

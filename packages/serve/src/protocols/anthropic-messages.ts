@@ -3,9 +3,13 @@
  * @module
  */
 
-import type { ChatMessage } from "@mlxts/transformers";
 import { isRecord, ServeError } from "../errors";
 import type { NormalizedGenerationRequest } from "../types";
+import {
+  type AnthropicChatTemplateOptions,
+  parseAnthropicMessagesInput,
+  parseAnthropicSystemContent,
+} from "./anthropic-messages-input";
 
 export type AnthropicTextBlock = {
   type: "text";
@@ -152,172 +156,6 @@ function parseStopSequences(record: Record<string, unknown>): readonly string[] 
   });
 }
 
-function textContentPart(value: unknown, owner: "system" | "message"): string {
-  if (!isRecord(value)) {
-    throw new ServeError(`Anthropic messages: ${owner} content blocks must be objects.`, {
-      param: owner === "system" ? "system" : "messages",
-    });
-  }
-  if (value.type === "text") {
-    if (typeof value.text !== "string") {
-      throw new ServeError('Anthropic messages: text blocks require a string "text" field.', {
-        param: owner === "system" ? "system" : "messages",
-      });
-    }
-    return value.text;
-  }
-  if (value.type === "image") {
-    throw new ServeError(
-      "Anthropic messages: image content blocks are not supported by this endpoint yet.",
-      { param: owner === "system" ? "system" : "messages" },
-    );
-  }
-  if (value.type === "tool_use" || value.type === "tool_result") {
-    throw new ServeError(
-      "Anthropic messages: tool content blocks are not supported by this endpoint yet.",
-      { param: "messages" },
-    );
-  }
-  throw new ServeError("Anthropic messages: only text content blocks are supported today.", {
-    param: owner === "system" ? "system" : "messages",
-  });
-}
-
-function systemContent(record: Record<string, unknown>): string | null {
-  const value = record.system;
-  if (value === undefined || value === null) {
-    return null;
-  }
-  if (typeof value === "string") {
-    return value;
-  }
-  if (Array.isArray(value)) {
-    return value.map((entry) => textContentPart(entry, "system")).join("");
-  }
-  throw new ServeError('Anthropic messages: "system" must be a string or text content blocks.', {
-    param: "system",
-  });
-}
-
-type ParsedAssistantContent = {
-  content: string;
-  reasoningContent?: string;
-};
-
-function assistantContentBlock(value: unknown): ParsedAssistantContent {
-  if (!isRecord(value)) {
-    throw new ServeError("Anthropic messages: assistant content blocks must be objects.", {
-      param: "messages",
-    });
-  }
-  if (value.type === "text") {
-    if (typeof value.text !== "string") {
-      throw new ServeError(
-        'Anthropic messages: assistant text blocks require a string "text" field.',
-        { param: "messages" },
-      );
-    }
-    return { content: value.text };
-  }
-  if (value.type === "thinking") {
-    if (typeof value.thinking !== "string") {
-      throw new ServeError(
-        'Anthropic messages: thinking blocks require a string "thinking" field.',
-        { param: "messages" },
-      );
-    }
-    return { content: "", reasoningContent: value.thinking };
-  }
-  if (value.type === "tool_use" || value.type === "tool_result") {
-    throw new ServeError(
-      "Anthropic messages: tool content blocks are not supported by this endpoint yet.",
-      { param: "messages" },
-    );
-  }
-  throw new ServeError(
-    "Anthropic messages: assistant content supports text and thinking blocks today.",
-    { param: "messages" },
-  );
-}
-
-function parseAssistantContent(value: unknown): ParsedAssistantContent {
-  if (value === undefined || value === null) {
-    return { content: "" };
-  }
-  if (typeof value === "string") {
-    return { content: value };
-  }
-  if (!Array.isArray(value)) {
-    throw new ServeError(
-      'Anthropic messages: assistant "content" must be a string or content block array.',
-      { param: "messages" },
-    );
-  }
-  const parts = value.map(assistantContentBlock);
-  const content = parts.map((part) => part.content).join("");
-  const reasoningContent = parts
-    .map((part) => part.reasoningContent ?? "")
-    .join("")
-    .trim();
-  return {
-    content,
-    ...(reasoningContent === "" ? {} : { reasoningContent }),
-  };
-}
-
-function parseUserContent(value: unknown): string {
-  if (typeof value === "string") {
-    return value;
-  }
-  if (Array.isArray(value)) {
-    return value.map((entry) => textContentPart(entry, "message")).join("");
-  }
-  throw new ServeError(
-    'Anthropic messages: user "content" must be a string or text content block array.',
-    { param: "messages" },
-  );
-}
-
-function parseAnthropicMessage(value: unknown): ChatMessage {
-  if (!isRecord(value)) {
-    throw new ServeError('Anthropic messages: "messages" entries must be objects.', {
-      param: "messages",
-    });
-  }
-  if (value.role === "user") {
-    return { role: "user", content: parseUserContent(value.content) };
-  }
-  if (value.role === "assistant") {
-    const content = parseAssistantContent(value.content);
-    return {
-      role: "assistant",
-      content: content.content,
-      ...(content.reasoningContent === undefined
-        ? {}
-        : { reasoning_content: content.reasoningContent }),
-    };
-  }
-  if (value.role === "system") {
-    throw new ServeError(
-      'Anthropic messages: use top-level "system" instead of a system message role.',
-      { param: "messages" },
-    );
-  }
-  throw new ServeError('Anthropic messages: message role must be "user" or "assistant".', {
-    param: "messages",
-  });
-}
-
-function parseMessages(record: Record<string, unknown>): ChatMessage[] {
-  const value = record.messages;
-  if (!Array.isArray(value) || value.length === 0) {
-    throw new ServeError('Anthropic messages: "messages" must be a non-empty array.', {
-      param: "messages",
-    });
-  }
-  return value.map(parseAnthropicMessage);
-}
-
 function validateUnsupportedFields(record: Record<string, unknown>): void {
   const tools = record.tools;
   if (tools !== undefined && tools !== null) {
@@ -368,7 +206,7 @@ function thinkingFlag(record: Record<string, unknown>): boolean | undefined {
   );
 }
 
-function chatTemplateOptions(record: Record<string, unknown>) {
+function chatTemplateOptions(record: Record<string, unknown>): AnthropicChatTemplateOptions {
   const kwargs = record.chat_template_kwargs;
   if (kwargs !== undefined && kwargs !== null && !isRecord(kwargs)) {
     throw new ServeError('Anthropic messages: "chat_template_kwargs" must be an object or null.', {
@@ -416,8 +254,7 @@ export function normalizeAnthropicMessageRequest(
   const model = stringField(body, "model");
   const stream = optionalBoolean(body, "stream") ?? false;
   const maxTokens = requiredMaxTokens(body);
-  const messages = parseMessages(body);
-  const system = systemContent(body);
+  const system = parseAnthropicSystemContent(body);
   const temperature = optionalNumber(
     body,
     "temperature",
@@ -432,8 +269,6 @@ export function normalizeAnthropicMessageRequest(
   const templateOptions = chatTemplateOptions(body);
   const metadata = parseMetadata(body);
   const userId = optionalString(metadata, "user_id");
-  const normalizedMessages =
-    system === null ? messages : [{ role: "system" as const, content: system }, ...messages];
 
   return {
     model,
@@ -445,11 +280,7 @@ export function normalizeAnthropicMessageRequest(
     request: {
       id: options.id,
       model,
-      input: {
-        kind: "messages",
-        messages: normalizedMessages,
-        ...(Object.keys(templateOptions).length === 0 ? {} : { chatTemplate: templateOptions }),
-      },
+      input: parseAnthropicMessagesInput(body, system, templateOptions),
       sampling: {
         maxTokens,
         ...(temperature === undefined ? {} : { temperature }),

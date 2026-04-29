@@ -246,10 +246,10 @@ Cache metrics are truthful but narrow. OpenAI usage reports
 `/metrics`, and benchmark reports, not in Pi's current footer.
 
 Qwen conditional checkpoints such as `mlx-community/Qwen3.6-27B-4bit` can accept
-image data URLs through OpenAI Chat Completions and Responses. Keep Pi/OpenCode
-model metadata text-only until those clients' image/file payloads are configured
-and smoked end to end; raw OpenAI-compatible clients can send image data URLs
-directly today.
+image data URLs through OpenAI Chat Completions and OpenResponses, and base64
+image blocks through Anthropic Messages. Keep Pi/OpenCode model metadata
+text-only until those clients' image/file payloads are configured and smoked end
+to end; raw compatible clients can send local image payloads directly today.
 
 `/v1/responses` starts with a deliberately narrow text-first subset of OpenAI's
 Responses API. It accepts string `input`, message item arrays, Qwen image data
@@ -264,14 +264,16 @@ Stateful continuation, background jobs, tools, remote/file image sources,
 non-image files, audio, truncation, and non-text output formats are rejected
 explicitly until those semantics are implemented for real.
 
-`/v1/messages` starts with a bounded Anthropic Messages-compatible text path.
-It accepts top-level `system`, text-only `messages`, required `max_tokens`,
-`stop_sequences`, model-native sampling fields, and Qwen-style thinking controls
-through `thinking` or `chat_template_kwargs`. Non-streaming responses return
-Anthropic `message` objects with `text` and `thinking` content blocks; streaming
-uses Anthropic SSE events such as `message_start`, `content_block_delta`,
-`message_delta`, and `message_stop`. Images, tools, tool choice, and other
-non-text blocks are rejected explicitly until the model/runtime support exists.
+`/v1/messages` starts with a bounded Anthropic Messages-compatible path. It
+accepts top-level `system`, text messages, base64 image blocks when the served
+checkpoint exposes a media adapter, required `max_tokens`, `stop_sequences`,
+model-native sampling fields, and Qwen-style thinking controls through
+`thinking` or `chat_template_kwargs`. Non-streaming responses return Anthropic
+`message` objects with `text` and `thinking` content blocks; streaming uses
+Anthropic SSE events such as `message_start`, `content_block_delta`,
+`message_delta`, and `message_stop`. Remote/file image sources, tools, tool
+choice, and other non-text blocks are rejected explicitly until those semantics
+are implemented for real.
 
 ## Programmatic Serving
 

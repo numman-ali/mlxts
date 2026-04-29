@@ -177,7 +177,7 @@ describe("serve fetch handler", () => {
         completions: true,
         chat_completions: "text_and_image_when_supported",
         responses: "text_and_image_when_supported",
-        anthropic_messages: "text_only",
+        anthropic_messages: "text_and_image_when_supported",
         sse_streaming: true,
         batch_generation: true,
         reasoning_content: true,
@@ -662,6 +662,64 @@ describe("serve fetch handler", () => {
       protocol: "anthropic.messages",
       maxTokens: 4,
     });
+  });
+
+  test("routes Anthropic image messages through content input", async () => {
+    const seen: NormalizedGenerationRequest[] = [];
+    const engine: GenerationEngine = {
+      generate(normalized) {
+        seen.push(normalized);
+        return { text: "image:ok", finishReason: "stop" };
+      },
+    };
+    const fetch = createFetchHandler({
+      engine,
+      idGenerator: () => "msg-image",
+      now: () => new Date(123_000),
+    });
+
+    const response = await fetch(
+      request("/v1/messages", {
+        model: "tiny",
+        messages: [
+          {
+            role: "user",
+            content: [
+              { type: "text", text: "Describe this." },
+              {
+                type: "image",
+                source: { type: "base64", media_type: "image/png", data: "abcd" },
+              },
+            ],
+          },
+        ],
+        max_tokens: 4,
+      }),
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(seen[0]).toMatchObject({
+      id: "msg-image",
+      model: "tiny",
+      input: {
+        kind: "content",
+        messages: [
+          {
+            role: "user",
+            content: [
+              { kind: "text", text: "Describe this." },
+              {
+                kind: "image",
+                source: { kind: "data", mediaType: "image/png", data: "abcd" },
+              },
+            ],
+          },
+        ],
+      },
+      protocol: "anthropic.messages",
+    });
+    expect(body.content).toEqual([{ type: "text", text: "image:ok" }]);
   });
 
   test("streams OpenAI responses as semantic SSE events with reasoning separation", async () => {

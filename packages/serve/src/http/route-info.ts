@@ -66,7 +66,7 @@ export type ServeInfoResponse = {
     completions: true;
     chat_completions: "text_and_image_when_supported";
     responses: "text_and_image_when_supported";
-    anthropic_messages: "text_only";
+    anthropic_messages: "text_and_image_when_supported";
     sse_streaming: boolean;
     batch_generation: boolean;
     reasoning_content: true;
@@ -161,7 +161,7 @@ export function formatServeInfoResponse(options: ServeInfoOptions): ServeInfoRes
       completions: true,
       chat_completions: "text_and_image_when_supported",
       responses: "text_and_image_when_supported",
-      anthropic_messages: "text_only",
+      anthropic_messages: "text_and_image_when_supported",
       sse_streaming: options.engine.stream !== undefined,
       batch_generation: options.engine.generateBatch !== undefined,
       reasoning_content: true,

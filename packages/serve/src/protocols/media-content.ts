@@ -100,6 +100,53 @@ export function openAIImageContentPart(value: unknown, context: string): Generat
   };
 }
 
+/** Normalize Anthropic Messages image content blocks into an image content part. */
+export function anthropicImageContentPart(value: unknown, context: string): GenerationContentPart {
+  if (!isRecord(value)) {
+    throw new ServeError(`${context}: image content blocks must be objects.`, {
+      param: "messages",
+    });
+  }
+  if (!isRecord(value.source)) {
+    throw new ServeError(`${context}: image content blocks require a source object.`, {
+      param: "messages",
+    });
+  }
+
+  switch (value.source.type) {
+    case "base64":
+      return {
+        kind: "image",
+        source: {
+          kind: "data",
+          mediaType: nonEmptyString(value.source.media_type, context, "messages"),
+          data: nonEmptyString(value.source.data, context, "messages"),
+        },
+      };
+    case "url": {
+      const url = nonEmptyString(value.source.url, context, "messages");
+      if (url.startsWith("data:")) {
+        throw new ServeError(`${context}: data payloads use source.type "base64".`, {
+          param: "messages",
+        });
+      }
+      return {
+        kind: "image",
+        source: mediaSourceFromUrl(url, context, "messages"),
+      };
+    }
+    case "file":
+      return {
+        kind: "image",
+        source: mediaSourceFromFileId(value.source.file_id, context, "messages"),
+      };
+    default:
+      throw new ServeError(`${context}: image source type must be "base64", "url", or "file".`, {
+        param: "messages",
+      });
+  }
+}
+
 /** True when any ordered content part carries media instead of text. */
 export function hasMediaContent(parts: readonly GenerationContentPart[]): boolean {
   return parts.some((part) => part.kind !== "text");

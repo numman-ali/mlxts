@@ -63,6 +63,64 @@ describe("Anthropic messages adapter", () => {
     });
   });
 
+  test("normalizes ordered Anthropic image blocks as media content", () => {
+    const normalized = normalizeAnthropicMessageRequest(
+      {
+        model: "mlx-community/Qwen3.6-27B-4bit",
+        system: "Be visual.",
+        messages: [
+          {
+            role: "user",
+            content: [
+              {
+                type: "image",
+                source: { type: "base64", media_type: "image/png", data: "abcd" },
+              },
+              { type: "text", text: "Describe this." },
+              {
+                type: "image",
+                source: { type: "url", url: "https://example.com/image.png" },
+              },
+              {
+                type: "image",
+                source: { type: "file", file_id: "file-123" },
+              },
+            ],
+          },
+        ],
+        max_tokens: 32,
+        chat_template_kwargs: { enable_thinking: false },
+      },
+      { id: "msg-image" },
+    );
+
+    expect(normalized.request.input).toEqual({
+      kind: "content",
+      messages: [
+        { role: "system", content: [{ kind: "text", text: "Be visual." }] },
+        {
+          role: "user",
+          content: [
+            {
+              kind: "image",
+              source: { kind: "data", mediaType: "image/png", data: "abcd" },
+            },
+            { kind: "text", text: "Describe this." },
+            {
+              kind: "image",
+              source: { kind: "url", url: "https://example.com/image.png" },
+            },
+            {
+              kind: "image",
+              source: { kind: "file", fileId: "file-123" },
+            },
+          ],
+        },
+      ],
+      chatTemplate: { enableThinking: false },
+    });
+  });
+
   test("formats visible and thinking output as Anthropic content blocks", () => {
     const normalized = normalizeAnthropicMessageRequest(
       {
@@ -116,24 +174,6 @@ describe("Anthropic messages adapter", () => {
         { id: "system-role" },
       ),
     ).toThrow('use top-level "system"');
-
-    expect(() =>
-      normalizeAnthropicMessageRequest(
-        {
-          model: "mlx-community/Qwen3.6-27B-4bit",
-          max_tokens: 8,
-          messages: [
-            {
-              role: "user",
-              content: [
-                { type: "image", source: { type: "url", url: "https://example.com/a.png" } },
-              ],
-            },
-          ],
-        },
-        { id: "image" },
-      ),
-    ).toThrow("image content blocks are not supported");
 
     expect(() =>
       normalizeAnthropicMessageRequest(
@@ -257,13 +297,25 @@ describe("Anthropic messages adapter", () => {
         { ...base, messages: [{ role: "user", content: 42 }] },
         { id: "user-content" },
       ),
-    ).toThrow('user "content" must be a string');
+    ).toThrow('user "content" must be a string or content block array');
     expect(() =>
       normalizeAnthropicMessageRequest(
         { ...base, system: 42, messages: [{ role: "user", content: "Hi" }] },
         { id: "system" },
       ),
     ).toThrow('"system" must be a string');
+    expect(() =>
+      normalizeAnthropicMessageRequest(
+        {
+          ...base,
+          system: [
+            { type: "image", source: { type: "base64", media_type: "image/png", data: "x" } },
+          ],
+          messages: [{ role: "user", content: "Hi" }],
+        },
+        { id: "system-image" },
+      ),
+    ).toThrow("image content blocks are only supported in user messages");
     expect(() =>
       normalizeAnthropicMessageRequest(
         {
@@ -290,7 +342,90 @@ describe("Anthropic messages adapter", () => {
         },
         { id: "unknown-block" },
       ),
-    ).toThrow("only text content blocks are supported");
+    ).toThrow("only text and image content blocks are supported");
+    expect(() =>
+      normalizeAnthropicMessageRequest(
+        {
+          ...base,
+          messages: [{ role: "user", content: [{ type: "image" }] }],
+        },
+        { id: "image-source" },
+      ),
+    ).toThrow("image content blocks require a source object");
+    expect(() =>
+      normalizeAnthropicMessageRequest(
+        {
+          ...base,
+          messages: [
+            {
+              role: "user",
+              content: [{ type: "image", source: { type: "base64", media_type: "", data: "abc" } }],
+            },
+          ],
+        },
+        { id: "image-media-type" },
+      ),
+    ).toThrow("expected a non-empty string");
+    expect(() =>
+      normalizeAnthropicMessageRequest(
+        {
+          ...base,
+          messages: [
+            {
+              role: "user",
+              content: [{ type: "image", source: { type: "base64", media_type: "image/png" } }],
+            },
+          ],
+        },
+        { id: "image-data" },
+      ),
+    ).toThrow("expected a non-empty string");
+    expect(() =>
+      normalizeAnthropicMessageRequest(
+        {
+          ...base,
+          messages: [{ role: "user", content: [{ type: "image", source: { type: "url" } }] }],
+        },
+        { id: "image-url" },
+      ),
+    ).toThrow("expected a non-empty string");
+    expect(() =>
+      normalizeAnthropicMessageRequest(
+        {
+          ...base,
+          messages: [
+            {
+              role: "user",
+              content: [
+                {
+                  type: "image",
+                  source: { type: "url", url: "data:image/png;base64,abcd" },
+                },
+              ],
+            },
+          ],
+        },
+        { id: "image-data-url" },
+      ),
+    ).toThrow('data payloads use source.type "base64"');
+    expect(() =>
+      normalizeAnthropicMessageRequest(
+        {
+          ...base,
+          messages: [{ role: "user", content: [{ type: "image", source: { type: "file" } }] }],
+        },
+        { id: "image-file" },
+      ),
+    ).toThrow("expected a non-empty string");
+    expect(() =>
+      normalizeAnthropicMessageRequest(
+        {
+          ...base,
+          messages: [{ role: "user", content: [{ type: "image", source: { type: "blob" } }] }],
+        },
+        { id: "image-type" },
+      ),
+    ).toThrow('image source type must be "base64", "url", or "file"');
   });
 
   test("rejects malformed Anthropic assistant content fields", () => {
@@ -326,6 +461,22 @@ describe("Anthropic messages adapter", () => {
         { id: "assistant-thinking" },
       ),
     ).toThrow('thinking blocks require a string "thinking" field');
+    expect(() =>
+      normalizeAnthropicMessageRequest(
+        {
+          ...base,
+          messages: [
+            {
+              role: "assistant",
+              content: [
+                { type: "image", source: { type: "base64", media_type: "image/png", data: "x" } },
+              ],
+            },
+          ],
+        },
+        { id: "assistant-image" },
+      ),
+    ).toThrow("image content blocks are only supported in user messages");
     expect(() =>
       normalizeAnthropicMessageRequest(
         {
