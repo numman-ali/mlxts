@@ -79,8 +79,10 @@ Full evidence ladder lives in
   streaming collectors, sampled batch decode, then Qwen hybrid recurrent /
   full-attention caches and Gemma sliding/global caches.
 - Prefix-cache cache-hit seeding now reaches continuous scheduler rows through
-  one-row managed batch-cache restore. Paged/block-deduplicated longest-prefix
-  reuse remains the next cache-backend tranche.
+  one-row managed batch-cache restore. Hits now classify exact, shorter-prefix,
+  longer-source trim, and LCP reuse and expose source `CacheLayerKind` /
+  trimmability metadata; paged/block-deduplicated storage remains the next
+  cache-backend tranche.
 - Real serving memory preflight should reject admission deterministically
   based on family geometry + cache layout, not advisory warnings.
 - Use `bun run bench:serve --stream` for huge prompt rungs; buffered JSON is

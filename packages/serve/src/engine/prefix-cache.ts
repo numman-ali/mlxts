@@ -4,16 +4,39 @@
  */
 
 import type {
+  CacheLayerKind,
   GenerationOptions,
   PromptCacheSnapshotEvent,
   TransformerCache,
   TransformerCacheSnapshot,
 } from "@mlxts/transformers";
 
+/** Cache-match shape used by serving policy and future block-prefix stores. */
+export type PromptPrefixCacheMatchType = "exact" | "prefix" | "supersequence" | "lcp";
+
+/** Source snapshot metadata for a prompt-prefix cache hit. */
+export type PromptPrefixCacheEntryMetadata = {
+  /** Stored reusable prompt-token count for the source snapshot. */
+  tokenLength: number;
+  /** Logical cache offset represented by the source snapshot. */
+  snapshotOffset: number;
+  /** Per-layer cache kinds exposed by the source snapshot. */
+  layerKinds: readonly CacheLayerKind[];
+  /** Whether the source snapshot can restore offsets before its full length. */
+  trimmable: boolean;
+  /** Non-token prompt identity attached to the source snapshot. */
+  identity?: PromptPrefixCacheIdentity;
+};
+
 export type PromptPrefixCacheHit = {
   /** Forked cache owned by the caller. Dispose it when generation finishes. */
   cache: TransformerCache;
+  /** Number of leading prompt tokens restored from cache. */
   readTokens: number;
+  /** Relationship between the stored snapshot and requested reusable prefix. */
+  matchType: PromptPrefixCacheMatchType;
+  /** Metadata for the retained source snapshot that produced this hit. */
+  source: PromptPrefixCacheEntryMetadata;
 };
 
 export type PromptPrefixCacheUsage = {
@@ -112,6 +135,33 @@ function shouldEvict(candidate: PromptPrefixCacheEntry, current: PromptPrefixCac
   return candidate.lastUsed < current.lastUsed;
 }
 
+function matchTypeFor(
+  entryTokenLength: number,
+  maxReusableTokens: number,
+  sharedTokens: number,
+): PromptPrefixCacheMatchType {
+  if (sharedTokens === entryTokenLength && sharedTokens === maxReusableTokens) {
+    return "exact";
+  }
+  if (sharedTokens === entryTokenLength) {
+    return "prefix";
+  }
+  if (sharedTokens === maxReusableTokens) {
+    return "supersequence";
+  }
+  return "lcp";
+}
+
+function entryMetadata(entry: PromptPrefixCacheEntry): PromptPrefixCacheEntryMetadata {
+  return {
+    tokenLength: entry.tokenIds.length,
+    snapshotOffset: entry.snapshot.offset,
+    layerKinds: [...entry.snapshot.layerKinds],
+    trimmable: entry.snapshot.trimmable,
+    ...(entry.identity === undefined ? {} : { identity: cloneIdentity(entry.identity) }),
+  };
+}
+
 /** Small prompt-boundary snapshot store for repeated local chat turns. */
 export class PromptPrefixCache implements Disposable {
   readonly #maxEntries: number;
@@ -162,7 +212,12 @@ export class PromptPrefixCache implements Disposable {
 
     const cache = bestEntry.snapshot.fork({ offset: bestReadTokens });
     bestEntry.lastUsed = ++this.#clock;
-    return { cache, readTokens: bestReadTokens };
+    return {
+      cache,
+      readTokens: bestReadTokens,
+      matchType: matchTypeFor(bestEntry.tokenIds.length, maxReusableTokens, bestReadTokens),
+      source: entryMetadata(bestEntry),
+    };
   }
 
   /** Store an owned prompt-boundary snapshot, disposing it if it cannot be retained. */

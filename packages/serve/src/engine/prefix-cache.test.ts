@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 
 import type { MxArray } from "@mlxts/core";
 import type {
+  CacheLayerKind,
   TransformerCache,
   TransformerCacheForkOptions,
   TransformerCacheSnapshot,
@@ -10,11 +11,12 @@ import { createPromptPrefixCacheSession, PromptPrefixCache } from "./prefix-cach
 
 class FakeCache implements TransformerCache {
   readonly layerCount = 0;
-  readonly layerKinds = [] as const;
+  readonly layerKinds: readonly CacheLayerKind[];
   readonly offset: number;
 
-  constructor(offset: number) {
+  constructor(offset: number, layerKinds: readonly CacheLayerKind[] = []) {
     this.offset = offset;
+    this.layerKinds = layerKinds;
   }
 
   updateAndFetch(): { keys: MxArray; values: MxArray } {
@@ -34,7 +36,7 @@ class FakeCache implements TransformerCache {
   }
 
   snapshot(): TransformerCacheSnapshot {
-    return new FakeSnapshot(this.offset);
+    return new FakeSnapshot(this.offset, { layerKinds: this.layerKinds });
   }
 
   arrays(): MxArray[] {
@@ -44,27 +46,53 @@ class FakeCache implements TransformerCache {
   [Symbol.dispose](): void {}
 }
 
+type FakeSnapshotOptions = {
+  maxForkOffset?: number;
+  exactForkOnly?: boolean;
+  layerKinds?: readonly CacheLayerKind[];
+  trimmable?: boolean;
+};
+
 class FakeSnapshot implements TransformerCacheSnapshot {
   readonly offset: number;
-  readonly layerKinds = [] as const;
-  readonly trimmable = true;
+  readonly layerKinds: readonly CacheLayerKind[];
+  readonly trimmable: boolean;
   readonly maxForkOffset: number;
+  readonly exactForkOnly: boolean;
   disposeCount = 0;
   forkOffsets: number[] = [];
 
-  constructor(offset: number, maxForkOffset = offset) {
+  constructor(offset: number, maxForkOffsetOrOptions: number | FakeSnapshotOptions = offset) {
     this.offset = offset;
-    this.maxForkOffset = maxForkOffset;
+    if (typeof maxForkOffsetOrOptions === "number") {
+      this.maxForkOffset = maxForkOffsetOrOptions;
+      this.exactForkOnly = false;
+      this.layerKinds = [];
+      this.trimmable = true;
+      return;
+    }
+
+    this.maxForkOffset = maxForkOffsetOrOptions.maxForkOffset ?? offset;
+    this.exactForkOnly = maxForkOffsetOrOptions.exactForkOnly ?? false;
+    this.layerKinds = maxForkOffsetOrOptions.layerKinds ?? [];
+    this.trimmable = maxForkOffsetOrOptions.trimmable ?? true;
   }
 
   canFork(options: TransformerCacheForkOptions = {}): boolean {
-    return (options.offset ?? this.offset) <= this.maxForkOffset && this.disposeCount === 0;
+    const offset = options.offset ?? this.offset;
+    if (this.disposeCount !== 0) {
+      return false;
+    }
+    if (this.exactForkOnly) {
+      return offset === this.offset;
+    }
+    return offset <= this.maxForkOffset;
   }
 
   fork(options: TransformerCacheForkOptions = {}): TransformerCache {
     const offset = options.offset ?? this.offset;
     this.forkOffsets.push(offset);
-    return new FakeCache(offset);
+    return new FakeCache(offset, this.layerKinds);
   }
 
   [Symbol.dispose](): void {
@@ -103,9 +131,76 @@ describe("PromptPrefixCache", () => {
 
     const longHit = cache.lookup(longPrompt);
     expect(longHit?.readTokens).toBe(100);
+    expect(longHit?.matchType).toBe("exact");
     longHit?.cache[Symbol.dispose]();
     expect(longSnapshot.forkOffsets).toEqual([100]);
     expect(cache.lookup(shortPrompt)).toBeNull();
+  });
+
+  test("classifies exact, prefix, supersequence, and LCP matches", () => {
+    using exactCache = new PromptPrefixCache(1);
+    const exactSnapshot = new FakeSnapshot(4, {
+      layerKinds: ["full"],
+      trimmable: true,
+    });
+    expect(exactCache.store([1, 2, 3, 4, 5], exactSnapshot)).toBe(4);
+    const exactHit = exactCache.lookup([1, 2, 3, 4, 5]);
+    expect(exactHit?.matchType).toBe("exact");
+    expect(exactHit?.readTokens).toBe(4);
+    expect(exactHit?.source).toEqual({
+      tokenLength: 4,
+      snapshotOffset: 4,
+      layerKinds: ["full"],
+      trimmable: true,
+    });
+    exactHit?.cache[Symbol.dispose]();
+
+    using prefixCache = new PromptPrefixCache(1);
+    const prefixSnapshot = new FakeSnapshot(3);
+    expect(prefixCache.store([1, 2, 3, 4], prefixSnapshot)).toBe(3);
+    const prefixHit = prefixCache.lookup([1, 2, 3, 4, 5, 6]);
+    expect(prefixHit?.matchType).toBe("prefix");
+    expect(prefixHit?.readTokens).toBe(3);
+    prefixHit?.cache[Symbol.dispose]();
+
+    using supersequenceCache = new PromptPrefixCache(1);
+    const supersequenceSnapshot = new FakeSnapshot(5);
+    expect(supersequenceCache.store([1, 2, 3, 4, 5, 6], supersequenceSnapshot)).toBe(5);
+    const supersequenceHit = supersequenceCache.lookup([1, 2, 3, 4]);
+    expect(supersequenceHit?.matchType).toBe("supersequence");
+    expect(supersequenceHit?.readTokens).toBe(3);
+    supersequenceHit?.cache[Symbol.dispose]();
+
+    using lcpCache = new PromptPrefixCache(1);
+    const lcpSnapshot = new FakeSnapshot(5);
+    expect(lcpCache.store([1, 2, 3, 4, 5, 6], lcpSnapshot)).toBe(5);
+    const lcpHit = lcpCache.lookup([1, 2, 3, 9, 10]);
+    expect(lcpHit?.matchType).toBe("lcp");
+    expect(lcpHit?.readTokens).toBe(3);
+    lcpHit?.cache[Symbol.dispose]();
+  });
+
+  test("respects exact-boundary snapshots for non-trimmable cache state", () => {
+    using cache = new PromptPrefixCache(1);
+    const snapshot = new FakeSnapshot(5, {
+      exactForkOnly: true,
+      layerKinds: ["full", "linear-recurrent"],
+      trimmable: false,
+    });
+    expect(cache.store([1, 2, 3, 4, 5, 6], snapshot)).toBe(5);
+
+    expect(cache.lookup([1, 2, 3, 4])).toBeNull();
+    expect(cache.lookup([1, 2, 3, 9, 10])).toBeNull();
+
+    const hit = cache.lookup([1, 2, 3, 4, 5, 6]);
+    expect(hit?.matchType).toBe("exact");
+    expect(hit?.source).toEqual({
+      tokenLength: 5,
+      snapshotOffset: 5,
+      layerKinds: ["full", "linear-recurrent"],
+      trimmable: false,
+    });
+    hit?.cache[Symbol.dispose]();
   });
 
   test("requires matching media identities for media-aware entries", () => {
