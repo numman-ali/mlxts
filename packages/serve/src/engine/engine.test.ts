@@ -668,6 +668,77 @@ describe("transformers generation engine", () => {
     });
   });
 
+  test("keeps top-level Qwen media content off continuous batching", async () => {
+    using model = new TinyQwenHybridModel("qwen3_5");
+    const tokenizer = new TinyTokenizer();
+    const events: ServeEvent[] = [];
+    const engine = createTransformersGenerationEngine({
+      model,
+      tokenizer,
+      maxBatchSize: 2,
+      contentAdapter: {
+        async load() {
+          return {
+            prompt: { text: "user:<image>", tokenIds: [0, 1] },
+            preparePrompt() {
+              return {
+                tokenIds: [0, 1],
+                inputEmbeddings: array([[[0], [1]]], "float32"),
+                positionIds: array([[0, 1]], "int32"),
+              };
+            },
+          };
+        },
+      },
+      onEvent(event) {
+        events.push(event);
+      },
+    });
+
+    await engine.generate({
+      id: "qwen-media-prepared",
+      model: "tiny",
+      input: {
+        kind: "content",
+        messages: [
+          {
+            role: "user",
+            content: [
+              { kind: "text", text: "Describe this." },
+              {
+                kind: "image",
+                source: { kind: "data", mediaType: "image/png", data: "AA==" },
+              },
+            ],
+          },
+        ],
+      },
+      sampling: { maxTokens: 2, temperature: 0 },
+      stream: false,
+      protocol: "openai.chat_completions",
+    });
+
+    expect(model.batchForwardCount).toBe(0);
+    expect(events).toContainEqual({
+      type: "generation_route_decision",
+      id: "qwen-media-prepared",
+      protocol: "openai.chat_completions",
+      model: "tiny",
+      route: "single",
+      eligible: false,
+      reason: "media_input",
+      modelType: "qwen3_5",
+      maxBatchSize: 2,
+      ...ROUTE_STRATEGY,
+      stream: false,
+    });
+    expect(
+      events.some(
+        (event) => event.type === "generation_scheduler_phase" && event.mode === "continuous",
+      ),
+    ).toBe(false);
+  });
+
   test("reuses media prompt prefixes only when media identity matches", async () => {
     using model = new PreparedPromptModel();
     const tokenizer = new TinyTokenizer();
@@ -1788,6 +1859,41 @@ describe("transformers generation engine", () => {
     expect(
       events.some((event) => event.type === "generation_batch_start" && event.mode === "static"),
     ).toBe(false);
+  });
+
+  test("routes top-level Qwen conditional text requests through continuous batching", async () => {
+    using model = new TinyQwenHybridModel("qwen3_5");
+    const tokenizer = new TinyTokenizer();
+    const events: ServeEvent[] = [];
+    const engine = createTransformersGenerationEngine({
+      model,
+      tokenizer,
+      maxBatchSize: 2,
+      batchWindowMs: 1,
+      onEvent(event) {
+        events.push(event);
+      },
+    });
+
+    await Promise.all([
+      engine.generate(textRequest("qwen-wrapper-one")),
+      engine.generate(textRequest("qwen-wrapper-two")),
+    ]);
+
+    expect(model.batchForwardCount).toBeGreaterThan(0);
+    expect(events).toContainEqual({
+      type: "generation_route_decision",
+      id: "qwen-wrapper-one",
+      protocol: "openai.completions",
+      model: "tiny",
+      route: "continuous",
+      eligible: true,
+      reason: "eligible",
+      modelType: "qwen3_5",
+      maxBatchSize: 2,
+      ...ROUTE_STRATEGY,
+      stream: false,
+    });
   });
 
   test("routes Qwen MoE hybrid-cache requests through continuous batching", async () => {

@@ -13,12 +13,18 @@ import {
   retainArray,
 } from "@mlxts/core";
 import { Linear, Module } from "@mlxts/nn";
-import { expectSingleTransformerCache } from "../../../infrastructure/cache";
 import {
   retainInputEmbeddings,
   retainInputPositionIds,
 } from "../../../infrastructure/input-embeddings";
-import type { CausalLM, ForwardOptions, PreparedPrompt, TransformerCache } from "../../../types";
+import type {
+  CausalLM,
+  DecoderCache,
+  ForwardOptions,
+  PreparedPrompt,
+  TransformerCache,
+} from "../../../types";
+import { Qwen3_5TextBatchCache } from "../cache/batch-cache";
 import { Qwen3_5TextCache } from "../cache/index";
 import { createShiftedQwen3_5PositionIds } from "../linear-attention/rotary";
 import { Qwen3_5TextModel } from "../model";
@@ -62,6 +68,22 @@ function forwardOptions(optionsOrTensor?: ForwardOptions | MxArray): ForwardOpti
     : undefined;
 }
 
+type Qwen3_5ConditionalCache = Qwen3_5TextCache | Qwen3_5TextBatchCache;
+
+function expectQwen3_5ConditionalCache(
+  cache: DecoderCache | undefined,
+): Qwen3_5ConditionalCache | undefined {
+  if (cache === undefined) {
+    return undefined;
+  }
+  if (cache instanceof Qwen3_5TextCache || cache instanceof Qwen3_5TextBatchCache) {
+    return cache;
+  }
+  throw new Error(
+    `Qwen3_5ForConditionalGeneration.forward: expected Qwen3_5TextCache or Qwen3_5TextBatchCache, got ${cache.constructor.name}.`,
+  );
+}
+
 /** Shared multimodal wrapper model without the LM head. */
 export class Qwen3_5ConditionalModel extends Module {
   visual: Qwen3_5VisionModel;
@@ -79,7 +101,7 @@ export class Qwen3_5ConditionalModel extends Module {
 
   run(
     inputIds: MxArray,
-    cache?: TransformerCache,
+    cache?: DecoderCache,
     inputEmbeddings?: MxArray,
     positionIds?: MxArray,
   ): MxArray {
@@ -112,6 +134,28 @@ export class Qwen3_5ForConditionalGeneration extends Module implements CausalLM 
 
   createCache(): TransformerCache {
     return new Qwen3_5TextCache(this.#rawConfig.textConfig.layerTypes);
+  }
+
+  /** Create the Qwen text-cache variant used by text-only continuous scheduling. */
+  createBatchCache(
+    leftPadding: readonly number[],
+    seedCaches?: readonly TransformerCache[],
+  ): Qwen3_5TextBatchCache {
+    const cache = new Qwen3_5TextBatchCache(this.#rawConfig.textConfig.layerTypes, leftPadding);
+    try {
+      if (seedCaches !== undefined) {
+        for (let index = 0; index < seedCaches.length; index += 1) {
+          const seed = seedCaches[index];
+          if (seed !== undefined) {
+            cache.restoreFromCache(index, seed);
+          }
+        }
+      }
+      return cache;
+    } catch (error) {
+      cache[Symbol.dispose]();
+      throw error;
+    }
   }
 
   prepareImagePrompt(
@@ -204,10 +248,7 @@ export class Qwen3_5ForConditionalGeneration extends Module implements CausalLM 
     }
 
     const options = forwardOptions(optionsOrTensor);
-    const cache = expectSingleTransformerCache(
-      options?.cache,
-      "Qwen3_5ForConditionalGeneration.forward",
-    );
+    const cache = expectQwen3_5ConditionalCache(options?.cache);
     const inputEmbeddings = retainInputEmbeddings(
       inputIds,
       options?.inputEmbeddings,
@@ -244,7 +285,7 @@ export class Qwen3_5ForConditionalGeneration extends Module implements CausalLM 
   private prepareForwardPositionIds(
     inputIds: MxArray,
     options: ForwardOptions | undefined,
-    cache: TransformerCache | undefined,
+    cache: Qwen3_5ConditionalCache | undefined,
     batchSize: number,
     sequenceLength: number,
   ): MxArray | null {
@@ -254,6 +295,9 @@ export class Qwen3_5ForConditionalGeneration extends Module implements CausalLM 
       "Qwen3_5ForConditionalGeneration.forward",
     );
     if (positionIds !== null) {
+      if (cache instanceof Qwen3_5TextBatchCache) {
+        return positionIds;
+      }
       const logicalLength = (cache?.offset ?? 0) + sequenceLength;
       const deltas = ropeDeltas(positionIds, logicalLength);
       this.#ropeDeltas = deltas;
@@ -268,6 +312,10 @@ export class Qwen3_5ForConditionalGeneration extends Module implements CausalLM 
       if (cache instanceof Qwen3_5TextCache) {
         cache.setRopeDeltas(null);
       }
+      return null;
+    }
+    if (cache instanceof Qwen3_5TextBatchCache) {
+      this.#ropeDeltas = null;
       return null;
     }
 

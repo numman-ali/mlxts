@@ -36,6 +36,11 @@ text endpoints while benchmark and scheduler work continues.
 - **Image serving**: Qwen image transport, host decode, and prepared-prompt
   cache shipped with explicit boundary — serve owns I/O and decode, transformers
   owns preprocessing and prompt expansion.
+- **Qwen conditional serving**: top-level Qwen 3.5 / 3.6 conditional
+  checkpoints expose the Qwen text batch-cache surface for text-only continuous
+  serving. Media/content requests still route as `media_input` and stay off
+  continuous scheduling until multimodal batch semantics are implemented
+  explicitly.
 - **Architectural cleanup (2026-04-28)**: the audit remediation tranches have
   landed end to end. Cross-example data helpers moved into `@mlxts/data`;
   `serve/src/`, Qwen 3.5/3.6, transformer LoRA, align evaluation, tokenizers,
@@ -69,6 +74,16 @@ Full evidence ladder lives in
   `139` client cached tokens for chat/responses and `278` server prompt-cache
   read tokens across all three message protocols; Gemma recorded `138` client
   cached tokens for chat/responses and `276` server prompt-cache read tokens.
+- Qwen3.6 top-level conditional route smoke on 2026-04-29: direct Chat
+  Completions against `mlx-community/Qwen3.6-27B-4bit` logged
+  `route=continuous eligible=yes reason=eligible model_type=qwen3_5`; the
+  warmed repeat logged `cache hit read_tokens=16 write_tokens=0` and returned
+  `prompt_tokens_details.cached_tokens=16`.
+- Post-fix `bun run regression:qwen-gemma -- --profile real` passed. Qwen
+  decode smoke reported `generation_tps=29.024`; Qwen serve rungs routed
+  `continuous:eligible` through protocol health and mixed fairness, including
+  `max_continuous_batch=8` and Qwen mixed `32768x128+128x32` passing with
+  `max_stream_chunk_gap_ms=648.1`. Gemma real decode and serve rungs passed too.
 
 ## Next Work
 

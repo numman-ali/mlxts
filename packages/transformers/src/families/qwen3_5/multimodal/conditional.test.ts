@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
 import { array, retainArray, zeros } from "@mlxts/core";
+import { Qwen3_5TextBatchCache } from "../cache/batch-cache";
 import { Qwen3_5TextCausalLM } from "../model";
 import type { Qwen3_5Config, Qwen3_5TextConfig, Qwen3_5VisionConfig } from "../types";
 import {
@@ -163,6 +164,41 @@ describe("Qwen3_5ForConditionalGeneration", () => {
     expect(() =>
       model.prepareImagePrompt([7, 28, 9], pixelValues, imageGridThw, [0, 2, 2, 2, 2, 0]),
     ).toThrow("video token types are not implemented yet");
+  });
+
+  test("accepts text batch cache for text-only wrapper forward", () => {
+    using model = new Qwen3_5ForConditionalGeneration(qwen3_5Config());
+    const originalRun = model.model.run.bind(model.model);
+    let sawBatchCache = false;
+    let sawPositionIds = false;
+
+    model.model.run = ((inputIds, cache, _inputEmbeddings, positionIds) => {
+      sawBatchCache = cache instanceof Qwen3_5TextBatchCache;
+      sawPositionIds = positionIds !== undefined;
+      const [batchSize, sequenceLength] = inputIds.shape;
+      return zeros([batchSize ?? 0, sequenceLength ?? 0, model.config.hiddenSize], "float32");
+    }) as typeof model.model.run;
+
+    try {
+      using cache = model.createBatchCache([0, 1]);
+      using inputIds = array(
+        [
+          [1, 2, 3],
+          [4, 5, 6],
+        ],
+        "int32",
+      );
+      using logits = model.forward(inputIds, { cache });
+
+      expect(cache).toBeInstanceOf(Qwen3_5TextBatchCache);
+      expect(cache.layerKinds).toEqual(["linear-recurrent", "full"]);
+      expect(logits.shape).toEqual([2, 3, 32]);
+      expect(sawBatchCache).toBe(true);
+      expect(sawPositionIds).toBe(false);
+      expect(cache.offsets).toEqual([3, 2]);
+    } finally {
+      model.model.run = originalRun;
+    }
   });
 
   test("reuses per-batch rope deltas during cached decode", () => {
