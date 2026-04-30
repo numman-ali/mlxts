@@ -15,12 +15,16 @@ import type {
 } from "@mlxts/transformers";
 import { shouldLoadQwen3_5ForConditionalGeneration } from "@mlxts/transformers";
 import { createQwen3_5ImageContentAdapter } from "../engine/content";
+import { readGenerationMemoryUsage } from "../runtime/memory";
+import { requirePositiveFraction } from "../runtime/strategy";
+import { requireModelLoadMemoryBudget } from "./memory-preflight";
 import {
   type LoadedModelServerEntry,
   type RunningModelServer,
   type ServeLoadedModelsOptions,
   serveLoadedModels,
 } from "./server";
+import { DEFAULT_MODEL_SERVER_GPU_MEMORY_UTILIZATION } from "./server-options";
 
 type SourceLoadOptions = Omit<LoadSourceOptions, "onProgress">;
 
@@ -55,6 +59,7 @@ export type ServeModelsRuntime = {
   loadPretrainedTokenizer: typeof loadPretrainedTokenizer;
   loadInteractionProfile: typeof loadInteractionProfile;
   serveLoadedModels: typeof serveLoadedModels;
+  readGenerationMemoryUsage?: typeof readGenerationMemoryUsage;
 };
 
 type ResolvedModelSourceEntry = {
@@ -212,6 +217,13 @@ function resolveServeModelsOptions(options: ServeModelsOptions): ResolvedServeMo
   };
 }
 
+function resolvedGpuMemoryUtilization(options: ServeModelsOptions): number {
+  return requirePositiveFraction(
+    "gpuMemoryUtilization",
+    options.gpuMemoryUtilization ?? DEFAULT_MODEL_SERVER_GPU_MEMORY_UTILIZATION,
+  );
+}
+
 function failureWithCleanupError(error: unknown, cleanupError: unknown): AggregateError {
   return new AggregateError(
     [error, cleanupError],
@@ -279,8 +291,15 @@ function canLoadQwenConditional(runtime: ServeModelsRuntime): boolean {
 async function loadModelEntry(
   entry: ResolvedModelSourceEntry,
   runtime: ServeModelsRuntime,
+  gpuMemoryUtilization: number,
 ): Promise<LoadedModelServerEntry> {
   const localSource = await runtime.resolvePretrainedSource(entry.source, entry.loadOptions);
+  requireModelLoadMemoryBudget({
+    modelId: entry.modelId,
+    source: localSource,
+    gpuMemoryUtilization,
+    memory: (runtime.readGenerationMemoryUsage ?? readGenerationMemoryUsage)(),
+  });
   const resolvedEntry = { ...entry, source: localSource };
   const loadQwenConditional =
     canLoadQwenConditional(runtime) &&
@@ -307,10 +326,11 @@ export async function serveModelsWithRuntime(
   runtime: ServeModelsRuntime,
 ): Promise<RunningModelServer> {
   const resolved = resolveServeModelsOptions(options);
+  const gpuMemoryUtilization = resolvedGpuMemoryUtilization(options);
   const loaded: LoadedModelServerEntry[] = [];
   try {
     for (const model of resolved.models) {
-      loaded.push(await loadModelEntry(model, runtime));
+      loaded.push(await loadModelEntry(model, runtime, gpuMemoryUtilization));
     }
     return runtime.serveLoadedModels({
       ...resolved,

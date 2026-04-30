@@ -862,6 +862,53 @@ describe("serveLoadedModel", () => {
     running.stop();
   });
 
+  test("rejects single model loads that exceed the active memory preflight", async () => {
+    const model = new FakeModel();
+    const calls: string[] = [];
+    const directory = await createSafetensorDirectory(100);
+    const runtime: ServeModelRuntime = {
+      async resolvePretrainedSource(source, options) {
+        calls.push(`resolve:${source}:${options?.localFilesOnly}`);
+        return directory;
+      },
+      async loadCausalLM(source) {
+        calls.push(`model:${source}`);
+        return model;
+      },
+      async loadPretrainedTokenizer() {
+        throw new Error("tokenizer should not load after memory preflight rejection");
+      },
+      async loadInteractionProfile() {
+        return fakeInteractionProfile;
+      },
+      serveLoadedModel() {
+        throw new Error("serve should not start after memory preflight rejection");
+      },
+      readGenerationMemoryUsage() {
+        return { activeBytes: 850, cacheBytes: 0, peakBytes: 0, limitBytes: 1000 };
+      },
+    };
+
+    try {
+      await expect(
+        serveModelWithRuntime(
+          {
+            source: "repo/model",
+            modelId: "too-large",
+            localFilesOnly: true,
+            gpuMemoryUtilization: 0.9,
+          },
+          runtime,
+        ),
+      ).rejects.toThrow('Model "too-large" is estimated to need');
+
+      expect(calls).toEqual(["resolve:repo/model:true"]);
+      expect(model.disposeCount).toBe(0);
+    } finally {
+      removeDirectory(directory);
+    }
+  });
+
   test("loads single Qwen conditional checkpoints with an image content adapter", async () => {
     const model = new FakeModel();
     const calls: string[] = [];
@@ -1065,6 +1112,12 @@ function createQwenConditionalDirectory(): string {
   if (result.exitCode !== 0) {
     throw new Error("failed to create temporary Qwen checkpoint directory");
   }
+  return directory;
+}
+
+async function createSafetensorDirectory(bytes: number): Promise<string> {
+  const directory = createQwenConditionalDirectory();
+  await Bun.write(`${directory}/model.safetensors`, new Uint8Array(bytes));
   return directory;
 }
 

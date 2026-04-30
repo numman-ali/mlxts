@@ -46,6 +46,13 @@ image, and bounded tool endpoints while benchmark and scheduler work continues.
   and estimated memory pressure. Memory estimation remains serve-owned and
   config-derived; scheduler events, metrics, CLI logs, and benchmark reports
   expose scheduled memory pressure when the guard is active.
+- **Model-load memory preflight**: source-backed `serveModel()` and
+  `serveModels()` now estimate local `.safetensors` bytes, including Hugging
+  Face snapshot symlinks, with 25% headroom after source resolution and before
+  MLX model loading. The check rejects clearly over-budget loads against active
+  MLX memory and `gpuMemoryUtilization` when telemetry and sizing are present;
+  missing telemetry or sizing skips the preflight rather than making an unsafe
+  claim.
 - **Image serving**: Qwen image transport, host decode, and prepared-prompt
   cache shipped with explicit boundary — serve owns I/O and decode, transformers
   owns preprocessing and prompt expansion. OpenAI Chat/OpenResponses accept
@@ -197,6 +204,11 @@ Full evidence ladder lives in
   memory (`20.816 GB` start/end). Serve streamed `128x32@1` through
   `continuous:eligible` with `mean_post_ttft_completion_tps=79.300` and
   `active_delta=0.004 GB`.
+- Source-backed model-load memory preflight passed focused model-loading tests
+  (`28 pass`), all `packages/serve` tests (`358 pass`), and full
+  `bun run validate`. Bohr's review caught the Hugging Face snapshot symlink
+  case before commit; the final scanner stats `.safetensors` symlink targets
+  and the regression test covers that path.
 
 ## Next Work
 
@@ -215,9 +227,9 @@ Full evidence ladder lives in
   served retention limits are explicit runtime/CLI knobs by entry count and
   estimated retained snapshot bytes. Paged attention and cache-tensor block
   deduplication remain later cache-backend work.
-- Next memory work is multi-model pool management: model-load estimates, idle
-  eviction, pinned models, and active-request abort policy when one loaded model
-  needs to shed KV pressure.
+- Next memory work is the rest of multi-model pool management: lazy loading,
+  idle eviction, pinned models, TTL policy, and active-request abort policy
+  when one loaded model needs to shed KV pressure.
 - Use `bun run bench:serve --stream` for huge prompt rungs; buffered JSON is
   a poor acceptance shape when client TTFT exceeds a few minutes.
 - For publishable parity claims, use

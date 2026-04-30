@@ -332,6 +332,12 @@ const server = await serveModels({
 console.log(server.modelIds);
 ```
 
+Source-backed serving checks local safetensor size before each MLX model load.
+When MLX memory telemetry is available, the estimate uses safetensor bytes plus
+serving headroom and rejects loads that cannot fit inside the configured
+`gpuMemoryUtilization` budget. If telemetry or safetensor sizing is unavailable,
+the preflight is skipped instead of inventing certainty.
+
 If you already own the loaded model and tokenizer, use `serveLoadedModel()`:
 
 ```ts

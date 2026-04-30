@@ -20,8 +20,10 @@ import { createQwen3_5ImageContentAdapter } from "../engine/content";
 import { createTransformersGenerationEngine } from "../engine/index";
 import { startServeServer } from "../http/server";
 import { createServeMetrics, createServeMetricsSink } from "../observability/metrics";
+import { readGenerationMemoryUsage } from "../runtime/memory";
 import { modelAdmissionMetadata } from "../runtime/model-context";
 import type { GenerationEngine } from "../types";
+import { requireModelLoadMemoryBudget } from "./memory-preflight";
 import { createModelRouterGenerationEngine } from "./router";
 import {
   type ResolvedLoadedModelEntry,
@@ -80,6 +82,7 @@ export type ServeModelRuntime = {
   loadPretrainedTokenizer: typeof loadPretrainedTokenizer;
   loadInteractionProfile: typeof loadInteractionProfile;
   serveLoadedModel: typeof serveLoadedModel;
+  readGenerationMemoryUsage?: typeof readGenerationMemoryUsage;
 };
 
 function endpointFor(server: ReturnType<typeof Bun.serve>): string {
@@ -290,6 +293,10 @@ async function loadContentAdapterForSource(
   return createQwen3_5ImageContentAdapter(preprocessor);
 }
 
+function readModelLoadMemory(runtime: ServeModelRuntime) {
+  return (runtime.readGenerationMemoryUsage ?? readGenerationMemoryUsage)();
+}
+
 export async function serveModelWithRuntime(
   options: ServeModelOptions,
   runtime: ServeModelRuntime,
@@ -297,6 +304,12 @@ export async function serveModelWithRuntime(
   const resolved = resolveServeOptions(options);
   const loadOptions = snapshotOptions(resolved);
   const localSource = await runtime.resolvePretrainedSource(resolved.source, loadOptions);
+  requireModelLoadMemoryBudget({
+    modelId: resolved.modelId,
+    source: localSource,
+    gpuMemoryUtilization: resolved.gpuMemoryUtilization,
+    memory: readModelLoadMemory(runtime),
+  });
   const loadQwenConditional =
     canLoadQwenConditional(runtime) &&
     (await shouldLoadQwen3_5ForConditionalGeneration(localSource));

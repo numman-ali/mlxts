@@ -227,6 +227,12 @@ function createQwenConditionalDirectory(): string {
   return directory;
 }
 
+async function createSafetensorDirectory(bytes: number): Promise<string> {
+  const directory = createQwenConditionalDirectory();
+  await Bun.write(`${directory}/model.safetensors`, new Uint8Array(bytes));
+  return directory;
+}
+
 function removeDirectory(path: string): void {
   Bun.spawnSync(["rm", "-rf", path]);
 }
@@ -326,6 +332,55 @@ describe("serveModels", () => {
 
     expect(first.disposeCount).toBe(1);
     expect(second.disposeCount).toBe(1);
+  });
+
+  test("rejects later model loads that exceed the active memory preflight", async () => {
+    const calls: string[] = [];
+    const firstDirectory = await createSafetensorDirectory(100);
+    const secondDirectory = await createSafetensorDirectory(100);
+    const first = new FakeModel();
+    const second = new FakeModel();
+    let memoryReads = 0;
+    const runtime: ServeModelsRuntime = {
+      ...testRuntime({ calls, models: [first, second] }),
+      readGenerationMemoryUsage() {
+        memoryReads += 1;
+        return {
+          activeBytes: memoryReads === 1 ? 0 : 850,
+          cacheBytes: 0,
+          peakBytes: 0,
+          limitBytes: 1000,
+        };
+      },
+    };
+
+    try {
+      await expect(
+        serveModelsWithRuntime(
+          {
+            models: [
+              { source: firstDirectory, modelId: "first" },
+              { source: secondDirectory, modelId: "second" },
+            ],
+            gpuMemoryUtilization: 0.9,
+          },
+          runtime,
+        ),
+      ).rejects.toThrow('Model "second" is estimated to need');
+
+      expect(calls).toEqual([
+        `resolve:${firstDirectory}:undefined:false`,
+        `model:${firstDirectory}`,
+        `tokenizer:${firstDirectory}`,
+        `profile:${firstDirectory}`,
+        `resolve:${secondDirectory}:undefined:false`,
+      ]);
+      expect(first.disposeCount).toBe(1);
+      expect(second.disposeCount).toBe(0);
+    } finally {
+      removeDirectory(firstDirectory);
+      removeDirectory(secondDirectory);
+    }
   });
 
   test("loads Qwen conditional checkpoints with an image content adapter", async () => {
