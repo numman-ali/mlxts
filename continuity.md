@@ -173,6 +173,17 @@ Full evidence ladder lives in
   against each cold session's retained boundary (`readTokens + writeTokens`),
   so partial shared-prefix/LCP reuse cannot pass as full prompt-boundary
   retention.
+- Agent-cache active concurrency proof landed on 2026-04-30:
+  `bun run regression:agent-cache -- --scenarios gemma-moe --max-concurrent-requests 2`
+  passed with warm_hits `2`, server read tokens `618`, client cached tokens
+  `309`, and exact replay cached tokens `167`. The full dense/MoE cache matrix
+  also passed across Qwen dense, Gemma dense, same-server multi-dense, Qwen MoE,
+  Gemma MoE, and same-server multi-MoE after the harness began reporting
+  concurrency and prompt-prefix retention shape.
+- Repo-local skills now have a validation gate:
+  `bun run check:skills` validates `.agents/skills/*/SKILL.md` frontmatter,
+  catches malformed YAML/description shapes before auto-loader skips, and is
+  part of `bun run validate`.
 - Training proof report verification is now AXI-shaped:
   `bun run examples/train-proof/verify-report.ts <report.json>` emits compact
   structured stdout success/error bodies, exits `2` for usage errors, and is
