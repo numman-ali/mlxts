@@ -98,11 +98,11 @@ major product-agent focus on package-owned CLIs and future PI-agent integration.
   safetensor loading is package-owned: Diffusers names map into the camelCase
   module tree, Conv2d weights transpose from PyTorch kernel layout to MLX
   channel-last layout, and single-shard plus index-sharded VAE weights are
-  covered by synthetic safetensor tests. UNet construction now covers NHWC
-  latent flow, timestep embeddings, residual stack ordering, spatial
-  self/cross-attention, SDXL `text_time`, and `use_linear_projection` projection
-  shapes. UNet loading and full pipeline parity remain the next diffusion
-  tranches.
+  covered by synthetic safetensor tests. UNet loading is also package-owned:
+  Diffusers block, mid-block, timestep, transformer, fused GEGLU, SDXL
+  `text_time`, Conv2d projection, and linear projection names map into the
+  module tree without reversing up-block indices. Full pipeline parity remains
+  the next diffusion tranche.
 - **Qwen conditional serving**: top-level Qwen 3.5 / 3.6 conditional
   checkpoints expose the Qwen text batch-cache surface for text-only continuous
   serving. Media/content requests still route as `media_input` and stay off

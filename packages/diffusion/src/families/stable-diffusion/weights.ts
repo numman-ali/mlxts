@@ -1,5 +1,5 @@
 /**
- * Stable Diffusion checkpoint weight mapping and VAE loading.
+ * Stable Diffusion checkpoint weight mapping and component loading.
  * @module
  */
 
@@ -25,6 +25,7 @@ import type {
 } from "../../pretrained/snapshot-manifest";
 import { StableDiffusionAutoencoderKL } from "./autoencoder";
 import { loadStableDiffusionComponentConfigs } from "./config";
+import { StableDiffusionUNet2DConditionModel } from "./unet";
 
 export type StableDiffusionAutoencoderWeightLoadOptions = {
   /** Throw when the checkpoint contains unsupported tensor names. */
@@ -33,6 +34,18 @@ export type StableDiffusionAutoencoderWeightLoadOptions = {
 
 /** Assignment summary returned after loading Stable Diffusion VAE weights. */
 export type StableDiffusionAutoencoderWeightLoadResult = {
+  assignedPaths: readonly string[];
+  unexpectedWeights: readonly string[];
+  shardCount: number;
+};
+
+export type StableDiffusionUNetWeightLoadOptions = {
+  /** Throw when the checkpoint contains unsupported tensor names. */
+  strictUnexpectedWeights?: boolean;
+};
+
+/** Assignment summary returned after loading Stable Diffusion UNet weights. */
+export type StableDiffusionUNetWeightLoadResult = {
   assignedPaths: readonly string[];
   unexpectedWeights: readonly string[];
   shardCount: number;
@@ -215,6 +228,20 @@ function stableDiffusionVaeComponent(
   return component;
 }
 
+function stableDiffusionUNetComponent(
+  manifest: DiffusionSnapshotManifest,
+): DiffusionSnapshotComponent {
+  const component = manifest.components.find(
+    (candidate) => candidate.name === "unet" && candidate.enabled,
+  );
+  if (component === undefined) {
+    throw new DiffusionConfigError(
+      "Stable Diffusion snapshot manifest is missing an enabled UNet.",
+    );
+  }
+  return component;
+}
+
 function throwIfMissingWeights(
   expectedPaths: ReadonlySet<string>,
   assignedPaths: ReadonlySet<string>,
@@ -227,15 +254,14 @@ function throwIfMissingWeights(
 
 function throwIfUnexpectedWeights(
   unexpectedWeights: readonly string[],
-  options: StableDiffusionAutoencoderWeightLoadOptions,
+  options: StableDiffusionAutoencoderWeightLoadOptions | StableDiffusionUNetWeightLoadOptions,
+  owner: string,
 ): void {
   if (unexpectedWeights.length === 0 || options.strictUnexpectedWeights !== true) {
     return;
   }
   throw new Error(
-    `loadStableDiffusionAutoencoderWeights: checkpoint contained unexpected unmapped weights: ${[
-      ...unexpectedWeights,
-    ]
+    `${owner}: checkpoint contained unexpected unmapped weights: ${[...unexpectedWeights]
       .toSorted((left, right) => left.localeCompare(right))
       .join(", ")}.`,
   );
@@ -243,6 +269,70 @@ function throwIfUnexpectedWeights(
 
 function transformedWeight(checkpointName: string, weightPath: string, tensor: MxArray): MxArray {
   const transformed = transformStableDiffusionAutoencoderWeight(checkpointName, weightPath, tensor);
+  if (transformed !== tensor) {
+    tensor.free();
+  }
+  return transformed;
+}
+
+function camelCaseUNetWeightPath(checkpointName: string): string {
+  return checkpointName
+    .replaceAll("down_blocks", "downBlocks")
+    .replaceAll("up_blocks", "upBlocks")
+    .replaceAll("downsamplers.0.conv", "downsample")
+    .replaceAll("upsamplers.0.conv", "upsample")
+    .replaceAll("mid_block.resnets.0", "midBlock.resnetIn")
+    .replaceAll("mid_block.attentions.0", "midBlock.attention")
+    .replaceAll("mid_block.resnets.1", "midBlock.resnetOut")
+    .replaceAll("time_embedding.linear_1", "timeEmbedding.linear1")
+    .replaceAll("time_embedding.linear_2", "timeEmbedding.linear2")
+    .replaceAll("add_embedding.linear_1", "addEmbedding.linear1")
+    .replaceAll("add_embedding.linear_2", "addEmbedding.linear2")
+    .replaceAll("conv_norm_out", "convNormOut")
+    .replaceAll("conv_in", "convIn")
+    .replaceAll("conv_out", "convOut")
+    .replaceAll("time_emb_proj", "timeEmbeddingProjection")
+    .replaceAll("conv_shortcut", "convShortcut")
+    .replaceAll("transformer_blocks", "transformerBlocks")
+    .replaceAll("attn1", "attention1")
+    .replaceAll("attn2", "attention2")
+    .replaceAll("to_q", "queryProjection")
+    .replaceAll("to_k", "keyProjection")
+    .replaceAll("to_v", "valueProjection")
+    .replaceAll("to_out.0", "outputProjection")
+    .replaceAll("ff.net.0.proj", "feedForward.projectionIn")
+    .replaceAll("ff.net.2", "feedForward.projectionOut")
+    .replaceAll("proj_in", "projectionIn")
+    .replaceAll("proj_out", "projectionOut");
+}
+
+/** Map a Diffusers UNet tensor name onto the package-owned UNet parameter tree. */
+export function stableDiffusionUNetWeightPath(checkpointName: string): string | null {
+  if (checkpointName.trim() === "" || checkpointName.includes("num_batches_tracked")) {
+    return null;
+  }
+  return camelCaseUNetWeightPath(checkpointName);
+}
+
+/** Transform a Diffusers UNet tensor into the package-owned parameter layout. */
+export function transformStableDiffusionUNetWeight(
+  _checkpointName: string,
+  weightPath: string,
+  tensor: MxArray,
+): MxArray {
+  if (weightPath.endsWith(".weight") && tensor.shape.length === 4) {
+    using transposed = transpose(tensor, [0, 2, 3, 1]);
+    return contiguous(transposed);
+  }
+  return tensor;
+}
+
+function transformedUNetWeight(
+  checkpointName: string,
+  weightPath: string,
+  tensor: MxArray,
+): MxArray {
+  const transformed = transformStableDiffusionUNetWeight(checkpointName, weightPath, tensor);
   if (transformed !== tensor) {
     tensor.free();
   }
@@ -286,7 +376,53 @@ export async function loadStableDiffusionAutoencoderWeights(
   }
 
   throwIfMissingWeights(expectedPaths, assignedPaths);
-  throwIfUnexpectedWeights(unexpectedWeights, options);
+  throwIfUnexpectedWeights(unexpectedWeights, options, "loadStableDiffusionAutoencoderWeights");
+
+  return {
+    assignedPaths: [...assignedPaths].toSorted((left, right) => left.localeCompare(right)),
+    unexpectedWeights: [...unexpectedWeights].toSorted((left, right) => left.localeCompare(right)),
+    shardCount: shardPaths.length,
+  };
+}
+
+/** Load Diffusers safetensors weights into a Stable Diffusion UNet2DConditionModel module. */
+export async function loadStableDiffusionUNetWeights(
+  model: StableDiffusionUNet2DConditionModel,
+  component: DiffusionSnapshotComponent,
+  options: StableDiffusionUNetWeightLoadOptions = {},
+): Promise<StableDiffusionUNetWeightLoadResult> {
+  const expectedPaths = new Set(listParameterPaths(model.parameters()));
+  const assignedPaths = new Set<string>();
+  const unexpectedWeights: string[] = [];
+  const shardPaths = await componentSafetensorShards(component);
+
+  if (shardPaths.length === 0) {
+    throw new DiffusionConfigError(`${component.name} has no safetensors weight shards.`);
+  }
+
+  for (const shardPath of shardPaths) {
+    for await (const { name, tensor } of iterateSafetensors(shardPath)) {
+      const path = stableDiffusionUNetWeightPath(name);
+      if (path === null || !expectedPaths.has(path)) {
+        unexpectedWeights.push(name);
+        tensor.free();
+        continue;
+      }
+
+      let assignedTensor = tensor;
+      try {
+        assignedTensor = transformedUNetWeight(name, path, assignedTensor);
+        assignDiffusionWeightPath(model, path, assignedTensor);
+        assignedPaths.add(path);
+      } catch (error) {
+        assignedTensor.free();
+        throw error;
+      }
+    }
+  }
+
+  throwIfMissingWeights(expectedPaths, assignedPaths);
+  throwIfUnexpectedWeights(unexpectedWeights, options, "loadStableDiffusionUNetWeights");
 
   return {
     assignedPaths: [...assignedPaths].toSorted((left, right) => left.localeCompare(right)),
@@ -308,6 +444,25 @@ export async function loadStableDiffusionAutoencoderFromSnapshot(
       stableDiffusionVaeComponent(manifest),
       options,
     );
+    model.eval();
+    const parameters = treeFlatten(model.parameters()).map(([, tensor]) => tensor);
+    mxEval(...parameters);
+    return model;
+  } catch (error) {
+    model[Symbol.dispose]();
+    throw error;
+  }
+}
+
+/** Construct and load the Stable Diffusion UNet component from a snapshot manifest. */
+export async function loadStableDiffusionUNetFromSnapshot(
+  manifest: DiffusionSnapshotManifest,
+  options: StableDiffusionUNetWeightLoadOptions = {},
+): Promise<StableDiffusionUNet2DConditionModel> {
+  const configs = await loadStableDiffusionComponentConfigs(manifest);
+  const model = new StableDiffusionUNet2DConditionModel(configs.unet);
+  try {
+    await loadStableDiffusionUNetWeights(model, stableDiffusionUNetComponent(manifest), options);
     model.eval();
     const parameters = treeFlatten(model.parameters()).map(([, tensor]) => tensor);
     mxEval(...parameters);

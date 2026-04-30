@@ -274,6 +274,18 @@ describe("Stable Diffusion component config parsing", () => {
         mid_block_scale_factor: 0.5,
       }),
     ).toThrow("mid_block_scale_factor");
+    expect(() =>
+      parseStableDiffusionUNetConfig({
+        ...unetConfig(),
+        time_embedding_act_fn: "silu",
+      }),
+    ).toThrow("time_embedding_act_fn");
+    expect(() =>
+      parseStableDiffusionUNetConfig({
+        ...unetConfig(),
+        timestep_post_act: "silu",
+      }),
+    ).toThrow("timestep_post_act");
   });
 
   test("rejects malformed scalar and repeated config fields", () => {

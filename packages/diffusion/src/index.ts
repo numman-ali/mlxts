@@ -56,10 +56,16 @@ export {
 export {
   loadStableDiffusionAutoencoderFromSnapshot,
   loadStableDiffusionAutoencoderWeights,
+  loadStableDiffusionUNetFromSnapshot,
+  loadStableDiffusionUNetWeights,
   type StableDiffusionAutoencoderWeightLoadOptions,
   type StableDiffusionAutoencoderWeightLoadResult,
+  type StableDiffusionUNetWeightLoadOptions,
+  type StableDiffusionUNetWeightLoadResult,
   stableDiffusionAutoencoderWeightPath,
+  stableDiffusionUNetWeightPath,
   transformStableDiffusionAutoencoderWeight,
+  transformStableDiffusionUNetWeight,
 } from "./families/stable-diffusion/weights";
 export {
   type DiffusersPipelineClassName,

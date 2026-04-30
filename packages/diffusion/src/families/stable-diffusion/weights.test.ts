@@ -8,12 +8,17 @@ import { DiffusionMissingWeightsError, DiffusionWeightMismatchError } from "../.
 import type { DiffusionSnapshotComponent } from "../../pretrained/snapshot-manifest";
 import { loadDiffusionSnapshotManifest } from "../../pretrained/snapshot-manifest";
 import { StableDiffusionAutoencoderKL } from "./autoencoder";
-import type { StableDiffusionAutoencoderConfig } from "./config";
+import type { StableDiffusionAutoencoderConfig, StableDiffusionUNetConfig } from "./config";
+import { StableDiffusionUNet2DConditionModel } from "./unet";
 import {
   loadStableDiffusionAutoencoderFromSnapshot,
   loadStableDiffusionAutoencoderWeights,
+  loadStableDiffusionUNetFromSnapshot,
+  loadStableDiffusionUNetWeights,
   stableDiffusionAutoencoderWeightPath,
+  stableDiffusionUNetWeightPath,
   transformStableDiffusionAutoencoderWeight,
+  transformStableDiffusionUNetWeight,
 } from "./weights";
 
 async function withTempDirectory<T>(
@@ -65,6 +70,37 @@ function diffusersVaeConfig(): Record<string, unknown> {
   };
 }
 
+function tinyUNetConfig(
+  overrides: Partial<StableDiffusionUNetConfig> = {},
+): StableDiffusionUNetConfig {
+  return {
+    sampleSize: 8,
+    inChannels: 4,
+    outChannels: 4,
+    convInKernel: 3,
+    convOutKernel: 3,
+    blockOutChannels: [8, 8],
+    layersPerBlock: [1, 1],
+    midBlockLayers: 2,
+    transformerLayersPerBlock: [1, 1],
+    numAttentionHeads: [2, 2],
+    crossAttentionDim: [4, 4],
+    normNumGroups: 4,
+    normEps: 0.00001,
+    downBlockTypes: ["CrossAttnDownBlock2D", "DownBlock2D"],
+    upBlockTypes: ["UpBlock2D", "CrossAttnUpBlock2D"],
+    additionEmbedType: null,
+    additionTimeEmbedDim: null,
+    projectionClassEmbeddingsInputDim: null,
+    useLinearProjection: false,
+    upcastAttention: false,
+    flipSinToCos: true,
+    freqShift: 0,
+    rawConfig: {},
+    ...overrides,
+  };
+}
+
 function diffusersUNetConfig(): Record<string, unknown> {
   return {
     _class_name: "UNet2DConditionModel",
@@ -101,6 +137,7 @@ function writeSnapshotMetadata(directory: string): void {
   const vaeDirectory = join(directory, "vae");
   mkdirSync(vaeDirectory, { recursive: true });
   writeJson(join(vaeDirectory, "config.json"), diffusersVaeConfig());
+  writeFileSync(join(vaeDirectory, "diffusion_pytorch_model.safetensors"), "");
 
   const textEncoderDirectory = join(directory, "text_encoder");
   mkdirSync(textEncoderDirectory, { recursive: true });
@@ -142,6 +179,20 @@ function vaeComponent(weightPaths: readonly string[]): DiffusionSnapshotComponen
   };
 }
 
+function unetComponent(weightPaths: readonly string[]): DiffusionSnapshotComponent {
+  return {
+    name: "unet",
+    role: "backbone",
+    library: "diffusers",
+    className: "UNet2DConditionModel",
+    enabled: true,
+    optional: false,
+    subfolder: "unet",
+    metadataPaths: [],
+    weightPaths,
+  };
+}
+
 function checkpointNameForPath(path: string): string {
   return path
     .replaceAll("downBlocks", "down_blocks")
@@ -162,6 +213,37 @@ function checkpointNameForPath(path: string): string {
     .replaceAll("convOut", "conv_out")
     .replaceAll("postQuantConv", "post_quant_conv")
     .replaceAll("quantConv", "quant_conv");
+}
+
+function unetCheckpointNameForPath(path: string): string {
+  return path
+    .replaceAll("downBlocks", "down_blocks")
+    .replaceAll("upBlocks", "up_blocks")
+    .replaceAll("downsample", "downsamplers.0.conv")
+    .replaceAll("upsample", "upsamplers.0.conv")
+    .replaceAll("midBlock.resnetIn", "mid_block.resnets.0")
+    .replaceAll("midBlock.attention", "mid_block.attentions.0")
+    .replaceAll("midBlock.resnetOut", "mid_block.resnets.1")
+    .replaceAll("timeEmbeddingProjection", "time_emb_proj")
+    .replaceAll("timeEmbedding.linear1", "time_embedding.linear_1")
+    .replaceAll("timeEmbedding.linear2", "time_embedding.linear_2")
+    .replaceAll("addEmbedding.linear1", "add_embedding.linear_1")
+    .replaceAll("addEmbedding.linear2", "add_embedding.linear_2")
+    .replaceAll("convNormOut", "conv_norm_out")
+    .replaceAll("convIn", "conv_in")
+    .replaceAll("convOut", "conv_out")
+    .replaceAll("convShortcut", "conv_shortcut")
+    .replaceAll("transformerBlocks", "transformer_blocks")
+    .replaceAll("attention1", "attn1")
+    .replaceAll("attention2", "attn2")
+    .replaceAll("queryProjection", "to_q")
+    .replaceAll("keyProjection", "to_k")
+    .replaceAll("valueProjection", "to_v")
+    .replaceAll("outputProjection", "to_out.0")
+    .replaceAll("feedForward.projectionIn", "ff.net.0.proj")
+    .replaceAll("feedForward.projectionOut", "ff.net.2")
+    .replaceAll("projectionIn", "proj_in")
+    .replaceAll("projectionOut", "proj_out");
 }
 
 function checkpointShapeFor(path: string, tensor: MxArray): number[] {
@@ -190,6 +272,24 @@ function checkpointTensorsForParameters(
       continue;
     }
     const checkpointName = checkpointNameForPath(internalPath);
+    const shape =
+      internalPath === options.mismatchPath ? [1] : checkpointShapeFor(internalPath, parameter);
+    tensors[checkpointName] = zeros(shape);
+  }
+  return { ...tensors, ...(options.extra ?? {}) };
+}
+
+function checkpointTensorsForUNetParameters(
+  parameters: ParameterTree,
+  options: { omitPath?: string; extra?: Record<string, MxArray>; mismatchPath?: string } = {},
+): Record<string, MxArray> {
+  const tensors: Record<string, MxArray> = {};
+  for (const [path, parameter] of treeFlatten(parameters)) {
+    const internalPath = path.join(".");
+    if (internalPath === options.omitPath) {
+      continue;
+    }
+    const checkpointName = unetCheckpointNameForPath(internalPath);
     const shape =
       internalPath === options.mismatchPath ? [1] : checkpointShapeFor(internalPath, parameter);
     tensors[checkpointName] = zeros(shape);
@@ -390,6 +490,218 @@ describe("Stable Diffusion VAE weight loading", () => {
       using unexpectedTarget = new StableDiffusionAutoencoderKL(tinyVaeConfig());
       await expect(
         loadStableDiffusionAutoencoderWeights(unexpectedTarget, vaeComponent([unexpectedPath]), {
+          strictUnexpectedWeights: true,
+        }),
+      ).rejects.toThrow("unexpected unmapped weights");
+    });
+  });
+});
+
+describe("Stable Diffusion UNet weight loading", () => {
+  test("maps Diffusers UNet names onto the package parameter tree", () => {
+    expect(stableDiffusionUNetWeightPath("conv_in.weight")).toBe("convIn.weight");
+    expect(stableDiffusionUNetWeightPath("time_embedding.linear_1.bias")).toBe(
+      "timeEmbedding.linear1.bias",
+    );
+    expect(stableDiffusionUNetWeightPath("add_embedding.linear_2.weight")).toBe(
+      "addEmbedding.linear2.weight",
+    );
+    expect(stableDiffusionUNetWeightPath("down_blocks.0.resnets.0.time_emb_proj.weight")).toBe(
+      "downBlocks.0.resnets.0.timeEmbeddingProjection.weight",
+    );
+    expect(stableDiffusionUNetWeightPath("down_blocks.0.downsamplers.0.conv.bias")).toBe(
+      "downBlocks.0.downsample.bias",
+    );
+    expect(
+      stableDiffusionUNetWeightPath(
+        "mid_block.attentions.0.transformer_blocks.0.attn2.to_out.0.weight",
+      ),
+    ).toBe("midBlock.attention.transformerBlocks.0.attention2.outputProjection.weight");
+    expect(stableDiffusionUNetWeightPath("up_blocks.1.attentions.0.proj_out.weight")).toBe(
+      "upBlocks.1.attentions.0.projectionOut.weight",
+    );
+    expect(
+      stableDiffusionUNetWeightPath(
+        "up_blocks.1.attentions.0.transformer_blocks.0.ff.net.0.proj.bias",
+      ),
+    ).toBe("upBlocks.1.attentions.0.transformerBlocks.0.feedForward.projectionIn.bias");
+  });
+
+  test("transforms UNet Conv2d weights and leaves Linear-shaped tensors intact", () => {
+    using convolution = zeros([7, 2, 3, 5]);
+    using transformed = transformStableDiffusionUNetWeight(
+      "conv_in.weight",
+      "convIn.weight",
+      convolution,
+    );
+    expect(transformed.shape).toEqual([7, 3, 5, 2]);
+
+    using transformerProjection = zeros([8, 8, 1, 1]);
+    using transformedProjection = transformStableDiffusionUNetWeight(
+      "down_blocks.0.attentions.0.proj_in.weight",
+      "downBlocks.0.attentions.0.projectionIn.weight",
+      transformerProjection,
+    );
+    expect(transformedProjection.shape).toEqual([8, 1, 1, 8]);
+
+    using linear = zeros([16, 8]);
+    const unchanged = transformStableDiffusionUNetWeight(
+      "down_blocks.0.attentions.0.transformer_blocks.0.ff.net.0.proj.weight",
+      "downBlocks.0.attentions.0.transformerBlocks.0.feedForward.projectionIn.weight",
+      linear,
+    );
+    expect(unchanged).toBe(linear);
+  });
+
+  test("loads complete generated UNet safetensors shards", async () => {
+    await withTempDirectory("mlxts-sd-unet-weights-", async (directory) => {
+      using source = new StableDiffusionUNet2DConditionModel(tinyUNetConfig());
+      const checkpointPath = join(directory, "diffusion_pytorch_model.safetensors");
+      await writeCheckpoint(
+        checkpointPath,
+        checkpointTensorsForUNetParameters(source.parameters()),
+      );
+      using target = new StableDiffusionUNet2DConditionModel(tinyUNetConfig());
+
+      const result = await loadStableDiffusionUNetWeights(target, unetComponent([checkpointPath]));
+
+      expect(result.shardCount).toBe(1);
+      expect(result.unexpectedWeights).toEqual([]);
+      expect(result.assignedPaths).toEqual(
+        treeFlatten(target.parameters())
+          .map(([path]) => path.join("."))
+          .toSorted((left, right) => left.localeCompare(right)),
+      );
+      expect(target.convIn.weight.shape).toEqual([8, 3, 3, 4]);
+      expect(target.downBlocks[0]?.attentions?.[0]?.projectionIn.weight.shape).toEqual([
+        8, 1, 1, 8,
+      ]);
+    });
+  });
+
+  test("loads linear-projection UNet weights without Conv2d projection coercion", async () => {
+    await withTempDirectory("mlxts-sd-unet-linear-weights-", async (directory) => {
+      const config = tinyUNetConfig({ useLinearProjection: true });
+      using source = new StableDiffusionUNet2DConditionModel(config);
+      const checkpointPath = join(directory, "diffusion_pytorch_model.safetensors");
+      await writeCheckpoint(
+        checkpointPath,
+        checkpointTensorsForUNetParameters(source.parameters()),
+      );
+      using target = new StableDiffusionUNet2DConditionModel(config);
+
+      const result = await loadStableDiffusionUNetWeights(target, unetComponent([checkpointPath]));
+
+      expect(result.unexpectedWeights).toEqual([]);
+      expect(target.downBlocks[0]?.attentions?.[0]?.projectionIn.weight.shape).toEqual([8, 8]);
+    });
+  });
+
+  test("loads SDXL text-time UNet addition embedding weights", async () => {
+    await withTempDirectory("mlxts-sd-unet-text-time-weights-", async (directory) => {
+      const config = tinyUNetConfig({
+        additionEmbedType: "text_time",
+        additionTimeEmbedDim: 4,
+        projectionClassEmbeddingsInputDim: 12,
+      });
+      using source = new StableDiffusionUNet2DConditionModel(config);
+      const checkpointPath = join(directory, "diffusion_pytorch_model.safetensors");
+      await writeCheckpoint(
+        checkpointPath,
+        checkpointTensorsForUNetParameters(source.parameters()),
+      );
+      using target = new StableDiffusionUNet2DConditionModel(config);
+
+      const result = await loadStableDiffusionUNetWeights(target, unetComponent([checkpointPath]));
+
+      expect(result.unexpectedWeights).toEqual([]);
+      expect(target.addEmbedding?.linear1.weight.shape).toEqual([32, 12]);
+      expect(target.addEmbedding?.linear2.weight.shape).toEqual([32, 32]);
+    });
+  });
+
+  test("loads UNet shards from a Diffusers safetensors index", async () => {
+    await withTempDirectory("mlxts-sd-unet-index-", async (directory) => {
+      using source = new StableDiffusionUNet2DConditionModel(tinyUNetConfig());
+      const entries = checkpointTensorsForUNetParameters(source.parameters());
+      const { firstShard, secondShard, weightMap } = splitIndexedShards(entries);
+
+      await saveSafetensors(
+        firstShard,
+        join(directory, "diffusion_pytorch_model-00001-of-00002.safetensors"),
+      );
+      await saveSafetensors(
+        secondShard,
+        join(directory, "diffusion_pytorch_model-00002-of-00002.safetensors"),
+      );
+      freeTensors(entries);
+      const indexPath = join(directory, "diffusion_pytorch_model.safetensors.index.json");
+      writeJson(indexPath, { weight_map: weightMap });
+
+      using target = new StableDiffusionUNet2DConditionModel(tinyUNetConfig());
+      const result = await loadStableDiffusionUNetWeights(target, unetComponent([indexPath]));
+
+      expect(result.shardCount).toBe(2);
+      expect(result.unexpectedWeights).toEqual([]);
+    });
+  });
+
+  test("loads a UNet directly from an inspected Stable Diffusion snapshot manifest", async () => {
+    await withTempDirectory("mlxts-sd-unet-manifest-", async (directory) => {
+      writeSnapshotMetadata(directory);
+      using source = new StableDiffusionUNet2DConditionModel(tinyUNetConfig());
+      await writeCheckpoint(
+        join(directory, "unet", "diffusion_pytorch_model.safetensors"),
+        checkpointTensorsForUNetParameters(source.parameters()),
+      );
+
+      const manifest = await loadDiffusionSnapshotManifest(directory);
+      using model = await loadStableDiffusionUNetFromSnapshot(manifest);
+
+      expect(model.convIn.weight.shape).toEqual([8, 3, 3, 4]);
+      expect(
+        model.midBlock.attention.transformerBlocks[0]?.attention2.keyProjection.weight.shape,
+      ).toEqual([8, 4]);
+    });
+  });
+
+  test("rejects missing, mismatched, and strict unexpected UNet weights", async () => {
+    await withTempDirectory("mlxts-sd-unet-invalid-", async (directory) => {
+      using source = new StableDiffusionUNet2DConditionModel(tinyUNetConfig());
+      const missingPath = join(directory, "missing.safetensors");
+      await writeCheckpoint(
+        missingPath,
+        checkpointTensorsForUNetParameters(source.parameters(), {
+          omitPath: "convOut.bias",
+        }),
+      );
+      using missingTarget = new StableDiffusionUNet2DConditionModel(tinyUNetConfig());
+      await expect(
+        loadStableDiffusionUNetWeights(missingTarget, unetComponent([missingPath])),
+      ).rejects.toThrow(DiffusionMissingWeightsError);
+
+      const mismatchPath = join(directory, "mismatch.safetensors");
+      await writeCheckpoint(
+        mismatchPath,
+        checkpointTensorsForUNetParameters(source.parameters(), {
+          mismatchPath: "downBlocks.0.attentions.0.projectionIn.weight",
+        }),
+      );
+      using mismatchTarget = new StableDiffusionUNet2DConditionModel(tinyUNetConfig());
+      await expect(
+        loadStableDiffusionUNetWeights(mismatchTarget, unetComponent([mismatchPath])),
+      ).rejects.toThrow(DiffusionWeightMismatchError);
+
+      const unexpectedPath = join(directory, "unexpected.safetensors");
+      await writeCheckpoint(
+        unexpectedPath,
+        checkpointTensorsForUNetParameters(source.parameters(), {
+          extra: { "unet.extra.weight": zeros([1]) },
+        }),
+      );
+      using unexpectedTarget = new StableDiffusionUNet2DConditionModel(tinyUNetConfig());
+      await expect(
+        loadStableDiffusionUNetWeights(unexpectedTarget, unetComponent([unexpectedPath]), {
           strictUnexpectedWeights: true,
         }),
       ).rejects.toThrow("unexpected unmapped weights");

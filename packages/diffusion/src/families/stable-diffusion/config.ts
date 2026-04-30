@@ -187,6 +187,8 @@ function rejectUnsupportedUNetSemantics(record: Record<string, unknown>, context
   rejectUnsupportedString(record, "attention_type", context, "default");
   rejectUnsupportedString(record, "resnet_time_scale_shift", context, "default");
   rejectUnsupportedString(record, "mid_block_type", context, "UNetMidBlock2DCrossAttn");
+  rejectNonNull(record, "time_embedding_act_fn", context);
+  rejectNonNull(record, "timestep_post_act", context);
   rejectNonNull(record, "class_embed_type", context);
   rejectNonNull(record, "num_class_embeds", context);
   rejectNonNull(record, "time_embedding_dim", context);
