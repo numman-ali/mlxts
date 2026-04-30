@@ -78,6 +78,11 @@ image, and bounded tool endpoints while benchmark and scheduler work continues.
   helpers, progress reporting, and cache layer taxonomy are package-owned; and
   package-agent / cross-package-import governance gates are wired into
   `bun run validate`.
+- **Phase 8 training proof hardening**: `bun run proof:training` is the root
+  entrypoint for the canonical official-model proof. Reports now record adapter
+  output location, selected LoRA target paths, trainable/total parameter counts,
+  peak MLX memory, adapter save/reload/merge greedy-output equality for
+  adapter-backed stages, and DPO profile-specific recipe knobs.
 
 ## Latest Evidence
 
@@ -199,10 +204,12 @@ Full evidence ladder lives in
   visible when tools are inactive.
 - Phase 8 proof surfaces now have a cheap static gate. `bun run check:training-proofs`
   typechecks `examples/train-proof` and `examples/lora-finetune`, then runs
-  helper/report-verifier tests (`13 pass`). The canonical training proof report
-  now carries machine-checkable verification evidence, and
+  helper/report-verifier tests (`17 pass`). The canonical training proof report
+  carries machine-checkable verification evidence, and
   `examples/train-proof/verify-report.ts` can check an existing report without
-  rerunning training.
+  rerunning training. Tiny live official-model smokes passed individually for
+  LoRA, QLoRA, SFT, and DPO; DPO verifier output now includes 41 checks in the
+  live runner, including adapter equality and profile knob checks.
 - Gemma 4 A4B MoE proof passed against the cached
   `mlx-community/gemma-4-26b-a4b-it-4bit` snapshot. Transformer decode at
   `128x128` reported `generation_tps=108.604`, `evals_per_token=1.00`, and

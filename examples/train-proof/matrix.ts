@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 
-import { defaultQuantizedOutputDir, defaultReportPath } from "./args";
+import { defaultAdapterOutputDir, defaultQuantizedOutputDir, defaultReportPath } from "./args";
 
 const DEFAULT_MATRIX_SOURCES = [
   "meta-llama/Llama-3.2-1B-Instruct",
@@ -57,6 +57,10 @@ async function runOne(source: string, passthrough: readonly string[]): Promise<v
     /-4bit$/,
     `-matrix-${safeSource(source)}-4bit`,
   );
+  const adapterOutput = defaultAdapterOutputDir(source).replace(
+    /-adapters$/,
+    `-matrix-${safeSource(source)}-adapters`,
+  );
   const process = Bun.spawn(
     [
       "bun",
@@ -66,6 +70,8 @@ async function runOne(source: string, passthrough: readonly string[]): Promise<v
       source,
       "--quantized-output",
       quantizedOutput,
+      "--adapter-output",
+      adapterOutput,
       "--report",
       report,
       ...passthrough,

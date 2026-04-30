@@ -21,6 +21,21 @@ export type StageReport = {
   rawPreferenceAccuracy?: MetricPair;
   averageTrainingLoss?: number;
   sampleText?: string;
+  targets?: string[];
+  parameterCounts?: {
+    total: number;
+    trainable: number;
+  };
+  memory?: {
+    peakBytes: number;
+  };
+  adapterCheck?: {
+    directory: string;
+    reloadedMergeTargets: string[];
+    trainedSampleText: string;
+    reloadedSampleText: string;
+    reloadedMergedSampleText: string;
+  };
   notes: string[];
 };
 
@@ -38,6 +53,7 @@ export type TrainingProofVerification = {
 export type TrainingProofReport = {
   source: string;
   quantizedOutputDir: string;
+  adapterOutputDir: string;
   datasetSource: TrainingProofArgs["datasetSource"];
   trainLimit: number;
   evalLimit: number;

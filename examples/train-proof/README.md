@@ -26,7 +26,7 @@ That keeps the orchestration readable while letting the model-family layer own w
 ## Run
 
 ```bash
-bun run examples/train-proof/index.ts
+bun run proof:training
 ```
 
 That defaults to the official Meta model, the real Hugging Face dataset path, and writes the generated 4-bit snapshot and JSON report under `.tmp/training-proof/`.
@@ -41,14 +41,14 @@ already have access to the official checkpoint and pinned datasets through
 You can also override the proof size and output locations:
 
 ```bash
-bun run examples/train-proof/index.ts --source meta-llama/Llama-3.2-1B-Instruct --train-limit 32 --eval-limit 8 --batch-size 4 --steps 4 --quantized-output .tmp/training-proof/meta-llama-Llama-3.2-1B-Instruct-4bit --report .tmp/training-proof/meta-llama-Llama-3.2-1B-Instruct-report.json
+bun run proof:training --source meta-llama/Llama-3.2-1B-Instruct --train-limit 32 --eval-limit 8 --batch-size 4 --steps 4 --quantized-output .tmp/training-proof/meta-llama-Llama-3.2-1B-Instruct-4bit --adapter-output .tmp/training-proof/meta-llama-Llama-3.2-1B-Instruct-adapters --report .tmp/training-proof/meta-llama-Llama-3.2-1B-Instruct-report.json
 ```
 
 For faster DPO iteration, you can run only the preference stage and switch to a
 more handbook-aligned adapter recipe:
 
 ```bash
-bun run examples/train-proof/index.ts --stages dpo --dpo-profile handbook --train-limit 128 --eval-limit 32
+bun run proof:training --stages dpo --dpo-profile handbook --train-limit 128 --eval-limit 32
 ```
 
 The stage selector accepts any comma-separated subset of `lora,qlora,sft,dpo`.
@@ -60,7 +60,7 @@ The DPO profile options are:
 For a fast local smoke, you can still force the tiny built-in corpus:
 
 ```bash
-bun run examples/train-proof/index.ts --dataset-source tiny --train-limit 8 --eval-limit 4 --steps 2
+bun run proof:training --dataset-source tiny --train-limit 8 --eval-limit 4 --steps 2
 ```
 
 For a broader local family sweep, run the matrix wrapper:
@@ -81,7 +81,10 @@ The proof report records:
 
 - dataset source and filtering notes
 - held-out evaluation loss before and after each stage
-- resolved LoRA preset plus target counts for adapter-backed stages
+- resolved LoRA preset, target counts, and selected target paths for adapter-backed stages
+- trainable and total parameter counts for every stage
+- peak MLX memory evidence for every stage
+- adapter save, reload, resample, merge, and post-merge resample evidence for LoRA, QLoRA, and DPO
 - QLoRA merge preservation of the quantized base path
 - DPO held-out reward accuracy, reward margin, chosen/rejected rewards, and chosen/rejected log-probs
 - supplemental raw policy-only preference accuracy for DPO debugging

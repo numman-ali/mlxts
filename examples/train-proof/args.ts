@@ -35,6 +35,7 @@ export const DEFAULT_DPO_PROFILE: DPOProofProfile = "canonical";
 export type TrainingProofArgs = {
   source: string;
   quantizedOutputDir: string;
+  adapterOutputDir: string;
   reportPath: string;
   datasetSource: TrainingProofDatasetSource;
   trainLimit: number;
@@ -51,6 +52,12 @@ export type TrainingProofArgs = {
 export function defaultQuantizedOutputDir(source = DEFAULT_PROOF_MODEL): string {
   const safeSource = source.replace(/[^A-Za-z0-9._-]+/g, "-").replace(/-+/g, "-");
   return join(process.cwd(), ".tmp", "training-proof", `${safeSource}-4bit`);
+}
+
+/** Default local directory for repo-generated proof adapters. */
+export function defaultAdapterOutputDir(source = DEFAULT_PROOF_MODEL): string {
+  const safeSource = source.replace(/[^A-Za-z0-9._-]+/g, "-").replace(/-+/g, "-");
+  return join(process.cwd(), ".tmp", "training-proof", `${safeSource}-adapters`);
 }
 
 /** Default JSON report path for the training proof run. */
@@ -112,6 +119,7 @@ function readDPOProfile(value: string): DPOProofProfile {
 export function parseTrainingProofArgs(argv: readonly string[]): TrainingProofArgs {
   let source = DEFAULT_PROOF_MODEL;
   let quantizedOutputDir = defaultQuantizedOutputDir(source);
+  let adapterOutputDir = defaultAdapterOutputDir(source);
   let reportPath = defaultReportPath(source);
   let datasetSource: TrainingProofDatasetSource = DEFAULT_PROOF_DATASET_SOURCE;
   let trainLimit = DEFAULT_PROOF_TRAIN_LIMIT;
@@ -133,11 +141,16 @@ export function parseTrainingProofArgs(argv: readonly string[]): TrainingProofAr
       case "--source":
         source = readValue(arg, argv[index + 1]);
         quantizedOutputDir = defaultQuantizedOutputDir(source);
+        adapterOutputDir = defaultAdapterOutputDir(source);
         reportPath = defaultReportPath(source);
         index += 1;
         break;
       case "--quantized-output":
         quantizedOutputDir = readValue(arg, argv[index + 1]);
+        index += 1;
+        break;
+      case "--adapter-output":
+        adapterOutputDir = readValue(arg, argv[index + 1]);
         index += 1;
         break;
       case "--report":
@@ -188,6 +201,7 @@ export function parseTrainingProofArgs(argv: readonly string[]): TrainingProofAr
   return {
     source,
     quantizedOutputDir,
+    adapterOutputDir,
     reportPath,
     datasetSource,
     trainLimit,

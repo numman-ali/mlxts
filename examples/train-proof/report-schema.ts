@@ -55,6 +55,18 @@ function readStringArray(value: unknown, context: string): string[] {
   return value.map((entry, index) => readString(entry, `${context}[${index}]`));
 }
 
+function readOptionalStringArray(value: unknown, context: string): string[] | undefined {
+  return value === undefined ? undefined : readStringArray(value, context);
+}
+
+function readNonNegativeInteger(value: unknown, context: string): number {
+  const parsed = readNumber(value, context);
+  if (!Number.isInteger(parsed) || parsed < 0) {
+    throw new Error(`${context}: expected a non-negative integer.`);
+  }
+  return parsed;
+}
+
 function readDatasetSource(value: unknown, context: string): TrainingProofDatasetSource {
   if (value !== "tiny" && value !== "huggingface") {
     throw new Error(`${context}: expected tiny or huggingface.`);
@@ -86,6 +98,59 @@ function assignMetric(
   }
 }
 
+function readParameterCounts(
+  value: unknown,
+  context: string,
+): StageReport["parameterCounts"] | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+  if (!isRecord(value)) {
+    throw new Error(`${context}: expected a parameter count object.`);
+  }
+  return {
+    total: readPositiveInteger(value.total, `${context}.total`),
+    trainable: readNonNegativeInteger(value.trainable, `${context}.trainable`),
+  };
+}
+
+function readMemory(value: unknown, context: string): StageReport["memory"] | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+  if (!isRecord(value)) {
+    throw new Error(`${context}: expected a memory object.`);
+  }
+  return {
+    peakBytes: readPositiveInteger(value.peakBytes, `${context}.peakBytes`),
+  };
+}
+
+function readAdapterCheck(
+  value: unknown,
+  context: string,
+): StageReport["adapterCheck"] | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+  if (!isRecord(value)) {
+    throw new Error(`${context}: expected an adapter check object.`);
+  }
+  return {
+    directory: readString(value.directory, `${context}.directory`),
+    reloadedMergeTargets: readStringArray(
+      value.reloadedMergeTargets,
+      `${context}.reloadedMergeTargets`,
+    ),
+    trainedSampleText: readString(value.trainedSampleText, `${context}.trainedSampleText`),
+    reloadedSampleText: readString(value.reloadedSampleText, `${context}.reloadedSampleText`),
+    reloadedMergedSampleText: readString(
+      value.reloadedMergedSampleText,
+      `${context}.reloadedMergedSampleText`,
+    ),
+  };
+}
+
 function readStageReport(value: unknown, context: string): StageReport {
   if (!isRecord(value)) {
     throw new Error(`${context}: expected a stage object.`);
@@ -107,6 +172,22 @@ function readStageReport(value: unknown, context: string): StageReport {
   if (value.sampleText !== undefined) {
     report.sampleText = readString(value.sampleText, `${context}.sampleText`);
   }
+  const targets = readOptionalStringArray(value.targets, `${context}.targets`);
+  if (targets !== undefined) {
+    report.targets = targets;
+  }
+  const parameterCounts = readParameterCounts(value.parameterCounts, `${context}.parameterCounts`);
+  if (parameterCounts !== undefined) {
+    report.parameterCounts = parameterCounts;
+  }
+  const memory = readMemory(value.memory, `${context}.memory`);
+  if (memory !== undefined) {
+    report.memory = memory;
+  }
+  const adapterCheck = readAdapterCheck(value.adapterCheck, `${context}.adapterCheck`);
+  if (adapterCheck !== undefined) {
+    report.adapterCheck = adapterCheck;
+  }
   return report;
 }
 
@@ -124,6 +205,7 @@ export function parseTrainingProofReport(value: unknown): TrainingProofReport {
       value.quantizedOutputDir,
       "training proof report.quantizedOutputDir",
     ),
+    adapterOutputDir: readString(value.adapterOutputDir, "training proof report.adapterOutputDir"),
     datasetSource: readDatasetSource(value.datasetSource, "training proof report.datasetSource"),
     trainLimit: readPositiveInteger(value.trainLimit, "training proof report.trainLimit"),
     evalLimit: readPositiveInteger(value.evalLimit, "training proof report.evalLimit"),

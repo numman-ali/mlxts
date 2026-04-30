@@ -19,6 +19,7 @@
     "check:per-package-agents": "bun run scripts/check-per-package-agents.ts",
     "check:cross-package-imports": "bun run scripts/check-cross-package-imports.ts",
     "check:training-proofs": "tsc -p tsconfig.phase8-examples.json && bun test examples/train-proof/helpers.test.ts examples/train-proof/verification.test.ts examples/lora-finetune/helpers.test.ts",
+    "proof:training": "bun run examples/train-proof/index.ts",
     "check:tensor-lifetimes": "bun run scripts/check-visible-tensor-lifetimes.ts",
     "check:runtime-review": "bun run scripts/check-runtime-review.ts",
     "check:coverage": "bun run scripts/check-coverage.ts",

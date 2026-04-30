@@ -55,6 +55,15 @@ function readPositiveNote(report: StageReport, key: string): number | undefined 
   return Number.isInteger(parsed) && parsed > 0 ? parsed : undefined;
 }
 
+function readNumberNote(report: StageReport, key: string): number | undefined {
+  const value = noteValue(report, key);
+  if (value === undefined) {
+    return undefined;
+  }
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : undefined;
+}
+
 function isKnownPreset(value: string | undefined): boolean {
   return value === "attention" || value === "attention+mlp" || value === "all-linear";
 }
@@ -142,6 +151,21 @@ function checkStageCommon(
   );
   check(
     checks,
+    `${report.stage}.parameter_counts`,
+    report.parameterCounts !== undefined &&
+      report.parameterCounts.total > 0 &&
+      report.parameterCounts.trainable >= 0 &&
+      report.parameterCounts.trainable <= report.parameterCounts.total,
+    `${report.stage} records valid total and trainable parameter counts.`,
+  );
+  check(
+    checks,
+    `${report.stage}.memory_peak`,
+    report.memory !== undefined && report.memory.peakBytes > 0,
+    `${report.stage} records peak MLX memory evidence.`,
+  );
+  check(
+    checks,
     `${report.stage}.train_examples`,
     readPositiveNote(report, "train_examples") !== undefined,
     `${report.stage} records positive train example evidence.`,
@@ -180,6 +204,27 @@ function checkAdapterStage(
     mergedTargets !== undefined && mergedTargets === targetCount,
     `${report.stage} merges every selected LoRA target.`,
   );
+  check(
+    checks,
+    `${report.stage}.targets`,
+    report.targets !== undefined &&
+      targetCount !== undefined &&
+      report.targets.length === targetCount,
+    `${report.stage} records every selected LoRA target path.`,
+  );
+  check(
+    checks,
+    `${report.stage}.adapter_reload`,
+    report.adapterCheck !== undefined &&
+      targetCount !== undefined &&
+      report.adapterCheck.reloadedMergeTargets.length === targetCount &&
+      report.adapterCheck.trainedSampleText.trim() !== "" &&
+      report.adapterCheck.reloadedSampleText.trim() !== "" &&
+      report.adapterCheck.reloadedMergedSampleText.trim() !== "" &&
+      report.adapterCheck.reloadedSampleText === report.adapterCheck.trainedSampleText &&
+      report.adapterCheck.reloadedMergedSampleText === report.adapterCheck.reloadedSampleText,
+    `${report.stage} saves, reloads, samples, and merges the trained adapter without changing greedy output.`,
+  );
 }
 
 function checkDPOStage(
@@ -212,6 +257,65 @@ function checkDPOStage(
       `dpo profile is ${options.expectedDPOProfile}.`,
     );
   }
+  const profile = options.expectedDPOProfile ?? noteValue(report, "dpo_profile");
+  if (profile !== "canonical" && profile !== "handbook") {
+    check(checks, "dpo.profile_known", false, "dpo records a known proof profile.");
+    return;
+  }
+  const expected =
+    profile === "handbook"
+      ? {
+          rank: 32,
+          alpha: 16,
+          dropout: 0.05,
+          learningRate: 1e-5,
+          beta: 0.01,
+          lastLayers: "all",
+        }
+      : {
+          rank: 8,
+          alpha: 16,
+          dropout: 0,
+          learningRate: 5e-5,
+          beta: 0.1,
+          lastLayers: "2",
+        };
+  check(
+    checks,
+    "dpo.rank",
+    readNumberNote(report, "rank") === expected.rank,
+    `dpo ${profile} rank matches the proof recipe.`,
+  );
+  check(
+    checks,
+    "dpo.alpha",
+    readNumberNote(report, "alpha") === expected.alpha,
+    `dpo ${profile} alpha matches the proof recipe.`,
+  );
+  check(
+    checks,
+    "dpo.dropout",
+    readNumberNote(report, "dropout") === expected.dropout,
+    `dpo ${profile} dropout matches the proof recipe.`,
+  );
+  check(
+    checks,
+    "dpo.learning_rate",
+    readNumberNote(report, "learning_rate") === expected.learningRate,
+    `dpo ${profile} learning rate matches the proof recipe.`,
+  );
+  check(
+    checks,
+    "dpo.beta",
+    readNumberNote(report, "beta") === expected.beta,
+    `dpo ${profile} beta matches the proof recipe.`,
+  );
+  check(
+    checks,
+    "dpo.last_layers",
+    noteValue(report, "last_layers") === expected.lastLayers,
+    `dpo ${profile} layer targeting matches the proof recipe.`,
+  );
 }
 
 function expectedDPOPreset(report: StageReport, options: TrainingProofVerificationOptions): string {
@@ -286,6 +390,12 @@ function checkReportShape(
       "dataset source matches proof input.",
     );
   }
+  check(
+    checks,
+    "adapter_output_dir",
+    report.adapterOutputDir.trim() !== "",
+    "report records the adapter output directory.",
+  );
   checkExpectedNumber(checks, "train_limit", report.trainLimit, options.expectedTrainLimit);
   checkExpectedNumber(checks, "eval_limit", report.evalLimit, options.expectedEvalLimit);
   checkExpectedNumber(checks, "batch_size", report.batchSize, options.expectedBatchSize);

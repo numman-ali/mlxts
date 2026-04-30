@@ -23,6 +23,7 @@ export async function runTrainingProof(argv: readonly string[]): Promise<void> {
   console.log(`Stages: ${parsed.stages.join(",")}`);
   console.log(`DPO profile: ${parsed.dpoProfile}`);
   console.log(`Quantized snapshot output: ${parsed.quantizedOutputDir}`);
+  console.log(`Adapter output: ${parsed.adapterOutputDir}`);
   console.log(`Report path: ${parsed.reportPath}`);
 
   const denseAssets = await loadAssets(parsed.source, sourceOptions);
@@ -85,6 +86,7 @@ export async function runTrainingProof(argv: readonly string[]): Promise<void> {
   const report: TrainingProofReport = {
     source: parsed.source,
     quantizedOutputDir: parsed.quantizedOutputDir,
+    adapterOutputDir: parsed.adapterOutputDir,
     datasetSource: parsed.datasetSource,
     trainLimit: parsed.trainLimit,
     evalLimit: parsed.evalLimit,

@@ -9,6 +9,7 @@ import {
   DEFAULT_PROOF_STAGES,
   DEFAULT_PROOF_STEPS,
   DEFAULT_PROOF_TRAIN_LIMIT,
+  defaultAdapterOutputDir,
   defaultQuantizedOutputDir,
   defaultReportPath,
   parseTrainingProofArgs,
@@ -22,9 +23,11 @@ import {
 describe("training proof helpers", () => {
   test("derive stable default output paths", () => {
     const quantizedOutputDir = defaultQuantizedOutputDir(DEFAULT_PROOF_MODEL);
+    const adapterOutputDir = defaultAdapterOutputDir(DEFAULT_PROOF_MODEL);
     const reportPath = defaultReportPath(DEFAULT_PROOF_MODEL);
 
     expect(quantizedOutputDir).toContain("meta-llama-Llama-3.2-1B-Instruct-4bit");
+    expect(adapterOutputDir).toContain("meta-llama-Llama-3.2-1B-Instruct-adapters");
     expect(reportPath).toContain("meta-llama-Llama-3.2-1B-Instruct-report.json");
   });
 
@@ -48,6 +51,8 @@ describe("training proof helpers", () => {
       "handbook",
       "--quantized-output",
       "/tmp/proof-4bit",
+      "--adapter-output",
+      "/tmp/proof-adapters",
       "--report",
       "/tmp/proof.json",
     ]);
@@ -61,6 +66,7 @@ describe("training proof helpers", () => {
     expect(parsed.stages).toEqual(["dpo", "sft"]);
     expect(parsed.dpoProfile).toBe("handbook");
     expect(parsed.quantizedOutputDir).toBe("/tmp/proof-4bit");
+    expect(parsed.adapterOutputDir).toBe("/tmp/proof-adapters");
     expect(parsed.reportPath).toBe("/tmp/proof.json");
   });
 

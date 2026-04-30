@@ -1,11 +1,17 @@
+import { getPeakMemoryBytes, resetPeakMemory, treeFlatten } from "@mlxts/core";
 import { applyLoRAToModule, assertQuantizedBasePreserved, mergeLoRAInModule } from "@mlxts/lora";
+import type { Module } from "@mlxts/nn";
 import {
   type CausalLM,
   expectTrainableModule,
   type InteractionProfile,
   loadCausalLM,
+  loadCausalLMAdapters,
   resolveLoRATargets,
+  saveCausalLMAdapters,
 } from "@mlxts/transformers";
+import { rmSync } from "fs";
+import { join } from "path";
 
 import type { DPOProofProfile, TrainingProofArgs } from "./args";
 import {
@@ -28,6 +34,100 @@ import type {
   PreparedTrainingProofData,
   StageReport,
 } from "./types";
+
+type AdapterCheck = NonNullable<StageReport["adapterCheck"]>;
+type SavedAdapterCheck = Pick<AdapterCheck, "directory" | "trainedSampleText">;
+type ParameterCounts = NonNullable<StageReport["parameterCounts"]>;
+type MemoryReport = NonNullable<StageReport["memory"]>;
+
+function countParameterElements(module: Module): ParameterCounts {
+  const total = treeFlatten(module.parameters()).reduce(
+    (sum, [, parameter]) => sum + parameter.size,
+    0,
+  );
+  const trainable = treeFlatten(module.trainableParameters()).reduce(
+    (sum, [, parameter]) => sum + parameter.size,
+    0,
+  );
+  return { total, trainable };
+}
+
+function memoryReport(): MemoryReport {
+  return {
+    peakBytes: getPeakMemoryBytes(),
+  };
+}
+
+function adapterDirectory(args: TrainingProofArgs, stage: LoRAStageMode): string {
+  return join(args.adapterOutputDir, stage);
+}
+
+async function runAdapterCheck(
+  stage: LoRAStageMode,
+  loadSource: string,
+  baseSource: string,
+  model: CausalLM,
+  tokenizer: LoadedAssets["tokenizer"],
+  profile: InteractionProfile,
+  data: PreparedTrainingProofData,
+  args: TrainingProofArgs,
+): Promise<AdapterCheck> {
+  const saved = await saveAdapterForCheck(stage, baseSource, model, tokenizer, profile, data, args);
+  return completeAdapterCheck(loadSource, saved, tokenizer, profile, data);
+}
+
+async function saveAdapterForCheck(
+  stage: LoRAStageMode,
+  baseSource: string,
+  model: CausalLM,
+  tokenizer: LoadedAssets["tokenizer"],
+  profile: InteractionProfile,
+  data: PreparedTrainingProofData,
+  args: TrainingProofArgs,
+): Promise<SavedAdapterCheck> {
+  const directory = adapterDirectory(args, stage);
+  rmSync(directory, { recursive: true, force: true });
+  const trainedSampleText = sampleText(model, tokenizer, profile, data.samplePromptMessages);
+  await saveCausalLMAdapters(model, directory, {
+    baseModelNameOrPath: baseSource,
+  });
+  return {
+    directory,
+    trainedSampleText,
+  };
+}
+
+async function completeAdapterCheck(
+  loadSource: string,
+  saved: SavedAdapterCheck,
+  tokenizer: LoadedAssets["tokenizer"],
+  profile: InteractionProfile,
+  data: PreparedTrainingProofData,
+): Promise<AdapterCheck> {
+  using reloadedModel = await loadCausalLM(loadSource);
+  await loadCausalLMAdapters(reloadedModel, saved.directory);
+  const reloadedSampleText = sampleText(
+    reloadedModel,
+    tokenizer,
+    profile,
+    data.samplePromptMessages,
+  );
+  const reloadedMerge = mergeLoRAInModule(expectTrainableModule(reloadedModel));
+  const reloadedMergedSampleText = sampleText(
+    reloadedModel,
+    tokenizer,
+    profile,
+    data.samplePromptMessages,
+  );
+
+  return {
+    directory: saved.directory,
+    reloadedMergeTargets: reloadedMerge.targets,
+    trainedSampleText: saved.trainedSampleText,
+    reloadedSampleText,
+    reloadedMergedSampleText,
+  };
+}
 
 function applyTrainingLoRA(model: CausalLM, mode: LoRAStageMode): AppliedLoRA {
   const preset = mode === "qlora" ? "all-linear" : "attention";
@@ -104,6 +204,7 @@ export async function runLoRAStage(
   data: PreparedTrainingProofData,
   args: TrainingProofArgs,
 ): Promise<StageReport> {
+  resetPeakMemory();
   using model = await loadCausalLM(source);
   const padTokenId = readPadTokenId(tokenizer);
   const before = evaluateSupervisionDatasetLoss(
@@ -113,6 +214,8 @@ export async function runLoRAStage(
     args.batchSize,
   );
   const appliedLoRA = applyTrainingLoRA(model, "lora");
+  const trainableModule = expectTrainableModule(model);
+  const parameterCounts = countParameterElements(trainableModule);
   const averageTrainingLoss = runSupervisionTrainingSteps(
     model,
     data.supervisionTrain,
@@ -122,24 +225,44 @@ export async function runLoRAStage(
     args.seed,
     1e-4,
   );
-  const merged = mergeLoRAInModule(expectTrainableModule(model));
+  const adapterCheck = await runAdapterCheck(
+    "lora",
+    source,
+    source,
+    model,
+    tokenizer,
+    profile,
+    data,
+    args,
+  );
+  const merged = mergeLoRAInModule(trainableModule);
   const after = evaluateSupervisionDatasetLoss(
     model,
     data.supervisionEval,
     padTokenId,
     args.batchSize,
   );
+  const sample = sampleText(model, tokenizer, profile, data.samplePromptMessages);
+  const memory = memoryReport();
 
   return {
     stage: "lora",
     evalLoss: summarizeMetric(before, after),
     averageTrainingLoss,
-    sampleText: sampleText(model, tokenizer, profile, data.samplePromptMessages),
+    sampleText: sample,
+    targets: appliedLoRA.targets,
+    parameterCounts,
+    memory,
+    adapterCheck,
     notes: [
       `preset=${appliedLoRA.preset}`,
       `target_count=${appliedLoRA.targets.length}`,
       `merged_targets=${merged.targets.length}`,
       `skipped=${merged.skipped.length}`,
+      `adapter_reloaded_targets=${adapterCheck.reloadedMergeTargets.length}`,
+      `trainable_parameters=${parameterCounts.trainable}`,
+      `total_parameters=${parameterCounts.total}`,
+      `peak_memory_bytes=${memory.peakBytes}`,
       `train_examples=${data.supervisionTrain.length}`,
       `eval_examples=${data.supervisionEval.length}`,
     ],
@@ -155,6 +278,7 @@ export async function runQLoRAStage(
   args: TrainingProofArgs,
 ): Promise<StageReport> {
   const qloraSource = await ensureQuantizedSnapshot(source, quantizedOutputDir);
+  resetPeakMemory();
   using model = await loadCausalLM(qloraSource);
   const padTokenId = readPadTokenId(tokenizer);
   const before = evaluateSupervisionDatasetLoss(
@@ -164,6 +288,8 @@ export async function runQLoRAStage(
     args.batchSize,
   );
   const appliedLoRA = applyTrainingLoRA(model, "qlora");
+  const trainableModule = expectTrainableModule(model);
+  const parameterCounts = countParameterElements(trainableModule);
   const averageTrainingLoss = runSupervisionTrainingSteps(
     model,
     data.supervisionTrain,
@@ -173,7 +299,16 @@ export async function runQLoRAStage(
     args.seed + 1,
     1e-4,
   );
-  const trainableModule = expectTrainableModule(model);
+  const adapterCheck = await runAdapterCheck(
+    "qlora",
+    qloraSource,
+    source,
+    model,
+    tokenizer,
+    profile,
+    data,
+    args,
+  );
   const merged = mergeLoRAInModule(trainableModule);
   const after = evaluateSupervisionDatasetLoss(
     model,
@@ -184,17 +319,27 @@ export async function runQLoRAStage(
   for (const target of merged.targets) {
     assertQuantizedBasePreserved(trainableModule, target);
   }
+  const sample = sampleText(model, tokenizer, profile, data.samplePromptMessages);
+  const memory = memoryReport();
 
   return {
     stage: "qlora",
     evalLoss: summarizeMetric(before, after),
     averageTrainingLoss,
-    sampleText: sampleText(model, tokenizer, profile, data.samplePromptMessages),
+    sampleText: sample,
+    targets: appliedLoRA.targets,
+    parameterCounts,
+    memory,
+    adapterCheck,
     notes: [
       `preset=${appliedLoRA.preset}`,
       `target_count=${appliedLoRA.targets.length}`,
       `merged_targets=${merged.targets.length}`,
+      `adapter_reloaded_targets=${adapterCheck.reloadedMergeTargets.length}`,
       "quantized_base_preserved=true",
+      `trainable_parameters=${parameterCounts.trainable}`,
+      `total_parameters=${parameterCounts.total}`,
+      `peak_memory_bytes=${memory.peakBytes}`,
       `train_examples=${data.supervisionTrain.length}`,
       `eval_examples=${data.supervisionEval.length}`,
     ],
@@ -208,7 +353,10 @@ export async function runSFTStage(
   data: PreparedTrainingProofData,
   args: TrainingProofArgs,
 ): Promise<StageReport> {
+  resetPeakMemory();
   using model = await loadCausalLM(source);
+  const trainableModule = expectTrainableModule(model);
+  const parameterCounts = countParameterElements(trainableModule);
   const padTokenId = readPadTokenId(tokenizer);
   const before = evaluateSupervisionDatasetLoss(
     model,
@@ -231,14 +379,21 @@ export async function runSFTStage(
     padTokenId,
     args.batchSize,
   );
+  const sample = sampleText(model, tokenizer, profile, data.samplePromptMessages);
+  const memory = memoryReport();
 
   return {
     stage: "sft",
     evalLoss: summarizeMetric(before, after),
     averageTrainingLoss,
-    sampleText: sampleText(model, tokenizer, profile, data.samplePromptMessages),
+    sampleText: sample,
+    parameterCounts,
+    memory,
     notes: [
       "dense_model=true",
+      `trainable_parameters=${parameterCounts.trainable}`,
+      `total_parameters=${parameterCounts.total}`,
+      `peak_memory_bytes=${memory.peakBytes}`,
       `train_examples=${data.supervisionTrain.length}`,
       `eval_examples=${data.supervisionEval.length}`,
     ],
@@ -252,82 +407,144 @@ export async function runDPOStage(
   data: PreparedTrainingProofData,
   args: TrainingProofArgs,
 ): Promise<StageReport> {
-  using policyModel = await loadCausalLM(source);
-  using referenceModel = await loadCausalLM(source);
+  resetPeakMemory();
   const dpoConfig = resolveDPOProofConfig(args.dpoProfile);
   const padTokenId = readPadTokenId(tokenizer);
-  const beforeLoss = evaluatePreferenceDatasetLoss(
-    policyModel,
-    referenceModel,
-    data.preferenceEval,
-    padTokenId,
-    args.batchSize,
+  const trained = await (async () => {
+    using policyModel = await loadCausalLM(source);
+    using referenceModel = await loadCausalLM(source);
+    const beforeLoss = evaluatePreferenceDatasetLoss(
+      policyModel,
+      referenceModel,
+      data.preferenceEval,
+      padTokenId,
+      args.batchSize,
+      dpoConfig.beta,
+    );
+    const beforeMetrics = evaluatePreferenceMetrics(
+      policyModel,
+      referenceModel,
+      data.preferenceEval,
+      padTokenId,
+      args.batchSize,
+      dpoConfig.beta,
+    );
+    const appliedLoRA = applyDPOTrainingLoRA(policyModel, args.dpoProfile);
+    const trainableModule = expectTrainableModule(policyModel);
+    const parameterCounts = countParameterElements(trainableModule);
+    const averageTrainingLoss = runPreferenceTrainingSteps(
+      policyModel,
+      referenceModel,
+      data.preferenceTrain,
+      padTokenId,
+      args.batchSize,
+      args.steps,
+      args.seed + 3,
+      dpoConfig.learningRate,
+      dpoConfig.beta,
+    );
+    const savedAdapterCheck = await saveAdapterForCheck(
+      "dpo",
+      source,
+      policyModel,
+      tokenizer,
+      profile,
+      data,
+      args,
+    );
+    const merged = mergeLoRAInModule(trainableModule);
+    const afterLoss = evaluatePreferenceDatasetLoss(
+      policyModel,
+      referenceModel,
+      data.preferenceEval,
+      padTokenId,
+      args.batchSize,
+      dpoConfig.beta,
+    );
+    const afterMetrics = evaluatePreferenceMetrics(
+      policyModel,
+      referenceModel,
+      data.preferenceEval,
+      padTokenId,
+      args.batchSize,
+      dpoConfig.beta,
+    );
+    const sample = sampleText(policyModel, tokenizer, profile, data.samplePromptMessages);
+    return {
+      beforeLoss,
+      beforeMetrics,
+      appliedLoRA,
+      parameterCounts,
+      averageTrainingLoss,
+      savedAdapterCheck,
+      merged,
+      afterLoss,
+      afterMetrics,
+      sample,
+    };
+  })();
+  const adapterCheck = await completeAdapterCheck(
+    source,
+    trained.savedAdapterCheck,
+    tokenizer,
+    profile,
+    data,
   );
-  const beforeMetrics = evaluatePreferenceMetrics(
-    policyModel,
-    referenceModel,
-    data.preferenceEval,
-    padTokenId,
-    args.batchSize,
-    dpoConfig.beta,
-  );
-  const appliedLoRA = applyDPOTrainingLoRA(policyModel, args.dpoProfile);
-  const averageTrainingLoss = runPreferenceTrainingSteps(
-    policyModel,
-    referenceModel,
-    data.preferenceTrain,
-    padTokenId,
-    args.batchSize,
-    args.steps,
-    args.seed + 3,
-    dpoConfig.learningRate,
-    dpoConfig.beta,
-  );
-  const merged = mergeLoRAInModule(expectTrainableModule(policyModel));
-  const afterLoss = evaluatePreferenceDatasetLoss(
-    policyModel,
-    referenceModel,
-    data.preferenceEval,
-    padTokenId,
-    args.batchSize,
-    dpoConfig.beta,
-  );
-  const afterMetrics = evaluatePreferenceMetrics(
-    policyModel,
-    referenceModel,
-    data.preferenceEval,
-    padTokenId,
-    args.batchSize,
-    dpoConfig.beta,
-  );
+  const memory = memoryReport();
 
   return {
     stage: "dpo",
-    evalLoss: summarizeMetric(beforeLoss, afterLoss),
-    rewardAccuracy: summarizeMetric(beforeMetrics.rewardAccuracy, afterMetrics.rewardAccuracy),
-    rewardMargin: summarizeMetric(beforeMetrics.rewardMargin, afterMetrics.rewardMargin),
-    chosenReward: summarizeMetric(beforeMetrics.chosenReward, afterMetrics.chosenReward),
-    rejectedReward: summarizeMetric(beforeMetrics.rejectedReward, afterMetrics.rejectedReward),
-    chosenLogProb: summarizeMetric(beforeMetrics.chosenLogProb, afterMetrics.chosenLogProb),
-    rejectedLogProb: summarizeMetric(beforeMetrics.rejectedLogProb, afterMetrics.rejectedLogProb),
-    rawPreferenceAccuracy: summarizeMetric(
-      beforeMetrics.rawPreferenceAccuracy,
-      afterMetrics.rawPreferenceAccuracy,
+    evalLoss: summarizeMetric(trained.beforeLoss, trained.afterLoss),
+    rewardAccuracy: summarizeMetric(
+      trained.beforeMetrics.rewardAccuracy,
+      trained.afterMetrics.rewardAccuracy,
     ),
-    averageTrainingLoss,
-    sampleText: sampleText(policyModel, tokenizer, profile, data.samplePromptMessages),
+    rewardMargin: summarizeMetric(
+      trained.beforeMetrics.rewardMargin,
+      trained.afterMetrics.rewardMargin,
+    ),
+    chosenReward: summarizeMetric(
+      trained.beforeMetrics.chosenReward,
+      trained.afterMetrics.chosenReward,
+    ),
+    rejectedReward: summarizeMetric(
+      trained.beforeMetrics.rejectedReward,
+      trained.afterMetrics.rejectedReward,
+    ),
+    chosenLogProb: summarizeMetric(
+      trained.beforeMetrics.chosenLogProb,
+      trained.afterMetrics.chosenLogProb,
+    ),
+    rejectedLogProb: summarizeMetric(
+      trained.beforeMetrics.rejectedLogProb,
+      trained.afterMetrics.rejectedLogProb,
+    ),
+    rawPreferenceAccuracy: summarizeMetric(
+      trained.beforeMetrics.rawPreferenceAccuracy,
+      trained.afterMetrics.rawPreferenceAccuracy,
+    ),
+    averageTrainingLoss: trained.averageTrainingLoss,
+    sampleText: trained.sample,
+    targets: trained.appliedLoRA.targets,
+    parameterCounts: trained.parameterCounts,
+    memory,
+    adapterCheck,
     notes: [
       "reference_model=frozen_copy",
       `dpo_profile=${dpoConfig.profile}`,
-      `preset=${appliedLoRA.preset}`,
-      `target_count=${appliedLoRA.targets.length}`,
-      `merged_targets=${merged.targets.length}`,
+      `preset=${trained.appliedLoRA.preset}`,
+      `target_count=${trained.appliedLoRA.targets.length}`,
+      `merged_targets=${trained.merged.targets.length}`,
+      `adapter_reloaded_targets=${adapterCheck.reloadedMergeTargets.length}`,
       `rank=${dpoConfig.rank}`,
       `alpha=${dpoConfig.alpha}`,
       `dropout=${dpoConfig.dropout}`,
       `learning_rate=${dpoConfig.learningRate}`,
       `beta=${dpoConfig.beta}`,
       dpoConfig.lastLayers === null ? "last_layers=all" : `last_layers=${dpoConfig.lastLayers}`,
+      `trainable_parameters=${trained.parameterCounts.trainable}`,
+      `total_parameters=${trained.parameterCounts.total}`,
+      `peak_memory_bytes=${memory.peakBytes}`,
       `train_examples=${data.preferenceTrain.length}`,
       `eval_examples=${data.preferenceEval.length}`,
     ],
