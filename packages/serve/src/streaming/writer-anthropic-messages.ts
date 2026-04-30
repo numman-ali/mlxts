@@ -7,7 +7,12 @@ import {
   anthropicStopReason,
   type NormalizedAnthropicMessage,
 } from "../protocols/anthropic-messages";
-import { createOpenAIChatCompletionReasoningStream } from "../protocols/openai-chat-completions";
+import type { OpenAIChatCompletionStreamToolCall } from "../protocols/openai-chat-completion-streaming";
+import {
+  createOpenAIChatCompletionReasoningStream,
+  stripGeneratedChatControlTokens,
+} from "../protocols/openai-chat-completions";
+import { createOpenAIChatCompletionToolCallStream } from "../protocols/openai-chat-tool-call-stream";
 import type { GenerationStreamEvent, GenerationUsage, NormalizedFinishReason } from "../types";
 import {
   enqueueObservedSse,
@@ -21,16 +26,18 @@ import {
 import { createStopSequenceFilter } from "./stop-filter";
 import { runSseGenerationStream } from "./writer-base";
 
-type BlockKind = "thinking" | "text";
+type BlockKind = "thinking" | "text" | "tool_use";
 
 type AnthropicStreamState = {
   reasoning: ReturnType<typeof createOpenAIChatCompletionReasoningStream>;
+  toolCallParser: ReturnType<typeof createOpenAIChatCompletionToolCallStream>;
   stopFilter: ReturnType<typeof createStopSequenceFilter>;
   finalUsage: GenerationUsage | undefined;
   finalFinishReason: NormalizedFinishReason;
   stoppedByStopSequence: boolean;
   activeBlock: BlockKind | null;
   nextBlockIndex: number;
+  toolUseCount: number;
   observer?: StreamObserver;
 };
 
@@ -63,12 +70,22 @@ function usage(usageInfo: GenerationUsage | undefined): {
   };
 }
 
+function hasStreamingToolOutput(message: NormalizedAnthropicMessage): boolean {
+  return (
+    (message.request.input.kind === "messages" || message.request.input.kind === "content") &&
+    message.request.input.tools !== undefined &&
+    message.request.input.tools.length > 0
+  );
+}
+
 function blockIndex(state: AnthropicStreamState, kind: BlockKind): number {
   return kind === "thinking" && state.activeBlock === "thinking"
     ? state.nextBlockIndex - 1
     : kind === "text" && state.activeBlock === "text"
       ? state.nextBlockIndex - 1
-      : state.nextBlockIndex;
+      : kind === "tool_use" && state.activeBlock === "tool_use"
+        ? state.nextBlockIndex - 1
+        : state.nextBlockIndex;
 }
 
 function closeActiveBlock(
@@ -92,6 +109,7 @@ function ensureBlock(
   controller: ReadableStreamDefaultController<Uint8Array>,
   state: AnthropicStreamState,
   kind: BlockKind,
+  toolCall?: OpenAIChatCompletionStreamToolCall,
 ): number {
   if (state.activeBlock === kind) {
     return blockIndex(state, kind);
@@ -103,7 +121,14 @@ function ensureBlock(
   const contentBlock =
     kind === "thinking"
       ? { type: "thinking", thinking: "", signature: "" }
-      : { type: "text", text: "" };
+      : kind === "tool_use"
+        ? {
+            type: "tool_use",
+            id: toolCall?.id ?? `toolu_${state.toolUseCount + 1}`,
+            name: toolCall?.function?.name ?? "",
+            input: {},
+          }
+        : { type: "text", text: "" };
   enqueueEvent(
     controller,
     state,
@@ -150,6 +175,58 @@ function emitTextDelta(
   );
 }
 
+function emitToolUse(
+  controller: ReadableStreamDefaultController<Uint8Array>,
+  state: AnthropicStreamState,
+  toolCall: OpenAIChatCompletionStreamToolCall,
+): void {
+  const index = ensureBlock(controller, state, "tool_use", toolCall);
+  const partialJson = toolCall.function?.arguments ?? "";
+  if (partialJson !== "") {
+    enqueueEvent(
+      controller,
+      state,
+      "content_block_delta",
+      {
+        type: "content_block_delta",
+        index,
+        delta: { type: "input_json_delta", partial_json: partialJson },
+      },
+      "output",
+    );
+  }
+  closeActiveBlock(controller, state);
+  state.toolUseCount += 1;
+}
+
+function processParsedContentDelta(
+  controller: ReadableStreamDefaultController<Uint8Array>,
+  state: AnthropicStreamState,
+  text: string,
+): void {
+  const filtered = state.stopFilter.push(stripGeneratedChatControlTokens(text));
+  emitTextDelta(controller, state, filtered.text);
+  if (filtered.stopped) {
+    state.finalFinishReason = "stop";
+    state.stoppedByStopSequence = true;
+  }
+}
+
+function processParsedToolDelta(
+  controller: ReadableStreamDefaultController<Uint8Array>,
+  state: AnthropicStreamState,
+  delta: { content?: string; toolCalls?: OpenAIChatCompletionStreamToolCall[] },
+): void {
+  if (delta.toolCalls !== undefined) {
+    for (const toolCall of delta.toolCalls) {
+      emitToolUse(controller, state, toolCall);
+    }
+    return;
+  }
+
+  processParsedContentDelta(controller, state, delta.content ?? "");
+}
+
 function processDelta(
   controller: ReadableStreamDefaultController<Uint8Array>,
   state: AnthropicStreamState,
@@ -159,11 +236,12 @@ function processDelta(
     emitThinkingDelta(controller, state, delta.reasoningContent);
     return;
   }
-  const filtered = state.stopFilter.push(delta.content ?? "");
-  emitTextDelta(controller, state, filtered.text);
-  if (filtered.stopped) {
-    state.finalFinishReason = "stop";
-    state.stoppedByStopSequence = true;
+
+  for (const parsed of state.toolCallParser.push(delta.content ?? "")) {
+    processParsedToolDelta(controller, state, parsed);
+    if (state.stoppedByStopSequence) {
+      return;
+    }
   }
 }
 
@@ -173,6 +251,12 @@ function flushTail(
 ): void {
   for (const delta of state.reasoning.finish()) {
     processDelta(controller, state, delta);
+    if (state.stoppedByStopSequence) {
+      return;
+    }
+  }
+  for (const delta of state.toolCallParser.finish()) {
+    processParsedToolDelta(controller, state, delta);
     if (state.stoppedByStopSequence) {
       return;
     }
@@ -237,7 +321,10 @@ function finalizeStream(
     {
       type: "message_delta",
       delta: {
-        stop_reason: anthropicStopReason(state.finalFinishReason, state.stoppedByStopSequence),
+        stop_reason:
+          state.toolUseCount > 0
+            ? "tool_use"
+            : anthropicStopReason(state.finalFinishReason, state.stoppedByStopSequence),
         stop_sequence: null,
       },
       usage: { output_tokens: state.finalUsage?.completionTokens ?? 0 },
@@ -257,12 +344,14 @@ export async function writeAnthropicMessageStreamEvents(
 ): Promise<StreamSummary> {
   const state: AnthropicStreamState = {
     reasoning: createOpenAIChatCompletionReasoningStream(),
+    toolCallParser: createOpenAIChatCompletionToolCallStream(hasStreamingToolOutput(message)),
     stopFilter: createStopSequenceFilter(message.request.sampling.stop),
     finalUsage: undefined,
     finalFinishReason: "stop",
     stoppedByStopSequence: false,
     activeBlock: null,
     nextBlockIndex: 0,
+    toolUseCount: 0,
   };
   if (options.observer !== undefined) {
     state.observer = options.observer;

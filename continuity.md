@@ -143,8 +143,9 @@ Full evidence ladder lives in
   accepts client tools, assistant `tool_use` history, and user `tool_result`
   history, formats generated tool calls as Anthropic `tool_use` blocks with
   `stop_reason="tool_use"`, and rejects incomplete tool-result transcripts,
-  streaming tool use, tool-result errors, and rich tool-result media until those
-  semantics are implemented explicitly.
+  tool-result errors, and rich tool-result media until those semantics are
+  implemented explicitly. Streaming tool-use output landed in the follow-up
+  streaming tranche.
 - OpenResponses function-tool adapter support passed focused protocol and HTTP
   route tests (`56 pass`) and full `bun run validate`. `/v1/responses` now
   accepts flat function tools, normalizes `function_call` /
@@ -161,6 +162,13 @@ Full evidence ladder lives in
   `response.function_call_arguments.done`, and `response.output_item.done`
   events while keeping malformed/tool-looking text visible when tools are
   inactive.
+- Anthropic Messages streaming tool-use passed focused protocol, stream writer,
+  and HTTP route tests (`56 pass`), full `bun run validate`, and
+  `bun run regression:qwen-gemma -- --profile quick` (`84` transformer-focused
+  tests and `220` serve-focused tests). `/v1/messages stream=true` now accepts
+  active client tools and emits Anthropic-shaped `tool_use` content blocks with
+  `input_json_delta` argument deltas while keeping malformed/tool-looking text
+  visible when tools are inactive.
 - Gemma 4 A4B MoE proof passed against the cached
   `mlx-community/gemma-4-26b-a4b-it-4bit` snapshot. Transformer decode at
   `128x128` reported `generation_tps=108.604`, `evals_per_token=1.00`, and

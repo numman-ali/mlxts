@@ -341,12 +341,6 @@ export function normalizeAnthropicMessageRequest(
   const metadata = parseMetadata(body);
   const userId = optionalString(metadata, "user_id");
   const selectedTools = selectedAnthropicTools(body, parseAnthropicTools(body));
-  if (stream && selectedTools !== undefined && selectedTools.length > 0) {
-    throw new ServeError(
-      "Anthropic messages: streaming tool use is not supported until Anthropic tool SSE blocks are implemented.",
-      { param: "stream" },
-    );
-  }
 
   return {
     model,

@@ -880,17 +880,25 @@ describe("serve fetch handler", () => {
     });
   });
 
-  test("rejects Anthropic streaming tool use before generation", async () => {
-    let invoked = false;
+  test("streams Anthropic tool_use blocks", async () => {
+    const seen: NormalizedGenerationRequest[] = [];
     const fetch = createFetchHandler({
       engine: {
         generate() {
-          invoked = true;
-          return { text: "", finishReason: "stop" };
+          throw new Error("generate should not be used");
         },
-        async *stream() {
-          invoked = true;
-          yield { type: "text", text: "" };
+        async *stream(normalized) {
+          seen.push(normalized);
+          yield { type: "text", text: "<tool" };
+          yield {
+            type: "text",
+            text: '_call>{"id":"toolu_read","name":"read_file","arguments":{"path":"README.md"}}</tool_call>',
+          };
+          yield {
+            type: "done",
+            finishReason: "stop",
+            usage: { promptTokens: 7, completionTokens: 5, totalTokens: 12 },
+          };
         },
       },
       idGenerator: () => "msg-tool-stream",
@@ -905,11 +913,36 @@ describe("serve fetch handler", () => {
         max_tokens: 8,
       }),
     );
-    const body = await response.json();
+    const text = await response.text();
 
-    expect(response.status).toBe(400);
-    expect(body.error.message).toContain("streaming tool use is not supported");
-    expect(invoked).toBe(false);
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-type")).toContain("text/event-stream");
+    expect(seen[0]).toMatchObject({
+      id: "msg-tool-stream",
+      input: {
+        kind: "messages",
+        messages: [{ role: "user", content: "Read the README." }],
+        tools: [
+          {
+            type: "function",
+            function: {
+              name: "read_file",
+              parameters: { type: "object" },
+            },
+          },
+        ],
+      },
+      protocol: "anthropic.messages",
+    });
+    expect(text).toContain("event: content_block_start");
+    expect(text).toContain(
+      '"content_block":{"type":"tool_use","id":"toolu_read","name":"read_file","input":{}}',
+    );
+    expect(text).toContain(
+      '"delta":{"type":"input_json_delta","partial_json":"{\\"path\\":\\"README.md\\"}"}',
+    );
+    expect(text).toContain('"stop_reason":"tool_use"');
+    expect(text).not.toContain("<tool_call>");
   });
 
   test("routes Anthropic image messages through content input", async () => {

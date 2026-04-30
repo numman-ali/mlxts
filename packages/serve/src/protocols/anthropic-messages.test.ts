@@ -209,6 +209,34 @@ describe("Anthropic messages adapter", () => {
     });
   });
 
+  test("normalizes active Anthropic tools on streams", () => {
+    const normalized = normalizeAnthropicMessageRequest(
+      {
+        model: "mlx-community/Qwen3.6-27B-4bit",
+        stream: true,
+        tools: [{ name: "read_file", input_schema: { type: "object" } }],
+        messages: [{ role: "user", content: "Read the README." }],
+        max_tokens: 32,
+      },
+      { id: "msg-stream-tools" },
+    );
+
+    expect(normalized.stream).toBe(true);
+    expect(normalized.request.stream).toBe(true);
+    expect(normalized.request.input).toMatchObject({
+      kind: "messages",
+      tools: [
+        {
+          type: "function",
+          function: {
+            name: "read_file",
+            parameters: { type: "object" },
+          },
+        },
+      ],
+    });
+  });
+
   test("formats visible and thinking output as Anthropic content blocks", () => {
     const normalized = normalizeAnthropicMessageRequest(
       {
@@ -339,19 +367,6 @@ describe("Anthropic messages adapter", () => {
         { id: "system-role" },
       ),
     ).toThrow('use top-level "system"');
-
-    expect(() =>
-      normalizeAnthropicMessageRequest(
-        {
-          model: "mlx-community/Qwen3.6-27B-4bit",
-          max_tokens: 8,
-          stream: true,
-          messages: [{ role: "user", content: "Hi" }],
-          tools: [{ name: "read_file", input_schema: { type: "object" } }],
-        },
-        { id: "tools-stream" },
-      ),
-    ).toThrow("streaming tool use is not supported");
   });
 
   test("normalizes optional Anthropic variants without sampling overrides", () => {
