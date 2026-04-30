@@ -357,8 +357,10 @@ describe("run manager", () => {
     });
 
     const result = runManager(["status", "--name", runId, "--mystery"]);
-    expect(result.status).toBe(1);
-    expect(result.stderr).toContain("unknown flag");
+    expect(result.status).toBe(2);
+    expect(result.stdout).toContain("error:");
+    expect(result.stdout).toContain("unknown flag");
+    expect(result.stderr).not.toContain("unknown flag");
   });
 
   test("start accepts gradient checkpointing overrides and surfaces them in status", async () => {

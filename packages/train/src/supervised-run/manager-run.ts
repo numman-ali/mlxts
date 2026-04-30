@@ -14,7 +14,14 @@ import {
   writeRunSpec,
   writeRunStatus,
 } from "./files";
-import { generateRunId, getFlag, nowIso, stripFlag, trainerArgsFrom } from "./manager-args";
+import {
+  generateRunId,
+  getFlag,
+  nowIso,
+  SupervisedRunManagerUsageError,
+  stripFlag,
+  trainerArgsFrom,
+} from "./manager-args";
 
 export type SupervisedRunManagerRunOptions = {
   repoRoot: string;
@@ -25,7 +32,13 @@ export type SupervisedRunManagerRunOptions = {
   supervisorCommand: (runDirectory: string) => string[];
   supervisorCwd?: string | undefined;
   statusCommand: (runId: string) => string;
+  stdout?: ((text: string) => void) | undefined;
 };
+
+function writeStdout(options: Pick<SupervisedRunManagerRunOptions, "stdout">, text: string): void {
+  const stdout = options.stdout ?? ((chunk: string) => process.stdout.write(chunk));
+  stdout(text);
+}
 
 function runDirectoryFor(options: SupervisedRunManagerRunOptions, runId: string): string {
   return runDir(options.repoRoot, runId, options.runsDirectoryName);
@@ -94,7 +107,9 @@ export function startRun(
     getFlag(args, "stall-timeout-sec", String(DEFAULT_STALL_TIMEOUT_SECONDS)),
   );
   if (!Number.isFinite(stallTimeoutSeconds) || stallTimeoutSeconds <= 0) {
-    throw new Error("start requires --stall-timeout-sec to be a positive number");
+    throw new SupervisedRunManagerUsageError(
+      "start requires --stall-timeout-sec to be a positive number",
+    );
   }
 
   const trainerBaseArgs = trainerArgsFrom(args, options.pathFlags);
@@ -113,8 +128,18 @@ export function startRun(
     supervisorPid,
     updatedAt: nowIso(),
   });
-  process.stdout.write(
-    `Started run ${runId}\n  dir: ${directory}\n  supervisor pid: ${supervisorPid}\n  status: ${options.statusCommand(runId)}\n`,
+  writeStdout(
+    options,
+    [
+      "manager_run:",
+      '  action: "started"',
+      `  message: "Started run ${runId}"`,
+      `  run_id: ${JSON.stringify(runId)}`,
+      `  directory: ${JSON.stringify(directory)}`,
+      `  supervisor_pid: ${supervisorPid}`,
+      `  status_command: ${JSON.stringify(options.statusCommand(runId))}`,
+      "",
+    ].join("\n"),
   );
 }
 
@@ -159,19 +184,37 @@ export function writeControl(
 
   if (command === "cancel") {
     const checkpoint = status.latestResumeCheckpoint ?? status.latestCheckpoint;
-    process.stdout.write(
-      `Requested cancel for run ${runId}. Work since the latest resume checkpoint may be lost${checkpoint === undefined ? "" : ` (${checkpoint})`}.\n`,
+    const message = `Requested cancel for run ${runId}. Work since the latest resume checkpoint may be lost${checkpoint === undefined ? "" : ` (${checkpoint})`}.`;
+    writeStdout(
+      options,
+      [
+        "manager_control:",
+        '  action: "cancel"',
+        `  message: ${JSON.stringify(message)}`,
+        `  run_id: ${JSON.stringify(runId)}`,
+        `  checkpoint: ${checkpoint === undefined ? "null" : JSON.stringify(checkpoint)}`,
+        "",
+      ].join("\n"),
     );
     return;
   }
 
-  process.stdout.write(`Requested graceful stop for run ${runId}\n`);
+  writeStdout(
+    options,
+    [
+      "manager_control:",
+      '  action: "stop"',
+      `  message: "Requested graceful stop for run ${runId}"`,
+      `  run_id: ${JSON.stringify(runId)}`,
+      "",
+    ].join("\n"),
+  );
 }
 
 export function resumeRun(args: string[], options: SupervisedRunManagerRunOptions): void {
   const fromRunId = getFlag(args, "from");
   if (fromRunId === undefined) {
-    throw new Error("resume requires --from <run-id>");
+    throw new SupervisedRunManagerUsageError("resume requires --from <run-id>");
   }
 
   const requestedName = getFlag(args, "name");
@@ -191,7 +234,9 @@ export function resumeRun(args: string[], options: SupervisedRunManagerRunOption
     ),
   );
   if (!Number.isFinite(stallTimeoutSeconds) || stallTimeoutSeconds <= 0) {
-    throw new Error("resume requires --stall-timeout-sec to be a positive number");
+    throw new SupervisedRunManagerUsageError(
+      "resume requires --stall-timeout-sec to be a positive number",
+    );
   }
 
   let trainerArgs = stripFlag(spec.trainerArgs, "json", false);

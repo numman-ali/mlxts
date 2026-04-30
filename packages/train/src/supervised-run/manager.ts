@@ -1,4 +1,10 @@
-import { getFlag, hasFlag, parseArgs, validateAllowedFlags } from "./manager-args";
+import {
+  getFlag,
+  hasFlag,
+  parseArgs,
+  SupervisedRunManagerUsageError,
+  validateAllowedFlags,
+} from "./manager-args";
 import {
   resumeRun,
   type SupervisedRunManagerRunOptions,
@@ -9,6 +15,7 @@ import { printStatus, type SupervisedRunStatusOptions, watchRun } from "./manage
 
 export type SupervisedRunManagerCliOptions = {
   usage: string;
+  helpCommand?: string | undefined;
   startFlagAllowlist: ReadonlySet<string>;
   resumeFlagAllowlist: ReadonlySet<string>;
   statusFlagAllowlist: ReadonlySet<string>;
@@ -17,6 +24,51 @@ export type SupervisedRunManagerCliOptions = {
   run: SupervisedRunManagerRunOptions;
   status: SupervisedRunStatusOptions;
 };
+
+export type SupervisedRunManagerCliRuntime = {
+  stdout?: ((text: string) => void) | undefined;
+};
+
+const COMMANDS = new Set(["start", "resume", "status", "watch", "stop", "cancel", "help"]);
+
+function writeStdout(stdout: (text: string) => void, text: string): void {
+  stdout(text);
+}
+
+function usageCommand(options: SupervisedRunManagerCliOptions): string {
+  return options.helpCommand ?? "manager help";
+}
+
+export function formatSupervisedManagerCliError(
+  message: string,
+  code: "usage" | "runtime" = "usage",
+  helpCommand = "manager help",
+): string {
+  return [
+    "error:",
+    `  code: ${JSON.stringify(code)}`,
+    `  message: ${JSON.stringify(message)}`,
+    "help[1]:",
+    `  Run \`${helpCommand}\` for supervised-run manager commands`,
+  ].join("\n");
+}
+
+function withStdout(
+  options: SupervisedRunManagerCliOptions,
+  stdout: (text: string) => void,
+): SupervisedRunManagerCliOptions {
+  return {
+    ...options,
+    run: {
+      ...options.run,
+      stdout,
+    },
+    status: {
+      ...options.status,
+      stdout,
+    },
+  };
+}
 
 function handleStart(args: string[], options: SupervisedRunManagerCliOptions): void {
   validateAllowedFlags(args, options.startFlagAllowlist, "start");
@@ -45,7 +97,7 @@ function handleStatus(args: string[], options: SupervisedRunManagerCliOptions): 
 
   const runId = getFlag(args, "name");
   if (runId === undefined) {
-    throw new Error("status requires --name <run-id>");
+    throw new SupervisedRunManagerUsageError("status requires --name <run-id>");
   }
   printStatus(runId, hasFlag(args, "json"), options.status);
 }
@@ -59,12 +111,12 @@ async function handleWatch(args: string[], options: SupervisedRunManagerCliOptio
 
   const runId = getFlag(args, "name");
   if (runId === undefined) {
-    throw new Error("watch requires --name <run-id>");
+    throw new SupervisedRunManagerUsageError("watch requires --name <run-id>");
   }
 
   const interval = Number(getFlag(args, "interval") ?? "10");
   if (!Number.isFinite(interval) || interval <= 0) {
-    throw new Error("watch requires --interval to be a positive number");
+    throw new SupervisedRunManagerUsageError("watch requires --interval to be a positive number");
   }
   await watchRun(runId, interval, hasFlag(args, "json"), options.status);
 }
@@ -78,7 +130,7 @@ function handleStop(args: string[], options: SupervisedRunManagerCliOptions): vo
 
   const runId = getFlag(args, "name");
   if (runId === undefined) {
-    throw new Error("stop requires --name <run-id>");
+    throw new SupervisedRunManagerUsageError("stop requires --name <run-id>");
   }
   writeControl(runId, "stop", options.run);
 }
@@ -92,7 +144,7 @@ function handleCancel(args: string[], options: SupervisedRunManagerCliOptions): 
 
   const runId = getFlag(args, "name");
   if (runId === undefined) {
-    throw new Error("cancel requires --name <run-id>");
+    throw new SupervisedRunManagerUsageError("cancel requires --name <run-id>");
   }
   writeControl(runId, "cancel", options.run);
 }
@@ -125,4 +177,44 @@ export async function runSupervisedManagerCli(
     return;
   }
   await handler(args, options);
+}
+
+export async function runSupervisedManagerCliCommand(
+  options: SupervisedRunManagerCliOptions,
+  argv = process.argv,
+  runtime: SupervisedRunManagerCliRuntime = {},
+): Promise<number> {
+  const stdout = runtime.stdout ?? ((text: string) => process.stdout.write(text));
+  const { command, args } = parseArgs(argv);
+  if (command === "help" || hasFlag(args, "help")) {
+    writeStdout(stdout, options.usage);
+    return 0;
+  }
+  if (!COMMANDS.has(command)) {
+    writeStdout(
+      stdout,
+      `${formatSupervisedManagerCliError(
+        `unknown command "${command}"`,
+        "usage",
+        usageCommand(options),
+      )}\n`,
+    );
+    return 2;
+  }
+
+  try {
+    await runSupervisedManagerCli(withStdout(options, stdout), argv);
+    return 0;
+  } catch (error) {
+    const isUsage = error instanceof SupervisedRunManagerUsageError;
+    writeStdout(
+      stdout,
+      `${formatSupervisedManagerCliError(
+        error instanceof Error ? error.message : String(error),
+        isUsage ? "usage" : "runtime",
+        usageCommand(options),
+      )}\n`,
+    );
+    return isUsage ? 2 : 1;
+  }
 }

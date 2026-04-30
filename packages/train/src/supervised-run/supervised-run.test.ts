@@ -46,6 +46,7 @@ import {
   runSpecPath,
   runStatusPath,
   runSupervisedManagerCli,
+  runSupervisedManagerCliCommand,
   runSupervisedSupervisor,
   runsRoot,
   stderrPath,
@@ -580,6 +581,58 @@ describe("supervised run manager helpers", () => {
       await expect(runSupervisedManagerCli(options, ["bun", "manager", "cancel"])).rejects.toThrow(
         "cancel requires",
       );
+    });
+  });
+
+  test("manager command runner emits AXI stdout errors and exit codes", async () => {
+    await withTempDirectory("mlxts-supervised-cli-command", async (repoRoot) => {
+      const options = createCliOptions(repoRoot);
+      const stdout: string[] = [];
+      const helpCode = await runSupervisedManagerCliCommand(options, ["bun", "manager", "help"], {
+        stdout: (text) => stdout.push(text),
+      });
+      expect(helpCode).toBe(0);
+      expect(stdout.join("")).toBe("test manager usage\n");
+
+      stdout.length = 0;
+      const usageCode = await runSupervisedManagerCliCommand(
+        options,
+        ["bun", "manager", "status"],
+        { stdout: (text) => stdout.push(text) },
+      );
+      expect(usageCode).toBe(2);
+      expect(stdout.join("\n")).toContain("error:");
+      expect(stdout.join("\n")).toContain('code: "usage"');
+      expect(stdout.join("\n")).toContain("status requires --name");
+
+      stdout.length = 0;
+      const unknownCode = await runSupervisedManagerCliCommand(
+        options,
+        ["bun", "manager", "unknown-command"],
+        { stdout: (text) => stdout.push(text) },
+      );
+      expect(unknownCode).toBe(2);
+      expect(stdout.join("\n")).toContain("unknown-command");
+
+      stdout.length = 0;
+      const startCode = await runSupervisedManagerCliCommand(
+        options,
+        ["bun", "manager", "start", "--name", "cli-command-run", "--max-steps", "4"],
+        { stdout: (text) => stdout.push(text) },
+      );
+      expect(startCode).toBe(0);
+      expect(stdout.join("\n")).toContain("manager_run:");
+      expect(stdout.join("\n")).toContain("Started run cli-command-run");
+
+      stdout.length = 0;
+      const runtimeCode = await runSupervisedManagerCliCommand(
+        options,
+        ["bun", "manager", "start", "--name", "cli-command-run", "--max-steps", "4"],
+        { stdout: (text) => stdout.push(text) },
+      );
+      expect(runtimeCode).toBe(1);
+      expect(stdout.join("\n")).toContain('code: "runtime"');
+      expect(stdout.join("\n")).toContain("already exists");
     });
   });
 

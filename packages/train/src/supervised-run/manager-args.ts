@@ -2,6 +2,8 @@ import { resolve } from "path";
 
 export const DEFAULT_PATH_FLAGS = new Set(["data", "resume", "warm-start"]);
 
+export class SupervisedRunManagerUsageError extends Error {}
+
 export function nowIso(): string {
   return new Date().toISOString();
 }
@@ -30,7 +32,7 @@ export function validateAllowedFlags(
 
     const key = value.slice(2);
     if (!allowed.has(key)) {
-      throw new Error(`${context}: unknown flag --${key}`);
+      throw new SupervisedRunManagerUsageError(`${context}: unknown flag --${key}`);
     }
     if (index + 1 < args.length && !args[index + 1]?.startsWith("--")) {
       index += 1;

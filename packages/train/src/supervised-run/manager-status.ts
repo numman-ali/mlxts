@@ -15,7 +15,13 @@ export type SupervisedRunStatusOptions = {
   repoRoot: string;
   runsDirectoryName?: string | undefined;
   formatBatchLine?: ((payload: StatusPayload) => string) | undefined;
+  stdout?: ((text: string) => void) | undefined;
 };
+
+function writeStdout(options: Pick<SupervisedRunStatusOptions, "stdout">, text: string): void {
+  const stdout = options.stdout ?? ((chunk: string) => process.stdout.write(chunk));
+  stdout(text);
+}
 
 function processMetrics(pid: number | undefined): {
   processState?: string | undefined;
@@ -245,10 +251,10 @@ export function printStatus(
 ): void {
   const payload = createStatusPayload(runId, options);
   if (asJson) {
-    process.stdout.write(`${JSON.stringify(payload)}\n`);
+    writeStdout(options, `${JSON.stringify(payload)}\n`);
     return;
   }
-  process.stdout.write(formatStatusPayload(payload, options));
+  writeStdout(options, formatStatusPayload(payload, options));
 }
 
 export async function watchRun(

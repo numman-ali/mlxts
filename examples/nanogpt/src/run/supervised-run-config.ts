@@ -52,21 +52,24 @@ export const STATUS_FLAG_ALLOWLIST = new Set(["name", "json", "help"]);
 export const WATCH_FLAG_ALLOWLIST = new Set(["name", "json", "interval", "help"]);
 export const CONTROL_FLAG_ALLOWLIST = new Set(["name", "help"]);
 
-export const USAGE = `nanogpt run manager
-
-Run from examples/nanogpt/:
-
-Usage:
+export const USAGE = `description: Manage supervised nanoGPT proof runs from examples/nanogpt
+usage[6]:
   bun run manager start [train flags...]
   bun run manager resume --from <run-id> [train flags...]
   bun run manager status --name <run-id> [--json]
   bun run manager watch --name <run-id> [--interval <seconds>] [--json]
   bun run manager stop --name <run-id>
   bun run manager cancel --name <run-id>
-
-Notes:
-  start/resume accept --stall-timeout-sec <seconds> (default 600)
-  train flags also accept --early-stop-patience <n|none> and --early-stop-min-delta <n>
+options[6]{flag,description}:
+  "--name <run-id>","Run identifier for start, status, watch, stop, and cancel"
+  "--from <run-id>","Source run for resume"
+  "--json","Emit status payload JSON"
+  "--interval <seconds>","Watch polling interval"
+  "--stall-timeout-sec <seconds>","Supervisor stall timeout; default 600"
+  "--help","Show this help"
+notes[3]:
+  start and resume accept nanoGPT train flags
+  train flags include --early-stop-patience <n|none> and --early-stop-min-delta <n>
   cancel is best-effort and may lose work since the latest resume checkpoint
 `;
 
@@ -122,6 +125,7 @@ export const nanogptStatusOptions: SupervisedRunStatusOptions = {
 
 export const nanogptManagerCliOptions: SupervisedRunManagerCliOptions = {
   usage: USAGE,
+  helpCommand: "bun run manager help",
   startFlagAllowlist: START_FLAG_ALLOWLIST,
   resumeFlagAllowlist: RESUME_FLAG_ALLOWLIST,
   statusFlagAllowlist: STATUS_FLAG_ALLOWLIST,

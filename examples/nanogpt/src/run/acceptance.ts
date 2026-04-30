@@ -76,6 +76,7 @@ export async function main(argv = process.argv): Promise<void> {
     stderr: "pipe",
   });
   if (startResult.exitCode !== 0) {
+    process.stdout.write(decodeOutput(startResult.stdout));
     process.stderr.write(decodeOutput(startResult.stderr));
     process.exit(startResult.exitCode);
   }

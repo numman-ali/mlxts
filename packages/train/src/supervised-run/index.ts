@@ -38,7 +38,13 @@ export {
   type RunStatus,
   type RunStatusConfig,
 } from "./files-types";
-export { runSupervisedManagerCli, type SupervisedRunManagerCliOptions } from "./manager";
+export {
+  formatSupervisedManagerCliError,
+  runSupervisedManagerCli,
+  runSupervisedManagerCliCommand,
+  type SupervisedRunManagerCliOptions,
+  type SupervisedRunManagerCliRuntime,
+} from "./manager";
 export {
   DEFAULT_PATH_FLAGS,
   defaultRunIdLabel,
@@ -47,6 +53,7 @@ export {
   hasFlag,
   nowIso,
   parseArgs,
+  SupervisedRunManagerUsageError,
   stripFlag,
   trainerArgsFrom,
   validateAllowedFlags,
