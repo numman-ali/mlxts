@@ -231,7 +231,9 @@ Full evidence ladder lives in
   The scanner requires `config.json`, a supported autoregressive `model_type`,
   and safetensor weights; follows safetensor symlinks; defaults
   `--model-root` commands to lazy loading; and rejects empty roots before the
-  server starts.
+  server starts. `mlxts-serve discover --model-root <directory>` is the first
+  finite AXI-shaped serve command, returning compact structured stdout without
+  starting the server.
 - Gemma 4 A4B MoE proof passed against the cached
   `mlx-community/gemma-4-26b-a4b-it-4bit` snapshot. Transformer decode at
   `128x128` reported `generation_tps=108.604`, `evals_per_token=1.00`, and

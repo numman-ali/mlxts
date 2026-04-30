@@ -1,6 +1,7 @@
 #!/usr/bin/env bun
 
 import type { PretrainedLoadProgressEvent } from "@mlxts/transformers";
+import { runServeDiscoverCli } from "./cli-discovery-command";
 import {
   requireDistinctModelIds,
   requirePinnedModelsExist,
@@ -20,6 +21,12 @@ import {
 import { type ServeModelsOptions, serveModels } from "./model-loading/sources";
 import type { GenerationMemoryUsage, ServeEvent } from "./types";
 
+export {
+  formatServeDiscoverError,
+  formatServeDiscoverResults,
+  formatServeDiscoverUsage,
+  parseServeDiscoverArgs,
+} from "./cli-discovery-command";
 export type { ServeCliOptions, ServeCliParseResult };
 export { formatServeUsage, parseServeArgs };
 
@@ -418,6 +425,11 @@ export async function runServeCli(
   argv: readonly string[] = Bun.argv.slice(2),
   runtime: ServeCliRuntime = {},
 ): Promise<void> {
+  if (argv[0] === "discover") {
+    runServeDiscoverCli(argv.slice(1), runtime);
+    return;
+  }
+
   const log = runtime.log ?? console.log;
   const error = runtime.error ?? console.error;
   const exit = runtime.exit ?? process.exit;

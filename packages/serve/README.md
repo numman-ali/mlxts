@@ -56,6 +56,13 @@ safetensor weights and automatically uses lazy loading so startup does not
 materialize every local checkpoint:
 
 ```bash
+mlxts-serve discover --model-root ~/Models/mlxts --full
+```
+
+`discover` is a finite agent-facing command: stdout is compact structured
+output for the discovered model ids, sources, and model types.
+
+```bash
 mlxts-serve \
   --model-root ~/Models/mlxts \
   --model-root ~/Models/hf-checkpoints \

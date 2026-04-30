@@ -2,10 +2,12 @@ import { describe, expect, test } from "bun:test";
 
 import {
   formatPretrainedLoadProgress,
+  formatServeDiscoverResults,
   formatServeEvent,
   formatServeReady,
   formatServeUsage,
   parseServeArgs,
+  parseServeDiscoverArgs,
   publicBindWarning,
   runServeCli,
   type ServeCliOptions,
@@ -230,6 +232,56 @@ describe("serve CLI args", () => {
         pinnedModels: ["org/qwen"],
       },
     });
+  });
+
+  test("parses finite AXI model discovery commands", () => {
+    expect(parseServeDiscoverArgs(["--model-root", "/models", "--full"])).toEqual({
+      kind: "discover",
+      options: {
+        modelRoots: ["/models"],
+        full: true,
+      },
+    });
+    expect(parseServeDiscoverArgs(["--help"])).toEqual({ kind: "help", exitCode: 0 });
+    expect(parseServeDiscoverArgs([])).toMatchObject({
+      kind: "help",
+      exitCode: 2,
+      message: "Missing required --model-root <directory>.",
+    });
+    expect(parseServeDiscoverArgs(["--unknown"])).toMatchObject({
+      kind: "help",
+      exitCode: 2,
+      message: "Unknown argument: --unknown",
+    });
+  });
+
+  test("formats finite AXI model discovery output", () => {
+    const output = formatServeDiscoverResults(
+      [
+        {
+          root: "/models",
+          models: [
+            {
+              source: "/models/org/qwen",
+              modelId: "org/qwen",
+              modelType: "qwen3_5",
+              architectures: ["Qwen3_5ForConditionalGeneration"],
+              hasVisionConfig: true,
+            },
+          ],
+        },
+      ],
+      true,
+    );
+
+    expect(output).toContain("roots[1]{path,count}:");
+    expect(output).toContain("count: 1 of 1 total");
+    expect(output).toContain("models[1]{model_id,source,model_type,has_vision,architectures}:");
+    expect(output).toContain('"org/qwen","/models/org/qwen","qwen3_5",true');
+    expect(output).toContain('Run `mlxts-serve --model-root "/models"`');
+    expect(formatServeDiscoverResults([{ root: "/empty", models: [] }], false)).toContain(
+      "models: 0 supported autoregressive checkpoints found",
+    );
   });
 
   test("returns help for invalid or missing inputs", () => {
@@ -1114,6 +1166,116 @@ describe("serve CLI args", () => {
     expect(logs.join("\n")).toContain("Models: manual, org/qwen, flat");
     expect(logs.join("\n")).toContain("Model load policy: lazy");
     expect(running.stopped).toBe(true);
+  });
+
+  test("runs finite AXI model discovery without starting a server", async () => {
+    const logs: string[] = [];
+    const errors: string[] = [];
+    let exitCode = -1;
+
+    await runServeCli(["discover", "--model-root", "/models"], {
+      async serveModels() {
+        throw new Error("server should not start for finite discovery");
+      },
+      discoverLocalModelSources(root) {
+        expect(root).toBe("/models");
+        return [
+          {
+            source: "/models/flat",
+            modelId: "flat",
+            modelType: "gemma",
+            architectures: ["GemmaForCausalLM"],
+            hasVisionConfig: false,
+          },
+        ];
+      },
+      log(message) {
+        logs.push(message);
+      },
+      error(message) {
+        errors.push(message);
+      },
+      exit(code) {
+        exitCode = code;
+      },
+    });
+
+    expect(exitCode).toBe(0);
+    expect(errors).toEqual([]);
+    expect(logs.join("\n")).toContain("models[1]{model_id,source,model_type,has_vision}:");
+    expect(logs.join("\n")).toContain('"flat","/models/flat","gemma",false');
+  });
+
+  test("reports finite AXI discovery usage errors on stdout", async () => {
+    const logs: string[] = [];
+    const errors: string[] = [];
+    let exitCode = -1;
+
+    await runServeCli(["discover"], {
+      log(message) {
+        logs.push(message);
+      },
+      error(message) {
+        errors.push(message);
+      },
+      exit(code) {
+        exitCode = code;
+      },
+    });
+
+    expect(exitCode).toBe(2);
+    expect(errors).toEqual([]);
+    expect(logs.join("\n")).toContain("error:");
+    expect(logs.join("\n")).toContain("Missing required --model-root");
+  });
+
+  test("prints finite AXI discovery help on stdout", async () => {
+    const logs: string[] = [];
+    const errors: string[] = [];
+    let exitCode = -1;
+
+    await runServeCli(["discover", "--help"], {
+      log(message) {
+        logs.push(message);
+      },
+      error(message) {
+        errors.push(message);
+      },
+      exit(code) {
+        exitCode = code;
+      },
+    });
+
+    expect(exitCode).toBe(0);
+    expect(errors).toEqual([]);
+    expect(logs.join("\n")).toContain("description:");
+    expect(logs.join("\n")).toContain("mlxts-serve discover --model-root <directory>");
+  });
+
+  test("reports finite AXI discovery runtime errors on stdout", async () => {
+    const logs: string[] = [];
+    const errors: string[] = [];
+    let exitCode = -1;
+
+    await runServeCli(["discover", "--model-root", "/missing"], {
+      discoverLocalModelSources() {
+        throw new Error("Model root is unavailable.");
+      },
+      log(message) {
+        logs.push(message);
+      },
+      error(message) {
+        errors.push(message);
+      },
+      exit(code) {
+        exitCode = code;
+      },
+    });
+
+    expect(exitCode).toBe(1);
+    expect(errors).toEqual([]);
+    expect(logs.join("\n")).toContain('code: "discovery"');
+    expect(logs.join("\n")).toContain("Model root is unavailable.");
   });
 
   test("reports empty model-root discovery before server start", async () => {

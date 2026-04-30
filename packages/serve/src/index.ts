@@ -16,6 +16,18 @@ export {
   type RequestLimitGenerationEngineOptions,
 } from "./admission/request-limits";
 export {
+  discoverServeModelRoots,
+  formatServeDiscoverError,
+  formatServeDiscoverResults,
+  formatServeDiscoverUsage,
+  parseServeDiscoverArgs,
+  runServeDiscoverCli,
+  type ServeDiscoverCliOptions,
+  type ServeDiscoverCliParseResult,
+  type ServeDiscoverCliRuntime,
+  type ServeDiscoverRootResult,
+} from "./cli-discovery-command";
+export {
   createQwen3_5ImageContentAdapter,
   type LoadedContentPrompt,
   type TransformersContentAdapter,
