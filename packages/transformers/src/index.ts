@@ -62,6 +62,26 @@ export {
   qwen3_5ImageGridThwValues,
   smartResizeQwen3_5Image,
 } from "./families/qwen3_5/multimodal/preprocessing";
+export { parseT5EncoderConfig } from "./families/t5/config";
+export {
+  type LoadT5EncoderModelOptions,
+  loadT5EncoderModel,
+  resolveT5EncoderModelSource,
+} from "./families/t5/load";
+export { disposeT5EncoderModelOutput, T5EncoderModel } from "./families/t5/model";
+export type {
+  T5DenseActivation,
+  T5EncoderConfig,
+  T5EncoderModelOptions,
+  T5EncoderModelOutput,
+  T5FeedForwardProjection,
+} from "./families/t5/types";
+export {
+  loadT5EncoderWeights,
+  type T5EncoderWeightLoadOptions,
+  type T5EncoderWeightLoadResult,
+  t5EncoderWeightPath,
+} from "./families/t5/weights";
 export {
   type ContinuousBatchAdmissionBudgetSnapshot,
   type ContinuousBatchAdmissionController,
