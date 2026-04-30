@@ -51,6 +51,7 @@ export type ServeModelsOptions = Omit<ServeLoadedModelsOptions, "models" | "disp
     models: readonly ServeModelSourceEntry[];
     modelLoadPolicy?: SourceModelLoadPolicy;
     modelPressurePolicy?: SourceModelPressurePolicy;
+    modelPressureReleaseTimeoutMs?: number;
     modelIdleTtlMs?: number;
     pinnedModels?: readonly string[];
     onProgress?: (event: PretrainedLoadProgressEvent, context: ServeModelsProgressContext) => void;
@@ -88,13 +89,19 @@ export type ResolvedServeModelsOptions = Omit<
   models: readonly ResolvedModelSourceEntry[];
   modelLoadPolicy: SourceModelLoadPolicy;
   modelPressurePolicy: SourceModelPressurePolicy;
+  modelPressureReleaseTimeoutMs?: number;
   modelIdleTtlMs?: number;
   pinnedModelIds: readonly string[];
 };
 
 type ResolvedServeModelsRuntimeOptions = Omit<
   ResolvedServeModelsOptions,
-  "models" | "modelLoadPolicy" | "modelPressurePolicy" | "modelIdleTtlMs" | "pinnedModelIds"
+  | "models"
+  | "modelLoadPolicy"
+  | "modelPressurePolicy"
+  | "modelPressureReleaseTimeoutMs"
+  | "modelIdleTtlMs"
+  | "pinnedModelIds"
 >;
 type PromptPrefixCacheRetentionOption = Pick<
   ResolvedServeModelsRuntimeOptions,
@@ -191,6 +198,19 @@ function modelIdleTtlMsOption(value: number | undefined): { modelIdleTtlMs?: num
     : { modelIdleTtlMs: requirePositiveInteger("modelIdleTtlMs", value) };
 }
 
+function modelPressureReleaseTimeoutMsOption(value: number | undefined): {
+  modelPressureReleaseTimeoutMs?: number;
+} {
+  return value === undefined
+    ? {}
+    : {
+        modelPressureReleaseTimeoutMs: requirePositiveInteger(
+          "modelPressureReleaseTimeoutMs",
+          value,
+        ),
+      };
+}
+
 function resolvePinnedModelIds(
   options: ServeModelsOptions,
   models: readonly ResolvedModelSourceEntry[],
@@ -212,6 +232,7 @@ function requireLazyPoolOptions(
   options: {
     modelIdleTtlMs?: number;
     modelPressurePolicy: SourceModelPressurePolicy;
+    modelPressureReleaseTimeoutMs?: number;
     pinnedModelIds: readonly string[];
   },
 ): void {
@@ -223,6 +244,9 @@ function requireLazyPoolOptions(
   }
   if (options.modelPressurePolicy !== "reject") {
     throw new Error('modelPressurePolicy requires modelLoadPolicy="lazy".');
+  }
+  if (options.modelPressureReleaseTimeoutMs !== undefined) {
+    throw new Error('modelPressureReleaseTimeoutMs requires modelLoadPolicy="lazy".');
   }
   if (options.pinnedModelIds.length > 0) {
     throw new Error('pinned source models require modelLoadPolicy="lazy".');
@@ -301,16 +325,21 @@ function resolveServeModelsOptions(options: ServeModelsOptions): ResolvedServeMo
   const modelLoadPolicy = resolveModelLoadPolicy(options.modelLoadPolicy);
   const modelPressurePolicy = resolveModelPressurePolicy(options.modelPressurePolicy);
   const idle = modelIdleTtlMsOption(options.modelIdleTtlMs);
+  const pressureReleaseTimeout = modelPressureReleaseTimeoutMsOption(
+    options.modelPressureReleaseTimeoutMs,
+  );
   const pinnedModelIds = resolvePinnedModelIds(options, models);
   requireLazyPoolOptions(modelLoadPolicy, {
     ...idle,
     modelPressurePolicy,
+    ...pressureReleaseTimeout,
     pinnedModelIds,
   });
   return {
     models,
     modelLoadPolicy,
     modelPressurePolicy,
+    ...pressureReleaseTimeout,
     ...idle,
     pinnedModelIds,
     ...resolveServeModelsRuntimeOptions(options),

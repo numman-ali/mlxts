@@ -180,6 +180,8 @@ describe("serve CLI args", () => {
       "lazy",
       "--model-pressure-policy",
       "shed_non_pinned",
+      "--model-pressure-release-timeout-ms",
+      "7500",
       "--model-idle-ttl-ms",
       "60000",
       "--pin-model",
@@ -202,6 +204,7 @@ describe("serve CLI args", () => {
         modelRoots: [],
         modelLoadPolicy: "lazy",
         modelPressurePolicy: "shed_non_pinned",
+        modelPressureReleaseTimeoutMs: 7500,
         modelIdleTtlMs: 60000,
         pinnedModels: ["gemma"],
         localFilesOnly: true,
@@ -379,6 +382,14 @@ describe("serve CLI args", () => {
     expect(parseServeArgs(["model", "--model-idle-ttl-ms", "1000"])).toMatchObject({
       kind: "help",
       message: "--model-idle-ttl-ms requires --model-load-policy lazy.",
+    });
+    expect(parseServeArgs(["model", "--model-pressure-release-timeout-ms", "0"])).toMatchObject({
+      kind: "help",
+      message: 'Expected --model-pressure-release-timeout-ms to be a positive integer, got "0".',
+    });
+    expect(parseServeArgs(["model", "--model-pressure-release-timeout-ms", "1000"])).toMatchObject({
+      kind: "help",
+      message: "--model-pressure-release-timeout-ms requires --model-load-policy lazy.",
     });
     expect(parseServeArgs(["model", "--model-pressure-policy", "shed_non_pinned"])).toMatchObject({
       kind: "help",
@@ -1160,7 +1171,15 @@ describe("serve CLI args", () => {
   test("routes lazy single-model CLI serving through the source model pool", async () => {
     const running = fakeRunningServer(["repo/model"]);
     await runServeCli(
-      ["repo/model", "--model-load-policy", "lazy", "--model-idle-ttl-ms", "1000"],
+      [
+        "repo/model",
+        "--model-load-policy",
+        "lazy",
+        "--model-idle-ttl-ms",
+        "1000",
+        "--model-pressure-release-timeout-ms",
+        "7500",
+      ],
       {
         async serveModel() {
           throw new Error("eager single-model server should not be used for lazy loading");
@@ -1170,6 +1189,7 @@ describe("serve CLI args", () => {
           expect(options.modelLoadPolicy).toBe("lazy");
           expect(options.modelPressurePolicy).toBe("reject");
           expect(options.modelIdleTtlMs).toBe(1000);
+          expect(options.modelPressureReleaseTimeoutMs).toBe(7500);
           expect(options.pinnedModels).toEqual([]);
           return running;
         },

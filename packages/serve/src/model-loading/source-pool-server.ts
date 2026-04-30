@@ -76,6 +76,9 @@ export function serveLazyModelsWithRuntime(
     entries: sourceModelPoolEntries(resolved),
     ...(resolved.modelIdleTtlMs === undefined ? {} : { idleTtlMs: resolved.modelIdleTtlMs }),
     pressurePolicy: resolved.modelPressurePolicy,
+    ...(resolved.modelPressureReleaseTimeoutMs === undefined
+      ? {}
+      : { pressureReleaseTimeoutMs: resolved.modelPressureReleaseTimeoutMs }),
     onEvent: instrumentedOnEvent,
     async load(entry) {
       const sourceEntry = entriesById.get(entry.modelId);

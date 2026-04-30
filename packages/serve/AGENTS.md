@@ -31,7 +31,8 @@ geometry and MLX memory telemetry are available.
 Lazy model-pool pressure relief is operator-explicit. The default policy rejects
 the blocked request. `shed_non_pinned` evicts idle non-pinned models before
 aborting the oldest eligible active non-pinned request scope, waiting a bounded
-time for normal release, and retrying. Pinned models are not pressure-shed.
+operator-configured time for normal release, and retrying. Pinned models are
+not pressure-shed.
 
 `src/` is organized into role-based folders: `http/`, `streaming/`, `engine/`,
 `protocols/`, `admission/`, `runtime/`, `observability/`, `model-loading/`,

@@ -32,6 +32,7 @@ export type ServeCliOptions = {
   modelRoots: readonly string[];
   modelLoadPolicy: "eager" | "lazy";
   modelPressurePolicy: SourceModelPressurePolicy;
+  modelPressureReleaseTimeoutMs?: number;
   modelIdleTtlMs?: number;
   pinnedModels: readonly string[];
   hostname: string;
@@ -78,6 +79,7 @@ type ParseState = {
   modelLoadPolicy: "eager" | "lazy";
   modelLoadPolicyExplicit: boolean;
   modelPressurePolicy: SourceModelPressurePolicy;
+  modelPressureReleaseTimeoutMs?: number;
   modelIdleTtlMs?: number;
   pinnedModels: string[];
   hostname: string;
@@ -117,6 +119,10 @@ function readModelPressurePolicy(value: string): SourceModelPressurePolicy {
     return value;
   }
   throw new Error(`Unknown model pressure policy: ${value}.`);
+}
+
+function readPositiveIntegerFlag(arg: string, value: string | undefined): number {
+  return readIntegerFlag(arg, value, (candidate) => candidate > 0, "a positive integer");
 }
 
 function createParseState(): ParseState {
@@ -169,15 +175,13 @@ function applyFlag(state: ParseState, argv: readonly string[], index: number): n
       state.modelLoadPolicyExplicit = true;
       return index + 1;
     case "--model-idle-ttl-ms":
-      state.modelIdleTtlMs = readIntegerFlag(
-        arg,
-        argv[index + 1],
-        (value) => value > 0,
-        "a positive integer",
-      );
+      state.modelIdleTtlMs = readPositiveIntegerFlag(arg, argv[index + 1]);
       return index + 1;
     case "--model-pressure-policy":
       state.modelPressurePolicy = readModelPressurePolicy(readStringFlag(arg, argv[index + 1]));
+      return index + 1;
+    case "--model-pressure-release-timeout-ms":
+      state.modelPressureReleaseTimeoutMs = readPositiveIntegerFlag(arg, argv[index + 1]);
       return index + 1;
     case "--pin-model":
       state.pinnedModels.push(readStringFlag(arg, argv[index + 1]));
@@ -198,36 +202,16 @@ function applyFlag(state: ParseState, argv: readonly string[], index: number): n
       );
       return index + 1;
     case "--max-generated-tokens":
-      state.maxGeneratedTokens = readIntegerFlag(
-        arg,
-        argv[index + 1],
-        (value) => value > 0,
-        "a positive integer",
-      );
+      state.maxGeneratedTokens = readPositiveIntegerFlag(arg, argv[index + 1]);
       return index + 1;
     case "--max-prompt-tokens":
-      state.maxPromptTokens = readIntegerFlag(
-        arg,
-        argv[index + 1],
-        (value) => value > 0,
-        "a positive integer",
-      );
+      state.maxPromptTokens = readPositiveIntegerFlag(arg, argv[index + 1]);
       return index + 1;
     case "--max-total-tokens":
-      state.maxTotalTokens = readIntegerFlag(
-        arg,
-        argv[index + 1],
-        (value) => value > 0,
-        "a positive integer",
-      );
+      state.maxTotalTokens = readPositiveIntegerFlag(arg, argv[index + 1]);
       return index + 1;
     case "--max-batch-size":
-      state.maxBatchSize = readIntegerFlag(
-        arg,
-        argv[index + 1],
-        (value) => value > 0,
-        "a positive integer",
-      );
+      state.maxBatchSize = readPositiveIntegerFlag(arg, argv[index + 1]);
       return index + 1;
     case "--batch-window-ms":
       state.batchWindowMs = readIntegerFlag(
@@ -238,60 +222,25 @@ function applyFlag(state: ParseState, argv: readonly string[], index: number): n
       );
       return index + 1;
     case "--active-prefill-step-size":
-      state.activePrefillStepSize = readIntegerFlag(
-        arg,
-        argv[index + 1],
-        (value) => value > 0,
-        "a positive integer",
-      );
+      state.activePrefillStepSize = readPositiveIntegerFlag(arg, argv[index + 1]);
       return index + 1;
     case "--prefill-step-size":
-      state.prefillStepSize = readIntegerFlag(
-        arg,
-        argv[index + 1],
-        (value) => value > 0,
-        "a positive integer",
-      );
+      state.prefillStepSize = readPositiveIntegerFlag(arg, argv[index + 1]);
       return index + 1;
     case "--active-decode-steps-per-prefill-chunk":
-      state.activeDecodeStepsPerPrefillChunk = readIntegerFlag(
-        arg,
-        argv[index + 1],
-        (value) => value > 0,
-        "a positive integer",
-      );
+      state.activeDecodeStepsPerPrefillChunk = readPositiveIntegerFlag(arg, argv[index + 1]);
       return index + 1;
     case "--stream-decode-interval":
-      state.streamDecodeInterval = readIntegerFlag(
-        arg,
-        argv[index + 1],
-        (value) => value > 0,
-        "a positive integer",
-      );
+      state.streamDecodeInterval = readPositiveIntegerFlag(arg, argv[index + 1]);
       return index + 1;
     case "--max-concurrent-requests":
-      state.maxConcurrentRequests = readIntegerFlag(
-        arg,
-        argv[index + 1],
-        (value) => value > 0,
-        "a positive integer",
-      );
+      state.maxConcurrentRequests = readPositiveIntegerFlag(arg, argv[index + 1]);
       return index + 1;
     case "--prompt-prefix-cache-max-entries":
-      state.promptPrefixCacheMaxEntries = readIntegerFlag(
-        arg,
-        argv[index + 1],
-        (value) => value > 0,
-        "a positive integer",
-      );
+      state.promptPrefixCacheMaxEntries = readPositiveIntegerFlag(arg, argv[index + 1]);
       return index + 1;
     case "--prompt-prefix-cache-max-bytes":
-      state.promptPrefixCacheMaxBytes = readIntegerFlag(
-        arg,
-        argv[index + 1],
-        (value) => value > 0,
-        "a positive integer",
-      );
+      state.promptPrefixCacheMaxBytes = readPositiveIntegerFlag(arg, argv[index + 1]);
       return index + 1;
     case "--gpu-memory-utilization":
       state.gpuMemoryUtilization = readNumberFlag(
@@ -387,6 +336,7 @@ function requireLazyModelPoolOptions(
   modelLoadPolicy: "eager" | "lazy",
   modelIdleTtlMs: number | undefined,
   modelPressurePolicy: SourceModelPressurePolicy,
+  modelPressureReleaseTimeoutMs: number | undefined,
   pinnedModels: readonly string[],
 ): void {
   if (modelLoadPolicy === "lazy") {
@@ -398,9 +348,20 @@ function requireLazyModelPoolOptions(
   if (modelPressurePolicy !== "reject") {
     throw new Error("--model-pressure-policy requires --model-load-policy lazy.");
   }
+  if (modelPressureReleaseTimeoutMs !== undefined) {
+    throw new Error("--model-pressure-release-timeout-ms requires --model-load-policy lazy.");
+  }
   if (pinnedModels.length > 0) {
     throw new Error("--pin-model requires --model-load-policy lazy.");
   }
+}
+
+function modelPressureReleaseTimeoutOption(
+  state: ParseState,
+): Pick<ServeCliOptions, "modelPressureReleaseTimeoutMs"> | Record<string, never> {
+  return state.modelPressureReleaseTimeoutMs === undefined
+    ? {}
+    : { modelPressureReleaseTimeoutMs: state.modelPressureReleaseTimeoutMs };
 }
 
 function stateToOptions(state: ParseState): ServeCliParseResult {
@@ -422,6 +383,7 @@ function stateToOptions(state: ParseState): ServeCliParseResult {
     modelLoadPolicy,
     state.modelIdleTtlMs,
     state.modelPressurePolicy,
+    state.modelPressureReleaseTimeoutMs,
     pinnedModels,
   );
   const [primaryModel] = models;
@@ -441,6 +403,7 @@ function stateToOptions(state: ParseState): ServeCliParseResult {
       modelRoots: [...new Set(state.modelRoots)],
       modelLoadPolicy,
       modelPressurePolicy: state.modelPressurePolicy,
+      ...modelPressureReleaseTimeoutOption(state),
       ...(state.modelIdleTtlMs === undefined ? {} : { modelIdleTtlMs: state.modelIdleTtlMs }),
       pinnedModels,
       hostname: state.hostname,

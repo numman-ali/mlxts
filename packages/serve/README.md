@@ -56,6 +56,8 @@ non-pinned request scope, waits a bounded time for normal generation cleanup,
 and retries. If pressure remains, the next pass sheds one more eligible active
 scope. The default `reject` policy preserves existing active requests and
 returns the original memory-budget error.
+Use `--model-pressure-release-timeout-ms <n>` to tune how long the pool waits
+for a pressure-cancelled request to release before returning a timeout.
 
 Use repeatable `--model-root <directory>` when a local model store already uses
 flat checkpoint folders or Hugging Face-style `org/model` folders. Discovery
@@ -140,6 +142,9 @@ existing requests untouched. `shed_non_pinned` evicts idle non-pinned models
 first, then cancels active non-pinned requests one at a time with
 `model_pool_memory_pressure` while retrying between releases. Pinned models are
 never pressure-shed.
+`--model-pressure-release-timeout-ms <n>` bounds the wait for each
+pressure-cancelled request to release before the blocked caller fails with
+`model_pool_pressure_timeout`.
 `--gpu-memory-utilization <f>` adds a best-effort MLX memory preflight: the
 server estimates request-local KV cache, recurrent cache state, and prefill
 temporary memory from the loaded model config, then rejects requests whose

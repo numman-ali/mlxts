@@ -33,6 +33,7 @@ export function formatServeUsage(): string {
     "  --model-load-policy <eager|lazy>  Load all models at startup or on first request",
     "  --model-idle-ttl-ms <n>     Evict lazy-loaded idle models after n milliseconds",
     "  --model-pressure-policy <reject|shed_non_pinned>  Lazy-pool response when memory pressure blocks a load or request",
+    "  --model-pressure-release-timeout-ms <n>  Wait up to n ms for pressure-cancelled lazy requests to release",
     "  --pin-model <id>            Keep a lazy-loaded model resident; repeat as needed",
     "  --model-id <id>             Served model id for positional single-model usage",
     "  --served-model-name <id>    Alias for --model-id",

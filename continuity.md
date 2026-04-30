@@ -71,9 +71,10 @@ major product-agent focus on package-owned CLIs and future PI-agent integration.
   after `modelIdleTtlMs`, and keeps pinned models resident until shutdown.
   `modelPressurePolicy` defaults to `reject`; `shed_non_pinned` can evict idle
   non-pinned models and abort the oldest eligible active non-pinned request
-  scope with `model_pool_memory_pressure`, waiting a bounded time for release
-  before each retry. The eager policy remains the default and single-model eager
-  CLI serving still routes through `serveModel()`.
+  scope with `model_pool_memory_pressure`, waiting a bounded
+  operator-configured time for release before each retry. The eager policy
+  remains the default and single-model eager CLI serving still routes through
+  `serveModel()`.
 - **Image serving**: Qwen image transport, host decode, and prepared-prompt
   cache shipped with explicit boundary — serve owns I/O and decode, transformers
   owns preprocessing and prompt expansion. OpenAI Chat/OpenResponses accept
@@ -276,6 +277,10 @@ Full evidence ladder lives in
   (`23 pass`) and focused serve typecheck. The policy now sheds one oldest
   eligible active non-pinned lease per pressure pass and fails boundedly if a
   pressure-cancelled lease does not release.
+- Lazy model-pool pressure timeout CLI/API plumbing passed focused serve CLI
+  and source-loading tests (`32 pass`) plus focused serve typecheck. The
+  default pool timeout remains internal unless operators set
+  `modelPressureReleaseTimeoutMs` / `--model-pressure-release-timeout-ms`.
 
 ## Next Work
 

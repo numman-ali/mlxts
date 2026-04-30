@@ -158,14 +158,12 @@ export function formatServeReady(endpoint: string, options: ServeCliOptions): st
     "",
   ].join("\n");
 }
-
 export function publicBindWarning(options: ServeCliOptions): string | null {
   if (options.hostname !== "0.0.0.0" || options.apiKey !== undefined) {
     return null;
   }
   return "[warning] Binding to 0.0.0.0 without --api-key exposes the endpoint to your network.";
 }
-
 function formatDuration(ms: number): string {
   return ms >= 1000 ? `${(ms / 1000).toFixed(1)}s` : `${ms.toFixed(1)}ms`;
 }
@@ -301,7 +299,6 @@ function waitForShutdown(running: RunningModelServer): Promise<void> {
     process.once("SIGTERM", close);
   });
 }
-
 function toServeModelOptions(options: ServeCliOptions): ServeModelOptions {
   return {
     source: options.source,
@@ -341,6 +338,9 @@ function toServeModelsOptions(options: ServeCliOptions): ServeModelsOptions {
     })),
     modelLoadPolicy: options.modelLoadPolicy,
     modelPressurePolicy: options.modelPressurePolicy,
+    ...(options.modelPressureReleaseTimeoutMs === undefined
+      ? {}
+      : { modelPressureReleaseTimeoutMs: options.modelPressureReleaseTimeoutMs }),
     ...(options.modelIdleTtlMs === undefined ? {} : { modelIdleTtlMs: options.modelIdleTtlMs }),
     pinnedModels: options.pinnedModels,
     hostname: options.hostname,

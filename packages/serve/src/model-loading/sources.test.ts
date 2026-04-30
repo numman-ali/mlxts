@@ -364,6 +364,22 @@ describe("serveModels", () => {
     ).rejects.toThrow('modelPressurePolicy requires modelLoadPolicy="lazy"');
     await expect(
       serveModelsWithRuntime(
+        { models: [{ source: "repo/one" }], modelPressureReleaseTimeoutMs: 1000 },
+        runtime,
+      ),
+    ).rejects.toThrow('modelPressureReleaseTimeoutMs requires modelLoadPolicy="lazy"');
+    await expect(
+      serveModelsWithRuntime(
+        {
+          models: [{ source: "repo/one" }],
+          modelLoadPolicy: "lazy",
+          modelPressureReleaseTimeoutMs: 0,
+        },
+        runtime,
+      ),
+    ).rejects.toThrow("modelPressureReleaseTimeoutMs must be a positive integer");
+    await expect(
+      serveModelsWithRuntime(
         {
           models: [{ source: "repo/one" }],
           modelLoadPolicy: "lazy",
