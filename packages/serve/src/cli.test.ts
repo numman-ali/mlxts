@@ -49,6 +49,7 @@ describe("serve CLI args", () => {
             modelId: "mlx-community/Qwen3.6-27B-4bit",
           },
         ],
+        modelRoots: [],
         modelLoadPolicy: "eager",
         pinnedModels: [],
         hostname: "127.0.0.1",
@@ -129,6 +130,7 @@ describe("serve CLI args", () => {
         source: "local-model",
         modelId: "mlx-community/Qwen3.6-27B-4bit",
         models: [{ source: "local-model", modelId: "mlx-community/Qwen3.6-27B-4bit" }],
+        modelRoots: [],
         modelLoadPolicy: "eager",
         pinnedModels: [],
         hostname: "0.0.0.0",
@@ -184,10 +186,48 @@ describe("serve CLI args", () => {
             modelId: "mlx-community/Qwen3.6-27B-4bit",
           },
         ],
+        modelRoots: [],
         modelLoadPolicy: "lazy",
         modelIdleTtlMs: 60000,
         pinnedModels: ["gemma"],
         localFilesOnly: true,
+      },
+    });
+  });
+
+  test("parses local model-root discovery for lazy multi-model serving", () => {
+    expect(parseServeArgs(["--model-root", "/models"])).toMatchObject({
+      kind: "serve",
+      options: {
+        source: "/models",
+        modelId: "/models",
+        models: [],
+        modelRoots: ["/models"],
+        modelLoadPolicy: "lazy",
+        pinnedModels: [],
+      },
+    });
+
+    expect(
+      parseServeArgs([
+        "--model",
+        "manual=repo/manual",
+        "--model-root",
+        "/models",
+        "--model-load-policy",
+        "lazy",
+        "--pin-model",
+        "org/qwen",
+      ]),
+    ).toMatchObject({
+      kind: "serve",
+      options: {
+        source: "repo/manual",
+        modelId: "manual",
+        models: [{ source: "repo/manual", modelId: "manual" }],
+        modelRoots: ["/models"],
+        modelLoadPolicy: "lazy",
+        pinnedModels: ["org/qwen"],
       },
     });
   });
@@ -273,6 +313,21 @@ describe("serve CLI args", () => {
     expect(parseServeArgs(["model", "--model-idle-ttl-ms", "1000"])).toMatchObject({
       kind: "help",
       message: "--model-idle-ttl-ms requires --model-load-policy lazy.",
+    });
+    expect(
+      parseServeArgs(["--model-root", "/models", "--model-load-policy", "eager"]),
+    ).toMatchObject({
+      kind: "help",
+      message: "--model-root requires --model-load-policy lazy.",
+    });
+    expect(parseServeArgs(["model", "--model-root", "/models"])).toMatchObject({
+      kind: "help",
+      message: "Cannot mix a positional model source with --model-root.",
+    });
+    expect(parseServeArgs(["--model-root", "/models", "--model-id", "alias"])).toMatchObject({
+      kind: "help",
+      message:
+        "Cannot use --model-id with --model-root; use --model <model-id=source> for explicit additions.",
     });
     expect(parseServeArgs(["model", "--pin-model", "model"])).toMatchObject({
       kind: "help",
@@ -382,6 +437,7 @@ describe("serve CLI args", () => {
       source: "repo/model",
       modelId: "mlx-community/Qwen3.6-27B-4bit",
       models: [{ source: "repo/model", modelId: "mlx-community/Qwen3.6-27B-4bit" }],
+      modelRoots: [],
       hostname: "0.0.0.0",
       port: 8000,
       maxGeneratedTokens: 64,
@@ -1000,6 +1056,152 @@ describe("serve CLI args", () => {
     );
 
     expect(running.stopped).toBe(true);
+  });
+
+  test("runs local model-root discovery through the lazy source pool", async () => {
+    const logs: string[] = [];
+    const errors: string[] = [];
+    const running = fakeRunningServer(["manual", "org/qwen", "flat"]);
+
+    await runServeCli(
+      ["--model", "manual=repo/manual", "--model-root", "/models", "--pin-model", "org/qwen"],
+      {
+        async serveModel() {
+          throw new Error("eager single-model server should not be used for model-root discovery");
+        },
+        async serveModels(options) {
+          expect(options.models).toEqual([
+            { source: "repo/manual", modelId: "manual" },
+            { source: "/models/org/qwen", modelId: "org/qwen" },
+            { source: "/models/flat", modelId: "flat" },
+          ]);
+          expect(options.modelLoadPolicy).toBe("lazy");
+          expect(options.pinnedModels).toEqual(["org/qwen"]);
+          return running;
+        },
+        discoverLocalModelSources(root) {
+          expect(root).toBe("/models");
+          return [
+            {
+              source: "/models/org/qwen",
+              modelId: "org/qwen",
+              modelType: "qwen3_5",
+              architectures: ["Qwen3_5ForConditionalGeneration"],
+              hasVisionConfig: true,
+            },
+            {
+              source: "/models/flat",
+              modelId: "flat",
+              modelType: "gemma",
+              architectures: [],
+              hasVisionConfig: false,
+            },
+          ];
+        },
+        log(message) {
+          logs.push(message);
+        },
+        error(message) {
+          errors.push(message);
+        },
+        async waitForShutdown(server) {
+          server.stop();
+        },
+      },
+    );
+
+    expect(errors).toEqual([]);
+    expect(logs.join("\n")).toContain("Models: manual, org/qwen, flat");
+    expect(logs.join("\n")).toContain("Model load policy: lazy");
+    expect(running.stopped).toBe(true);
+  });
+
+  test("reports empty model-root discovery before server start", async () => {
+    const errors: string[] = [];
+    let exitCode = -1;
+
+    await runServeCli(["--model-root", "/empty"], {
+      async serveModels() {
+        throw new Error("server should not start when discovery is empty");
+      },
+      discoverLocalModelSources(root) {
+        expect(root).toBe("/empty");
+        return [];
+      },
+      error(message) {
+        errors.push(message);
+      },
+      exit(code) {
+        exitCode = code;
+      },
+    });
+
+    expect(exitCode).toBe(1);
+    expect(errors).toEqual([
+      "No supported local autoregressive model checkpoints discovered under /empty.",
+    ]);
+  });
+
+  test("reports invalid post-discovery model-root entries before server start", async () => {
+    const duplicateErrors: string[] = [];
+    let duplicateExitCode = -1;
+
+    await runServeCli(["--model", "flat=repo/manual", "--model-root", "/models"], {
+      async serveModels() {
+        throw new Error("server should not start when discovered ids duplicate explicit ids");
+      },
+      discoverLocalModelSources(root) {
+        expect(root).toBe("/models");
+        return [
+          {
+            source: "/models/flat",
+            modelId: "flat",
+            modelType: "gemma",
+            architectures: [],
+            hasVisionConfig: false,
+          },
+        ];
+      },
+      error(message) {
+        duplicateErrors.push(message);
+      },
+      exit(code) {
+        duplicateExitCode = code;
+      },
+    });
+
+    expect(duplicateExitCode).toBe(1);
+    expect(duplicateErrors).toEqual(['model id "flat" is duplicated.']);
+
+    const pinErrors: string[] = [];
+    let pinExitCode = -1;
+
+    await runServeCli(["--model-root", "/models", "--pin-model", "missing"], {
+      async serveModels() {
+        throw new Error("server should not start when discovered ids omit a pinned model");
+      },
+      discoverLocalModelSources(root) {
+        expect(root).toBe("/models");
+        return [
+          {
+            source: "/models/flat",
+            modelId: "flat",
+            modelType: "gemma",
+            architectures: [],
+            hasVisionConfig: false,
+          },
+        ];
+      },
+      error(message) {
+        pinErrors.push(message);
+      },
+      exit(code) {
+        pinExitCode = code;
+      },
+    });
+
+    expect(pinExitCode).toBe(1);
+    expect(pinErrors).toEqual(['Pinned model "missing" is not part of this serve command.']);
   });
 
   test("runs help through injectable exit", async () => {

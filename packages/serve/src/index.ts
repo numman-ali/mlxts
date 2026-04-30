@@ -39,6 +39,10 @@ export {
   startServeServer,
 } from "./http/server";
 export {
+  type DiscoveredLocalModelSource,
+  discoverLocalModelSources,
+} from "./model-loading/discovery";
+export {
   createModelRouterGenerationEngine,
   type ModelRouterGenerationEngineOptions,
 } from "./model-loading/router";

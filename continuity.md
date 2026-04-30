@@ -226,6 +226,12 @@ Full evidence ladder lives in
   after model load, and queued cold loads starting after pool shutdown. All
   three are fixed and covered by regression tests; the final follow-up review
   reported no remaining blockers.
+- Local model-root discovery now expands flat checkpoint folders and two-level
+  `org/model` folders into source-backed lazy serving entries before startup.
+  The scanner requires `config.json`, a supported autoregressive `model_type`,
+  and safetensor weights; follows safetensor symlinks; defaults
+  `--model-root` commands to lazy loading; and rejects empty roots before the
+  server starts.
 - Gemma 4 A4B MoE proof passed against the cached
   `mlx-community/gemma-4-26b-a4b-it-4bit` snapshot. Transformer decode at
   `128x128` reported `generation_tps=108.604`, `evals_per_token=1.00`, and
@@ -262,9 +268,9 @@ Full evidence ladder lives in
   served retention limits are explicit runtime/CLI knobs by entry count and
   estimated retained snapshot bytes. Paged attention and cache-tensor block
   deduplication remain later cache-backend work.
-- Next memory work is the rest of multi-model pool management: lazy loading,
-  idle eviction, pinned models, TTL policy, and active-request abort policy
-  when one loaded model needs to shed KV pressure.
+- Next memory work is active-request abort policy when one loaded model needs
+  to shed KV pressure. Lazy source loading, idle eviction, pinned models, TTL
+  policy, and local model-root discovery are in place.
 - Use `bun run bench:serve --stream` for huge prompt rungs; buffered JSON is
   a poor acceptance shape when client TTFT exceeds a few minutes.
 - For publishable parity claims, use

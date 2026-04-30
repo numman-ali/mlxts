@@ -4,6 +4,8 @@ OpenAI-compatible chat client and tool-loop primitives. The boundary with `@mlxt
 
 Owns: agent message types, tool registration, tool-call parsing from generated assistant text, tool execution scheduling, max-iteration discipline, conversation state, CLI presentation.
 
+Non-interactive CLI commands and finite status/error output follow `.agents/skills/axi/SKILL.md`. The interactive REPL is a terminal conversation surface. Non-TTY paths do not prompt.
+
 Out of scope: model execution. Imports of `@mlxts/core`, `@mlxts/nn`, `@mlxts/transformers`, and `@mlxts/serve` are forbidden. The package stays usable against any OpenAI-compatible server.
 
 Reasoning-tag handling re-exports from `@mlxts/protocols`. Forking the tag-stream parser inside this package is forbidden.

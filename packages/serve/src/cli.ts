@@ -1,8 +1,17 @@
 #!/usr/bin/env bun
 
 import type { PretrainedLoadProgressEvent } from "@mlxts/transformers";
+import {
+  requireDistinctModelIds,
+  requirePinnedModelsExist,
+  type ServeCliModelOption,
+} from "./cli-model-options";
 import { parseServeArgs, type ServeCliOptions, type ServeCliParseResult } from "./cli-options";
 import { formatServeUsage } from "./cli-usage";
+import {
+  type DiscoveredLocalModelSource,
+  discoverLocalModelSources,
+} from "./model-loading/discovery";
 import {
   type RunningModelServer,
   type ServeModelOptions,
@@ -17,6 +26,7 @@ export { formatServeUsage, parseServeArgs };
 export type ServeCliRuntime = {
   serveModel?: (options: ServeModelOptions) => Promise<RunningModelServer>;
   serveModels?: (options: ServeModelsOptions) => Promise<RunningModelServer>;
+  discoverLocalModelSources?: (root: string) => readonly DiscoveredLocalModelSource[];
   log?: (message: string) => void;
   error?: (message: string) => void;
   exit?: (code: number) => void;
@@ -332,6 +342,49 @@ function toServeModelsOptions(options: ServeCliOptions): ServeModelsOptions {
   };
 }
 
+function discoveredSourceToModelOption(model: DiscoveredLocalModelSource): ServeCliModelOption {
+  return {
+    source: model.source,
+    modelId: model.modelId,
+  };
+}
+
+function expandDiscoveredModelRoots(
+  options: ServeCliOptions,
+  runtime: ServeCliRuntime,
+): ServeCliOptions {
+  if (options.modelRoots.length === 0) {
+    return options;
+  }
+
+  const discover = runtime.discoverLocalModelSources ?? discoverLocalModelSources;
+  const discoveredModels: ServeCliModelOption[] = [];
+  for (const root of options.modelRoots) {
+    const models = discover(root).map(discoveredSourceToModelOption);
+    if (models.length === 0) {
+      throw new Error(
+        `No supported local autoregressive model checkpoints discovered under ${root}.`,
+      );
+    }
+    discoveredModels.push(...models);
+  }
+
+  const models = [...options.models, ...discoveredModels];
+  requireDistinctModelIds(models);
+  requirePinnedModelsExist(models, options.pinnedModels);
+  const [primaryModel] = models;
+  if (primaryModel === undefined) {
+    throw new Error("Missing model path or Hugging Face repo id.");
+  }
+
+  return {
+    ...options,
+    source: primaryModel.source,
+    modelId: primaryModel.modelId,
+    models,
+  };
+}
+
 async function startParsedServer(
   options: ServeCliOptions,
   runtime: ServeCliRuntime,
@@ -380,12 +433,21 @@ export async function runServeCli(
     return;
   }
 
-  const running = await startParsedServer(parsed.options, runtime, log);
-  const warning = publicBindWarning(parsed.options);
+  let options: ServeCliOptions;
+  try {
+    options = expandDiscoveredModelRoots(parsed.options, runtime);
+  } catch (exception) {
+    error(exception instanceof Error ? exception.message : String(exception));
+    exit(1);
+    return;
+  }
+
+  const running = await startParsedServer(options, runtime, log);
+  const warning = publicBindWarning(options);
   if (warning !== null) {
     log(warning);
   }
-  log(formatServeReady(running.endpoint, parsed.options));
+  log(formatServeReady(running.endpoint, options));
   await shutdown(running);
 }
 

@@ -49,6 +49,21 @@ normal per-model generation engine. Idle eviction disposes loaded engines and
 model weights only after in-flight requests and streams finish; pinned models
 stay resident until server shutdown.
 
+Use repeatable `--model-root <directory>` when a local model store already uses
+flat checkpoint folders or Hugging Face-style `org/model` folders. Discovery
+finds supported autoregressive checkpoint directories with `config.json` plus
+safetensor weights and automatically uses lazy loading so startup does not
+materialize every local checkpoint:
+
+```bash
+mlxts-serve \
+  --model-root ~/Models/mlxts \
+  --model-root ~/Models/hf-checkpoints \
+  --model manual=mlx-community/Qwen3.6-27B-4bit \
+  --pin-model org/qwen \
+  --local-files-only
+```
+
 The server exposes `/health`, `/info`, `/metrics`, `/v1/models`,
 `/v1/completions`, `/v1/chat/completions`, `/v1/responses`, and
 `/v1/messages`:

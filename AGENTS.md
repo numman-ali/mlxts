@@ -70,6 +70,7 @@ See [docs/code-standards.md](./docs/code-standards.md) for the full code standar
 - Transform-returning helpers should be explicitly disposable when they hold native resources beyond a single call.
 - If a serious runtime, memory, or performance incident is fixed, the same change must also add a preventive rule, test, benchmark, or validation gate.
 - `examples/nanogpt/` is the committed in-repo example surface, not a publishable package. Prefer improving the reusable `@mlxts/*` packages over deepening example-only abstractions, and document example-owned commands from the example directory rather than as root scripts.
+- Agent-facing CLI work follows the repo-local AXI skill at [`.agents/skills/axi/SKILL.md`](./.agents/skills/axi/SKILL.md): TOON-shaped stdout, compact default schemas, definitive empty states, structured actionable errors, no prompts in non-TTY paths, and progress/diagnostics off the consumable stdout channel.
 - Non-trivial operator logic belongs under canonical package-owned surfaces, not loose root scripts. Avoid creating new permanent product contracts on top of temporary migration code.
 - Snapshot checkpoints and resume checkpoints are both canonical, but they serve different purposes: snapshots are lightweight model saves, resume checkpoints carry optimizer state for exact continuation.
 - **Code must be self-documenting**: names, types, and structure carry meaning. Comments explain *why*, never *what*.

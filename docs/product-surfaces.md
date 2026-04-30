@@ -90,7 +90,7 @@ nanogpt train
 nanogpt train --preset gpt-small --data ./data/shakespeare.txt --lr 3e-4 --batch-size 2 --grad-accum 8 --max-steps 5000
 ```
 
-**Structured output.** Human-readable by default, machine-parseable with `--json` for finite commands. Scripts and CI can consume one-shot results reliably. Long-running servers and interactive REPLs should expose structured logs, events, status endpoints, or transcripts instead of pretending the live session is one JSON object.
+**Agent-first structured output.** Agent-facing finite commands follow the repo-local AXI skill at [`.agents/skills/axi/SKILL.md`](../.agents/skills/axi/SKILL.md): TOON-shaped stdout, compact default schemas, explicit empty states, actionable structured errors, and contextual next-step hints. JSON remains available only as an explicit compatibility or export format where a surface already promises it.
 
 **Long-run control is explicit.** Overnight training is supervised through a run-local directory with structured events, status snapshots, and checkpointed stop/resume. We do not rely on hidden daemons or ad hoc shell state.
 
@@ -98,18 +98,19 @@ nanogpt train --preset gpt-small --data ./data/shakespeare.txt --lr 3e-4 --batch
 
 **Semantic progress matters too.** Loss curves are necessary, but they are not the whole story. Training and acceptance surfaces should make it easy to inspect occasional generated samples so a human can see whether the model is actually learning language-like structure.
 
-**Respect the terminal.** Detect terminal width. Use color only when stdout is a TTY. Support `NO_COLOR`. Never break pipe chains.
+**Respect the terminal.** Detect terminal width. Use color only when stdout is a TTY and the output is not an AXI data stream. Support `NO_COLOR`. Never break pipe chains.
 
 ### Standards
 
 - Every command has `--help` with examples
-- Finite one-shot commands support `--json` for structured output
-- Long-running servers and interactive REPLs expose structured telemetry, status, or transcript surfaces instead of one final `--json` result
-- Exit codes are meaningful: 0 = success, 1 = user error, 2 = system error
+- Agent-facing finite one-shot commands emit AXI/TOON on stdout by default
+- JSON is an explicit compatibility or export mode, not the default agent channel
+- Long-running servers and interactive REPLs expose structured telemetry, status, or transcript surfaces instead of one final structured result
+- Exit codes are meaningful: 0 = success including no-ops, 1 = error, 2 = usage error
 - Long-running operations show progress (spinner or progress bar)
 - Config files override defaults; flags override config files; env vars are a last resort
 - No interactive prompts in non-TTY environments
-- Errors go to stderr, results go to stdout
+- Structured errors go to stdout for agent consumption; diagnostics and progress go to stderr
 - Long-running training commands emit enough structured telemetry to diagnose throughput drift, memory pressure, checkpoint health, and stop/resume state
 - Long-running training and acceptance flows should expose occasional generated samples so semantic progress is visible alongside scalar metrics
 - Overnight or resumable training should go through the canonical `cd examples/nanogpt && bun run manager ...` manager flow, not loose root scripts or one-off shell wrappers
@@ -324,7 +325,7 @@ surface underneath it.
 
 - Minimum terminal size: 80x24
 - Graceful degradation on smaller terminals
-- All data available via the CLI `--json` interface (TUI is just a renderer)
+- All data available via the structured CLI interface; TUI is just a renderer
 - Refresh rate respects terminal performance (no flickering)
 
 ---

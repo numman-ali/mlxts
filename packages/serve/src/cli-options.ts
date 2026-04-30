@@ -1,4 +1,10 @@
 import {
+  parseModelFlagValue,
+  requireDistinctModelIds,
+  requirePinnedModelsExist,
+  type ServeCliModelOption,
+} from "./cli-model-options";
+import {
   DEFAULT_MODEL_SERVER_ACTIVE_DECODE_STEPS_PER_PREFILL_CHUNK,
   DEFAULT_MODEL_SERVER_ACTIVE_PREFILL_STEP_SIZE,
   DEFAULT_MODEL_SERVER_BATCH_WINDOW_MS,
@@ -15,15 +21,13 @@ import {
   DEFAULT_MODEL_SERVER_STREAM_DECODE_INTERVAL,
 } from "./model-loading/server";
 
-export type ServeCliModelOption = {
-  source: string;
-  modelId: string;
-};
+export type { ServeCliModelOption };
 
 export type ServeCliOptions = {
   source: string;
   modelId: string;
   models: readonly ServeCliModelOption[];
+  modelRoots: readonly string[];
   modelLoadPolicy: "eager" | "lazy";
   modelIdleTtlMs?: number;
   pinnedModels: readonly string[];
@@ -66,7 +70,9 @@ type ParseState = {
   source?: string;
   modelId?: string;
   models: ServeCliModelOption[];
+  modelRoots: string[];
   modelLoadPolicy: "eager" | "lazy";
+  modelLoadPolicyExplicit: boolean;
   modelIdleTtlMs?: number;
   pinnedModels: string[];
   hostname: string;
@@ -128,28 +134,6 @@ function readNumberFlag(
   return parsed;
 }
 
-function requireNonEmptyModelPart(part: string, value: string): string {
-  if (value.trim() === "") {
-    throw new Error(`Expected --model to include a non-empty ${part}.`);
-  }
-  return value;
-}
-
-function parseModelFlagValue(rawValue: string): ServeCliModelOption {
-  const raw = rawValue.trim();
-  const separator = raw.indexOf("=");
-  if (separator === -1) {
-    return {
-      source: requireNonEmptyModelPart("source", raw),
-      modelId: raw,
-    };
-  }
-
-  const modelId = requireNonEmptyModelPart("model id", raw.slice(0, separator).trim());
-  const source = requireNonEmptyModelPart("source", raw.slice(separator + 1).trim());
-  return { source, modelId };
-}
-
 function readModelLoadPolicy(value: string): "eager" | "lazy" {
   if (value === "eager" || value === "lazy") {
     return value;
@@ -160,7 +144,9 @@ function readModelLoadPolicy(value: string): "eager" | "lazy" {
 function createParseState(): ParseState {
   return {
     models: [],
+    modelRoots: [],
     modelLoadPolicy: "eager",
+    modelLoadPolicyExplicit: false,
     pinnedModels: [],
     hostname: DEFAULT_MODEL_SERVER_HOSTNAME,
     port: DEFAULT_MODEL_SERVER_PORT,
@@ -195,8 +181,12 @@ function applyFlag(state: ParseState, argv: readonly string[], index: number): n
     case "--model":
       state.models.push(parseModelFlagValue(readStringFlag(arg, argv[index + 1])));
       return index + 1;
+    case "--model-root":
+      state.modelRoots.push(readStringFlag(arg, argv[index + 1]));
+      return index + 1;
     case "--model-load-policy":
       state.modelLoadPolicy = readModelLoadPolicy(readStringFlag(arg, argv[index + 1]));
+      state.modelLoadPolicyExplicit = true;
       return index + 1;
     case "--model-idle-ttl-ms":
       state.modelIdleTtlMs = readIntegerFlag(
@@ -374,19 +364,17 @@ function parseServeState(argv: readonly string[]): ParseState {
   return state;
 }
 
-function requireDistinctModelIds(models: readonly ServeCliModelOption[]): void {
-  const seen = new Set<string>();
-  for (const model of models) {
-    if (seen.has(model.modelId)) {
-      throw new Error(`model id "${model.modelId}" is duplicated.`);
-    }
-    seen.add(model.modelId);
-  }
-}
-
 function modelOptionsFromState(state: ParseState): readonly ServeCliModelOption[] {
   if (state.source !== undefined && state.models.length > 0) {
     throw new Error("Cannot mix a positional model source with --model entries.");
+  }
+  if (state.modelRoots.length > 0 && state.source !== undefined) {
+    throw new Error("Cannot mix a positional model source with --model-root.");
+  }
+  if (state.modelRoots.length > 0 && state.modelId !== undefined) {
+    throw new Error(
+      "Cannot use --model-id with --model-root; use --model <model-id=source> for explicit additions.",
+    );
   }
   if (state.models.length > 0) {
     if (state.modelId !== undefined) {
@@ -394,6 +382,9 @@ function modelOptionsFromState(state: ParseState): readonly ServeCliModelOption[
     }
     requireDistinctModelIds(state.models);
     return state.models;
+  }
+  if (state.modelRoots.length > 0) {
+    return [];
   }
   if (state.source === undefined || state.source.trim() === "") {
     throw new Error("Missing model path or Hugging Face repo id.");
@@ -404,18 +395,6 @@ function modelOptionsFromState(state: ParseState): readonly ServeCliModelOption[
       modelId: state.modelId ?? state.source,
     },
   ];
-}
-
-function requirePinnedModelsExist(
-  models: readonly ServeCliModelOption[],
-  pinnedModels: readonly string[],
-): void {
-  const servedIds = new Set(models.map((model) => model.modelId));
-  for (const modelId of pinnedModels) {
-    if (!servedIds.has(modelId)) {
-      throw new Error(`Pinned model "${modelId}" is not part of this serve command.`);
-    }
-  }
 }
 
 function requireLazyModelPoolOptions(
@@ -437,20 +416,35 @@ function requireLazyModelPoolOptions(
 function stateToOptions(state: ParseState): ServeCliParseResult {
   const models = modelOptionsFromState(state);
   const pinnedModels = [...new Set(state.pinnedModels)];
-  requirePinnedModelsExist(models, pinnedModels);
-  requireLazyModelPoolOptions(state.modelLoadPolicy, state.modelIdleTtlMs, pinnedModels);
+  const modelLoadPolicy =
+    state.modelRoots.length > 0 && !state.modelLoadPolicyExplicit ? "lazy" : state.modelLoadPolicy;
+  if (
+    state.modelRoots.length > 0 &&
+    state.modelLoadPolicyExplicit &&
+    state.modelLoadPolicy !== "lazy"
+  ) {
+    throw new Error("--model-root requires --model-load-policy lazy.");
+  }
+  if (state.modelRoots.length === 0) {
+    requirePinnedModelsExist(models, pinnedModels);
+  }
+  requireLazyModelPoolOptions(modelLoadPolicy, state.modelIdleTtlMs, pinnedModels);
   const [primaryModel] = models;
-  if (primaryModel === undefined) {
+  const fallbackRoot = state.modelRoots[0];
+  const source = primaryModel?.source ?? fallbackRoot;
+  const modelId = primaryModel?.modelId ?? fallbackRoot;
+  if (source === undefined || modelId === undefined) {
     throw new Error("Missing model path or Hugging Face repo id.");
   }
 
   return {
     kind: "serve",
     options: {
-      source: primaryModel.source,
-      modelId: primaryModel.modelId,
+      source,
+      modelId,
       models,
-      modelLoadPolicy: state.modelLoadPolicy,
+      modelRoots: [...new Set(state.modelRoots)],
+      modelLoadPolicy,
       ...(state.modelIdleTtlMs === undefined ? {} : { modelIdleTtlMs: state.modelIdleTtlMs }),
       pinnedModels,
       hostname: state.hostname,

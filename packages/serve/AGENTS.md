@@ -16,6 +16,12 @@ errors, CLI output, and `/info` so long-context failures explain which budget wa
 hit. `/info` context metadata is configured admission truth, not a promise that
 every advertised model window fits local memory.
 
+Agent-facing CLI work follows `.agents/skills/axi/SKILL.md`. The legacy server
+startup and request-progress stream is the long-running operator surface until
+the serve CLI AXI migration. New finite discovery, inspection, status, and error
+surfaces use AXI-shaped stdout, compact schemas, definitive empty states, and
+structured actionable errors.
+
 Memory preflight stays best-effort and honest. It estimates cache and prefill
 memory from family config geometry, compares it with current MLX active memory
 and the configured utilization budget, and skips rather than fakes certainty
