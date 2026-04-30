@@ -12,7 +12,11 @@ same scheduler contract without hiding the denoising loop.
 
 ```ts
 import { array } from "@mlxts/core";
-import { EulerScheduler, loadDiffusionSchedulerFromSnapshot } from "@mlxts/diffusion";
+import {
+  EulerScheduler,
+  loadDiffusionSchedulerFromSnapshot,
+  loadDiffusionSnapshotManifest,
+} from "@mlxts/diffusion";
 
 const scheduler = new EulerScheduler();
 const [step] = scheduler.timesteps(2);
@@ -30,6 +34,9 @@ predictedNoise.free();
 
 const loaded = await loadDiffusionSchedulerFromSnapshot("/models/stable-diffusion");
 loaded.scheduler.timesteps(2);
+
+const manifest = await loadDiffusionSnapshotManifest("/models/stable-diffusion");
+manifest.modelIndex.kind;
 ```
 
 Stable Diffusion, Flux, VAE, text conditioning, and image output examples land

@@ -1,0 +1,484 @@
+import { DiffusionConfigError } from "../errors";
+
+/** Diffusers pipeline classes with recognized local text-to-image snapshot layout. */
+export type DiffusersPipelineClassName =
+  | "StableDiffusionPipeline"
+  | "StableDiffusionXLPipeline"
+  | "FluxPipeline";
+
+/** Pipeline family represented by a supported Diffusers `model_index.json`. */
+export type DiffusionPipelineKind = "stable-diffusion" | "stable-diffusion-xl" | "flux";
+
+/** Component folders recognized in Diffusers text-to-image snapshots. */
+export type DiffusionComponentName =
+  | "vae"
+  | "text_encoder"
+  | "text_encoder_2"
+  | "tokenizer"
+  | "tokenizer_2"
+  | "unet"
+  | "transformer"
+  | "scheduler"
+  | "safety_checker"
+  | "feature_extractor"
+  | "image_encoder";
+
+/** Semantic role for a Diffusers component folder. */
+export type DiffusionComponentRole =
+  | "vae"
+  | "text-encoder"
+  | "tokenizer"
+  | "backbone"
+  | "scheduler"
+  | "safety"
+  | "image-processor"
+  | "image-encoder";
+
+/** Component entry parsed from `model_index.json`. */
+export type DiffusionModelIndexComponent = {
+  name: DiffusionComponentName;
+  role: DiffusionComponentRole;
+  library: string | null;
+  className: string | null;
+  enabled: boolean;
+  optional: boolean;
+  subfolder: string;
+};
+
+/** Parsed Diffusers pipeline manifest translated into package-owned terms. */
+export type ParsedDiffusionModelIndex = {
+  kind: DiffusionPipelineKind;
+  className: DiffusersPipelineClassName;
+  diffusersVersion?: string;
+  components: readonly DiffusionModelIndexComponent[];
+  pipelineConfig: Record<string, string | number | boolean | null>;
+  rawConfig: Record<string, unknown>;
+};
+
+export type DiffusionModelIndexComponentSpec = {
+  name: DiffusionComponentName;
+  role: DiffusionComponentRole;
+  optional?: boolean;
+  allowed: readonly (readonly [string, string])[];
+  requiresConfig?: boolean;
+  requiresTokenizerFiles?: boolean;
+  requiresWeights?: boolean;
+};
+
+type PipelineSpec = {
+  kind: DiffusionPipelineKind;
+  components: readonly DiffusionModelIndexComponentSpec[];
+};
+
+const STABLE_DIFFUSION_COMPONENTS: readonly DiffusionModelIndexComponentSpec[] = [
+  {
+    name: "vae",
+    role: "vae",
+    allowed: [["diffusers", "AutoencoderKL"]],
+    requiresConfig: true,
+    requiresWeights: true,
+  },
+  {
+    name: "text_encoder",
+    role: "text-encoder",
+    allowed: [["transformers", "CLIPTextModel"]],
+    requiresConfig: true,
+    requiresWeights: true,
+  },
+  {
+    name: "tokenizer",
+    role: "tokenizer",
+    allowed: [
+      ["transformers", "CLIPTokenizer"],
+      ["transformers", "CLIPTokenizerFast"],
+    ],
+    requiresTokenizerFiles: true,
+  },
+  {
+    name: "unet",
+    role: "backbone",
+    allowed: [["diffusers", "UNet2DConditionModel"]],
+    requiresConfig: true,
+    requiresWeights: true,
+  },
+  {
+    name: "scheduler",
+    role: "scheduler",
+    allowed: [
+      ["diffusers", "DDIMScheduler"],
+      ["diffusers", "EulerDiscreteScheduler"],
+    ],
+    requiresConfig: true,
+  },
+  {
+    name: "safety_checker",
+    role: "safety",
+    optional: true,
+    allowed: [["stable_diffusion", "StableDiffusionSafetyChecker"]],
+    requiresConfig: true,
+    requiresWeights: true,
+  },
+  {
+    name: "feature_extractor",
+    role: "image-processor",
+    optional: true,
+    allowed: [["transformers", "CLIPImageProcessor"]],
+    requiresConfig: true,
+  },
+  {
+    name: "image_encoder",
+    role: "image-encoder",
+    optional: true,
+    allowed: [["transformers", "CLIPVisionModelWithProjection"]],
+    requiresConfig: true,
+    requiresWeights: true,
+  },
+];
+
+const STABLE_DIFFUSION_XL_COMPONENTS: readonly DiffusionModelIndexComponentSpec[] = [
+  {
+    name: "vae",
+    role: "vae",
+    allowed: [["diffusers", "AutoencoderKL"]],
+    requiresConfig: true,
+    requiresWeights: true,
+  },
+  {
+    name: "text_encoder",
+    role: "text-encoder",
+    allowed: [["transformers", "CLIPTextModel"]],
+    requiresConfig: true,
+    requiresWeights: true,
+  },
+  {
+    name: "text_encoder_2",
+    role: "text-encoder",
+    allowed: [["transformers", "CLIPTextModelWithProjection"]],
+    requiresConfig: true,
+    requiresWeights: true,
+  },
+  {
+    name: "tokenizer",
+    role: "tokenizer",
+    allowed: [
+      ["transformers", "CLIPTokenizer"],
+      ["transformers", "CLIPTokenizerFast"],
+    ],
+    requiresTokenizerFiles: true,
+  },
+  {
+    name: "tokenizer_2",
+    role: "tokenizer",
+    allowed: [
+      ["transformers", "CLIPTokenizer"],
+      ["transformers", "CLIPTokenizerFast"],
+    ],
+    requiresTokenizerFiles: true,
+  },
+  {
+    name: "unet",
+    role: "backbone",
+    allowed: [["diffusers", "UNet2DConditionModel"]],
+    requiresConfig: true,
+    requiresWeights: true,
+  },
+  {
+    name: "scheduler",
+    role: "scheduler",
+    allowed: [
+      ["diffusers", "DDIMScheduler"],
+      ["diffusers", "EulerDiscreteScheduler"],
+    ],
+    requiresConfig: true,
+  },
+  {
+    name: "feature_extractor",
+    role: "image-processor",
+    optional: true,
+    allowed: [["transformers", "CLIPImageProcessor"]],
+    requiresConfig: true,
+  },
+  {
+    name: "image_encoder",
+    role: "image-encoder",
+    optional: true,
+    allowed: [["transformers", "CLIPVisionModelWithProjection"]],
+    requiresConfig: true,
+    requiresWeights: true,
+  },
+];
+
+const FLUX_COMPONENTS: readonly DiffusionModelIndexComponentSpec[] = [
+  {
+    name: "transformer",
+    role: "backbone",
+    allowed: [["diffusers", "FluxTransformer2DModel"]],
+    requiresConfig: true,
+    requiresWeights: true,
+  },
+  {
+    name: "vae",
+    role: "vae",
+    allowed: [["diffusers", "AutoencoderKL"]],
+    requiresConfig: true,
+    requiresWeights: true,
+  },
+  {
+    name: "scheduler",
+    role: "scheduler",
+    allowed: [["diffusers", "FlowMatchEulerDiscreteScheduler"]],
+    requiresConfig: true,
+  },
+  {
+    name: "text_encoder",
+    role: "text-encoder",
+    allowed: [["transformers", "CLIPTextModel"]],
+    requiresConfig: true,
+    requiresWeights: true,
+  },
+  {
+    name: "tokenizer",
+    role: "tokenizer",
+    allowed: [["transformers", "CLIPTokenizer"]],
+    requiresTokenizerFiles: true,
+  },
+  {
+    name: "text_encoder_2",
+    role: "text-encoder",
+    allowed: [["transformers", "T5EncoderModel"]],
+    requiresConfig: true,
+    requiresWeights: true,
+  },
+  {
+    name: "tokenizer_2",
+    role: "tokenizer",
+    allowed: [["transformers", "T5TokenizerFast"]],
+    requiresTokenizerFiles: true,
+  },
+];
+
+const PIPELINE_SPECS: Record<DiffusersPipelineClassName, PipelineSpec> = {
+  StableDiffusionPipeline: {
+    kind: "stable-diffusion",
+    components: STABLE_DIFFUSION_COMPONENTS,
+  },
+  StableDiffusionXLPipeline: {
+    kind: "stable-diffusion-xl",
+    components: STABLE_DIFFUSION_XL_COMPONENTS,
+  },
+  FluxPipeline: {
+    kind: "flux",
+    components: FLUX_COMPONENTS,
+  },
+};
+
+const SCALAR_CONFIG_KEYS = new Set(["requires_safety_checker", "force_zeros_for_empty_prompt"]);
+
+function fieldName(context: string, key: string): string {
+  return `${context}.${key}`;
+}
+
+function valueDescription(value: unknown): string {
+  if (Array.isArray(value)) {
+    return "array";
+  }
+  return value === null ? "null" : typeof value;
+}
+
+function expectRecord(value: unknown, context: string): Record<string, unknown> {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    throw new DiffusionConfigError(`${context} must be a JSON object.`);
+  }
+  return Object.fromEntries(Object.entries(value));
+}
+
+function requiredString(record: Record<string, unknown>, key: string, context: string): string {
+  const value = record[key];
+  if (typeof value !== "string" || value === "") {
+    throw new DiffusionConfigError(
+      `${fieldName(context, key)} must be a non-empty string, got ${valueDescription(value)}.`,
+    );
+  }
+  return value;
+}
+
+function optionalString(
+  record: Record<string, unknown>,
+  key: string,
+  context: string,
+): string | undefined {
+  const value = record[key];
+  if (value === undefined || value === null) {
+    return undefined;
+  }
+  if (typeof value !== "string" || value === "") {
+    throw new DiffusionConfigError(
+      `${fieldName(context, key)} must be a non-empty string when present, got ${valueDescription(
+        value,
+      )}.`,
+    );
+  }
+  return value;
+}
+
+function parsePipelineClassName(
+  record: Record<string, unknown>,
+  context: string,
+): DiffusersPipelineClassName {
+  const className = requiredString(record, "_class_name", context);
+  if (
+    className === "StableDiffusionPipeline" ||
+    className === "StableDiffusionXLPipeline" ||
+    className === "FluxPipeline"
+  ) {
+    return className;
+  }
+  throw new DiffusionConfigError(
+    `${fieldName(context, "_class_name")}="${className}" is not supported yet.`,
+  );
+}
+
+function parseScalarConfigValue(
+  value: unknown,
+  key: string,
+  context: string,
+): string | number | boolean | null {
+  if (value === null || typeof value === "string" || typeof value === "boolean") {
+    return value;
+  }
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value;
+  }
+  throw new DiffusionConfigError(
+    `${fieldName(context, key)} must be a scalar config value, got ${valueDescription(value)}.`,
+  );
+}
+
+function parseComponentTuple(
+  rawValue: unknown,
+  spec: DiffusionModelIndexComponentSpec,
+  context: string,
+): DiffusionModelIndexComponent {
+  if (!Array.isArray(rawValue) || rawValue.length !== 2) {
+    throw new DiffusionConfigError(
+      `${fieldName(context, spec.name)} must be a [library, class] pair.`,
+    );
+  }
+  const [library, className] = rawValue;
+  if (library === null && className === null) {
+    if (spec.optional === true) {
+      return {
+        name: spec.name,
+        role: spec.role,
+        library: null,
+        className: null,
+        enabled: false,
+        optional: true,
+        subfolder: spec.name,
+      };
+    }
+    throw new DiffusionConfigError(`${fieldName(context, spec.name)} cannot be disabled.`);
+  }
+  if (
+    typeof library !== "string" ||
+    library === "" ||
+    typeof className !== "string" ||
+    className === ""
+  ) {
+    throw new DiffusionConfigError(
+      `${fieldName(context, spec.name)} must contain non-empty library and class strings.`,
+    );
+  }
+  const supported = spec.allowed.some(
+    ([allowedLibrary, allowedClass]) => allowedLibrary === library && allowedClass === className,
+  );
+  if (!supported) {
+    throw new DiffusionConfigError(
+      `${fieldName(context, spec.name)}=[${library}, ${className}] is not supported yet.`,
+    );
+  }
+  return {
+    name: spec.name,
+    role: spec.role,
+    library,
+    className,
+    enabled: true,
+    optional: spec.optional === true,
+    subfolder: spec.name,
+  };
+}
+
+function parseComponents(
+  record: Record<string, unknown>,
+  spec: PipelineSpec,
+  context: string,
+): DiffusionModelIndexComponent[] {
+  const components: DiffusionModelIndexComponent[] = [];
+  const knownComponents = new Set<string>(spec.components.map((component) => component.name));
+  for (const component of spec.components) {
+    const value = record[component.name];
+    if (value === undefined) {
+      if (component.optional === true) {
+        continue;
+      }
+      throw new DiffusionConfigError(`${fieldName(context, component.name)} is required.`);
+    }
+    components.push(parseComponentTuple(value, component, context));
+  }
+  for (const [key, value] of Object.entries(record)) {
+    if (key.startsWith("_") || knownComponents.has(key) || SCALAR_CONFIG_KEYS.has(key)) {
+      continue;
+    }
+    if (Array.isArray(value)) {
+      throw new DiffusionConfigError(`${fieldName(context, key)} is not a supported component.`);
+    }
+    throw new DiffusionConfigError(`${fieldName(context, key)} is not a supported pipeline field.`);
+  }
+  return components;
+}
+
+function parsePipelineConfig(
+  record: Record<string, unknown>,
+  context: string,
+): Record<string, string | number | boolean | null> {
+  const config: Record<string, string | number | boolean | null> = {};
+  for (const key of SCALAR_CONFIG_KEYS) {
+    if (record[key] !== undefined) {
+      config[key] = parseScalarConfigValue(record[key], key, context);
+    }
+  }
+  return config;
+}
+
+export function getDiffusionComponentSpec(
+  modelIndex: ParsedDiffusionModelIndex,
+  component: DiffusionModelIndexComponent,
+): DiffusionModelIndexComponentSpec {
+  const spec = PIPELINE_SPECS[modelIndex.className].components.find(
+    (candidate) => candidate.name === component.name,
+  );
+  if (spec === undefined) {
+    throw new DiffusionConfigError(`model_index.json.${component.name} has no component spec.`);
+  }
+  return spec;
+}
+
+/** Parse a Diffusers `model_index.json` payload into a supported pipeline manifest. */
+export function parseDiffusionModelIndex(rawConfig: unknown): ParsedDiffusionModelIndex {
+  const context = "model_index.json";
+  const record = expectRecord(rawConfig, context);
+  const className = parsePipelineClassName(record, context);
+  const spec = PIPELINE_SPECS[className];
+  const diffusersVersion = optionalString(record, "_diffusers_version", context);
+  const parsed: ParsedDiffusionModelIndex = {
+    kind: spec.kind,
+    className,
+    components: parseComponents(record, spec, context),
+    pipelineConfig: parsePipelineConfig(record, context),
+    rawConfig: record,
+  };
+  if (diffusersVersion !== undefined) {
+    return { ...parsed, diffusersVersion };
+  }
+  return parsed;
+}

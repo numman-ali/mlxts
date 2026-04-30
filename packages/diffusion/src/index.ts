@@ -1,5 +1,16 @@
 export { DiffusionConfigError } from "./errors";
 export {
+  type DiffusersPipelineClassName,
+  type DiffusionComponentName,
+  type DiffusionComponentRole,
+  type DiffusionModelIndexComponent,
+  type DiffusionModelIndexComponentSpec,
+  type DiffusionPipelineKind,
+  getDiffusionComponentSpec,
+  type ParsedDiffusionModelIndex,
+  parseDiffusionModelIndex,
+} from "./pretrained/model-index";
+export {
   createDiffusionScheduler,
   type DiffusersSchedulerClassName,
   type DiffusionSchedulerKind,
@@ -11,6 +22,11 @@ export {
   parseDiffusionSchedulerConfig,
   type SupportedDiffusionScheduler,
 } from "./pretrained/scheduler-config";
+export {
+  type DiffusionSnapshotComponent,
+  type DiffusionSnapshotManifest,
+  loadDiffusionSnapshotManifest,
+} from "./pretrained/snapshot-manifest";
 export {
   DDIMScheduler,
   type DDIMSchedulerConfig,
