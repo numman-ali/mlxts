@@ -27,6 +27,7 @@
     "bench:generation:parity": "bun run packages/transformers/scripts/benchmark-generation-parity.ts",
     "bench:generation:context": "bun run packages/transformers/scripts/benchmark-long-context.ts",
     "bench:serve": "bun run packages/serve/scripts/benchmark-serve.ts",
+    "regression:lazy-pool-pressure": "bun run packages/serve/scripts/regression-lazy-pool-pressure.ts",
     "regression:qwen-gemma": "bun run scripts/regression-qwen-gemma.ts",
     "regression:qwen-image": "bun run packages/serve/scripts/regression-qwen-image.ts",
     "validate": "bun run typecheck && bun run lint && bun run check:assertions && bun run check:file-lines && bun run check:per-package-agents && bun run check:cross-package-imports && bun run check:training-proofs && bun run check:tensor-lifetimes && bun run check:runtime-review && bun run check:coverage",
