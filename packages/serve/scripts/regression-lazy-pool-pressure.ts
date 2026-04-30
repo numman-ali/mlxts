@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 
-import { clearMemoryCache } from "@mlxts/core";
+import { clearMemoryCache, resetPeakMemory } from "@mlxts/core";
 import { mkdirSync, readFileSync } from "fs";
 import { dirname, join } from "path";
 import { acquireRuntimeCommandLock } from "../../../scripts/runtime-command-lock";
@@ -39,6 +39,7 @@ export type LazyPoolPressureReport = {
   blockedModelId: string;
   gpuMemoryUtilization: number;
   memory: GenerationMemoryUsage;
+  memorySnapshots: readonly MemorySnapshot[];
   estimates: {
     active: ModelMemoryEstimate;
     blocked: ModelMemoryEstimate;
@@ -82,6 +83,18 @@ type PressureActionSummary = {
   reason: "model_load_memory_exceeded" | "memory_budget_exceeded";
   evictedModels: readonly string[];
   abortedRequestIds: readonly string[];
+};
+
+type MemorySnapshotStage =
+  | "start"
+  | "after_active_first_chunk"
+  | "after_pressure_event"
+  | "after_blocked_completion"
+  | "after_server_stop";
+
+type MemorySnapshot = GenerationMemoryUsage & {
+  stage: MemorySnapshotStage;
+  observedAtMs: number;
 };
 
 type FirstChunkLatch = {
@@ -498,10 +511,54 @@ export function assertLazyPoolPressureReport(report: LazyPoolPressureReport): vo
   if (report.metrics.pressureLines.length === 0) {
     throw new Error("lazy-pool-pressure: metrics did not expose model-pool pressure counters.");
   }
+  const memoryStages = new Set(report.memorySnapshots.map((snapshot) => snapshot.stage));
+  for (const stage of [
+    "start",
+    "after_active_first_chunk",
+    "after_pressure_event",
+    "after_blocked_completion",
+    "after_server_stop",
+  ] satisfies readonly MemorySnapshotStage[]) {
+    if (!memoryStages.has(stage)) {
+      throw new Error(`lazy-pool-pressure: report missing memory snapshot ${stage}.`);
+    }
+  }
 }
 
 function pressureEvents(events: readonly RecordedServeEvent[]) {
   return events.filter((event) => event.type === "model_pool_pressure");
+}
+
+function readMemorySnapshot(
+  stage: MemorySnapshotStage,
+  startedAt: number,
+): MemorySnapshot | undefined {
+  const memory = readGenerationMemoryUsage();
+  if (memory === undefined) {
+    return undefined;
+  }
+  return {
+    stage,
+    observedAtMs: performance.now() - startedAt,
+    ...memory,
+  };
+}
+
+function requireMemorySnapshot(stage: MemorySnapshotStage, startedAt: number): MemorySnapshot {
+  const snapshot = readMemorySnapshot(stage, startedAt);
+  if (snapshot === undefined) {
+    throw new Error("lazy-pool-pressure: MLX memory telemetry is unavailable.");
+  }
+  return snapshot;
+}
+
+function memoryUsage(snapshot: MemorySnapshot): GenerationMemoryUsage {
+  return {
+    activeBytes: snapshot.activeBytes,
+    cacheBytes: snapshot.cacheBytes,
+    peakBytes: snapshot.peakBytes,
+    limitBytes: snapshot.limitBytes,
+  };
 }
 
 function pressureActionSummaries(
@@ -554,10 +611,11 @@ export async function runLazyPoolPressureRegression(
   options: CliOptions,
 ): Promise<{ path: string; report: LazyPoolPressureReport }> {
   clearMemoryCache();
-  const memory = readGenerationMemoryUsage();
-  if (memory === undefined) {
-    throw new Error("lazy-pool-pressure: MLX memory telemetry is unavailable.");
-  }
+  resetPeakMemory();
+  const startedAt = performance.now();
+  const startMemory = requireMemorySnapshot("start", startedAt);
+  const memorySnapshots: MemorySnapshot[] = [startMemory];
+  const memory = memoryUsage(startMemory);
   const [activeEstimate, blockedEstimate] = await Promise.all([
     modelEstimate(options.gemma4Model, options.allowDownload),
     modelEstimate(options.qwenModel, options.allowDownload),
@@ -570,6 +628,7 @@ export async function runLazyPoolPressureRegression(
   });
 
   const events: RecordedServeEvent[] = [];
+  let pressureMemoryCaptured = false;
   const server = await serveModels({
     models: [
       { source: activeEstimate.snapshotPath, modelId: ACTIVE_MODEL_ID, localFilesOnly: true },
@@ -586,8 +645,24 @@ export async function runLazyPoolPressureRegression(
     port: 0,
     onEvent(event) {
       events.push({ ...event, observedAtMs: performance.now() });
+      if (event.type === "model_pool_pressure" && !pressureMemoryCaptured) {
+        const snapshot = readMemorySnapshot("after_pressure_event", startedAt);
+        if (snapshot !== undefined) {
+          memorySnapshots.push(snapshot);
+          pressureMemoryCaptured = true;
+        }
+      }
     },
   });
+
+  let stopped = false;
+  function stopServer(): void {
+    if (stopped) {
+      return;
+    }
+    stopped = true;
+    server.stop(true);
+  }
 
   try {
     console.error("lazy-pool-pressure: starting active Gemma stream");
@@ -598,6 +673,7 @@ export async function runLazyPoolPressureRegression(
       options.requestTimeoutMs,
     );
     await active.firstChunk;
+    memorySnapshots.push(requireMemorySnapshot("after_active_first_chunk", startedAt));
     console.error("lazy-pool-pressure: triggering blocked Qwen load");
     const blocked = await runChatProbe(
       server.endpoint,
@@ -605,8 +681,11 @@ export async function runLazyPoolPressureRegression(
       options.blockedMaxTokens,
       options.requestTimeoutMs,
     );
+    memorySnapshots.push(requireMemorySnapshot("after_blocked_completion", startedAt));
     const activeSummary = await active.done;
     const metricLines = await pressureMetricLines(server.endpoint);
+    stopServer();
+    memorySnapshots.push(requireMemorySnapshot("after_server_stop", startedAt));
     const pressure = pressureEvents(events);
     const report: LazyPoolPressureReport = {
       createdAt: new Date().toISOString(),
@@ -616,6 +695,7 @@ export async function runLazyPoolPressureRegression(
       blockedModelId: BLOCKED_MODEL_ID,
       gpuMemoryUtilization,
       memory,
+      memorySnapshots,
       estimates: { active: activeEstimate, blocked: blockedEstimate },
       requests: { active: activeSummary, blocked },
       pressure: {
@@ -630,7 +710,7 @@ export async function runLazyPoolPressureRegression(
     const path = await writeReport(options.reportDir, report);
     return { path, report };
   } finally {
-    server.stop(true);
+    stopServer();
   }
 }
 

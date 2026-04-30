@@ -133,6 +133,20 @@ export type GenerationMemoryUsage = {
   limitBytes: number;
 };
 
+export type GenerationModelPoolInfo = {
+  load_policy: "lazy";
+  pressure_policy: "reject" | "shed_non_pinned";
+  pressure_release_timeout_ms: number | null;
+  idle_ttl_ms: number | null;
+  models: readonly {
+    id: string;
+    pinned: boolean;
+    state: "not_loaded" | "loading" | "loaded";
+    active_requests: number;
+    pressure_aborted_requests: number;
+  }[];
+};
+
 export type NormalizedFinishReason = "stop" | "length" | "eos" | "cancelled" | "error";
 
 export type NormalizedGenerationResult = {
@@ -472,5 +486,6 @@ export type GenerationEngine = {
   stream?(
     request: NormalizedGenerationRequest,
   ): AsyncIterable<GenerationStreamEvent> | Promise<AsyncIterable<GenerationStreamEvent>>;
+  modelPoolInfo?(): GenerationModelPoolInfo;
   [Symbol.dispose]?(): void;
 };

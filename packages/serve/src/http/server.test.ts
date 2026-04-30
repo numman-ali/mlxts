@@ -145,6 +145,7 @@ describe("serve fetch handler", () => {
       model_id: "tiny",
       model_ids: ["tiny", "mlx-community/Qwen3.6-27B-4bit"],
       model_count: 2,
+      model_pool: null,
       limits: {
         max_generated_tokens: 2048,
         max_prompt_tokens: 4096,

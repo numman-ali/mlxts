@@ -416,6 +416,32 @@ describe("serveModels", () => {
       expect(await response.json()).toMatchObject({
         data: [{ id: "gemma" }, { id: "qwen" }],
       });
+      const infoResponse = await fetch(`${running.endpoint}/info`);
+      expect(infoResponse.status).toBe(200);
+      expect(await infoResponse.json()).toMatchObject({
+        model_pool: {
+          load_policy: "lazy",
+          pressure_policy: "reject",
+          pressure_release_timeout_ms: null,
+          idle_ttl_ms: 1000,
+          models: [
+            {
+              id: "gemma",
+              pinned: false,
+              state: "not_loaded",
+              active_requests: 0,
+              pressure_aborted_requests: 0,
+            },
+            {
+              id: "qwen",
+              pinned: true,
+              state: "not_loaded",
+              active_requests: 0,
+              pressure_aborted_requests: 0,
+            },
+          ],
+        },
+      });
       expect(calls).toEqual([]);
     } finally {
       running.stop();

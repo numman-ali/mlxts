@@ -24,6 +24,13 @@ function report(overrides: Partial<LazyPoolPressureReport> = {}): LazyPoolPressu
     blockedModelId: "qwen-pressure-blocked",
     gpuMemoryUtilization: 0.4,
     memory,
+    memorySnapshots: [
+      { stage: "start", observedAtMs: 0, ...memory },
+      { stage: "after_active_first_chunk", observedAtMs: 10, ...memory },
+      { stage: "after_pressure_event", observedAtMs: 20, ...memory },
+      { stage: "after_blocked_completion", observedAtMs: 30, ...memory },
+      { stage: "after_server_stop", observedAtMs: 40, ...memory },
+    ],
     estimates: {
       active: {
         source: "gemma",
@@ -202,5 +209,14 @@ describe("lazy pool pressure regression", () => {
         }),
       ),
     ).toThrow("blocked request did not complete");
+    expect(() =>
+      assertLazyPoolPressureReport(
+        report({
+          memorySnapshots: report().memorySnapshots.filter(
+            (snapshot) => snapshot.stage !== "after_pressure_event",
+          ),
+        }),
+      ),
+    ).toThrow("report missing memory snapshot after_pressure_event");
   });
 });

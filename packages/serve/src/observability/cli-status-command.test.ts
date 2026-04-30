@@ -100,6 +100,28 @@ const SAMPLE_INFO: ServeInfoResponse = {
       gpu_memory_utilization: 0.85,
     },
   },
+  model_pool: {
+    load_policy: "lazy",
+    pressure_policy: "shed_non_pinned",
+    pressure_release_timeout_ms: 120_000,
+    idle_ttl_ms: null,
+    models: [
+      {
+        id: "mlx-community/Qwen3.6-27B-4bit",
+        pinned: false,
+        state: "loaded",
+        active_requests: 1,
+        pressure_aborted_requests: 0,
+      },
+      {
+        id: "google/gemma-3-4b-it",
+        pinned: true,
+        state: "not_loaded",
+        active_requests: 0,
+        pressure_aborted_requests: 0,
+      },
+    ],
+  },
 };
 
 type FetchCall = {
@@ -204,6 +226,7 @@ describe("serve status CLI command", () => {
     expect(output).toContain('base_url: "http://127.0.0.1:8000"');
     expect(output).toContain("models[2]{id,context_window,max_prompt_tokens,max_total_tokens}:");
     expect(output).toContain('"mlx-community/Qwen3.6-27B-4bit",262144,262144,262144');
+    expect(output).toContain('model_pool: "lazy/shed_non_pinned"');
     expect(output).toContain("limits:");
     expect(output).toContain("max_total_tokens: 262144");
     expect(output).toContain("Run `mlxts-serve status --base-url");
@@ -214,6 +237,12 @@ describe("serve status CLI command", () => {
 
     expect(output).toContain("runtime_strategy:");
     expect(output).toContain('cache: "managed/model"');
+    expect(output).toContain("model_pool:");
+    expect(output).toContain("pressure_release_timeout_ms: 120000");
+    expect(output).toContain(
+      "model_pool_models[2]{id,pinned,state,active_requests,pressure_aborted_requests}:",
+    );
+    expect(output).toContain('"google/gemma-3-4b-it",true,"not_loaded",0,0');
     expect(output).toContain("endpoints[8]:");
     expect(output).toContain('"/v1/chat/completions"');
   });

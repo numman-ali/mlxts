@@ -16,7 +16,7 @@ import {
   type ServeRuntimeStrategyInfo,
   TRANSFORMERS_ENGINE_RUNTIME_DEFAULTS,
 } from "../runtime/strategy";
-import type { GenerationEngine } from "../types";
+import type { GenerationEngine, GenerationModelPoolInfo } from "../types";
 
 export type ServeRuntimeLimits = {
   maxGeneratedTokens?: number;
@@ -77,6 +77,7 @@ export type ServeInfoResponse = {
     tool_calls: true;
   };
   runtime_strategy: ServeRuntimeStrategyInfo;
+  model_pool: GenerationModelPoolInfo | null;
 };
 
 export type ServeInfoOptions = {
@@ -174,6 +175,7 @@ export function formatServeInfoResponse(options: ServeInfoOptions): ServeInfoRes
       tool_calls: true,
     },
     runtime_strategy: formatServeRuntimeStrategyInfo(strategy),
+    model_pool: options.engine.modelPoolInfo?.() ?? null,
   };
 }
 

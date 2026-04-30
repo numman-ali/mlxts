@@ -193,6 +193,74 @@ describe("source model pool generation engine", () => {
     expect(loads).toEqual(["alpha"]);
   });
 
+  test("reports lazy model-pool status without loading extra models", async () => {
+    const engine = createSourceModelPoolGenerationEngine({
+      entries: [{ modelId: "alpha" }, { modelId: "beta", pinned: true }],
+      idleTtlMs: 10_000,
+      pressurePolicy: "shed_non_pinned",
+      pressureReleaseTimeoutMs: 500,
+      async load(entry) {
+        return loadedEntry(entry.modelId, () => {});
+      },
+    });
+
+    expect(engine.modelPoolInfo?.()).toMatchObject({
+      load_policy: "lazy",
+      pressure_policy: "shed_non_pinned",
+      pressure_release_timeout_ms: 500,
+      idle_ttl_ms: 10_000,
+      models: [
+        {
+          id: "alpha",
+          pinned: false,
+          state: "not_loaded",
+          active_requests: 0,
+          pressure_aborted_requests: 0,
+        },
+        {
+          id: "beta",
+          pinned: true,
+          state: "not_loaded",
+          active_requests: 0,
+          pressure_aborted_requests: 0,
+        },
+      ],
+    });
+
+    const stream = await engine.stream?.({ ...request("stream", "alpha"), stream: true });
+    if (stream === undefined) {
+      throw new Error("Expected lazy pool engine to expose streaming.");
+    }
+
+    expect(engine.modelPoolInfo?.().models).toEqual([
+      {
+        id: "alpha",
+        pinned: false,
+        state: "loaded",
+        active_requests: 1,
+        pressure_aborted_requests: 0,
+      },
+      {
+        id: "beta",
+        pinned: true,
+        state: "not_loaded",
+        active_requests: 0,
+        pressure_aborted_requests: 0,
+      },
+    ]);
+
+    let streamed = 0;
+    for await (const _event of stream) {
+      streamed += 1;
+    }
+    expect(streamed).toBeGreaterThan(0);
+    expect(engine.modelPoolInfo?.().models[0]).toMatchObject({
+      id: "alpha",
+      state: "loaded",
+      active_requests: 0,
+    });
+  });
+
   test("rejects malformed inner batch results", async () => {
     const engine = createSourceModelPoolGenerationEngine({
       entries: [{ modelId: "alpha" }],

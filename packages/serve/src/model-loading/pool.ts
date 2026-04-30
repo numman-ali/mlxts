@@ -5,6 +5,7 @@ import type {
   NormalizedGenerationRequest,
   NormalizedGenerationResult,
 } from "../types";
+import { modelPoolInfo } from "./pool-info";
 import {
   activeCount,
   cancelledByPressure,
@@ -16,6 +17,7 @@ import {
   readPressureAwareStream,
   withAbortSignal,
 } from "./pool-pressure";
+import { generateForEngine, groupByModel, requireEntries } from "./pool-routing";
 import type {
   LoadedModelState,
   LoadedSourceModelPoolEntry,
@@ -33,61 +35,6 @@ export type {
 
 type Stream = AsyncIterable<GenerationStreamEvent>;
 type StreamFactory = () => Stream | Promise<Stream>;
-function requireEntries(
-  entries: readonly SourceModelPoolEntry[],
-): Map<string, SourceModelPoolEntry> {
-  if (entries.length === 0) {
-    throw new ServeError("Source model pool requires at least one model source.", {
-      code: "no_models_loaded",
-      status: 500,
-    });
-  }
-  const byModelId = new Map<string, SourceModelPoolEntry>();
-  for (const entry of entries) {
-    if (byModelId.has(entry.modelId)) {
-      throw new ServeError(`Source model pool received duplicate model id "${entry.modelId}".`, {
-        code: "duplicate_model_id",
-        status: 500,
-      });
-    }
-    byModelId.set(entry.modelId, entry);
-  }
-  return byModelId;
-}
-
-function groupByModel(
-  requests: readonly NormalizedGenerationRequest[],
-): Map<string, { index: number; request: NormalizedGenerationRequest }[]> {
-  const groups = new Map<string, { index: number; request: NormalizedGenerationRequest }[]>();
-  requests.forEach((request, index) => {
-    const group = groups.get(request.model) ?? [];
-    group.push({ index, request });
-    groups.set(request.model, group);
-  });
-  return groups;
-}
-
-async function generateForEngine(
-  engine: GenerationEngine,
-  requests: readonly NormalizedGenerationRequest[],
-): Promise<NormalizedGenerationResult[]> {
-  if (requests.length > 1 && engine.generateBatch !== undefined) {
-    const results = await engine.generateBatch(requests);
-    if (results.length !== requests.length) {
-      throw new ServeError("Generation engine returned the wrong number of batch results.", {
-        code: "invalid_engine_result",
-        status: 500,
-      });
-    }
-    return [...results];
-  }
-
-  const results: NormalizedGenerationResult[] = [];
-  for (const request of requests) {
-    results.push(await engine.generate(request));
-  }
-  return results;
-}
 
 /** Create a generation engine that loads source-backed models on first use. */
 export function createSourceModelPoolGenerationEngine(
@@ -396,6 +343,14 @@ export function createSourceModelPoolGenerationEngine(
   }
 
   return {
+    modelPoolInfo: () =>
+      modelPoolInfo({
+        entries,
+        states,
+        pressurePolicy: options.pressurePolicy,
+        pressureReleaseTimeoutMs: options.pressureReleaseTimeoutMs,
+        idleTtlMs: options.idleTtlMs,
+      }),
     async generate(request) {
       const modelLease = await acquire(request.model, [request]);
       const linkedRequest = modelLease.requests[0];

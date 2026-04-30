@@ -1,4 +1,5 @@
 import type { ServeInfoModel, ServeInfoResponse } from "../http/route-info";
+import { formatDefaultModelPool, formatModelPool, hasModelPoolInfo } from "./cli-status-model-pool";
 
 export type ServeStatusCliOptions = {
   baseUrl: string;
@@ -245,12 +246,14 @@ export function formatServeStatus(info: ServeInfoResponse, baseUrl: string, full
     `  model_count: ${toon(info.model_count)}`,
     `  streaming: ${toon(info.capabilities.sse_streaming)}`,
     `  batch_generation: ${toon(info.capabilities.batch_generation)}`,
+    ...formatDefaultModelPool(info),
     ...modelRows(info.models),
   ];
   if (full) {
     lines.push(
       ...formatLimits(info),
       ...formatRuntimeStrategy(info),
+      ...formatModelPool(info),
       `endpoints[${info.endpoints.length}]:`,
       ...info.endpoints.map((endpointPath) => `  ${toon(endpointPath)}`),
     );
@@ -379,7 +382,8 @@ function isServeInfoResponse(value: unknown): value is ServeInfoResponse {
     isStringArray(value.endpoints) &&
     hasServeLimits(value.limits) &&
     hasServeCapabilities(value.capabilities) &&
-    hasRuntimeStrategy(value.runtime_strategy)
+    hasRuntimeStrategy(value.runtime_strategy) &&
+    hasModelPoolInfo(value.model_pool)
   );
 }
 
