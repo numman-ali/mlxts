@@ -34,7 +34,7 @@ must execute rather than rediscover from memory.
   long doctrine into both places.
 - When a runtime incident, repeated debug path, or large product workflow
   produces a reusable procedure, add or update a concise repo skill and validate
-  it with the skill-creator guidance.
+  it with the skill-creator guidance and `bun run check:skills`.
 - Skills stay small, triggerable, and executable. The frontmatter description
   states when the skill applies; the body gives the shortest useful workflow and
   links to deeper references only when needed.
@@ -252,6 +252,7 @@ bun run check:runtime-review
 bun run check:tensor-lifetimes
 
 # Check package governance
+bun run check:skills
 bun run check:per-package-agents
 bun run check:cross-package-imports
 
