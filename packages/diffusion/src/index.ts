@@ -1,5 +1,18 @@
 export { DiffusionConfigError } from "./errors";
 export {
+  loadStableDiffusionComponentConfigs,
+  parseStableDiffusionAutoencoderConfig,
+  parseStableDiffusionUNetConfig,
+  type StableDiffusionAutoencoderConfig,
+  type StableDiffusionComponentConfigs,
+  type StableDiffusionSampleSize,
+  type StableDiffusionUNetConfig,
+  type StableDiffusionUNetDownBlockType,
+  type StableDiffusionUNetUpBlockType,
+  type StableDiffusionVaeDownBlockType,
+  type StableDiffusionVaeUpBlockType,
+} from "./families/stable-diffusion/config";
+export {
   type DiffusersPipelineClassName,
   type DiffusionComponentName,
   type DiffusionComponentRole,

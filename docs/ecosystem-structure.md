@@ -218,9 +218,10 @@ All diffusion and flow-based generation across modalities: image, video, and aud
 **Dependencies:** `@mlxts/core`, `@mlxts/nn`
 
 **Current state:** Initial scheduler infrastructure, local scheduler-config
-loading, and Diffusers `model_index.json` snapshot inspection exist. Stable
-Diffusion, Flux, VAE/backbone loading, conditioning, Hugging Face Hub-backed
-checkpoint loading, and image output remain follow-on Phase 10 tranches.
+loading, Diffusers `model_index.json` snapshot inspection, and Stable Diffusion
+VAE/UNet config translation exist. Stable Diffusion model construction, Flux,
+conditioning, Hugging Face Hub-backed checkpoint loading, and image output
+remain follow-on Phase 10 tranches.
 
 **Architecture pattern:** Mirrors `@mlxts/transformers` — explicit family
 registry, config-driven model construction, and official Hugging Face JS-backed snapshot loading.

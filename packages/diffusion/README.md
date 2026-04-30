@@ -16,6 +16,7 @@ import {
   EulerScheduler,
   loadDiffusionSchedulerFromSnapshot,
   loadDiffusionSnapshotManifest,
+  loadStableDiffusionComponentConfigs,
 } from "@mlxts/diffusion";
 
 const scheduler = new EulerScheduler();
@@ -37,8 +38,11 @@ loaded.scheduler.timesteps(2);
 
 const manifest = await loadDiffusionSnapshotManifest("/models/stable-diffusion");
 manifest.modelIndex.kind;
+
+const configs = await loadStableDiffusionComponentConfigs(manifest);
+configs.unet.crossAttentionDim;
 ```
 
-Stable Diffusion, Flux, VAE, text conditioning, and image output examples land
-as follow-on Phase 10 tranches once their reference audits and package-owned
-models are in place.
+Stable Diffusion model construction, Flux scheduler support, text conditioning,
+and image output examples land as follow-on Phase 10 tranches once their
+reference audits and package-owned models are in place.
