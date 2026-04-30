@@ -169,7 +169,10 @@ Full evidence ladder lives in
   sessions, warm replay cache hits, OpenAI-compatible cached-token usage, and
   same-server Qwen+Gemma isolation. Dense Qwen/Gemma plus multi-dense passed;
   Qwen/Gemma MoE singles and same-server multi-MoE also passed with warm
-  prompt-cache hits and nonzero read tokens.
+  prompt-cache hits. The gate compares warm and exact-replay cached reads
+  against each cold session's retained boundary (`readTokens + writeTokens`),
+  so partial shared-prefix/LCP reuse cannot pass as full prompt-boundary
+  retention.
 - Training proof report verification is now AXI-shaped:
   `bun run examples/train-proof/verify-report.ts <report.json>` emits compact
   structured stdout success/error bodies, exits `2` for usage errors, and is
@@ -188,7 +191,7 @@ Full evidence ladder lives in
   `bun run regression:agent-cache` keeps model load/probe progress on stderr,
   emits compact structured stdout, writes JSON reports with checkpoint sources,
   and requires per-session warm cached-token usage plus exact A replay after
-  divergent A/B sessions.
+  divergent A/B sessions against the cold retained boundary.
 - The root Qwen/Gemma gate is now AXI-shaped:
   `bun run regression:qwen-gemma` keeps child transformer/serve/context command
   output on stderr and reserves stdout for structured help, pass summaries, and
