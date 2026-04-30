@@ -27,9 +27,12 @@ export const DEFAULT_PROOF_SEED = 7;
 export type TrainingProofDatasetSource = "tiny" | "huggingface";
 export type TrainingProofStageName = "lora" | "qlora" | "sft" | "dpo";
 export type DPOProofProfile = "canonical" | "handbook";
+export type TrainingProofCommand = { kind: "help" } | { kind: "run"; options: TrainingProofArgs };
 
 export const DEFAULT_PROOF_STAGES: TrainingProofStageName[] = ["lora", "qlora", "sft", "dpo"];
 export const DEFAULT_DPO_PROFILE: DPOProofProfile = "canonical";
+
+export class TrainingProofUsageError extends Error {}
 
 /** CLI options for the training proof runner. */
 export type TrainingProofArgs = {
@@ -67,8 +70,8 @@ export function defaultReportPath(source = DEFAULT_PROOF_MODEL): string {
 }
 
 function readValue(flag: string, value: string | undefined): string {
-  if (value === undefined || value.trim() === "") {
-    throw new Error(`Missing value for ${flag}.`);
+  if (value === undefined || value.trim() === "" || value.startsWith("--")) {
+    throw new TrainingProofUsageError(`Missing value for ${flag}.`);
   }
   return value;
 }
@@ -76,7 +79,7 @@ function readValue(flag: string, value: string | undefined): string {
 function readPositiveInteger(flag: string, value: string | undefined): number {
   const parsed = Number(readValue(flag, value));
   if (!Number.isInteger(parsed) || parsed <= 0) {
-    throw new Error(`${flag} expects a positive integer.`);
+    throw new TrainingProofUsageError(`${flag} expects a positive integer.`);
   }
   return parsed;
 }
@@ -85,7 +88,7 @@ function readDatasetSource(value: string): TrainingProofDatasetSource {
   if (value === "tiny" || value === "huggingface") {
     return value;
   }
-  throw new Error(`Unknown dataset source: ${value}`);
+  throw new TrainingProofUsageError(`Unknown dataset source: ${value}`);
 }
 
 function readStages(value: string): TrainingProofStageName[] {
@@ -94,12 +97,12 @@ function readStages(value: string): TrainingProofStageName[] {
     .map((entry) => entry.trim())
     .filter((entry) => entry !== "");
   if (parsed.length === 0) {
-    throw new Error("--stages expects a comma-separated list of proof stages.");
+    throw new TrainingProofUsageError("--stages expects a comma-separated list of proof stages.");
   }
   const unique: TrainingProofStageName[] = [];
   for (const stage of parsed) {
     if (stage !== "lora" && stage !== "qlora" && stage !== "sft" && stage !== "dpo") {
-      throw new Error(`Unknown proof stage: ${stage}`);
+      throw new TrainingProofUsageError(`Unknown proof stage: ${stage}`);
     }
     if (!unique.includes(stage)) {
       unique.push(stage);
@@ -112,7 +115,15 @@ function readDPOProfile(value: string): DPOProofProfile {
   if (value === "canonical" || value === "handbook") {
     return value;
   }
-  throw new Error(`Unknown DPO proof profile: ${value}`);
+  throw new TrainingProofUsageError(`Unknown DPO proof profile: ${value}`);
+}
+
+/** Parse the training proof command before model runtime work begins. */
+export function parseTrainingProofCommand(argv: readonly string[]): TrainingProofCommand {
+  if (argv.some((arg) => arg === "--help" || arg === "-h")) {
+    return { kind: "help" };
+  }
+  return { kind: "run", options: parseTrainingProofArgs(argv) };
 }
 
 /** Parse the training proof CLI arguments. */
@@ -194,7 +205,7 @@ export function parseTrainingProofArgs(argv: readonly string[]): TrainingProofAr
         index += 1;
         break;
       default:
-        throw new Error(`Unknown argument: ${arg}`);
+        throw new TrainingProofUsageError(`Unknown argument: ${arg}`);
     }
   }
 

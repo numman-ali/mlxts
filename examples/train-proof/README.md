@@ -91,6 +91,11 @@ The proof report records:
 - a short sample after each stage
 - verification checks that fail the runner when proof evidence is missing or malformed
 
+The command is finite and agent-facing. Help, success summaries, and structured
+errors are written to stdout; model loading, data preparation, stage metrics,
+and sample progress are written to stderr. Usage errors exit `2`, and runtime or
+proof failures exit `1`. The JSON report remains the detailed artifact.
+
 Existing reports can be checked without rerunning training:
 
 ```bash

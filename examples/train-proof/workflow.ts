@@ -2,29 +2,31 @@ import type { LoadSourceOptions } from "@mlxts/transformers";
 import { mkdirSync } from "fs";
 import { dirname } from "path";
 
-import { parseTrainingProofArgs, type TrainingProofArgs } from "./args";
+import type { TrainingProofArgs } from "./args";
 import { prepareTrainingProofData } from "./prepare";
 import { loadAssets } from "./runtime";
 import { printStage, runDPOStage, runLoRAStage, runQLoRAStage, runSFTStage } from "./stages";
 import type { StageReport, TrainingProofReport } from "./types";
 import { assertTrainingProofReport, verificationOptionsFromArgs } from "./verification";
 
-export async function runTrainingProof(argv: readonly string[]): Promise<void> {
-  const parsed: TrainingProofArgs = parseTrainingProofArgs(argv);
+export async function runTrainingProof(
+  parsed: TrainingProofArgs,
+  progress: (line: string) => void = console.error,
+): Promise<TrainingProofReport> {
   const sourceOptions: LoadSourceOptions = {};
 
-  console.log(`Training proof source: ${parsed.source}`);
-  console.log(`Dataset source: ${parsed.datasetSource}`);
-  console.log(`Train limit: ${parsed.trainLimit}`);
-  console.log(`Eval limit: ${parsed.evalLimit}`);
-  console.log(`Batch size: ${parsed.batchSize}`);
-  console.log(`Steps per stage: ${parsed.steps}`);
-  console.log(`Max sequence length: ${parsed.maxSequenceLength}`);
-  console.log(`Stages: ${parsed.stages.join(",")}`);
-  console.log(`DPO profile: ${parsed.dpoProfile}`);
-  console.log(`Quantized snapshot output: ${parsed.quantizedOutputDir}`);
-  console.log(`Adapter output: ${parsed.adapterOutputDir}`);
-  console.log(`Report path: ${parsed.reportPath}`);
+  progress(`Training proof source: ${parsed.source}`);
+  progress(`Dataset source: ${parsed.datasetSource}`);
+  progress(`Train limit: ${parsed.trainLimit}`);
+  progress(`Eval limit: ${parsed.evalLimit}`);
+  progress(`Batch size: ${parsed.batchSize}`);
+  progress(`Steps per stage: ${parsed.steps}`);
+  progress(`Max sequence length: ${parsed.maxSequenceLength}`);
+  progress(`Stages: ${parsed.stages.join(",")}`);
+  progress(`DPO profile: ${parsed.dpoProfile}`);
+  progress(`Quantized snapshot output: ${parsed.quantizedOutputDir}`);
+  progress(`Adapter output: ${parsed.adapterOutputDir}`);
+  progress(`Report path: ${parsed.reportPath}`);
 
   const denseAssets = await loadAssets(parsed.source, sourceOptions);
   const preparedData = await prepareTrainingProofData(
@@ -33,7 +35,7 @@ export async function runTrainingProof(argv: readonly string[]): Promise<void> {
     parsed,
   );
   for (const note of preparedData.notes) {
-    console.log(`  data: ${note}`);
+    progress(`  data: ${note}`);
   }
 
   const stages: StageReport[] = [];
@@ -45,7 +47,7 @@ export async function runTrainingProof(argv: readonly string[]): Promise<void> {
       preparedData,
       parsed,
     );
-    printStage(loraStage);
+    printStage(loraStage, progress);
     stages.push(loraStage);
   }
   if (parsed.stages.includes("qlora")) {
@@ -57,7 +59,7 @@ export async function runTrainingProof(argv: readonly string[]): Promise<void> {
       preparedData,
       parsed,
     );
-    printStage(qloraStage);
+    printStage(qloraStage, progress);
     stages.push(qloraStage);
   }
   if (parsed.stages.includes("sft")) {
@@ -68,7 +70,7 @@ export async function runTrainingProof(argv: readonly string[]): Promise<void> {
       preparedData,
       parsed,
     );
-    printStage(sftStage);
+    printStage(sftStage, progress);
     stages.push(sftStage);
   }
   if (parsed.stages.includes("dpo")) {
@@ -79,7 +81,7 @@ export async function runTrainingProof(argv: readonly string[]): Promise<void> {
       preparedData,
       parsed,
     );
-    printStage(dpoStage);
+    printStage(dpoStage, progress);
     stages.push(dpoStage);
   }
 
@@ -105,6 +107,7 @@ export async function runTrainingProof(argv: readonly string[]): Promise<void> {
 
   mkdirSync(dirname(parsed.reportPath), { recursive: true });
   await Bun.write(parsed.reportPath, `${JSON.stringify(verifiedReport, null, 2)}\n`);
-  console.log(`Report written to ${parsed.reportPath}`);
-  console.log(`Report verification passed (${verification.checks.length} checks).`);
+  progress(`Report written to ${parsed.reportPath}`);
+  progress(`Report verification passed (${verification.checks.length} checks).`);
+  return verifiedReport;
 }

@@ -551,7 +551,10 @@ export async function runDPOStage(
   };
 }
 
-export function printStage(report: StageReport): void {
+export function printStage(
+  report: StageReport,
+  writeLine: (line: string) => void = console.log,
+): void {
   const evalLoss =
     report.evalLoss === undefined
       ? ""
@@ -572,29 +575,29 @@ export function printStage(report: StageReport): void {
     report.averageTrainingLoss === undefined
       ? ""
       : ` train_loss=${report.averageTrainingLoss.toFixed(4)}`;
-  console.log(
+  writeLine(
     `[${report.stage}]${evalLoss}${rewardAccuracy}${rewardMargin}${rawPreferenceAccuracy}${trainingLoss}`,
   );
   if (report.chosenReward !== undefined && report.rejectedReward !== undefined) {
-    console.log(
+    writeLine(
       `  - chosen_reward_before=${report.chosenReward.before.toFixed(4)} chosen_reward_after=${report.chosenReward.after.toFixed(4)} delta=${report.chosenReward.delta.toFixed(4)}`,
     );
-    console.log(
+    writeLine(
       `  - rejected_reward_before=${report.rejectedReward.before.toFixed(4)} rejected_reward_after=${report.rejectedReward.after.toFixed(4)} delta=${report.rejectedReward.delta.toFixed(4)}`,
     );
   }
   if (report.chosenLogProb !== undefined && report.rejectedLogProb !== undefined) {
-    console.log(
+    writeLine(
       `  - chosen_logp_before=${report.chosenLogProb.before.toFixed(4)} chosen_logp_after=${report.chosenLogProb.after.toFixed(4)} delta=${report.chosenLogProb.delta.toFixed(4)}`,
     );
-    console.log(
+    writeLine(
       `  - rejected_logp_before=${report.rejectedLogProb.before.toFixed(4)} rejected_logp_after=${report.rejectedLogProb.after.toFixed(4)} delta=${report.rejectedLogProb.delta.toFixed(4)}`,
     );
   }
   for (const note of report.notes) {
-    console.log(`  - ${note}`);
+    writeLine(`  - ${note}`);
   }
   if (report.sampleText !== undefined) {
-    console.log(`  sample: ${report.sampleText}`);
+    writeLine(`  sample: ${report.sampleText}`);
   }
 }

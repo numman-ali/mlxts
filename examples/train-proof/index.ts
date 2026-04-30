@@ -1,7 +1,6 @@
 #!/usr/bin/env bun
 
-import { acquireRuntimeCommandLock } from "../../scripts/runtime-command-lock";
-import { runTrainingProof } from "./workflow";
+import { runTrainingProofCommand } from "./cli";
 
-using _runtimeLock = acquireRuntimeCommandLock("proof:training");
-await runTrainingProof(Bun.argv.slice(2));
+const exitCode = await runTrainingProofCommand(Bun.argv.slice(2));
+process.exit(exitCode);
