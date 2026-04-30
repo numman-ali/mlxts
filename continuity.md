@@ -72,9 +72,12 @@ major product-agent focus on package-owned CLIs and future PI-agent integration.
   `modelPressurePolicy` defaults to `reject`; `shed_non_pinned` can evict idle
   non-pinned models and abort the oldest eligible active non-pinned request
   scope with `model_pool_memory_pressure`, waiting a bounded
-  operator-configured time for release before each retry. The eager policy
-  remains the default and single-model eager CLI serving still routes through
-  `serveModel()`.
+  operator-configured time for release before each retry. Expected
+  pressure-cancelled streams close their HTTP bodies cleanly after structured
+  generation/request error events, while unexpected stream failures still fault
+  the body. `/info` and `mlxts-serve status` expose the lazy pool snapshot. The
+  eager policy remains the default and single-model eager CLI serving still
+  routes through `serveModel()`.
 - **Image serving**: Qwen image transport, host decode, and prepared-prompt
   cache shipped with explicit boundary — serve owns I/O and decode, transformers
   owns preprocessing and prompt expansion. OpenAI Chat/OpenResponses accept
@@ -281,6 +284,15 @@ Full evidence ladder lives in
   and source-loading tests (`32 pass`) plus focused serve typecheck. The
   default pool timeout remains internal unless operators set
   `modelPressureReleaseTimeoutMs` / `--model-pressure-release-timeout-ms`.
+- Lazy model-pool real pressure smoke passed against cached
+  `google/gemma-4-E2B-it` and `mlx-community/Qwen3.6-27B-4bit` with
+  `bun run regression:lazy-pool-pressure -- --report-dir .tmp/lazy-pool-pressure-terminal`.
+  The smoke observed `2` pressure events, `1` active request abort, the blocked
+  Qwen request completing with `35` output chars, and the pressure-cancelled
+  active stream closing cleanly without a reader error. `mlxts-serve status`
+  and `/info` now report `model_pool` snapshots for lazy pool operator
+  visibility. Full `bun run validate` passed before the observability and
+  terminal-cleanup commits.
 
 ## Next Work
 
@@ -299,11 +311,12 @@ Full evidence ladder lives in
   served retention limits are explicit runtime/CLI knobs by entry count and
   estimated retained snapshot bytes. Paged attention and cache-tensor block
   deduplication remain later cache-backend work.
-- Next memory work is real-model `shed_non_pinned` pressure smoke coverage and
-  richer placement policy once traces show whether oldest, largest estimated
-  request memory, or operator priority should win. Lazy source loading, idle
-  eviction, pinned models, TTL policy, local model-root discovery, bounded
-  active shedding, and explicit active-guard policy are in place.
+- Next memory work is richer placement and victim-selection policy once traces
+  show whether oldest, largest estimated request memory, or operator priority
+  should win. Lazy source loading, idle eviction, pinned models, TTL policy,
+  local model-root discovery, bounded active shedding, real pressure smoke
+  coverage, operator-visible pool snapshots, and clean expected stream
+  termination are in place.
 - Use `bun run bench:serve --stream` for huge prompt rungs; buffered JSON is
   a poor acceptance shape when client TTFT exceeds a few minutes.
 - For publishable parity claims, use
