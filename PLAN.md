@@ -910,8 +910,9 @@ than centralizing names.
 
 - `mlxts-serve` owns model serving, model-root discovery, startup validation,
   status/introspection, and endpoint-oriented benchmark entrypoints.
-- `mlxts-agent` owns local tool-loop operation over served models, including
-  one-shot and interactive modes.
+- `mlxts-agent` is an experimental local tool-loop harness over served models.
+  Its finite paths stay AXI-shaped for testing, while PI-agent integration is
+  the preferred future product-agent path once the core surfaces are stable.
 - `examples/nanogpt` owns its manager, status, stop/resume, acceptance, and
   soak commands until those workflows become reusable package APIs.
 - Training proof, Qwen image, future VLM, Whisper, text-to-image, quantization,
@@ -959,7 +960,7 @@ in [`.agents/skills/axi/SKILL.md`](./.agents/skills/axi/SKILL.md).
 - Long-running servers, REPLs, training managers, and benchmark harnesses expose
   structured status/report surfaces rather than pretending to be one-shot data
   commands.
-- Package-owned binaries migrate first: `mlxts-serve`, `mlxts-agent`,
+- Package-owned binaries migrate first: `mlxts-serve`, experimental `mlxts-agent`,
   `examples/nanogpt` manager commands, training proof commands, Qwen image
   workbooks, benchmark/report commands, and future diffusion/multimodal
   inspection commands.

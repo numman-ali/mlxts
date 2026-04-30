@@ -19,6 +19,10 @@ agent-operated CLIs, then complete Phase 10 multimodal understanding and
 diffusion/flow generation with package-owned proofs. Phases 8, 9, and 10 fan
 out from Phase 7 rather than forming a strict serial chain.
 
+`@mlxts/agent` is an experimental loop harness, not the main product-agent
+surface. Keep its finite CLI paths AXI-shaped for testing and reuse, but keep
+major product-agent focus on package-owned CLIs and future PI-agent integration.
+
 ## Current State
 
 - **Qwen 3.6 27B**: native gated-delta helper at `fast.qwenGatedDeltaUpdate`;

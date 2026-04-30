@@ -1,13 +1,17 @@
 #!/usr/bin/env bun
 
 import { createOpenAIChatAgentModel, DEFAULT_AGENT_MAX_TOKENS } from "./chat-model";
+import { formatAgentCliError, formatAgentRunResult } from "./cli-axi";
+import { createAgentEventPrinter, formatCliSection, printAgentEvent } from "./cli-printer";
+import { formatAgentUsage } from "./cli-usage";
 import { createReadOnlyFileTools } from "./local-tools";
 import { runAgentTurn } from "./loop";
-import type { AgentEvent, AgentMessage, AgentModel, AgentTool } from "./types";
+import type { AgentMessage, AgentModel, AgentTool } from "./types";
 
 export type AgentCliOptions = {
   endpoint: string;
   model: string;
+  prompt?: string;
   cwd: string;
   apiKey?: string;
   maxTokens: number;
@@ -31,8 +35,10 @@ export type AgentCliRuntime = {
 };
 
 type ParseState = {
+  command: "repl" | "run";
   endpoint: string;
   model?: string;
+  prompt?: string;
   cwd: string;
   apiKey?: string;
   maxTokens: number;
@@ -66,6 +72,7 @@ function readNumberFlag(
 
 function createParseState(): ParseState {
   return {
+    command: "repl",
     endpoint: "http://127.0.0.1:8000",
     cwd: process.cwd(),
     maxTokens: DEFAULT_AGENT_MAX_TOKENS,
@@ -83,6 +90,9 @@ function applyFlag(state: ParseState, argv: readonly string[], index: number): n
       return index + 1;
     case "--model":
       state.model = readStringFlag(arg, argv[index + 1]);
+      return index + 1;
+    case "--prompt":
+      state.prompt = readStringFlag(arg, argv[index + 1]);
       return index + 1;
     case "--cwd":
       state.cwd = readStringFlag(arg, argv[index + 1]);
@@ -140,7 +150,14 @@ function applyFlag(state: ParseState, argv: readonly string[], index: number): n
 
 function parseState(argv: readonly string[]): ParseState {
   const state = createParseState();
-  for (let index = 0; index < argv.length; index += 1) {
+  const first = argv[0];
+  const startIndex = first === "run" ? 1 : 0;
+  if (first === "run") {
+    state.command = "run";
+  } else if (first !== undefined && !first.startsWith("-")) {
+    throw new Error(`Unknown command: ${first}`);
+  }
+  for (let index = startIndex; index < argv.length; index += 1) {
     index = applyFlag(state, argv, index);
   }
   return state;
@@ -148,13 +165,17 @@ function parseState(argv: readonly string[]): ParseState {
 
 function stateToOptions(state: ParseState): AgentCliParseResult {
   if (state.model === undefined || state.model.trim() === "") {
-    return { kind: "help", exitCode: 1, message: "Missing required --model <id>." };
+    return { kind: "help", exitCode: 2, message: "Missing required --model <id>." };
+  }
+  if (state.command === "run" && (state.prompt === undefined || state.prompt.trim() === "")) {
+    return { kind: "help", exitCode: 2, message: "Missing required --prompt <text> for run." };
   }
   return {
     kind: "agent",
     options: {
       endpoint: state.endpoint,
       model: state.model,
+      ...(state.prompt === undefined ? {} : { prompt: state.prompt }),
       cwd: state.cwd,
       ...(state.apiKey === undefined ? {} : { apiKey: state.apiKey }),
       maxTokens: state.maxTokens,
@@ -167,32 +188,6 @@ function stateToOptions(state: ParseState): AgentCliParseResult {
   };
 }
 
-export function formatAgentUsage(): string {
-  return [
-    "Talk to an OpenAI-compatible local chat endpoint with read-only tools.",
-    "",
-    "Usage:",
-    "  mlxts-agent --model <served-model-id> [options]",
-    "",
-    "Options:",
-    "  --endpoint <url>          Base endpoint (default: http://127.0.0.1:8000)",
-    "  --model <id>              Served model id",
-    "  --cwd <path>              Directory exposed to read-only file tools (default: current directory)",
-    "  --api-key <key>           Authorization bearer token",
-    `  --max-tokens <n>          Max assistant tokens per loop step (default: ${DEFAULT_AGENT_MAX_TOKENS})`,
-    "  --temperature <n>         Sampling temperature, 0 to 2 (default: model config)",
-    "  --greedy                  Alias for --temperature 0",
-    "  --deterministic           Alias for --temperature 0",
-    "  --thinking                Ask compatible chat templates to enable thinking",
-    "  --no-thinking             Ask compatible chat templates to disable thinking",
-    "  --stream                  Use chat-completion streaming transport (default)",
-    "  --no-stream               Use non-streaming chat completions",
-    "  --max-iterations <n>      Max model/tool loop steps per user turn (default: 8)",
-    "  --verbose                 Enable verbose fetch diagnostics",
-    "  --help                    Show this help",
-  ].join("\n");
-}
-
 export function parseAgentArgs(argv: readonly string[]): AgentCliParseResult {
   if (argv.includes("--help")) {
     return { kind: "help", exitCode: 0 };
@@ -202,193 +197,14 @@ export function parseAgentArgs(argv: readonly string[]): AgentCliParseResult {
   } catch (error) {
     return {
       kind: "help",
-      exitCode: 1,
+      exitCode: 2,
       message: error instanceof Error ? error.message : String(error),
     };
   }
 }
 
-function indentBlock(content: string): string {
-  const trimmed = content.trimEnd();
-  if (trimmed === "") {
-    return "  (empty)";
-  }
-  return trimmed
-    .split("\n")
-    .map((line) => `  ${line}`)
-    .join("\n");
-}
-
-function formatCliSection(title: string, content: string): string {
-  return `\n${title}\n${indentBlock(content)}`;
-}
-
-function formatToolArguments(args: Record<string, unknown>): string {
-  return JSON.stringify(args, null, 2);
-}
-
-export function printAgentEvent(
-  event: AgentEvent,
-  log: (message: string) => void = console.log,
-): void {
-  switch (event.type) {
-    case "model_delta":
-      if (event.reasoningContentDelta !== undefined) {
-        log(formatCliSection("[thinking]", event.reasoningContentDelta));
-      }
-      if (event.contentDelta !== undefined) {
-        log(formatCliSection("[assistant]", event.contentDelta));
-      }
-      return;
-    case "tool_call":
-      log(
-        formatCliSection(
-          `[tool call] ${event.call.name}`,
-          formatToolArguments(event.call.arguments),
-        ),
-      );
-      return;
-    case "tool_result":
-      log(
-        formatCliSection(
-          `[tool result] ${event.call.name}`,
-          `${event.result.isError === true ? "error: " : ""}${event.result.content}`,
-        ),
-      );
-      return;
-    case "final":
-      log(`${formatCliSection("[assistant]", event.content)}\n`);
-      return;
-    case "model_response":
-      if (event.reasoningContent !== undefined && event.reasoningContent.trim() !== "") {
-        log(formatCliSection("[thinking]", event.reasoningContent));
-      }
-      return;
-  }
-}
-
-type AgentEventPrinterState = {
-  iteration: number;
-  streamedContent: boolean;
-  streamedReasoning: boolean;
-  activeStreamSection: "assistant" | "thinking" | null;
-};
-
-function resetPrinterState(state: AgentEventPrinterState, eventIteration: number): void {
-  if (eventIteration === state.iteration) {
-    return;
-  }
-  state.iteration = eventIteration;
-  state.streamedContent = false;
-  state.streamedReasoning = false;
-  state.activeStreamSection = null;
-}
-
 function defaultWrite(chunk: string): void {
   process.stdout.write(chunk);
-}
-
-function indentedDelta(content: string): string {
-  return content.replaceAll("\n", "\n  ");
-}
-
-function beginStreamSection(
-  state: AgentEventPrinterState,
-  section: "assistant" | "thinking",
-  write: (chunk: string) => void,
-): void {
-  if (state.activeStreamSection === section) {
-    return;
-  }
-  write(state.activeStreamSection === null ? `\n[${section}]\n  ` : `\n\n[${section}]\n  `);
-  state.activeStreamSection = section;
-}
-
-function finishStreamSection(state: AgentEventPrinterState, write: (chunk: string) => void): void {
-  if (state.activeStreamSection === null) {
-    return;
-  }
-  write("\n");
-  state.activeStreamSection = null;
-}
-
-function printStreamDelta(
-  event: Extract<AgentEvent, { type: "model_delta" }>,
-  state: AgentEventPrinterState,
-  write: (chunk: string) => void,
-): void {
-  if (event.reasoningContentDelta !== undefined) {
-    beginStreamSection(state, "thinking", write);
-    state.streamedReasoning = true;
-    write(indentedDelta(event.reasoningContentDelta));
-  }
-  if (event.contentDelta !== undefined) {
-    beginStreamSection(state, "assistant", write);
-    state.streamedContent = true;
-    write(indentedDelta(event.contentDelta));
-  }
-}
-
-function printAggregateReasoning(
-  event: Extract<AgentEvent, { type: "model_response" }>,
-  state: AgentEventPrinterState,
-  log: (message: string) => void,
-  write: (chunk: string) => void,
-): void {
-  finishStreamSection(state, write);
-  if (
-    !state.streamedReasoning &&
-    event.reasoningContent !== undefined &&
-    event.reasoningContent.trim() !== ""
-  ) {
-    log(formatCliSection("[thinking]", event.reasoningContent));
-  }
-}
-
-function printFinalAnswer(
-  event: Extract<AgentEvent, { type: "final" }>,
-  state: AgentEventPrinterState,
-  log: (message: string) => void,
-  write: (chunk: string) => void,
-): void {
-  if (state.streamedContent) {
-    finishStreamSection(state, write);
-    write("\n");
-    return;
-  }
-  finishStreamSection(state, write);
-  log(`${formatCliSection("[assistant]", event.content)}\n`);
-}
-
-export function createAgentEventPrinter(
-  log: (message: string) => void = console.log,
-  write?: (chunk: string) => void,
-): (event: AgentEvent) => void {
-  const writeChunk = write ?? (log === console.log ? defaultWrite : log);
-  const state: AgentEventPrinterState = {
-    iteration: -1,
-    streamedContent: false,
-    streamedReasoning: false,
-    activeStreamSection: null,
-  };
-
-  return (event) => {
-    resetPrinterState(state, event.iteration);
-    switch (event.type) {
-      case "model_delta":
-        printStreamDelta(event, state, writeChunk);
-        return;
-      case "model_response":
-        printAggregateReasoning(event, state, log, writeChunk);
-        return;
-      case "final":
-        printFinalAnswer(event, state, log, writeChunk);
-        return;
-      default:
-        finishStreamSection(state, writeChunk);
-        printAgentEvent(event, log);
-    }
-  };
 }
 
 export async function runAgentRepl(
@@ -434,23 +250,106 @@ export async function runAgentRepl(
   }
 }
 
-export async function main(argv: readonly string[] = Bun.argv.slice(2)): Promise<void> {
+/** Run one finite agent turn and return AXI-shaped stdout. */
+export async function runAgentOnce(
+  options: AgentCliOptions,
+  runtime: AgentCliRuntime = {},
+): Promise<string> {
+  if (options.prompt === undefined || options.prompt.trim() === "") {
+    throw new Error("runAgentOnce requires a non-empty prompt.");
+  }
+  const model = runtime.model ?? createOpenAIChatAgentModel(options);
+  const tools = runtime.tools ?? createReadOnlyFileTools({ root: options.cwd });
+  const result = await runAgentTurn({
+    model,
+    tools,
+    messages: [{ role: "user", content: options.prompt }],
+    stream: options.stream,
+    maxIterations: options.maxIterations,
+  });
+  return formatAgentRunResult(result, options.model);
+}
+
+function nonTtyUsageError(): string {
+  return formatAgentCliError(
+    "mlxts-agent requires run --prompt in non-TTY environments.",
+    "usage",
+    ['mlxts-agent run --model <served-model-id> --prompt "..." [options]'],
+  );
+}
+
+/** Process-level CLI completion status. */
+export type AgentCliRunResult = {
+  exitCode: number;
+};
+
+/** Injectable process context for CLI tests and embedders. */
+export type AgentCliProcessRuntime = AgentCliRuntime & {
+  isTTY?: boolean;
+  stdout?: (message: string) => void;
+};
+
+/** Run the process-level CLI contract without calling process.exit. */
+export async function runAgentCli(
+  argv: readonly string[] = Bun.argv.slice(2),
+  runtime: AgentCliProcessRuntime = {},
+): Promise<AgentCliRunResult> {
+  const stdout = runtime.stdout ?? console.log;
   const parsed = parseAgentArgs(argv);
   if (parsed.kind === "help") {
     if (parsed.message !== undefined) {
-      console.error(parsed.message);
-      console.error("");
+      stdout(
+        formatAgentCliError(parsed.message, "usage", [
+          'mlxts-agent run --model <served-model-id> --prompt "..." [options]',
+        ]),
+      );
+    } else {
+      stdout(formatAgentUsage());
     }
-    console.error(formatAgentUsage());
-    process.exit(parsed.exitCode);
+    return { exitCode: parsed.exitCode };
   }
 
-  await runAgentRepl(parsed.options);
+  try {
+    if (parsed.options.prompt !== undefined) {
+      stdout(await runAgentOnce(parsed.options, runtime));
+      return { exitCode: 0 };
+    }
+    if (runtime.isTTY !== true) {
+      stdout(nonTtyUsageError());
+      return { exitCode: 2 };
+    }
+    await runAgentRepl(parsed.options, runtime);
+    return { exitCode: 0 };
+  } catch (error) {
+    stdout(
+      formatAgentCliError(error instanceof Error ? error.message : String(error), "runtime", [
+        "Check the endpoint, served model id, and local tool permissions.",
+      ]),
+    );
+    return { exitCode: 1 };
+  }
+}
+
+export async function main(argv: readonly string[] = Bun.argv.slice(2)): Promise<void> {
+  const result = await runAgentCli(argv, { isTTY: process.stdin.isTTY === true });
+  if (result.exitCode !== 0) {
+    process.exit(result.exitCode);
+  }
 }
 
 if (import.meta.main) {
   main().catch((error) => {
-    console.error(error instanceof Error ? error.message : String(error));
+    console.log(
+      formatAgentCliError(error instanceof Error ? error.message : String(error), "runtime"),
+    );
     process.exit(1);
   });
 }
+
+export {
+  createAgentEventPrinter,
+  formatAgentCliError,
+  formatAgentRunResult,
+  formatAgentUsage,
+  printAgentEvent,
+};

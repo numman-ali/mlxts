@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 
 import {
   createAgentEventPrinter,
+  formatAgentCliError,
   formatAgentUsage,
   parseAgentArgs,
   printAgentEvent,
@@ -87,16 +88,42 @@ describe("agent CLI args", () => {
     });
   });
 
+  test("parses one-shot run mode", () => {
+    expect(
+      parseAgentArgs([
+        "run",
+        "--model",
+        "mlx-community/Qwen3.6-27B-4bit",
+        "--prompt",
+        "summarize README",
+        "--cwd",
+        ".",
+      ]),
+    ).toMatchObject({
+      kind: "agent",
+      options: {
+        model: "mlx-community/Qwen3.6-27B-4bit",
+        prompt: "summarize README",
+        cwd: ".",
+      },
+    });
+    expect(parseAgentArgs(["run", "--model", "qwen"])).toMatchObject({
+      kind: "help",
+      exitCode: 2,
+      message: "Missing required --prompt <text> for run.",
+    });
+  });
+
   test("returns help for missing model and invalid options", () => {
     expect(parseAgentArgs([])).toMatchObject({
       kind: "help",
-      exitCode: 1,
+      exitCode: 2,
       message: "Missing required --model <id>.",
     });
     expect(parseAgentArgs(["--help"])).toEqual({ kind: "help", exitCode: 0 });
     expect(parseAgentArgs(["--model", "qwen", "--max-tokens", "0"])).toMatchObject({
       kind: "help",
-      exitCode: 1,
+      exitCode: 2,
     });
     expect(parseAgentArgs(["--model"])).toMatchObject({
       kind: "help",
@@ -106,7 +133,9 @@ describe("agent CLI args", () => {
       kind: "help",
       message: "Unknown argument: --unknown",
     });
-    expect(formatAgentUsage()).toContain("mlxts-agent");
+    expect(formatAgentUsage()).toContain("agent_cli:");
+    expect(formatAgentUsage()).toContain("mlxts-agent run");
+    expect(formatAgentCliError("Missing --model.", "usage")).toContain("code: usage");
   });
 
   test("runs a prompt-driven REPL loop with injectable model and tools", async () => {

@@ -223,19 +223,20 @@ lifecycle, and enough benchmark counters to debug multi-agent use.
 
 ---
 
-## Agent Surface — The Local Tool Loop
+## Agent Surface — The Experimental Local Tool Loop
 
-**Users**: Developers who want to talk to a local model like an assistant and
-inspect how tools, reasoning, and observations work.
+**Users**: Developers and agents testing local tool-loop mechanics against
+served models.
 
-**When**: Phase 9 onward. Built on `@mlxts/serve` chat routes and package-owned
-tool-loop primitives.
+**When**: Phase 9 onward as an experimental harness. This is not the current
+primary product surface; package-owned CLIs and future PI-agent integration are
+the more important agent-operated paths.
 
 ### Principles
 
-**The agent owns the loop.** Conversation state, tool schemas, tool-call
+**The package owns loop experiments.** Conversation state, tool schemas, tool-call
 parsing, tool execution, observations, max-iteration behavior, and CLI
-presentation belong in `@mlxts/agent`.
+presentation live in `@mlxts/agent` while the package remains experimental.
 
 **Serving owns the endpoint.** `@mlxts/serve` executes model requests and formats
 wire protocols. It does not execute tools.

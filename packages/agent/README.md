@@ -1,10 +1,15 @@
 # @mlxts/agent
 
-First-class local agent loop primitives for mlxts.
+Experimental local agent loop primitives for mlxts.
 
 `@mlxts/agent` owns the loop: conversation state, tool schemas, tool-call
 parsing, tool execution, observations, and stop conditions. Model serving stays
 in `@mlxts/serve`; examples should only demonstrate usage.
+
+This package is a harness for trying local loop mechanics against served models.
+It is not the current primary product-agent surface. The repo's agent-operated
+workflow should stay centered on package-owned CLIs, and future PI-agent
+integration can build on whichever primitives prove reusable here.
 
 ## CLI
 
@@ -19,6 +24,15 @@ Then talk to it with read-only local tools:
 ```bash
 mlxts-agent --model mlx-community/Qwen3.6-27B-4bit --endpoint http://127.0.0.1:8000 --cwd .
 ```
+
+For finite shell-driven use:
+
+```bash
+mlxts-agent run --model mlx-community/Qwen3.6-27B-4bit --endpoint http://127.0.0.1:8000 --prompt "List the top-level files." --cwd .
+```
+
+The `run` command emits compact AXI-shaped stdout and exits. The interactive
+mode keeps its transcript-oriented terminal sections.
 
 Agent turns use the served model's generation defaults unless you override them.
 Use `--greedy` or `--deterministic` when you want `temperature: 0`, and use
