@@ -327,6 +327,7 @@ describe("PromptPrefixCache", () => {
     expect(cache.store([1, 2, 9], shortSnapshot)).toBe(2);
 
     const hit = cache.lookup([1, 2, 3, 4, 5]);
+    expect(cache.reusablePrefixLength([1, 2, 3, 4, 5])).toBe(2);
     expect(hit?.readTokens).toBe(2);
     expect(hit?.matchType).toBe("prefix");
     expect(longSnapshot.forkOffsets).toEqual([]);

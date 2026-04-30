@@ -36,12 +36,19 @@ import {
   createImageMask,
   createQwen3_5MmTokenTypeIds,
   expandQwen3_5ImageTokens,
+  expandQwen3_5ImageTokensFromGridThw,
   gridThwList,
+  type Qwen3_5ImageGridThw,
   ropeDeltas,
 } from "./conditional-support";
 import { Qwen3_5VisionModel } from "./vision";
 
-export { countQwen3_5ImageTokens, createQwen3_5MmTokenTypeIds, expandQwen3_5ImageTokens };
+export {
+  countQwen3_5ImageTokens,
+  createQwen3_5MmTokenTypeIds,
+  expandQwen3_5ImageTokens,
+  expandQwen3_5ImageTokensFromGridThw,
+};
 
 /** Text marker that Qwen chat templates use for one image placeholder. */
 export const QWEN3_5_IMAGE_MARKER = "<|vision_start|><|image_pad|><|vision_end|>";
@@ -60,6 +67,25 @@ export function prepareQwen3_5ImagePrompt(
     );
   }
   return model.prepareImagePrompt(tokenIds, pixelValues, imageGridThw, mmTokenTypeIds);
+}
+
+export type Qwen3_5ImagePromptTokenPlan = {
+  tokenIds: readonly number[];
+  imageTokenId: number;
+};
+
+/** Prepare expanded Qwen image prompt token ids without running the vision tower. */
+export function prepareQwen3_5ImagePromptTokenPlan(
+  model: CausalLM,
+  tokenIds: readonly number[],
+  imageGridThw: readonly Qwen3_5ImageGridThw[],
+): Qwen3_5ImagePromptTokenPlan {
+  if (!(model instanceof Qwen3_5ForConditionalGeneration)) {
+    throw new Error(
+      `prepareQwen3_5ImagePromptTokenPlan: expected a Qwen 3.5 conditional checkpoint, got model_type "${model.config.modelType}".`,
+    );
+  }
+  return model.prepareImagePromptTokenPlan(tokenIds, imageGridThw);
 }
 
 function forwardOptions(optionsOrTensor?: ForwardOptions | MxArray): ForwardOptions | undefined {
@@ -165,29 +191,8 @@ export class Qwen3_5ForConditionalGeneration extends Module implements CausalLM 
     mmTokenTypeIds?: readonly number[],
   ): PreparedPrompt {
     const grids = gridThwList(imageGridThw, "Qwen3_5ForConditionalGeneration.prepareImagePrompt");
-    const requiredImageTokenCount = countImageTokens(
-      grids,
-      this.#rawConfig.visionConfig.spatialMergeSize,
-    );
-    const rawImageTokenCount = tokenIds.filter(
-      (tokenId) => tokenId === this.#rawConfig.imageTokenId,
-    ).length;
-    const preparedTokenIds =
-      rawImageTokenCount === requiredImageTokenCount
-        ? [...tokenIds]
-        : rawImageTokenCount === grids.length
-          ? expandQwen3_5ImageTokens(
-              tokenIds,
-              imageGridThw,
-              this.#rawConfig.imageTokenId,
-              this.#rawConfig.visionConfig.spatialMergeSize,
-            )
-          : null;
-    if (preparedTokenIds === null) {
-      throw new Error(
-        "Qwen3_5ForConditionalGeneration.prepareImagePrompt: image placeholder count does not match image_grid_thw.",
-      );
-    }
+    const plan = this.prepareImagePromptTokenPlan(tokenIds, grids);
+    const preparedTokenIds = [...plan.tokenIds];
     const preparedTokenTypes =
       mmTokenTypeIds === undefined
         ? createQwen3_5MmTokenTypeIds(
@@ -233,6 +238,39 @@ export class Qwen3_5ForConditionalGeneration extends Module implements CausalLM 
       tokenIds: preparedTokenIds,
       inputEmbeddings,
       positionIds,
+    };
+  }
+
+  prepareImagePromptTokenPlan(
+    tokenIds: readonly number[],
+    grids: readonly Qwen3_5ImageGridThw[],
+  ): Qwen3_5ImagePromptTokenPlan {
+    const requiredImageTokenCount = countImageTokens(
+      grids,
+      this.#rawConfig.visionConfig.spatialMergeSize,
+    );
+    const rawImageTokenCount = tokenIds.filter(
+      (tokenId) => tokenId === this.#rawConfig.imageTokenId,
+    ).length;
+    const preparedTokenIds =
+      rawImageTokenCount === requiredImageTokenCount
+        ? [...tokenIds]
+        : rawImageTokenCount === grids.length
+          ? expandQwen3_5ImageTokensFromGridThw(
+              tokenIds,
+              grids,
+              this.#rawConfig.imageTokenId,
+              this.#rawConfig.visionConfig.spatialMergeSize,
+            )
+          : null;
+    if (preparedTokenIds === null) {
+      throw new Error(
+        "Qwen3_5ForConditionalGeneration.prepareImagePromptTokenPlan: image placeholder count does not match image_grid_thw.",
+      );
+    }
+    return {
+      tokenIds: preparedTokenIds,
+      imageTokenId: this.#rawConfig.imageTokenId,
     };
   }
 

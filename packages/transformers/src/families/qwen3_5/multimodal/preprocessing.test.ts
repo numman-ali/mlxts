@@ -7,6 +7,7 @@ import {
   loadQwen3_5VisionPreprocessor,
   parseQwen3_5VisionPreprocessorConfig,
   prepareQwen3_5ImageBatch,
+  qwen3_5ImageGridThwValues,
   smartResizeQwen3_5Image,
 } from "./preprocessing";
 
@@ -86,6 +87,16 @@ describe("Qwen 3.5 preprocessing", () => {
     try {
       expect(prepared.pixelValues.shape).toEqual([1, 24]);
       expect(prepared.imageGridThw.toList()).toEqual([[1, 1, 1]]);
+      expect(
+        qwen3_5ImageGridThwValues(
+          {
+            width: 2,
+            height: 2,
+            data: [0.1, 0.01, 0.001, 0.2, 0.02, 0.002, 0.3, 0.03, 0.003, 0.4, 0.04, 0.004],
+          },
+          config,
+        ),
+      ).toEqual([[1, 1, 1]]);
       expect(prepared.pixelValues.toList()).toEqual([
         [
           expect.closeTo(0.1, 6),

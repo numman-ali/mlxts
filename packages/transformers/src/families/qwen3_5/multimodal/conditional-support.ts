@@ -9,6 +9,7 @@ import {
 } from "@mlxts/core";
 
 type GridThw = readonly [number, number, number];
+export type Qwen3_5ImageGridThw = GridThw;
 
 export function gridThwList(gridThw: MxArray, context: string): GridThw[] {
   const [rows, columns] = gridThw.shape;
@@ -62,6 +63,14 @@ export function countImageTokens(grids: readonly GridThw[], spatialMergeSize: nu
     }
     return total + (frames * height * width) / spatialMergeSize ** 2;
   }, 0);
+}
+
+/** Count how many repeated image placeholder tokens the provided image grids require. */
+export function countQwen3_5ImageTokensFromGridThw(
+  grids: readonly Qwen3_5ImageGridThw[],
+  spatialMergeSize: number,
+): number {
+  return countImageTokens(grids, spatialMergeSize);
 }
 
 function mergedDimension(size: number, spatialMergeSize: number, context: string): number {
@@ -269,13 +278,12 @@ export function createQwen3_5MmTokenTypeIds(
 }
 
 /** Expand one image placeholder token per image into the repeated visual token span the model expects. */
-export function expandQwen3_5ImageTokens(
+export function expandQwen3_5ImageTokensFromGridThw(
   tokenIds: readonly number[],
-  imageGridThw: MxArray,
+  grids: readonly Qwen3_5ImageGridThw[],
   imageTokenId: number,
   spatialMergeSize: number,
 ): number[] {
-  const grids = gridThwList(imageGridThw, "expandQwen3_5ImageTokens");
   const expanded: number[] = [];
   let imageIndex = 0;
 
@@ -306,6 +314,21 @@ export function expandQwen3_5ImageTokens(
   }
 
   return expanded;
+}
+
+/** Expand one image placeholder token per image into the repeated visual token span the model expects. */
+export function expandQwen3_5ImageTokens(
+  tokenIds: readonly number[],
+  imageGridThw: MxArray,
+  imageTokenId: number,
+  spatialMergeSize: number,
+): number[] {
+  return expandQwen3_5ImageTokensFromGridThw(
+    tokenIds,
+    gridThwList(imageGridThw, "expandQwen3_5ImageTokens"),
+    imageTokenId,
+    spatialMergeSize,
+  );
 }
 
 /** Count how many repeated image placeholder tokens the current image grids require. */

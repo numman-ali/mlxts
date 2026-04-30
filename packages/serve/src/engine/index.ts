@@ -152,7 +152,11 @@ function generateContentRequest(
   return (async () => {
     const loaded = await loadContentGenerationRequest(request, options);
     return await runOnModelLane(lane, options, request, async () => {
-      const prepared = await prepareLoadedContentGenerationRequest(loaded, options);
+      const prepared = await prepareLoadedContentGenerationRequest(
+        loaded,
+        options,
+        promptPrefixCache,
+      );
       return await generateSinglePreparedRequest(prepared, options, promptPrefixCache);
     });
   })();
@@ -213,7 +217,11 @@ async function* streamContentRequest(
   const loaded = await loadContentGenerationRequest(request, options);
   const release = await acquireModelLane(lane, options, request);
   try {
-    const prepared = await prepareLoadedContentGenerationRequest(loaded, options);
+    const prepared = await prepareLoadedContentGenerationRequest(
+      loaded,
+      options,
+      promptPrefixCache,
+    );
     yield* streamSinglePreparedRequest(prepared, options, promptPrefixCache);
   } finally {
     release();

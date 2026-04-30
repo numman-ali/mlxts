@@ -17,9 +17,13 @@ export {
 } from "./families/qwen3_5/load";
 export {
   expandQwen3_5ImageTokens,
+  expandQwen3_5ImageTokensFromGridThw,
   prepareQwen3_5ImagePrompt,
+  prepareQwen3_5ImagePromptTokenPlan,
   QWEN3_5_IMAGE_MARKER,
+  type Qwen3_5ImagePromptTokenPlan,
 } from "./families/qwen3_5/multimodal/conditional";
+export type { Qwen3_5ImageGridThw } from "./families/qwen3_5/multimodal/conditional-support";
 export {
   type DecodedQwen3_5Image,
   loadQwen3_5VisionPreprocessor,
@@ -27,6 +31,7 @@ export {
   parseQwen3_5VisionPreprocessorConfig,
   prepareQwen3_5ImageBatch,
   type Qwen3_5VisionPreprocessorConfig,
+  qwen3_5ImageGridThwValues,
   smartResizeQwen3_5Image,
 } from "./families/qwen3_5/multimodal/preprocessing";
 export {

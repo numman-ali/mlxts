@@ -8,6 +8,7 @@ import {
   createQwen3_5MmTokenTypeIds,
   expandQwen3_5ImageTokens,
   prepareQwen3_5ImagePrompt,
+  prepareQwen3_5ImagePromptTokenPlan,
   Qwen3_5ForConditionalGeneration,
 } from "./conditional";
 
@@ -141,6 +142,17 @@ describe("Qwen3_5ForConditionalGeneration", () => {
       prompt.inputEmbeddings?.free();
       prompt.positionIds?.free();
     }
+  });
+
+  test("prepares image prompt token plan without running vision prompt tensors", () => {
+    using model = new Qwen3_5ForConditionalGeneration(qwen3_5Config());
+
+    const plan = prepareQwen3_5ImagePromptTokenPlan(model, [7, 28, 9], [[1, 2, 2]]);
+
+    expect(plan).toEqual({
+      tokenIds: [7, 28, 28, 28, 28, 9],
+      imageTokenId: 28,
+    });
   });
 
   test("prepareQwen3_5ImagePrompt rejects non-conditional models", () => {
@@ -278,6 +290,77 @@ describe("Qwen3_5ForConditionalGeneration", () => {
       void forkedLogits;
 
       expect(capturedPositionIds[2]).toEqual([[[3]], [[3]], [[3]]]);
+    } finally {
+      model.model.run = originalRun;
+    }
+  });
+
+  test("restores multimodal rope positions for cached token-only image suffixes", () => {
+    using model = new Qwen3_5ForConditionalGeneration(qwen3_5Config());
+    const originalRun = model.model.run.bind(model.model);
+    const capturedPositionIds: number[][][][] = [];
+
+    model.model.run = ((inputIds, _cache, _inputEmbeddings, positionIds) => {
+      const tokenRows = inputIds.toList() as number[][];
+      const positionRows =
+        positionIds === undefined ? undefined : (positionIds.toList() as number[][][]);
+      if (positionRows !== undefined) {
+        capturedPositionIds.push(positionRows);
+      }
+      const hidden = tokenRows.map((row, batchIndex) =>
+        row.map((tokenId, tokenIndex) =>
+          Array.from({ length: model.config.hiddenSize }, (_value, hiddenIndex) => {
+            const position =
+              positionRows?.[hiddenIndex % 3]?.[batchIndex]?.[tokenIndex] ?? tokenIndex;
+            return tokenId * 0.01 + position * 0.1 + hiddenIndex * 0.001;
+          }),
+        ),
+      );
+      return array(hidden, "float32");
+    }) as typeof model.model.run;
+
+    try {
+      using imageGridThw = array([[1, 2, 2]], "int32");
+      using pixelValues = array(samplePixelValues(), "float32");
+      const prompt = model.prepareImagePrompt([7, 28, 9], pixelValues, imageGridThw);
+
+      try {
+        const suffixTokenId = prompt.tokenIds[prompt.tokenIds.length - 1];
+        if (suffixTokenId === undefined || prompt.positionIds === undefined) {
+          throw new Error("Expected prepared Qwen image prompt suffix state.");
+        }
+        const positionIds = prompt.positionIds.toList() as number[][][];
+        const prefillPositionIds = positionIds.map((axis) => axis.map((row) => row.slice(0, -1)));
+        const suffixPositionIds = positionIds.map((axis) => axis.map((row) => row.slice(-1)));
+
+        using prefillCache = model.createCache();
+        using prefillInputIds = array([prompt.tokenIds.slice(0, -1)], "int32");
+        using prefillPositionIdTensor = array(prefillPositionIds, "int32");
+        using prefillLogits = model.forward(prefillInputIds, {
+          cache: prefillCache,
+          positionIds: prefillPositionIdTensor,
+        });
+        void prefillLogits;
+
+        using snapshot = prefillCache.snapshot();
+        using explicitCache = snapshot.fork();
+        using cachedOnlyCache = snapshot.fork();
+        using suffixInputIds = array([[suffixTokenId]], "int32");
+        using explicitPositionIdTensor = array(suffixPositionIds, "int32");
+        using explicitLogits = model.forward(suffixInputIds, {
+          cache: explicitCache,
+          positionIds: explicitPositionIdTensor,
+        });
+        using cachedOnlyLogits = model.forward(suffixInputIds, { cache: cachedOnlyCache });
+
+        expect(snapshot.offset).toBe(prompt.tokenIds.length - 1);
+        expect(capturedPositionIds).toHaveLength(3);
+        expect(capturedPositionIds[2]).toEqual(capturedPositionIds[1]);
+        expect(cachedOnlyLogits.toList()).toEqual(explicitLogits.toList());
+      } finally {
+        prompt.inputEmbeddings?.free();
+        prompt.positionIds?.free();
+      }
     } finally {
       model.model.run = originalRun;
     }

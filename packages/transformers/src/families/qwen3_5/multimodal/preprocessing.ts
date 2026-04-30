@@ -13,6 +13,7 @@ import {
 import { inspectSnapshot, resolvePretrainedSnapshot } from "../../../pretrained/snapshot";
 import type { LoadSourceOptions } from "../../../pretrained/types";
 import { ConfigParseError } from "../../../types";
+import type { Qwen3_5ImageGridThw } from "./conditional-support";
 
 export type Qwen3_5VisionPreprocessorConfig = {
   size: {
@@ -319,6 +320,18 @@ function appendPreparedImage(
   const grid = createImageGrid(image, config);
   grids.push([grid.gridT, grid.gridH, grid.gridW]);
   appendImagePatchTokens(flattenedPatches, image, config, grid);
+}
+
+/** Return Qwen image grid metadata for already-decoded RGB image data. */
+export function qwen3_5ImageGridThwValues(
+  images: DecodedQwen3_5Image | readonly DecodedQwen3_5Image[],
+  config: Qwen3_5VisionPreprocessorConfig,
+): Qwen3_5ImageGridThw[] {
+  return normalizeImageBatchInput(images).map((image) => {
+    validateDecodedImage(image, config);
+    const grid = createImageGrid(image, config);
+    return [grid.gridT, grid.gridH, grid.gridW];
+  });
 }
 
 /** Patchify already-decoded RGB image data into Qwen 3.5 `pixel_values` and `image_grid_thw`. */

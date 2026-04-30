@@ -150,6 +150,34 @@ export class PromptPrefixCache implements Disposable {
     tokenIds: readonly number[],
     identity?: PromptPrefixCacheIdentity,
   ): PromptPrefixCacheHit | null {
+    const bestHit = this.#findReusablePrefix(tokenIds, identity);
+    if (bestHit === null) {
+      return null;
+    }
+
+    const cache = bestHit.entry.snapshot.fork({ offset: bestHit.readTokens });
+    bestHit.entry.lastUsed = ++this.#clock;
+    return {
+      cache,
+      readTokens: bestHit.readTokens,
+      matchType: promptPrefixCacheMatchTypeFor(
+        bestHit.entry.tokenIds.length,
+        tokenIds.length - 1,
+        bestHit.readTokens,
+      ),
+      source: promptPrefixCacheEntryMetadata(bestHit.entry),
+    };
+  }
+
+  /** Return reusable prefix length without forking a cache snapshot. */
+  reusablePrefixLength(tokenIds: readonly number[], identity?: PromptPrefixCacheIdentity): number {
+    return this.#findReusablePrefix(tokenIds, identity)?.readTokens ?? 0;
+  }
+
+  #findReusablePrefix(
+    tokenIds: readonly number[],
+    identity: PromptPrefixCacheIdentity | undefined,
+  ): { entry: PromptPrefixCacheEntry; readTokens: number } | null {
     if (this.#entries.length === 0 || tokenIds.length <= 1) {
       return null;
     }
@@ -182,19 +210,7 @@ export class PromptPrefixCache implements Disposable {
     if (bestHit === null) {
       return null;
     }
-
-    const cache = bestHit.entry.snapshot.fork({ offset: bestHit.readTokens });
-    bestHit.entry.lastUsed = ++this.#clock;
-    return {
-      cache,
-      readTokens: bestHit.readTokens,
-      matchType: promptPrefixCacheMatchTypeFor(
-        bestHit.entry.tokenIds.length,
-        maxReusableTokens,
-        bestHit.readTokens,
-      ),
-      source: promptPrefixCacheEntryMetadata(bestHit.entry),
-    };
+    return bestHit;
   }
 
   #bestHit(

@@ -5,9 +5,11 @@ import {
   buildPositionIds,
   countImageTokens,
   countQwen3_5ImageTokens,
+  countQwen3_5ImageTokensFromGridThw,
   createImageMask,
   createQwen3_5MmTokenTypeIds,
   expandQwen3_5ImageTokens,
+  expandQwen3_5ImageTokensFromGridThw,
   gridThwList,
   ropeDeltas,
 } from "./conditional-support";
@@ -86,6 +88,26 @@ describe("Qwen 3.5 conditional support helpers", () => {
     expect(expandQwen3_5ImageTokens([7, 28, 9, 28], imageGridThw, 28, 1)).toEqual([
       7, 28, 28, 28, 28, 9, 28, 28, 28, 28,
     ]);
+    expect(
+      expandQwen3_5ImageTokensFromGridThw(
+        [7, 28, 9, 28],
+        [
+          [1, 2, 2],
+          [1, 2, 2],
+        ],
+        28,
+        1,
+      ),
+    ).toEqual([7, 28, 28, 28, 28, 9, 28, 28, 28, 28]);
+    expect(
+      countQwen3_5ImageTokensFromGridThw(
+        [
+          [1, 2, 2],
+          [1, 2, 2],
+        ],
+        1,
+      ),
+    ).toBe(8);
     expect(createQwen3_5MmTokenTypeIds([7, 28, 29, 9], 28, 29)).toEqual([0, 1, 2, 0]);
   });
 

@@ -4,6 +4,7 @@ import { array, type MxArray, type ParameterTree } from "@mlxts/core";
 import type { Tokenizer } from "@mlxts/tokenizers";
 import {
   type BaseModelConfig,
+  type CacheLayerKind,
   type CausalLM,
   type ChatMessage,
   type ForwardOptions,
@@ -11,13 +12,22 @@ import {
   KVCache,
   type Qwen3_5VisionPreprocessorConfig,
   type TransformerCache,
+  type TransformerCacheForkOptions,
+  type TransformerCacheSnapshot,
 } from "@mlxts/transformers";
+import { Qwen3_5ForConditionalGeneration } from "../../../transformers/src/families/qwen3_5/multimodal/conditional";
+import type {
+  Qwen3_5Config,
+  Qwen3_5TextConfig,
+  Qwen3_5VisionConfig,
+} from "../../../transformers/src/families/qwen3_5/types";
 import type { NormalizedGenerationRequest } from "../types";
 import {
   createQwen3_5ImageContentAdapter,
   loadContentGenerationRequest,
   prepareLoadedContentGenerationRequest,
 } from "./content";
+import { PromptPrefixCache } from "./prefix-cache";
 
 class TinyTokenizer implements Tokenizer {
   readonly vocabSize = 8;
@@ -43,6 +53,12 @@ class TinyTokenizer implements Tokenizer {
 
   decodeBatch(batch: number[][]): string[] {
     return batch.map((tokenIds) => this.decode(tokenIds));
+  }
+}
+
+class QwenImageTokenizer extends TinyTokenizer {
+  override encode(text: string): number[] {
+    return text.includes("<|image_pad|>") ? [7, 28, 9] : super.encode(text);
   }
 }
 
@@ -96,6 +112,64 @@ class TinyModel implements CausalLM {
   [Symbol.dispose](): void {}
 }
 
+class FakeCache implements TransformerCache {
+  readonly layerCount = 0;
+  readonly layerKinds: readonly CacheLayerKind[] = ["full"];
+  readonly offset: number;
+
+  constructor(offset: number) {
+    this.offset = offset;
+  }
+
+  updateAndFetch(): { keys: MxArray; values: MxArray } {
+    throw new Error("FakeCache.updateAndFetch should not be called.");
+  }
+
+  advance(): void {
+    throw new Error("FakeCache.advance should not be called.");
+  }
+
+  isEmpty(): boolean {
+    return this.offset === 0;
+  }
+
+  isTrimmable(): boolean {
+    return true;
+  }
+
+  snapshot(): TransformerCacheSnapshot {
+    return new FakeSnapshot(this.offset);
+  }
+
+  arrays(): MxArray[] {
+    return [];
+  }
+
+  [Symbol.dispose](): void {}
+}
+
+class FakeSnapshot implements TransformerCacheSnapshot {
+  readonly layerKinds: readonly CacheLayerKind[] = ["full"];
+  readonly trimmable = true;
+  readonly estimatedByteSize: number;
+  readonly offset: number;
+
+  constructor(offset: number) {
+    this.offset = offset;
+    this.estimatedByteSize = offset * 4;
+  }
+
+  canFork(options: TransformerCacheForkOptions = {}): boolean {
+    return (options.offset ?? this.offset) <= this.offset;
+  }
+
+  fork(options: TransformerCacheForkOptions = {}): TransformerCache {
+    return new FakeCache(options.offset ?? this.offset);
+  }
+
+  [Symbol.dispose](): void {}
+}
+
 const qwenPreprocessor: Qwen3_5VisionPreprocessorConfig = {
   size: { shortestEdge: 1, longestEdge: 4 },
   patchSize: 1,
@@ -106,6 +180,100 @@ const qwenPreprocessor: Qwen3_5VisionPreprocessorConfig = {
   processorClass: "Qwen3VLProcessor",
   imageProcessorType: "Qwen2VLImageProcessorFast",
 };
+
+function qwenTextConfig(): Qwen3_5TextConfig {
+  return {
+    family: "qwen",
+    modelType: "qwen3_5_text",
+    rawConfig: {},
+    vocabSize: 32,
+    hiddenSize: 8,
+    intermediateSize: 16,
+    feedForwardKind: "dense",
+    moeIntermediateSize: null,
+    sharedExpertIntermediateSize: null,
+    numExperts: null,
+    numExpertsPerToken: null,
+    routerAuxLossCoef: null,
+    numHiddenLayers: 1,
+    numAttentionHeads: 2,
+    numKeyValueHeads: 1,
+    headDim: 4,
+    hiddenAct: "silu",
+    maxPositionEmbeddings: 128,
+    initializerRange: 0.02,
+    rmsNormEps: 1e-6,
+    useCache: true,
+    tieWordEmbeddings: false,
+    attentionBias: false,
+    attentionDropout: 0,
+    attnOutputGate: true,
+    outputGateType: null,
+    linearConvKernelDim: 2,
+    linearKeyHeadDim: 2,
+    linearValueHeadDim: 2,
+    linearNumKeyHeads: 1,
+    linearNumValueHeads: 2,
+    layerTypes: ["full_attention"],
+    fullAttentionInterval: 1,
+    ropeParameters: {
+      ropeType: "default",
+      ropeTheta: 10000,
+      partialRotaryFactor: 1,
+      mropeSection: [1, 1, 0],
+      mropeInterleaved: true,
+    },
+    partialRotaryFactor: 1,
+    mtpNumHiddenLayers: 0,
+    mtpUseDedicatedEmbeddings: false,
+    mambaSsmDtype: null,
+    bosTokenId: null,
+    eosTokenId: null,
+    padTokenId: null,
+  };
+}
+
+function qwenVisionConfig(): Qwen3_5VisionConfig {
+  return {
+    family: "qwen",
+    modelType: "qwen3_5",
+    rawConfig: {},
+    depth: 1,
+    hiddenSize: 8,
+    hiddenAct: "gelu_pytorch_tanh",
+    intermediateSize: 16,
+    numHeads: 2,
+    inChannels: 3,
+    patchSize: 1,
+    spatialMergeSize: 1,
+    temporalPatchSize: 1,
+    outHiddenSize: 8,
+    numPositionEmbeddings: 16,
+    deepstackVisualIndexes: [],
+    initializerRange: 0.02,
+  };
+}
+
+function qwenConfig(): Qwen3_5Config {
+  const textConfig = qwenTextConfig();
+  const visionConfig = qwenVisionConfig();
+  return {
+    family: "qwen",
+    modelType: "qwen3_5",
+    rawConfig: {},
+    vocabSize: textConfig.vocabSize,
+    hiddenSize: textConfig.hiddenSize,
+    numHiddenLayers: textConfig.numHiddenLayers,
+    textConfig,
+    visionConfig,
+    imageTokenId: 28,
+    videoTokenId: 29,
+    visionStartTokenId: 26,
+    visionEndTokenId: 27,
+    tieWordEmbeddings: false,
+    languageModelOnly: false,
+  };
+}
 
 function uint16le(value: number): number[] {
   return [value & 0xff, (value >> 8) & 0xff];
@@ -260,9 +428,44 @@ describe("transformers media-content preparation", () => {
     );
   });
 
+  test("builds a Qwen image token plan before full tensor preparation", async () => {
+    const adapter = createQwen3_5ImageContentAdapter(qwenPreprocessor);
+    using model = new Qwen3_5ForConditionalGeneration(qwenConfig());
+    const loaded = await adapter.load(
+      contentRequest({
+        kind: "content",
+        messages: [
+          {
+            role: "user",
+            content: [
+              { kind: "text", text: "Describe: " },
+              {
+                kind: "image",
+                source: { kind: "data", mediaType: "image/bmp", data: imageDataUrl() },
+              },
+            ],
+          },
+        ],
+      }),
+      {
+        tokenizer: new QwenImageTokenizer(),
+        interactionProfile: chatProfile([]),
+      },
+    );
+
+    const plan = loaded.prepareTokenPlan?.({ model });
+
+    expect(plan?.tokenIds).toEqual([7, 28, 9]);
+    expect(plan?.canSkipPromptPreparation(1)).toBe(false);
+    expect(plan?.canSkipPromptPreparation(2)).toBe(true);
+  });
+
   test("rejects unsupported Qwen content shapes before tensor preparation", async () => {
     const adapter = createQwen3_5ImageContentAdapter(qwenPreprocessor);
     const context = { tokenizer: new TinyTokenizer(), interactionProfile: chatProfile([]) };
+    await expect(
+      adapter.load(contentRequest({ kind: "text", text: "hi" }), context),
+    ).rejects.toThrow("requires content input");
     await expect(
       adapter.load(
         contentRequest({
@@ -403,5 +606,174 @@ describe("transformers media-content preparation", () => {
       ),
     ).rejects.toThrow("prompt token limit");
     expect(inputEmbeddings.isDisposed).toBe(true);
+  });
+
+  test("uses token plans to skip media prompt tensors when cache covers the image prefix", async () => {
+    const tokenizer = new TinyTokenizer();
+    using model = new TinyModel();
+    using promptCache = new PromptPrefixCache(1);
+    const promptCacheIdentity = { contentKeys: ["image:stable"] };
+    expect(promptCache.store([1, 2, 3, 4], new FakeSnapshot(3), promptCacheIdentity)).toBe(3);
+
+    let preparePromptCalls = 0;
+    const prepared = await prepareLoadedContentGenerationRequest(
+      {
+        request: contentRequest({
+          kind: "content",
+          messages: [{ role: "user", content: [{ kind: "text", text: "hi" }] }],
+        }),
+        startedAt: performance.now(),
+        prompt: { text: "hi", tokenIds: [1, 2, 3, 4] },
+        promptCacheIdentity,
+        prepareTokenPlan() {
+          return {
+            tokenIds: [1, 2, 3, 4],
+            canSkipPromptPreparation(cachedPrefixTokens) {
+              return cachedPrefixTokens >= 3;
+            },
+          };
+        },
+        preparePrompt() {
+          preparePromptCalls += 1;
+          return {
+            tokenIds: [1, 2, 3, 4],
+            inputEmbeddings: array([[[0], [1], [2], [3]]], "float32"),
+          };
+        },
+      },
+      { model, tokenizer },
+      promptCache,
+    );
+
+    expect(preparePromptCalls).toBe(0);
+    expect(prepared.tokenIds).toEqual([1, 2, 3, 4]);
+    expect("preparedPrompt" in prepared).toBe(false);
+  });
+
+  test("requires a media identity before skipping media prompt tensors", async () => {
+    const tokenizer = new TinyTokenizer();
+    using model = new TinyModel();
+    using promptCache = new PromptPrefixCache(1);
+    expect(promptCache.store([1, 2, 3, 4], new FakeSnapshot(3))).toBe(3);
+
+    let preparePromptCalls = 0;
+    const inputEmbeddings = array([[[0], [1], [2], [3]]], "float32");
+    const prepared = await prepareLoadedContentGenerationRequest(
+      {
+        request: contentRequest({
+          kind: "content",
+          messages: [{ role: "user", content: [{ kind: "text", text: "hi" }] }],
+        }),
+        startedAt: performance.now(),
+        prompt: { text: "hi", tokenIds: [1, 2, 3, 4] },
+        prepareTokenPlan() {
+          return {
+            tokenIds: [1, 2, 3, 4],
+            canSkipPromptPreparation() {
+              return true;
+            },
+          };
+        },
+        preparePrompt() {
+          preparePromptCalls += 1;
+          return { tokenIds: [1, 2, 3, 4], inputEmbeddings };
+        },
+      },
+      { model, tokenizer },
+      promptCache,
+    );
+
+    expect(preparePromptCalls).toBe(1);
+    expect(prepared.preparedPrompt?.inputEmbeddings).toBe(inputEmbeddings);
+    prepared.preparedPrompt?.inputEmbeddings?.free();
+  });
+
+  test("falls back without cache and disposes prepared tensors for stale token plans", async () => {
+    const tokenizer = new TinyTokenizer();
+    using model = new TinyModel();
+    let preparePromptCalls = 0;
+    const preparedEmbeddings = array([[[0], [1], [2]]], "float32");
+
+    const prepared = await prepareLoadedContentGenerationRequest(
+      {
+        request: contentRequest({
+          kind: "content",
+          messages: [{ role: "user", content: [{ kind: "text", text: "hi" }] }],
+        }),
+        startedAt: performance.now(),
+        prompt: { text: "hi", tokenIds: [1, 2, 3] },
+        prepareTokenPlan() {
+          return {
+            tokenIds: [1, 2, 3],
+            canSkipPromptPreparation() {
+              return true;
+            },
+          };
+        },
+        preparePrompt() {
+          preparePromptCalls += 1;
+          return { tokenIds: [1, 2, 3], inputEmbeddings: preparedEmbeddings };
+        },
+      },
+      { model, tokenizer },
+    );
+
+    expect(preparePromptCalls).toBe(1);
+    expect(prepared.preparedPrompt?.inputEmbeddings).toBe(preparedEmbeddings);
+    prepared.preparedPrompt?.inputEmbeddings?.free();
+
+    const staleEmbeddings = array([[[0], [1], [2]]], "float32");
+    await expect(
+      prepareLoadedContentGenerationRequest(
+        {
+          request: contentRequest({
+            kind: "content",
+            messages: [{ role: "user", content: [{ kind: "text", text: "hi" }] }],
+          }),
+          startedAt: performance.now(),
+          prompt: { text: "hi", tokenIds: [1, 2, 3] },
+          prepareTokenPlan() {
+            return {
+              tokenIds: [1, 2, 4],
+              canSkipPromptPreparation() {
+                return false;
+              },
+            };
+          },
+          preparePrompt() {
+            return { tokenIds: [1, 2, 3], inputEmbeddings: staleEmbeddings };
+          },
+        },
+        { model, tokenizer },
+      ),
+    ).rejects.toThrow("content token plan did not match prepared prompt token ids");
+    expect(staleEmbeddings.isDisposed).toBe(true);
+
+    const shortPlanEmbeddings = array([[[0], [1], [2]]], "float32");
+    await expect(
+      prepareLoadedContentGenerationRequest(
+        {
+          request: contentRequest({
+            kind: "content",
+            messages: [{ role: "user", content: [{ kind: "text", text: "hi" }] }],
+          }),
+          startedAt: performance.now(),
+          prompt: { text: "hi", tokenIds: [1, 2, 3] },
+          prepareTokenPlan() {
+            return {
+              tokenIds: [1, 2],
+              canSkipPromptPreparation() {
+                return false;
+              },
+            };
+          },
+          preparePrompt() {
+            return { tokenIds: [1, 2, 3], inputEmbeddings: shortPlanEmbeddings };
+          },
+        },
+        { model, tokenizer },
+      ),
+    ).rejects.toThrow("content token plan did not match prepared prompt token ids");
+    expect(shortPlanEmbeddings.isDisposed).toBe(true);
   });
 });

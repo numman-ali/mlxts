@@ -51,8 +51,9 @@ image, and bounded tool endpoints while benchmark and scheduler work continues.
   owns preprocessing and prompt expansion. OpenAI Chat/OpenResponses accept
   data-url and allowlisted remote HTTP(S) images; Anthropic Messages accepts
   local base64 and allowlisted remote HTTP(S) user image blocks through the same
-  content route. File image sources remain rejected until a file-store policy
-  exists.
+  content route. Exact repeated Qwen image prompts now short-circuit full visual
+  preparation when the media-aware prefix cache covers all expanded image tokens.
+  File image sources remain rejected until a file-store policy exists.
 - **Qwen conditional serving**: top-level Qwen 3.5 / 3.6 conditional
   checkpoints expose the Qwen text batch-cache surface for text-only continuous
   serving. Media/content requests still route as `media_input` and stay off
@@ -132,6 +133,13 @@ Full evidence ladder lives in
   a generated 2x2 red/green/blue/yellow grid, routed every request as
   `single:media_input`, kept continuous scheduler phases at `0`, and read `92`
   cached prompt tokens on exact repeats.
+- Qwen image prefix short-circuit passed against cached
+  `mlx-community/Qwen3.6-27B-4bit` with
+  `bun run regression:qwen-image -- --report-dir .tmp/qwen-image-prefix-short-circuit`.
+  The cold OpenAI Chat probe wrote `92` prompt-cache tokens; exact repeats
+  across OpenAI Chat, OpenResponses, and Anthropic Messages read `92` cached
+  tokens and stayed on the media route without introducing persistent visual
+  embedding storage.
 - Qwen image direct example proof passed against cached
   `mlx-community/Qwen3.6-27B-4bit` using
   `examples/qwen3_5-image/index.ts --json --greedy --max-tokens 64`. The

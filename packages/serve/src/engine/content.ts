@@ -13,8 +13,10 @@ import {
   type PreparedPrompt,
   prepareQwen3_5ImageBatch,
   prepareQwen3_5ImagePrompt,
+  prepareQwen3_5ImagePromptTokenPlan,
   QWEN3_5_IMAGE_MARKER,
   type Qwen3_5VisionPreprocessorConfig,
+  qwen3_5ImageGridThwValues,
   smartResizeQwen3_5Image,
 } from "@mlxts/transformers";
 import { ServeError } from "../errors";
@@ -31,7 +33,7 @@ import type {
 } from "../types";
 import { batchGenerationOptions, type PreparedGenerationRequest } from "./generation";
 import type { TransformersGenerationEngineOptions } from "./index";
-import type { PromptPrefixCacheIdentity } from "./prefix-cache";
+import type { PromptPrefixCache, PromptPrefixCacheIdentity } from "./prefix-cache";
 import {
   type CompiledPrompt,
   enforceGenerationMemoryBudget,
@@ -43,9 +45,15 @@ import {
 export type LoadedContentPrompt = {
   prompt: CompiledPrompt;
   promptCacheIdentity?: PromptPrefixCacheIdentity;
+  prepareTokenPlan?(context: TransformersContentAdapterModelContext): LoadedContentTokenPlan;
   preparePrompt(
     context: TransformersContentAdapterModelContext,
   ): PreparedPrompt | Promise<PreparedPrompt>;
+};
+
+export type LoadedContentTokenPlan = {
+  tokenIds: readonly number[];
+  canSkipPromptPreparation(cachedPrefixTokens: number): boolean;
 };
 
 /** Tokenizer and request state available during host-side media loading. */
@@ -291,10 +299,26 @@ export function createQwen3_5ImageContentAdapter(
         decodedImages.push(decoded.image);
         contentKeys.push(decoded.cacheKey);
       }
+      const imageGridThw = qwen3_5ImageGridThwValues(decodedImages, preprocessor);
 
       return {
         prompt,
         promptCacheIdentity: { contentKeys },
+        prepareTokenPlan(modelContext) {
+          const plan = prepareQwen3_5ImagePromptTokenPlan(
+            modelContext.model,
+            prompt.tokenIds,
+            imageGridThw,
+          );
+          return {
+            tokenIds: plan.tokenIds,
+            canSkipPromptPreparation(cachedPrefixTokens) {
+              return plan.tokenIds
+                .slice(cachedPrefixTokens)
+                .every((tokenId) => tokenId !== plan.imageTokenId);
+            },
+          };
+        },
         preparePrompt(modelContext) {
           const preparedImages = prepareQwen3_5ImageBatch(decodedImages, preprocessor);
           try {
@@ -317,6 +341,63 @@ export function createQwen3_5ImageContentAdapter(
 function disposePreparedPrompt(prompt: PreparedPrompt): void {
   prompt.inputEmbeddings?.free();
   prompt.positionIds?.free();
+}
+
+function tokenIdsEqual(left: readonly number[], right: readonly number[]): boolean {
+  if (left.length !== right.length) {
+    return false;
+  }
+  for (let index = 0; index < left.length; index += 1) {
+    if (left[index] !== right[index]) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function createPreparedContentGenerationRequest(
+  loaded: LoadedContentGenerationRequest,
+  options: TransformersGenerationEngineOptions,
+  tokenIds: readonly number[],
+  preparedPrompt?: PreparedPrompt,
+): PreparedGenerationRequest {
+  const promptTokens = tokenIds.length;
+  enforcePromptTokenLimit(options, loaded.request, promptTokens);
+  enforceTotalTokenLimit(options, loaded.request, promptTokens);
+  enforceGenerationMemoryBudget(options, loaded.request, promptTokens);
+  emitPromptPrepare(
+    loaded.request,
+    options,
+    "complete",
+    promptTokens,
+    performance.now() - loaded.startedAt,
+  );
+  return {
+    request: loaded.request,
+    prompt: loaded.prompt,
+    promptTokens,
+    tokenIds,
+    ...(preparedPrompt === undefined ? {} : { preparedPrompt }),
+    ...(loaded.promptCacheIdentity === undefined
+      ? {}
+      : { promptCacheIdentity: loaded.promptCacheIdentity }),
+    batchOptions: batchGenerationOptions(loaded.request, options),
+  };
+}
+
+function canSkipLoadedContentPromptPreparation(
+  loaded: LoadedContentGenerationRequest,
+  tokenPlan: LoadedContentTokenPlan,
+  promptCache: PromptPrefixCache | undefined,
+): boolean {
+  if (promptCache === undefined || loaded.promptCacheIdentity === undefined) {
+    return false;
+  }
+  const cachedPrefixTokens = promptCache.reusablePrefixLength(
+    tokenPlan.tokenIds,
+    loaded.promptCacheIdentity,
+  );
+  return cachedPrefixTokens > 0 && tokenPlan.canSkipPromptPreparation(cachedPrefixTokens);
 }
 
 /** Load host media and compile prompt text before entering the model execution lane. */
@@ -354,33 +435,31 @@ export async function loadContentGenerationRequest(
 export async function prepareLoadedContentGenerationRequest(
   loaded: LoadedContentGenerationRequest,
   options: TransformersGenerationEngineOptions,
+  promptCache?: PromptPrefixCache,
 ): Promise<PreparedGenerationRequest> {
   throwIfRequestAborted(loaded.request, "prepareLoadedContentGenerationRequest");
+  const tokenPlan = loaded.prepareTokenPlan?.({ model: options.model });
+  if (
+    tokenPlan !== undefined &&
+    canSkipLoadedContentPromptPreparation(loaded, tokenPlan, promptCache)
+  ) {
+    return createPreparedContentGenerationRequest(loaded, options, tokenPlan.tokenIds);
+  }
+
   const preparedPrompt = await loaded.preparePrompt({ model: options.model });
-  const promptTokens = preparedPrompt.tokenIds.length;
   try {
+    if (tokenPlan !== undefined && !tokenIdsEqual(tokenPlan.tokenIds, preparedPrompt.tokenIds)) {
+      throw new Error(
+        "prepareLoadedContentGenerationRequest: content token plan did not match prepared prompt token ids.",
+      );
+    }
     throwIfRequestAborted(loaded.request, "prepareLoadedContentGenerationRequest");
-    enforcePromptTokenLimit(options, loaded.request, promptTokens);
-    enforceTotalTokenLimit(options, loaded.request, promptTokens);
-    enforceGenerationMemoryBudget(options, loaded.request, promptTokens);
-    emitPromptPrepare(
-      loaded.request,
+    return createPreparedContentGenerationRequest(
+      loaded,
       options,
-      "complete",
-      promptTokens,
-      performance.now() - loaded.startedAt,
-    );
-    return {
-      request: loaded.request,
-      prompt: loaded.prompt,
-      promptTokens,
-      tokenIds: preparedPrompt.tokenIds,
+      preparedPrompt.tokenIds,
       preparedPrompt,
-      ...(loaded.promptCacheIdentity === undefined
-        ? {}
-        : { promptCacheIdentity: loaded.promptCacheIdentity }),
-      batchOptions: batchGenerationOptions(loaded.request, options),
-    };
+    );
   } catch (error) {
     disposePreparedPrompt(preparedPrompt);
     throw error;

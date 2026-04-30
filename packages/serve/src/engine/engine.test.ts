@@ -511,7 +511,7 @@ describe("transformers generation engine", () => {
     expect(waits.every((event) => event.waitMs >= 0)).toBe(true);
   });
 
-  test("rejects media content without a model-family content adapter", () => {
+  test("rejects media content without a model-family content adapter", async () => {
     using model = new TinyModel();
     const tokenizer = new TinyTokenizer();
     const events: ServeEvent[] = [];
@@ -558,6 +558,32 @@ describe("transformers generation engine", () => {
       ...ROUTE_STRATEGY,
       stream: false,
     });
+
+    const stream = engine.stream;
+    if (stream === undefined) {
+      throw new Error("Expected transformers engine to expose stream.");
+    }
+    await expect(
+      collectStreamEvents(stream, {
+        id: "media-stream",
+        model: "tiny",
+        input: {
+          kind: "content",
+          messages: [
+            {
+              role: "user",
+              content: [
+                { kind: "text", text: "Describe this." },
+                { kind: "image", source: { kind: "url", url: "file://image.png" } },
+              ],
+            },
+          ],
+        },
+        sampling: { maxTokens: 3, temperature: 0 },
+        stream: true,
+        protocol: "openai.chat_completions",
+      }),
+    ).rejects.toThrow("does not prepare media tensors");
   });
 
   test("rejects batched media content without a model-family content adapter", async () => {
@@ -759,6 +785,7 @@ describe("transformers generation engine", () => {
     using model = new PreparedPromptModel();
     const tokenizer = new TinyTokenizer();
     const events: ServeEvent[] = [];
+    let preparePromptCalls = 0;
     const engine = createTransformersGenerationEngine({
       model,
       tokenizer,
@@ -775,7 +802,16 @@ describe("transformers generation engine", () => {
           return {
             prompt: { text: "user:<image>", tokenIds: [0, 1, 2, 3] },
             promptCacheIdentity: { contentKeys: [`image:${imageKey}`] },
+            prepareTokenPlan() {
+              return {
+                tokenIds: [0, 1, 2, 3],
+                canSkipPromptPreparation(cachedPrefixTokens) {
+                  return cachedPrefixTokens >= 3;
+                },
+              };
+            },
             preparePrompt() {
+              preparePromptCalls += 1;
               return {
                 tokenIds: [0, 1, 2, 3],
                 inputEmbeddings: array([[[0], [1], [2], [3]]], "float32"),
@@ -813,19 +849,22 @@ describe("transformers generation engine", () => {
     });
 
     const first = await engine.generate(request("first", "AA=="));
+    expect(preparePromptCalls).toBe(1);
     model.forwardSequenceLengths.length = 0;
     model.forwardedInputEmbeddingShapes.length = 0;
     model.forwardedPositionIdShapes.length = 0;
     events.length = 0;
     const second = await engine.generate(request("second", "AA=="));
+    expect(preparePromptCalls).toBe(1);
     expect(model.forwardSequenceLengths).toEqual([1]);
-    expect(model.forwardedInputEmbeddingShapes).toEqual([[1, 1, 1]]);
-    expect(model.forwardedPositionIdShapes).toEqual([[1, 1]]);
+    expect(model.forwardedInputEmbeddingShapes).toEqual([]);
+    expect(model.forwardedPositionIdShapes).toEqual([]);
     model.forwardSequenceLengths.length = 0;
     model.forwardedInputEmbeddingShapes.length = 0;
     model.forwardedPositionIdShapes.length = 0;
     events.length = 0;
     const third = await engine.generate(request("third", "AQ=="));
+    expect(preparePromptCalls).toBe(2);
 
     expect(first.usage).toMatchObject({ cacheReadTokens: 0, cacheWriteTokens: 3 });
     expect(second.usage).toEqual({
@@ -909,6 +948,100 @@ describe("transformers generation engine", () => {
     ]);
     expect(model.forwardedInputEmbeddingShapes).toContainEqual([1, 1, 1]);
     expect(model.forwardedPositionIdShapes).toContainEqual([1, 1]);
+  });
+
+  test("streams repeated media content without prepared prompt tensors when media identity matches", async () => {
+    using model = new PreparedPromptModel();
+    const tokenizer = new TinyTokenizer();
+    let preparePromptCalls = 0;
+    const engine = createTransformersGenerationEngine({
+      model,
+      tokenizer,
+      contentAdapter: {
+        async load(request) {
+          if (request.input.kind !== "content") {
+            throw new Error("Expected content input.");
+          }
+          const source = request.input.messages[0]?.content[1];
+          const imageKey =
+            source?.kind === "image" && source.source.kind === "data"
+              ? source.source.data
+              : "missing";
+          return {
+            prompt: { text: "user:<image>", tokenIds: [0, 1, 2, 3] },
+            promptCacheIdentity: { contentKeys: [`image:${imageKey}`] },
+            prepareTokenPlan() {
+              return {
+                tokenIds: [0, 1, 2, 3],
+                canSkipPromptPreparation(cachedPrefixTokens) {
+                  return cachedPrefixTokens >= 3;
+                },
+              };
+            },
+            preparePrompt() {
+              preparePromptCalls += 1;
+              return {
+                tokenIds: [0, 1, 2, 3],
+                inputEmbeddings: array([[[0], [1], [2], [3]]], "float32"),
+                positionIds: array([[0, 1, 2, 3]], "int32"),
+              };
+            },
+          };
+        },
+      },
+    });
+    const request = (id: string, stream: boolean): NormalizedGenerationRequest => ({
+      id,
+      model: "tiny",
+      input: {
+        kind: "content",
+        messages: [
+          {
+            role: "user",
+            content: [
+              { kind: "text", text: "Describe this." },
+              {
+                kind: "image",
+                source: { kind: "data", mediaType: "image/png", data: "AA==" },
+              },
+            ],
+          },
+        ],
+      },
+      sampling: { maxTokens: 1, temperature: 0 },
+      stream,
+      protocol: "openai.chat_completions",
+    });
+
+    await engine.generate(request("media-stream-cold", false));
+    model.forwardSequenceLengths.length = 0;
+    model.forwardedInputEmbeddingShapes.length = 0;
+    model.forwardedPositionIdShapes.length = 0;
+
+    const stream = engine.stream;
+    if (stream === undefined) {
+      throw new Error("Expected transformers engine to expose stream.");
+    }
+    const events = await collectStreamEvents(stream, request("media-stream-repeat", true));
+
+    expect(preparePromptCalls).toBe(1);
+    expect(model.forwardSequenceLengths).toEqual([1]);
+    expect(model.forwardedInputEmbeddingShapes).toEqual([]);
+    expect(model.forwardedPositionIdShapes).toEqual([]);
+    expect(events).toEqual([
+      { type: "text", text: "c" },
+      {
+        type: "done",
+        finishReason: "length",
+        usage: {
+          promptTokens: 4,
+          completionTokens: 1,
+          totalTokens: 5,
+          cacheReadTokens: 3,
+          cacheWriteTokens: 0,
+        },
+      },
+    ]);
   });
 
   test("loads media content before acquiring the model lane", async () => {
@@ -2651,6 +2784,7 @@ describe("transformers generation engine", () => {
       model,
       tokenizer,
       interactionProfile: chatProfile,
+      maxBatchSize: 2,
       onEvent(event) {
         serveEvents.push(event);
       },
