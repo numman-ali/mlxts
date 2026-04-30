@@ -79,6 +79,7 @@ export type AgentCacheProbeReport = {
   cold: PromptCacheStats;
   warm: PromptCacheStats;
   exactReplay: PromptCacheStats;
+  coldClientUsage: readonly AgentCacheClientUsageReport[];
   warmClientUsage: readonly AgentCacheClientUsageReport[];
   warmClientReadTokens: number;
   warmClientWriteTokens: number;
@@ -401,7 +402,7 @@ async function runProbe(
   };
 
   const coldStart = events.length;
-  await Promise.all([
+  const [coldAResult, coldBResult] = await Promise.all([
     runCompletionRequest(endpoint, entry.modelId, leftPrompt, rung, requestOptions),
     runCompletionRequest(endpoint, entry.modelId, rightPrompt, rung, requestOptions),
   ]);
@@ -436,6 +437,18 @@ async function runProbe(
       writeTokens: warmBResult.cacheWriteTokens,
     },
   ] as const;
+  const coldClientUsage = [
+    {
+      session: "A",
+      readTokens: coldAResult.cacheReadTokens,
+      writeTokens: coldAResult.cacheWriteTokens,
+    },
+    {
+      session: "B",
+      readTokens: coldBResult.cacheReadTokens,
+      writeTokens: coldBResult.cacheWriteTokens,
+    },
+  ] as const;
 
   const report: AgentCacheProbeReport = {
     id: `${entry.modelId}-ab-warm-replay`,
@@ -443,6 +456,7 @@ async function runProbe(
     cold,
     warm,
     exactReplay,
+    coldClientUsage,
     warmClientUsage,
     warmClientReadTokens: warmClientUsage.reduce((total, result) => total + result.readTokens, 0),
     warmClientWriteTokens: warmClientUsage.reduce((total, result) => total + result.writeTokens, 0),
@@ -456,25 +470,65 @@ async function runProbe(
   return report;
 }
 
+function clientBoundaryTokens(
+  usage: readonly AgentCacheClientUsageReport[],
+  session: "A" | "B",
+): number | undefined {
+  const entry = usage.find((candidate) => candidate.session === session);
+  if (entry === undefined) {
+    return undefined;
+  }
+  return entry.readTokens + entry.writeTokens;
+}
+
+function coldClientBoundaryFailure(report: AgentCacheProbeReport): string | undefined {
+  const coldSessionBoundaries = [
+    clientBoundaryTokens(report.coldClientUsage, "A") ?? 0,
+    clientBoundaryTokens(report.coldClientUsage, "B") ?? 0,
+  ];
+  if (coldSessionBoundaries.some((tokens) => tokens <= 0)) {
+    return "each cold divergent session must report retained prompt boundary tokens";
+  }
+  return undefined;
+}
+
+function warmClientBoundaryFailures(report: AgentCacheProbeReport): string[] {
+  const failures: string[] = [];
+  for (const usage of report.warmClientUsage) {
+    const boundaryTokens = clientBoundaryTokens(report.coldClientUsage, usage.session);
+    if (boundaryTokens !== undefined && usage.readTokens < boundaryTokens) {
+      failures.push(
+        `warm replay session ${usage.session} cached ${usage.readTokens} tokens below retained boundary ${boundaryTokens}`,
+      );
+    }
+  }
+  return failures;
+}
+
 export function agentCacheProbeFailures(report: AgentCacheProbeReport): string[] {
   const failures: string[] = [];
   if (report.cold.writes < 2 || report.cold.writeTokens <= 0) {
     failures.push("cold divergent sessions did not write two retained prompt boundaries");
   }
+  const coldFailure = coldClientBoundaryFailure(report);
+  if (coldFailure !== undefined) {
+    failures.push(coldFailure);
+  }
   if (report.warm.hits < 2 || report.warm.readTokens <= 0) {
     failures.push("warm divergent session replay did not hit both retained prompt boundaries");
   }
-  if (report.warmClientUsage.some((usage) => usage.readTokens <= 0)) {
-    failures.push("each warm replay session must report cached prompt tokens");
-  }
+  failures.push(...warmClientBoundaryFailures(report));
   if (report.warmClientReadTokens <= 0) {
     failures.push("OpenAI-compatible chat usage did not report cached prompt tokens");
   }
-  if (report.exactReplay.hits < 1 || report.exactReplay.readTokens <= 0) {
+  const exactReplayBoundaryTokens = clientBoundaryTokens(report.coldClientUsage, "A") ?? 0;
+  if (report.exactReplay.hits < 1 || report.exactReplay.readTokens < exactReplayBoundaryTokens) {
     failures.push("exact A replay after divergent A/B did not hit the retained prompt boundary");
   }
-  if (report.exactReplayClientReadTokens <= 0) {
-    failures.push("exact A replay did not report cached prompt tokens");
+  if (report.exactReplayClientReadTokens < exactReplayBoundaryTokens) {
+    failures.push(
+      `exact A replay cached ${report.exactReplayClientReadTokens} tokens below retained boundary ${exactReplayBoundaryTokens}`,
+    );
   }
   return failures;
 }

@@ -44,14 +44,18 @@ function probe(overrides: Partial<AgentCacheProbeReport> = {}): AgentCacheProbeR
       readTokens: 128,
       writeTokens: 128,
     },
-    warmClientUsage: [
-      { session: "A", readTokens: 64, writeTokens: 128 },
-      { session: "B", readTokens: 64, writeTokens: 128 },
+    coldClientUsage: [
+      { session: "A", readTokens: 0, writeTokens: 128 },
+      { session: "B", readTokens: 0, writeTokens: 128 },
     ],
-    warmClientReadTokens: 128,
-    warmClientWriteTokens: 256,
+    warmClientUsage: [
+      { session: "A", readTokens: 128, writeTokens: 0 },
+      { session: "B", readTokens: 128, writeTokens: 0 },
+    ],
+    warmClientReadTokens: 256,
+    warmClientWriteTokens: 0,
     exactReplayClientReadTokens: 128,
-    exactReplayClientWriteTokens: 128,
+    exactReplayClientWriteTokens: 0,
     ...overrides,
   };
 }
@@ -149,12 +153,17 @@ describe("agent cache regression", () => {
       agentCacheProbeFailures(
         probe({
           cold: { hits: 0, misses: 2, writes: 1, readTokens: 0, writeTokens: 128 },
+          coldClientUsage: [
+            { session: "A", readTokens: 0, writeTokens: 128 },
+            { session: "B", readTokens: 0, writeTokens: 0 },
+          ],
           warm: { hits: 1, misses: 1, writes: 2, readTokens: 128, writeTokens: 256 },
           warmClientReadTokens: 0,
         }),
       ),
     ).toEqual([
       "cold divergent sessions did not write two retained prompt boundaries",
+      "each cold divergent session must report retained prompt boundary tokens",
       "warm divergent session replay did not hit both retained prompt boundaries",
       "OpenAI-compatible chat usage did not report cached prompt tokens",
     ]);
@@ -162,18 +171,33 @@ describe("agent cache regression", () => {
       agentCacheProbeFailures(
         probe({
           warmClientUsage: [
-            { session: "A", readTokens: 64, writeTokens: 128 },
+            { session: "A", readTokens: 127, writeTokens: 0 },
             { session: "B", readTokens: 0, writeTokens: 128 },
           ],
-          exactReplay: { hits: 0, misses: 1, writes: 1, readTokens: 0, writeTokens: 128 },
-          exactReplayClientReadTokens: 0,
+          exactReplay: { hits: 0, misses: 1, writes: 1, readTokens: 127, writeTokens: 128 },
+          exactReplayClientReadTokens: 127,
         }),
       ),
     ).toEqual([
-      "each warm replay session must report cached prompt tokens",
+      "warm replay session A cached 127 tokens below retained boundary 128",
+      "warm replay session B cached 0 tokens below retained boundary 128",
       "exact A replay after divergent A/B did not hit the retained prompt boundary",
-      "exact A replay did not report cached prompt tokens",
+      "exact A replay cached 127 tokens below retained boundary 128",
     ]);
+    expect(
+      agentCacheProbeFailures(
+        probe({
+          coldClientUsage: [
+            { session: "A", readTokens: 0, writeTokens: 128 },
+            { session: "B", readTokens: 64, writeTokens: 64 },
+          ],
+          warmClientUsage: [
+            { session: "A", readTokens: 128, writeTokens: 0 },
+            { session: "B", readTokens: 64, writeTokens: 0 },
+          ],
+        }),
+      ),
+    ).toEqual(["warm replay session B cached 64 tokens below retained boundary 128"]);
   });
 
   test("formats compact AXI success and error output", () => {
@@ -282,14 +306,24 @@ describe("agent cache regression", () => {
     expect(usageStdout.join("\n")).toContain("--prompt-tokens must be a positive integer");
 
     const runtimeStdout: string[] = [];
+    let runtimeLockDepth = 0;
     expect(
       await runAgentCacheRegressionCommand([], {
         stdout: (text) => runtimeStdout.push(text),
+        acquireLock: () => {
+          runtimeLockDepth += 1;
+          return {
+            [Symbol.dispose]: () => {
+              runtimeLockDepth -= 1;
+            },
+          };
+        },
         runRegression: async () => {
           throw new Error("cache regression failed");
         },
       }),
     ).toBe(1);
+    expect(runtimeLockDepth).toBe(0);
     expect(runtimeStdout.join("\n")).toContain("cache regression failed");
   });
 });
