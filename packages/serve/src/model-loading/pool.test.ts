@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { createFetchHandler } from "../http/server";
 import type {
   GenerationEngine,
   GenerationStreamEvent,
@@ -23,12 +24,38 @@ function sleep(ms: number): Promise<void> {
   });
 }
 
+function httpRequest(path: string, body: unknown): Request {
+  return new Request(`http://localhost${path}`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+  });
+}
+
 function deferred<T>() {
   let resolveValue: (value: T) => void = () => {};
   const promise = new Promise<T>((resolve) => {
     resolveValue = resolve;
   });
   return { promise, resolve: resolveValue };
+}
+
+async function readWithTimeout<T>(promise: Promise<T>): Promise<T> {
+  return Promise.race([
+    promise,
+    new Promise<never>((_, reject) => {
+      setTimeout(() => reject(new Error("timed out waiting for streamed bytes")), 1000);
+    }),
+  ]);
+}
+
+async function drainReader(reader: ReadableStreamDefaultReader<Uint8Array>): Promise<void> {
+  while (true) {
+    const chunk = await readWithTimeout(reader.read());
+    if (chunk.done) {
+      return;
+    }
+  }
 }
 
 async function expectRejectionMessage(
@@ -282,6 +309,141 @@ describe("source model pool generation engine", () => {
 
     await iterator?.return?.();
     await sleep(10);
+    expect(disposeCount).toBe(1);
+  });
+
+  test("keeps HTTP SSE streams leased until the response body closes", async () => {
+    const continueStream = deferred<void>();
+    const loads: string[] = [];
+    let disposeCount = 0;
+    const engine = createSourceModelPoolGenerationEngine({
+      entries: [{ modelId: "alpha" }],
+      idleTtlMs: 1,
+      async load(entry) {
+        loads.push(entry.modelId);
+        const tag = `a${loads.length}`;
+        return {
+          engine: {
+            generate(normalized) {
+              return { text: `${tag}:${normalized.id}`, finishReason: "stop" };
+            },
+            async *stream() {
+              yield { type: "text", text: tag } satisfies GenerationStreamEvent;
+              await continueStream.promise;
+              yield { type: "done", finishReason: "stop" } satisfies GenerationStreamEvent;
+            },
+          },
+          dispose() {
+            disposeCount += 1;
+          },
+        };
+      },
+    });
+    const fetch = createFetchHandler({
+      engine,
+      models: [{ id: "alpha" }],
+      idGenerator: () => "cmpl-lazy",
+    });
+
+    const response = await fetch(
+      httpRequest("/v1/completions", {
+        model: "alpha",
+        prompt: "hello",
+        stream: true,
+      }),
+    );
+    const reader = response.body?.getReader();
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-type")).toContain("text/event-stream");
+    expect(reader).toBeDefined();
+    if (reader === undefined) {
+      throw new Error("expected a response body reader");
+    }
+
+    const firstChunk = await readWithTimeout(reader.read());
+    expect(firstChunk.done).toBe(false);
+    await sleep(10);
+    expect(disposeCount).toBe(0);
+
+    continueStream.resolve();
+    await drainReader(reader);
+    await sleep(10);
+    expect(disposeCount).toBe(1);
+
+    const followup = await fetch(
+      httpRequest("/v1/completions", {
+        model: "alpha",
+        prompt: "again",
+      }),
+    );
+    const body = await followup.json();
+    expect(followup.status).toBe(200);
+    expect(body.choices[0].text).toBe("a2:cmpl-lazy");
+    expect(loads).toEqual(["alpha", "alpha"]);
+    engine[Symbol.dispose]?.();
+    expect(disposeCount).toBe(2);
+  });
+
+  test("releases HTTP SSE stream leases when the reader cancels", async () => {
+    let streamClosed = false;
+    let seenSignal: AbortSignal | undefined;
+    let disposeCount = 0;
+    const engine = createSourceModelPoolGenerationEngine({
+      entries: [{ modelId: "alpha" }],
+      idleTtlMs: 1,
+      async load() {
+        return {
+          engine: {
+            generate() {
+              return { text: "unused", finishReason: "stop" };
+            },
+            async *stream(normalized) {
+              seenSignal = normalized.abortSignal;
+              try {
+                yield { type: "text", text: "a" } satisfies GenerationStreamEvent;
+                await new Promise<void>((resolve) => {
+                  if (normalized.abortSignal?.aborted === true) {
+                    resolve();
+                    return;
+                  }
+                  normalized.abortSignal?.addEventListener("abort", () => resolve(), {
+                    once: true,
+                  });
+                });
+              } finally {
+                streamClosed = true;
+              }
+            },
+          },
+          dispose() {
+            disposeCount += 1;
+          },
+        };
+      },
+    });
+    const fetch = createFetchHandler({ engine, models: [{ id: "alpha" }] });
+    const response = await fetch(
+      httpRequest("/v1/completions", {
+        model: "alpha",
+        prompt: "hello",
+        stream: true,
+      }),
+    );
+    const reader = response.body?.getReader();
+    expect(reader).toBeDefined();
+    if (reader === undefined) {
+      throw new Error("expected a response body reader");
+    }
+
+    const firstChunk = await readWithTimeout(reader.read());
+    expect(firstChunk.done).toBe(false);
+    await sleep(10);
+    expect(disposeCount).toBe(0);
+
+    await reader.cancel();
+    await sleep(25);
+    expect(seenSignal?.aborted).toBe(true);
+    expect(streamClosed).toBe(true);
     expect(disposeCount).toBe(1);
   });
 

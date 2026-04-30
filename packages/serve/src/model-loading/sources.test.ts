@@ -266,6 +266,12 @@ function deferred<T>() {
   return { promise, resolve: resolveValue };
 }
 
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
+}
+
 function completionRequest(model: string): RequestInit {
   return {
     method: "POST",
@@ -545,7 +551,7 @@ describe("serveModels", () => {
           `${running.endpoint}/v1/completions`,
           completionRequest("second"),
         );
-        await new Promise((resolve) => setTimeout(resolve, 0));
+        await sleep(0);
         releaseFirstLoad.resolve(first);
 
         const [, secondResult] = await Promise.all([firstResponse, secondResponse]);
@@ -566,6 +572,72 @@ describe("serveModels", () => {
     } finally {
       removeDirectory(firstDirectory);
       removeDirectory(secondDirectory);
+    }
+  });
+
+  test("reruns lazy memory preflight after HTTP idle eviction", async () => {
+    const calls: string[] = [];
+    const directory = await createSafetensorDirectory(100);
+    const first = new FakeModel();
+    const second = new FakeModel();
+    let memoryReads = 0;
+    const runtime: ServeModelsRuntime = {
+      ...testRuntime({ calls, models: [first, second] }),
+      readGenerationMemoryUsage() {
+        memoryReads += 1;
+        return {
+          activeBytes: 0,
+          cacheBytes: 0,
+          peakBytes: 0,
+          limitBytes: 1000,
+        };
+      },
+    };
+
+    try {
+      const running = await serveModelsWithRuntime(
+        {
+          models: [{ source: directory, modelId: "first" }],
+          modelLoadPolicy: "lazy",
+          modelIdleTtlMs: 1,
+          gpuMemoryUtilization: 0.9,
+          port: 0,
+        },
+        runtime,
+      );
+      try {
+        const firstResponse = await fetch(
+          `${running.endpoint}/v1/completions`,
+          completionRequest("first"),
+        );
+        expect(firstResponse.status).toBe(500);
+        await sleep(10);
+        expect(first.disposeCount).toBe(1);
+
+        const secondResponse = await fetch(
+          `${running.endpoint}/v1/completions`,
+          completionRequest("first"),
+        );
+        expect(secondResponse.status).toBe(500);
+        await sleep(10);
+
+        expect(second.disposeCount).toBe(1);
+        expect(memoryReads).toBe(2);
+        expect(calls).toEqual([
+          `resolve:${directory}:undefined:false`,
+          `model:${directory}`,
+          `tokenizer:${directory}`,
+          `profile:${directory}`,
+          `resolve:${directory}:undefined:false`,
+          `model:${directory}`,
+          `tokenizer:${directory}`,
+          `profile:${directory}`,
+        ]);
+      } finally {
+        running.stop();
+      }
+    } finally {
+      removeDirectory(directory);
     }
   });
 
