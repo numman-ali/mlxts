@@ -19,7 +19,7 @@ type ScenarioName =
   | "gemma-moe"
   | "multi-moe";
 
-type ModelTarget = {
+export type AgentCacheModelTarget = {
   id: string;
   source: string;
 };
@@ -38,6 +38,25 @@ export type AgentCacheRegressionOptions = {
   allowDownload: boolean;
 };
 
+type AgentCacheRegressionCommand =
+  | { kind: "help" }
+  | { kind: "run"; options: AgentCacheRegressionOptions };
+
+type RuntimeLock = {
+  [Symbol.dispose](): void;
+};
+
+type AgentCacheRegressionRuntime = {
+  stdout?: (text: string) => void;
+  stderr?: (text: string) => void;
+  acquireLock?: () => RuntimeLock;
+  runRegression?: (
+    options: AgentCacheRegressionOptions,
+    progress: (text: string) => void,
+  ) => Promise<AgentCacheRegressionReport>;
+  writeReport?: (path: string, report: AgentCacheRegressionReport) => Promise<void>;
+};
+
 type PromptCacheStats = {
   hits: number;
   misses: number;
@@ -48,18 +67,29 @@ type PromptCacheStats = {
 
 type PromptCacheEvent = Extract<ServeEvent, { type: "generation_prompt_cache" }>;
 
+export type AgentCacheClientUsageReport = {
+  session: "A" | "B";
+  readTokens: number;
+  writeTokens: number;
+};
+
 export type AgentCacheProbeReport = {
   id: string;
   modelId: string;
   cold: PromptCacheStats;
   warm: PromptCacheStats;
+  exactReplay: PromptCacheStats;
+  warmClientUsage: readonly AgentCacheClientUsageReport[];
   warmClientReadTokens: number;
   warmClientWriteTokens: number;
+  exactReplayClientReadTokens: number;
+  exactReplayClientWriteTokens: number;
 };
 
 export type AgentCacheScenarioReport = {
   id: ScenarioName;
   models: readonly string[];
+  targets: readonly AgentCacheModelTarget[];
   probes: readonly AgentCacheProbeReport[];
   status: "passed";
 };
@@ -71,52 +101,67 @@ export type AgentCacheRegressionReport = {
   scenarios: readonly AgentCacheScenarioReport[];
 };
 
-class UsageError extends Error {}
+class AgentCacheRegressionUsageError extends Error {}
 
 const DEFAULT_SCENARIOS: ScenarioName[] = ["qwen-dense", "gemma-dense", "multi-dense"];
 
-function usage(): string {
+export function formatAgentCacheRegressionUsage(): string {
   return [
-    "Usage: bun run regression:agent-cache -- [options]",
-    "",
-    "Options:",
-    "  --scenarios <list>              Comma-separated scenarios.",
-    "                                  qwen-dense,gemma-dense,multi-dense,qwen-moe,gemma-moe,multi-moe",
-    "  --include-moe                  Add qwen-moe and gemma-moe to the default scenario list.",
-    "  --include-moe-multi            Add multi-moe to the scenario list.",
-    "  --qwen-model <id>              Dense Qwen model id/path.",
-    "  --gemma-model <id>             Dense Gemma model id/path.",
-    "  --qwen-moe-model <id>          Qwen MoE model id/path.",
-    "  --gemma-moe-model <id>         Gemma MoE model id/path.",
-    "  --prompt-tokens <n>            Approximate chat prompt length per session, default 128.",
-    "  --max-tokens <n>               Max generated tokens per probe, default 16.",
-    "  --request-timeout-ms <n>       Client timeout per request, default 3600000.",
-    "  --gpu-memory-utilization <f>   Serving memory preflight budget, default 0.85.",
-    "  --report-json <path>           Report path, default .tmp/agent-cache-regression/report.json.",
-    "  --allow-download               Allow Hub downloads; default is cached/local only.",
+    "description: Run the @mlxts/serve Pi-style prompt-prefix cache regression",
+    "usage[3]:",
+    "  bun run regression:agent-cache",
+    "  bun run regression:agent-cache -- --scenarios qwen-dense,gemma-dense,multi-dense",
+    "  bun run regression:agent-cache -- --include-moe --include-moe-multi",
+    "options[14]{flag,description}:",
+    '  "--scenarios <list>","Comma-separated qwen-dense,gemma-dense,multi-dense,qwen-moe,gemma-moe,multi-moe"',
+    '  "--include-moe","Add qwen-moe and gemma-moe to the default scenario list"',
+    '  "--include-moe-multi","Add multi-moe to the scenario list"',
+    '  "--qwen-model <id>","Dense Qwen model id/path"',
+    '  "--gemma-model <id>","Dense Gemma model id/path"',
+    '  "--qwen-moe-model <id>","Qwen MoE model id/path"',
+    '  "--gemma-moe-model <id>","Gemma MoE model id/path"',
+    '  "--prompt-tokens <n>","Approximate chat prompt length per session; default 128"',
+    '  "--max-tokens <n>","Max generated tokens per probe; default 16"',
+    '  "--request-timeout-ms <n>","Client timeout per request; default 3600000"',
+    '  "--gpu-memory-utilization <f>","Serving memory preflight budget in (0,1]; default 0.85"',
+    '  "--report-json <path>","Report path; default .tmp/agent-cache-regression/report.json"',
+    '  "--allow-download","Allow Hub downloads; default is cached/local only"',
+    '  "--help","Show this help"',
+    "exit_codes[3]{code,meaning}:",
+    '  0,"regression passed"',
+    '  1,"runtime or regression failure"',
+    '  2,"usage error"',
   ].join("\n");
 }
 
 function readValue(args: readonly string[], index: number, flag: string): string {
   const value = args[index + 1];
-  if (value === undefined || value.startsWith("--")) {
-    throw new UsageError(`${flag} requires a value.`);
+  if (value === undefined || value.trim() === "" || value.startsWith("-")) {
+    throw new AgentCacheRegressionUsageError(`${flag} requires a value.`);
   }
   return value;
 }
 
 function readPositiveInteger(args: readonly string[], index: number, flag: string): number {
-  const parsed = Number.parseInt(readValue(args, index, flag), 10);
+  const rawValue = args[index + 1]?.trim();
+  if (rawValue === undefined || rawValue === "" || rawValue.startsWith("--")) {
+    throw new AgentCacheRegressionUsageError(`${flag} requires a value.`);
+  }
+  const parsed = /^\d+$/.test(rawValue) ? Number(rawValue) : Number.NaN;
   if (!Number.isInteger(parsed) || parsed <= 0) {
-    throw new UsageError(`${flag} must be a positive integer.`);
+    throw new AgentCacheRegressionUsageError(`${flag} must be a positive integer.`);
   }
   return parsed;
 }
 
 function readPositiveFraction(args: readonly string[], index: number, flag: string): number {
-  const parsed = Number.parseFloat(readValue(args, index, flag));
+  const rawValue = args[index + 1]?.trim();
+  if (rawValue === undefined || rawValue === "" || rawValue.startsWith("--")) {
+    throw new AgentCacheRegressionUsageError(`${flag} requires a value.`);
+  }
+  const parsed = Number(rawValue);
   if (!Number.isFinite(parsed) || parsed <= 0 || parsed > 1) {
-    throw new UsageError(`${flag} must be between 0 and 1.`);
+    throw new AgentCacheRegressionUsageError(`${flag} must be between 0 and 1.`);
   }
   return parsed;
 }
@@ -131,13 +176,13 @@ function parseScenario(value: string): ScenarioName {
     case "multi-moe":
       return value;
     default:
-      throw new UsageError(`unknown scenario "${value}".`);
+      throw new AgentCacheRegressionUsageError(`unknown scenario "${value}".`);
   }
 }
 
 function parseScenarios(value: string): ScenarioName[] {
   if (value.trim() === "") {
-    throw new UsageError("--scenarios requires at least one scenario.");
+    throw new AgentCacheRegressionUsageError("--scenarios requires at least one scenario.");
   }
   return [...new Set(value.split(",").map((entry) => parseScenario(entry.trim())))];
 }
@@ -150,7 +195,10 @@ function addScenario(scenarios: ScenarioName[], scenario: ScenarioName): void {
 
 export function parseAgentCacheRegressionArgs(
   argv: readonly string[],
-): AgentCacheRegressionOptions {
+): AgentCacheRegressionCommand {
+  if (argv.length === 1 && (argv[0] === "--help" || argv[0] === "-h")) {
+    return { kind: "help" };
+  }
   const options: AgentCacheRegressionOptions = {
     scenarios: DEFAULT_SCENARIOS,
     qwenModel: "mlx-community/Qwen3.6-27B-4bit",
@@ -168,12 +216,13 @@ export function parseAgentCacheRegressionArgs(
 
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
+    if (arg === undefined) {
+      throw new AgentCacheRegressionUsageError("argument parsing reached an empty slot.");
+    }
     switch (arg) {
       case "--help":
       case "-h":
-        console.log(usage());
-        process.exit(0);
-        return options;
+        return { kind: "help" };
       case "--scenarios":
         scenarios = parseScenarios(readValue(argv, index, arg));
         index += 1;
@@ -225,11 +274,13 @@ export function parseAgentCacheRegressionArgs(
         options.allowDownload = true;
         break;
       default:
-        throw new UsageError(`unknown option "${arg}".`);
+        throw new AgentCacheRegressionUsageError(
+          arg.startsWith("-") ? `unknown option "${arg}".` : `unexpected argument "${arg}".`,
+        );
     }
   }
 
-  return { ...options, scenarios };
+  return { kind: "run", options: { ...options, scenarios } };
 }
 
 function benchmarkOptions(options: AgentCacheRegressionOptions): ServeBenchmarkOptions {
@@ -297,10 +348,11 @@ function chatPrompt(
 }
 
 async function loadEntry(
-  target: ModelTarget,
+  target: AgentCacheModelTarget,
   options: AgentCacheRegressionOptions,
+  progress: (text: string) => void,
 ): Promise<LoadedModelServerEntry> {
-  console.error(`agent-cache-regression: loading ${target.id} from ${target.source}`);
+  progress(`agent-cache-regression: loading ${target.id} from ${target.source}`);
   const loadOptions = { localFilesOnly: !options.allowDownload };
   const [tokenizer, interactionProfile] = await Promise.all([
     loadPretrainedTokenizer(target.source, loadOptions),
@@ -317,13 +369,14 @@ function disposeLoadedEntries(entries: readonly LoadedModelServerEntry[]): void 
 }
 
 async function loadEntries(
-  targets: readonly ModelTarget[],
+  targets: readonly AgentCacheModelTarget[],
   options: AgentCacheRegressionOptions,
+  progress: (text: string) => void,
 ): Promise<LoadedModelServerEntry[]> {
   const entries: LoadedModelServerEntry[] = [];
   try {
     for (const target of targets) {
-      entries.push(await loadEntry(target, options));
+      entries.push(await loadEntry(target, options, progress));
     }
     return entries;
   } catch (error) {
@@ -355,22 +408,46 @@ async function runProbe(
   const cold = promptCacheStats(events.slice(coldStart), entry.modelId);
 
   const warmStart = events.length;
-  const warmResults = await Promise.all([
+  const [warmAResult, warmBResult] = await Promise.all([
     runCompletionRequest(endpoint, entry.modelId, leftPrompt, rung, requestOptions),
     runCompletionRequest(endpoint, entry.modelId, rightPrompt, rung, requestOptions),
   ]);
   const warm = promptCacheStats(events.slice(warmStart), entry.modelId);
+
+  const exactReplayStart = events.length;
+  const exactReplayResult = await runCompletionRequest(
+    endpoint,
+    entry.modelId,
+    leftPrompt,
+    rung,
+    requestOptions,
+  );
+  const exactReplay = promptCacheStats(events.slice(exactReplayStart), entry.modelId);
+
+  const warmClientUsage = [
+    {
+      session: "A",
+      readTokens: warmAResult.cacheReadTokens,
+      writeTokens: warmAResult.cacheWriteTokens,
+    },
+    {
+      session: "B",
+      readTokens: warmBResult.cacheReadTokens,
+      writeTokens: warmBResult.cacheWriteTokens,
+    },
+  ] as const;
 
   const report: AgentCacheProbeReport = {
     id: `${entry.modelId}-ab-warm-replay`,
     modelId: entry.modelId,
     cold,
     warm,
-    warmClientReadTokens: warmResults.reduce((total, result) => total + result.cacheReadTokens, 0),
-    warmClientWriteTokens: warmResults.reduce(
-      (total, result) => total + result.cacheWriteTokens,
-      0,
-    ),
+    exactReplay,
+    warmClientUsage,
+    warmClientReadTokens: warmClientUsage.reduce((total, result) => total + result.readTokens, 0),
+    warmClientWriteTokens: warmClientUsage.reduce((total, result) => total + result.writeTokens, 0),
+    exactReplayClientReadTokens: exactReplayResult.cacheReadTokens,
+    exactReplayClientWriteTokens: exactReplayResult.cacheWriteTokens,
   };
   const failures = agentCacheProbeFailures(report);
   if (failures.length > 0) {
@@ -387,8 +464,17 @@ export function agentCacheProbeFailures(report: AgentCacheProbeReport): string[]
   if (report.warm.hits < 2 || report.warm.readTokens <= 0) {
     failures.push("warm divergent session replay did not hit both retained prompt boundaries");
   }
+  if (report.warmClientUsage.some((usage) => usage.readTokens <= 0)) {
+    failures.push("each warm replay session must report cached prompt tokens");
+  }
   if (report.warmClientReadTokens <= 0) {
     failures.push("OpenAI-compatible chat usage did not report cached prompt tokens");
+  }
+  if (report.exactReplay.hits < 1 || report.exactReplay.readTokens <= 0) {
+    failures.push("exact A replay after divergent A/B did not hit the retained prompt boundary");
+  }
+  if (report.exactReplayClientReadTokens <= 0) {
+    failures.push("exact A replay did not report cached prompt tokens");
   }
   return failures;
 }
@@ -396,7 +482,7 @@ export function agentCacheProbeFailures(report: AgentCacheProbeReport): string[]
 function scenarioTargets(
   scenario: ScenarioName,
   options: AgentCacheRegressionOptions,
-): ModelTarget[] {
+): AgentCacheModelTarget[] {
   switch (scenario) {
     case "qwen-dense":
       return [{ id: "qwen-dense-local", source: options.qwenModel }];
@@ -422,9 +508,10 @@ function scenarioTargets(
 async function runScenario(
   scenario: ScenarioName,
   options: AgentCacheRegressionOptions,
+  progress: (text: string) => void,
 ): Promise<AgentCacheScenarioReport> {
   const targets = scenarioTargets(scenario, options);
-  const entries = await loadEntries(targets, options);
+  const entries = await loadEntries(targets, options, progress);
   const events: ServeEvent[] = [];
   let server: ReturnType<typeof serveLoadedModels> | undefined;
 
@@ -445,7 +532,7 @@ async function runScenario(
         events.push(event);
       },
     });
-    console.error(`agent-cache-regression: probing ${scenario} at ${server.endpoint}`);
+    progress(`agent-cache-regression: probing ${scenario} at ${server.endpoint}`);
     const probes: AgentCacheProbeReport[] = [];
     for (const entry of entries) {
       probes.push(await runProbe(server.endpoint, entry, options, events));
@@ -453,6 +540,7 @@ async function runScenario(
     return {
       id: scenario,
       models: entries.map((entry) => entry.modelId),
+      targets,
       probes,
       status: "passed",
     };
@@ -471,7 +559,22 @@ async function writeReport(path: string, report: AgentCacheRegressionReport): Pr
   await Bun.write(path, `${JSON.stringify(report, null, 2)}\n`);
 }
 
-function formatSummary(report: AgentCacheRegressionReport, reportJson: string): string {
+function toon(value: string | number | boolean | null): string {
+  return typeof value === "string" ? JSON.stringify(value) : String(value);
+}
+
+function formatMultilineField(name: string, value: string): string[] {
+  const lines = value.split(/\r?\n/);
+  if (lines.length === 1) {
+    return [`  ${name}: ${toon(value)}`];
+  }
+  return [`  ${name}: |`, ...lines.map((line) => `    ${line}`)];
+}
+
+export function formatAgentCacheRegressionSuccess(
+  report: AgentCacheRegressionReport,
+  reportJson: string,
+): string {
   const rows = report.scenarios.map((scenario) => {
     const warmHits = scenario.probes.reduce((total, probe) => total + probe.warm.hits, 0);
     const readTokens = scenario.probes.reduce((total, probe) => total + probe.warm.readTokens, 0);
@@ -479,24 +582,42 @@ function formatSummary(report: AgentCacheRegressionReport, reportJson: string): 
       (total, probe) => total + probe.warmClientReadTokens,
       0,
     );
-    return `  ${scenario.id},${scenario.status},${scenario.models.join("|")},${warmHits},${readTokens},${clientReadTokens}`;
+    const exactReplayHits = scenario.probes.reduce(
+      (total, probe) => total + probe.exactReplay.hits,
+      0,
+    );
+    const exactReplayClientReadTokens = scenario.probes.reduce(
+      (total, probe) => total + probe.exactReplayClientReadTokens,
+      0,
+    );
+    return [
+      toon(scenario.id),
+      toon(scenario.status),
+      toon(scenario.models.join("|")),
+      String(warmHits),
+      String(readTokens),
+      String(clientReadTokens),
+      String(exactReplayHits),
+      String(exactReplayClientReadTokens),
+    ].join(",");
   });
   return [
     "agent_cache_regression:",
     "  status: passed",
     `  scenarios: ${report.scenarios.length}`,
-    `  report_json: ${reportJson}`,
-    `scenarios[${rows.length}]{id,status,models,warm_hits,warm_read_tokens,warm_client_read_tokens}:`,
-    ...rows,
+    `  report_json: ${toon(reportJson)}`,
+    `scenarios[${rows.length}]{id,status,models,warm_hits,warm_read_tokens,warm_client_read_tokens,exact_replay_hits,exact_replay_client_read_tokens}:`,
+    ...rows.map((row) => `  ${row}`),
   ].join("\n");
 }
 
 export async function runAgentCacheRegression(
   options: AgentCacheRegressionOptions,
+  progress: (text: string) => void = console.error,
 ): Promise<AgentCacheRegressionReport> {
   const scenarios: AgentCacheScenarioReport[] = [];
   for (const scenario of options.scenarios) {
-    scenarios.push(await runScenario(scenario, options));
+    scenarios.push(await runScenario(scenario, options, progress));
   }
   return {
     createdAt: new Date().toISOString(),
@@ -506,35 +627,62 @@ export async function runAgentCacheRegression(
   };
 }
 
-function formatError(message: string, help: string): string {
-  return ["error:", `  message: ${message}`, `help: ${help}`].join("\n");
+export function formatAgentCacheRegressionError(message: string, help: string): string {
+  return ["error:", ...formatMultilineField("message", message), `help: ${toon(help)}`].join("\n");
 }
 
-async function main(): Promise<void> {
-  let options: AgentCacheRegressionOptions;
-  try {
-    options = parseAgentCacheRegressionArgs(Bun.argv.slice(2));
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    console.log(formatError(message, "bun run regression:agent-cache -- --scenarios qwen-dense"));
-    process.exit(error instanceof UsageError ? 2 : 1);
-    return;
-  }
+export async function runAgentCacheRegressionCommand(
+  argv: readonly string[],
+  runtime: AgentCacheRegressionRuntime = {},
+): Promise<number> {
+  const stdout = runtime.stdout ?? console.log;
+  const stderr = runtime.stderr ?? console.error;
+  const acquireLock =
+    runtime.acquireLock ?? (() => acquireRuntimeCommandLock("regression:agent-cache"));
+  const runRegression = runtime.runRegression ?? runAgentCacheRegression;
+  const writeRegressionReport = runtime.writeReport ?? writeReport;
+  let command: AgentCacheRegressionCommand;
 
   try {
-    using _runtimeLock = acquireRuntimeCommandLock("regression:agent-cache");
-    const report = await runAgentCacheRegression(options);
-    await writeReport(options.reportJson, report);
-    console.log(formatSummary(report, options.reportJson));
+    command = parseAgentCacheRegressionArgs(argv);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    console.log(
-      formatError(message, "inspect the report path or rerun with a narrower --scenarios list"),
+    stdout(
+      formatAgentCacheRegressionError(
+        message,
+        "bun run regression:agent-cache -- --scenarios qwen-dense",
+      ),
     );
-    process.exit(1);
+    return error instanceof AgentCacheRegressionUsageError ? 2 : 1;
+  }
+
+  if (command.kind === "help") {
+    stdout(formatAgentCacheRegressionUsage());
+    return 0;
+  }
+
+  let lock: RuntimeLock | undefined;
+  try {
+    lock = acquireLock();
+    const report = await runRegression(command.options, stderr);
+    await writeRegressionReport(command.options.reportJson, report);
+    stdout(formatAgentCacheRegressionSuccess(report, command.options.reportJson));
+    return 0;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    stdout(
+      formatAgentCacheRegressionError(
+        message,
+        "inspect the report path or rerun with a narrower --scenarios list",
+      ),
+    );
+    return 1;
+  } finally {
+    lock?.[Symbol.dispose]();
   }
 }
 
 if (import.meta.main) {
-  await main();
+  const exitCode = await runAgentCacheRegressionCommand(Bun.argv.slice(2));
+  process.exit(exitCode);
 }

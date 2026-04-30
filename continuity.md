@@ -184,6 +184,11 @@ Full evidence ladder lives in
   and decode benchmark progress on stderr, emits compact structured stdout
   pass/error summaries, preserves cached/local-only real loads, and still
   locks real/decode paths.
+- The prompt-cache product gate is now AXI-shaped and stricter:
+  `bun run regression:agent-cache` keeps model load/probe progress on stderr,
+  emits compact structured stdout, writes JSON reports with checkpoint sources,
+  and requires per-session warm cached-token usage plus exact A replay after
+  divergent A/B sessions.
 - The root Qwen/Gemma gate is now AXI-shaped:
   `bun run regression:qwen-gemma` keeps child transformer/serve/context command
   output on stderr and reserves stdout for structured help, pass summaries, and
