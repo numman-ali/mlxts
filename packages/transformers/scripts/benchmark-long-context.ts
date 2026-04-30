@@ -12,6 +12,9 @@ import {
   loadPretrainedTokenizer,
 } from "../src";
 import {
+  type BenchmarkProgress,
+  BenchmarkUsageError,
+  formatBenchmarkError,
   resolveCachedSnapshotPath,
   sanitizePathSegment,
   withBenchmarkRuntimeScope,
@@ -93,40 +96,72 @@ export type LongContextReport = {
   results: LongContextResult[];
 };
 
+type LongContextCommand = { kind: "help" } | { kind: "run"; options: LongContextOptions };
+
+type RuntimeLock = {
+  [Symbol.dispose](): void;
+};
+
+type LongContextBenchmarkRuntime = {
+  stdout?: (text: string) => void;
+  stderr?: (text: string) => void;
+  acquireLock?: () => RuntimeLock;
+  runBenchmark?: (
+    options: LongContextOptions,
+    progress: BenchmarkProgress,
+  ) => Promise<LongContextReport>;
+};
+
 const CONTEXT_LADDER = [32768, 65536, 131072, 262144] as const;
 const FILLER_BLOCK =
   "Context block: this is filler text for long-context benchmarking. Keep reading carefully.\n";
 const RETRIEVAL_SYSTEM_PROMPT =
   "You are a retrieval checker. Reply with the exact benchmark marker only, with no extra words or punctuation.";
 
-function usage(): never {
-  console.error(
-    "Usage: bun run packages/transformers/scripts/benchmark-long-context.ts --model <repo-or-path> [--rungs 32768,65536,131072] [--needle-placements early,middle,late|all] [--generation-tokens <n>] [--prefill-step-size <n>] [--report-json <path>] [--fail-on-mismatch] [--max-active-slope-mb-per-token <n>] [--metal-trace]",
-  );
-  process.exit(1);
+function toon(value: string | number | boolean | null): string {
+  if (typeof value === "number") {
+    return Number.isFinite(value) ? value.toString() : "null";
+  }
+  if (typeof value === "boolean") {
+    return value ? "true" : "false";
+  }
+  if (value === null) {
+    return "null";
+  }
+  return JSON.stringify(value);
 }
 
 function readInteger(flag: string, value: string | undefined): number {
-  const parsed = Number.parseInt(value ?? "", 10);
+  const raw = readRequiredValue(flag, value);
+  const parsed = /^\d+$/.test(raw) ? Number(raw) : Number.NaN;
   if (!Number.isInteger(parsed) || parsed <= 0) {
-    throw new Error(`benchmark-long-context: ${flag} expects a positive integer.`);
+    throw new BenchmarkUsageError(`benchmark-long-context: ${flag} expects a positive integer.`);
   }
   return parsed;
 }
 
 function readNonNegativeNumber(flag: string, value: string | undefined): number {
-  const parsed = Number.parseFloat(value ?? "");
+  const raw = readRequiredValue(flag, value);
+  const parsed = Number(raw);
   if (!Number.isFinite(parsed) || parsed < 0) {
-    throw new Error(`benchmark-long-context: ${flag} expects a non-negative number.`);
+    throw new BenchmarkUsageError(`benchmark-long-context: ${flag} expects a non-negative number.`);
   }
   return parsed;
 }
 
 function readRequiredValue(flag: string, value: string | undefined): string {
   if (value === undefined || value.trim() === "" || value.startsWith("--")) {
-    throw new Error(`benchmark-long-context: ${flag} expects a value.`);
+    throw new BenchmarkUsageError(`benchmark-long-context: ${flag} expects a value.`);
   }
   return value;
+}
+
+function readPositiveIntegerEntry(flag: string, value: string): number {
+  const parsed = /^\d+$/.test(value) ? Number(value) : Number.NaN;
+  if (!Number.isInteger(parsed) || parsed <= 0) {
+    throw new BenchmarkUsageError(`benchmark-long-context: ${flag} expects positive integers.`);
+  }
+  return parsed;
 }
 
 function parseRungs(value: string | undefined): number[] | null {
@@ -134,12 +169,11 @@ function parseRungs(value: string | undefined): number[] | null {
     return null;
   }
 
-  const rungs = value
-    .split(",")
-    .map((entry) => Number.parseInt(entry.trim(), 10))
-    .filter((entry) => Number.isInteger(entry) && entry > 0);
+  const rungs = value.split(",").map((entry) => readPositiveIntegerEntry("--rungs", entry.trim()));
   if (rungs.length === 0) {
-    throw new Error("benchmark-long-context: --rungs must include at least one positive integer.");
+    throw new BenchmarkUsageError(
+      "benchmark-long-context: --rungs must include at least one positive integer.",
+    );
   }
   return [...new Set(rungs)].sort((left, right) => left - right);
 }
@@ -151,7 +185,7 @@ function parseNeedlePosition(value: string): NeedlePosition {
     case "late":
       return value;
     default:
-      throw new Error(
+      throw new BenchmarkUsageError(
         'benchmark-long-context: --needle-placements entries must be "early", "middle", "late", or "all".',
       );
   }
@@ -177,7 +211,9 @@ export function parseNeedlePositions(value: string | undefined): NeedlePosition[
     }
   }
   if (positions.length === 0) {
-    throw new Error("benchmark-long-context: --needle-placements must include at least one entry.");
+    throw new BenchmarkUsageError(
+      "benchmark-long-context: --needle-placements must include at least one entry.",
+    );
   }
   return positions;
 }
@@ -267,12 +303,12 @@ export function parseLongContextArgs(argv: readonly string[]): LongContextOption
           model = arg;
           break;
         }
-        throw new Error(`benchmark-long-context: unknown argument "${arg}".`);
+        throw new BenchmarkUsageError(`benchmark-long-context: unknown argument "${arg}".`);
     }
   }
 
   if (model === undefined || model.trim() === "") {
-    usage();
+    throw new BenchmarkUsageError("benchmark-long-context: --model is required.");
   }
 
   return {
@@ -286,6 +322,86 @@ export function parseLongContextArgs(argv: readonly string[]): LongContextOption
     failOnMismatch,
     maxActiveSlopeMbPerToken,
   };
+}
+
+export function parseLongContextCommand(argv: readonly string[]): LongContextCommand {
+  if (argv.some((arg) => arg === "--help" || arg === "-h")) {
+    return { kind: "help" };
+  }
+  return { kind: "run", options: parseLongContextArgs(argv) };
+}
+
+export function formatLongContextUsage(): string {
+  return [
+    "description: Benchmark long-context retrieval and decode memory for @mlxts/transformers",
+    "usage[3]:",
+    "  bun run bench:generation:context -- --model <repo-or-path>",
+    "  bun run bench:generation:context -- --model <repo-or-path> --rungs 32768 --needle-placements all",
+    "  bun run bench:generation:context -- <repo-or-path> --generation-tokens 24 --report-json .tmp/context.json",
+    "options[10]{flag,description}:",
+    '  "--model <repo-or-path>","Model id/path; may also be the first positional argument"',
+    '  "--rungs <list>","Comma-separated context token targets; default uses the advertised ladder"',
+    '  "--needle-placements <list|all>","early, middle, late, or all; default late"',
+    '  "--generation-tokens <n>","Decode token count; default 24"',
+    '  "--prefill-step-size <n>","Prompt prefill chunk size; default 2048"',
+    '  "--report-json <path>","Write incremental JSON evidence after each rung"',
+    '  "--fail-on-mismatch","Fail when the generated response is not the exact marker"',
+    '  "--max-active-slope-mb-per-token <n>","Fail when decode active memory slope exceeds this limit"',
+    '  "--metal-trace","Capture a Metal trace under benchmarks/traces"',
+    '  "--help","Show this help"',
+    "exit_codes[3]{code,meaning}:",
+    '  0,"benchmark completed"',
+    '  1,"runtime or benchmark failure"',
+    '  2,"usage error"',
+  ].join("\n");
+}
+
+function nullableMetric(value: number | null, fractionDigits: number): string {
+  return value === null ? "null" : value.toFixed(fractionDigits);
+}
+
+function responsePreview(text: string): string {
+  if (text.length <= 120) {
+    return text;
+  }
+  return `${text.slice(0, 120)}...`;
+}
+
+export function formatLongContextSuccess(
+  report: LongContextReport,
+  reportJson: string | null,
+): string {
+  const rows = report.results.map((result) =>
+    [
+      toon(result.needlePosition),
+      result.rungTokens.toString(),
+      result.promptTokens.toString(),
+      toon(result.expectedMarker),
+      nullableMetric(result.needleTokenCenterFraction, 3),
+      result.prefillTps.toFixed(3),
+      result.firstTokenSeconds.toFixed(3),
+      result.decodeTps.toFixed(3),
+      result.activeMemoryDecodeSlopeMbPerToken.toFixed(2),
+      result.peakMemoryAfterDecodeGb.toFixed(3),
+      toon(result.exactMatch),
+      toon(result.containsSecret),
+      toon(responsePreview(result.responseText)),
+    ].join(","),
+  );
+  return [
+    "long_context_benchmark:",
+    "  status: passed",
+    `  model: ${toon(report.model)}`,
+    `  resolved_model_source: ${toon(report.resolvedModelSource)}`,
+    `  max_context_tokens: ${report.maxContextTokens}`,
+    `  generation_tokens: ${report.generationTokens}`,
+    `  prefill_step_size: ${report.prefillStepSize}`,
+    `  rungs: ${toon(report.rungTargets.join(","))}`,
+    `  needle_positions: ${toon(report.needlePositions.join(","))}`,
+    ...(reportJson === null ? [] : [`  report_json: ${toon(reportJson)}`]),
+    `results[${rows.length}]{needle_position,rung_tokens,prompt_tokens,expected_marker,needle_center_fraction,prefill_tps,first_token_seconds,decode_tps,active_slope_mb_per_token,peak_memory_gb,exact_match,contains_secret,response_preview}:`,
+    ...rows.map((row) => `  ${row}`),
+  ].join("\n");
 }
 
 function shortModelTag(model: string): string {
@@ -528,6 +644,7 @@ function runLongContextRung(
   rungTokens: number,
   prompt: LongContextPrompt,
   options: LongContextOptions,
+  progress: BenchmarkProgress,
 ): LongContextResult {
   return withBenchmarkRuntimeScope(
     `${sanitizePathSegment(options.model)}-${rungTokens}-${prompt.needlePosition}`,
@@ -610,11 +727,12 @@ function runLongContextRung(
         nextToken?.free();
       }
     },
+    progress,
   );
 }
 
-function printResult(result: LongContextResult): void {
-  console.log(
+function printResult(result: LongContextResult, progress: BenchmarkProgress): void {
+  progress(
     [
       `needle_position=${result.needlePosition}`,
       `rung=${result.rungTokens}`,
@@ -642,7 +760,7 @@ function printResult(result: LongContextResult): void {
       `contains_secret=${result.containsSecret}`,
     ].join(" "),
   );
-  console.log(`response=${JSON.stringify(result.responseText)}`);
+  progress(`response=${JSON.stringify(result.responseText)}`);
 }
 
 export async function writeLongContextReport(
@@ -702,11 +820,12 @@ export function assertLongContextResult(
   }
 }
 
-async function main(): Promise<void> {
-  using _runtimeLock = acquireRuntimeCommandLock("bench:generation:context");
-  const options = parseLongContextArgs(Bun.argv.slice(2));
+async function runLongContextBenchmark(
+  options: LongContextOptions,
+  progress: BenchmarkProgress,
+): Promise<LongContextReport> {
   const resolvedModelSource = await resolveCachedSnapshotPath(options.model);
-  console.log(`Benchmarking long-context ladder for ${resolvedModelSource}`);
+  progress(`Benchmarking long-context ladder for ${resolvedModelSource}`);
   const configRecord = (await Bun.file(`${resolvedModelSource}/config.json`).json()) as Record<
     string,
     unknown
@@ -720,7 +839,7 @@ async function main(): Promise<void> {
   }
   assertRungTargetsWithinContext(rungs, maxContextTokens);
 
-  console.log(
+  progress(
     `Max context=${maxContextTokens} rung_targets=${rungs.join(",")} needle_positions=${options.needlePositions.join(",")}`,
   );
 
@@ -752,10 +871,17 @@ async function main(): Promise<void> {
         needlePosition,
       );
       assertPromptWithinContext(prompt, maxContextTokens);
-      const result = runLongContextRung(loadedModel, tokenizer, rungTokens, prompt, options);
+      const result = runLongContextRung(
+        loadedModel,
+        tokenizer,
+        rungTokens,
+        prompt,
+        options,
+        progress,
+      );
       report.results.push(result);
-      printResult(result);
-      console.log("");
+      printResult(result, progress);
+      progress("");
       if (options.reportJson !== null) {
         await writeLongContextReport(options.reportJson, report);
       }
@@ -764,13 +890,78 @@ async function main(): Promise<void> {
   }
 
   if (options.reportJson !== null) {
-    console.log(`report_json=${options.reportJson}`);
+    progress(`report_json=${options.reportJson}`);
+  }
+  return report;
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function parseLongContextCliCommand(
+  argv: readonly string[],
+  stdout: (text: string) => void,
+): LongContextCommand | number {
+  try {
+    return parseLongContextCommand(argv);
+  } catch (error) {
+    stdout(
+      formatBenchmarkError(
+        errorMessage(error),
+        "bun run bench:generation:context -- --model <repo-or-path>",
+      ),
+    );
+    return error instanceof BenchmarkUsageError ? 2 : 1;
   }
 }
 
+async function runLongContextBenchmarkWithLock(
+  options: LongContextOptions,
+  runtime: LongContextBenchmarkRuntime,
+  stdout: (text: string) => void,
+  stderr: (text: string) => void,
+): Promise<number> {
+  const acquireLock =
+    runtime.acquireLock ?? (() => acquireRuntimeCommandLock("bench:generation:context"));
+  const runBenchmark = runtime.runBenchmark ?? runLongContextBenchmark;
+  let lock: RuntimeLock | undefined;
+  try {
+    lock = acquireLock();
+    const report = await runBenchmark(options, stderr);
+    stdout(formatLongContextSuccess(report, options.reportJson));
+    return 0;
+  } catch (error) {
+    stdout(
+      formatBenchmarkError(
+        errorMessage(error),
+        "rerun with --rungs <smaller-context> or disable strict failure flags",
+      ),
+    );
+    return 1;
+  } finally {
+    lock?.[Symbol.dispose]();
+  }
+}
+
+export async function runLongContextBenchmarkCommand(
+  argv: readonly string[],
+  runtime: LongContextBenchmarkRuntime = {},
+): Promise<number> {
+  const stdout = runtime.stdout ?? console.log;
+  const stderr = runtime.stderr ?? console.error;
+  const command = parseLongContextCliCommand(argv, stdout);
+  if (typeof command === "number") {
+    return command;
+  }
+  if (command.kind === "help") {
+    stdout(formatLongContextUsage());
+    return 0;
+  }
+  return runLongContextBenchmarkWithLock(command.options, runtime, stdout, stderr);
+}
+
 if (import.meta.main) {
-  main().catch((error) => {
-    console.error(error instanceof Error ? error.message : String(error));
-    process.exit(1);
-  });
+  const exitCode = await runLongContextBenchmarkCommand(Bun.argv.slice(2));
+  process.exit(exitCode);
 }

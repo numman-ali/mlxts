@@ -2,17 +2,24 @@ import { describe, expect, test } from "bun:test";
 import type { Tokenizer } from "@mlxts/tokenizers";
 import { mkdtempSync, rmSync } from "fs";
 import { join } from "path";
-import type { LongContextOptions, LongContextResult } from "./benchmark-long-context";
+import type {
+  LongContextOptions,
+  LongContextReport,
+  LongContextResult,
+} from "./benchmark-long-context";
 import {
   assertLongContextResult,
   buildNeedlePromptTokenIds,
   defaultContextTargets,
   findNeedleTokenOffset,
   findNeedleTokenSpan,
+  formatLongContextSuccess,
+  formatLongContextUsage,
   inferMaxContextTokens,
   normalizeExactResponse,
   parseLongContextArgs,
   parseNeedlePositions,
+  runLongContextBenchmarkCommand,
   splitNeedleFillerRepetitions,
   writeLongContextReport,
 } from "./benchmark-long-context";
@@ -103,6 +110,21 @@ function result(overrides: Partial<LongContextResult> = {}): LongContextResult {
   };
 }
 
+function report(overrides: Partial<LongContextReport> = {}): LongContextReport {
+  return {
+    createdAt: "2026-04-30T00:00:00.000Z",
+    model: "tiny",
+    resolvedModelSource: "/tmp/tiny",
+    maxContextTokens: 1024,
+    rungTargets: [128],
+    generationTokens: 8,
+    prefillStepSize: 32,
+    needlePositions: ["late"],
+    results: [result()],
+    ...overrides,
+  };
+}
+
 describe("benchmark-long-context", () => {
   test("defaultContextTargets follows the 32k/64k/128k/256k ladder", () => {
     expect(defaultContextTargets(16_384)).toEqual([]);
@@ -160,6 +182,13 @@ describe("benchmark-long-context", () => {
         "-1",
       ]),
     ).toThrow("--max-active-slope-mb-per-token expects a non-negative number");
+    expect(() => parseLongContextArgs([])).toThrow("--model is required");
+    expect(() => parseLongContextArgs(["tiny", "--generation-tokens", "12abc"])).toThrow(
+      "--generation-tokens expects a positive integer",
+    );
+    expect(() => parseLongContextArgs(["tiny", "--rungs", "128,abc"])).toThrow(
+      "--rungs expects positive integers",
+    );
   });
 
   test("splitNeedleFillerRepetitions places markers across the context", () => {
@@ -270,5 +299,99 @@ describe("benchmark-long-context", () => {
         options({ maxActiveSlopeMbPerToken: 1 }),
       ),
     ).toThrow("active_decode_slope");
+  });
+
+  test("formats AXI help and success output", () => {
+    expect(formatLongContextUsage()).toContain("exit_codes[3]");
+    expect(formatLongContextSuccess(report(), ".tmp/context.json")).toBe(
+      [
+        "long_context_benchmark:",
+        "  status: passed",
+        '  model: "tiny"',
+        '  resolved_model_source: "/tmp/tiny"',
+        "  max_context_tokens: 1024",
+        "  generation_tokens: 8",
+        "  prefill_step_size: 32",
+        '  rungs: "128"',
+        '  needle_positions: "late"',
+        '  report_json: ".tmp/context.json"',
+        "results[1]{needle_position,rung_tokens,prompt_tokens,expected_marker,needle_center_fraction,prefill_tps,first_token_seconds,decode_tps,active_slope_mb_per_token,peak_memory_gb,exact_match,contains_secret,response_preview}:",
+        '  "late",128,128,"MKR-TINY-128-LATE",0.820,128.000,0.100,80.000,0.00,1.000,true,true,"MKR-TINY-128-LATE"',
+      ].join("\n"),
+    );
+  });
+
+  test("runs help, success, usage error, and runtime error paths with AXI stdout", async () => {
+    const helpStdout: string[] = [];
+    expect(
+      await runLongContextBenchmarkCommand(["--help"], {
+        stdout: (text) => helpStdout.push(text),
+      }),
+    ).toBe(0);
+    expect(helpStdout.join("\n")).toBe(formatLongContextUsage());
+
+    const stdout: string[] = [];
+    const stderr: string[] = [];
+    let lockDepth = 0;
+    expect(
+      await runLongContextBenchmarkCommand(["--model", "tiny", "--rungs", "128"], {
+        stdout: (text) => stdout.push(text),
+        stderr: (text) => stderr.push(text),
+        acquireLock: () => {
+          lockDepth += 1;
+          return {
+            [Symbol.dispose]: () => {
+              lockDepth -= 1;
+            },
+          };
+        },
+        runBenchmark: async (parsed, progress) => {
+          expect(parsed.model).toBe("tiny");
+          expect(parsed.rungs).toEqual([128]);
+          expect(lockDepth).toBe(1);
+          progress("benchmark-long-context: probe");
+          return report();
+        },
+      }),
+    ).toBe(0);
+    expect(lockDepth).toBe(0);
+    expect(stderr).toEqual(["benchmark-long-context: probe"]);
+    expect(stdout.join("\n")).toContain("long_context_benchmark:");
+    expect(stdout.join("\n")).not.toContain("benchmark-long-context: probe");
+
+    const usageStdout: string[] = [];
+    let usageLockCalls = 0;
+    expect(
+      await runLongContextBenchmarkCommand(["--generation-tokens", "0"], {
+        stdout: (text) => usageStdout.push(text),
+        acquireLock: () => {
+          usageLockCalls += 1;
+          return { [Symbol.dispose]: () => undefined };
+        },
+      }),
+    ).toBe(2);
+    expect(usageLockCalls).toBe(0);
+    expect(usageStdout.join("\n")).toContain("--generation-tokens expects a positive integer");
+
+    const runtimeStdout: string[] = [];
+    let runtimeLockDepth = 0;
+    expect(
+      await runLongContextBenchmarkCommand(["--model", "tiny"], {
+        stdout: (text) => runtimeStdout.push(text),
+        acquireLock: () => {
+          runtimeLockDepth += 1;
+          return {
+            [Symbol.dispose]: () => {
+              runtimeLockDepth -= 1;
+            },
+          };
+        },
+        runBenchmark: async () => {
+          throw new Error("context failed");
+        },
+      }),
+    ).toBe(1);
+    expect(runtimeLockDepth).toBe(0);
+    expect(runtimeStdout.join("\n")).toContain("context failed");
   });
 });
