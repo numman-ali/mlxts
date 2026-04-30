@@ -16,7 +16,7 @@ import type {
 import { shouldLoadQwen3_5ForConditionalGeneration } from "@mlxts/transformers";
 import { createQwen3_5ImageContentAdapter } from "../engine/content";
 import { readGenerationMemoryUsage } from "../runtime/memory";
-import { requirePositiveFraction } from "../runtime/strategy";
+import { requirePositiveFraction, requirePositiveInteger } from "../runtime/strategy";
 import { requireModelLoadMemoryBudget } from "./memory-preflight";
 import {
   type LoadedModelServerEntry,
@@ -25,13 +25,17 @@ import {
   serveLoadedModels,
 } from "./server";
 import { DEFAULT_MODEL_SERVER_GPU_MEMORY_UTILIZATION } from "./server-options";
+import { serveLazyModelsWithRuntime } from "./source-pool-server";
 
 type SourceLoadOptions = Omit<LoadSourceOptions, "onProgress">;
 
 export type ServeModelSourceEntry = SourceLoadOptions & {
   source: string;
   modelId?: string;
+  pinned?: boolean;
 };
+
+export type SourceModelLoadPolicy = "eager" | "lazy";
 
 export type ServeModelsProgressContext = {
   index: number;
@@ -42,6 +46,9 @@ export type ServeModelsProgressContext = {
 export type ServeModelsOptions = Omit<ServeLoadedModelsOptions, "models" | "disposeModelsOnStop"> &
   SourceLoadOptions & {
     models: readonly ServeModelSourceEntry[];
+    modelLoadPolicy?: SourceModelLoadPolicy;
+    modelIdleTtlMs?: number;
+    pinnedModels?: readonly string[];
     onProgress?: (event: PretrainedLoadProgressEvent, context: ServeModelsProgressContext) => void;
   };
 
@@ -62,21 +69,28 @@ export type ServeModelsRuntime = {
   readGenerationMemoryUsage?: typeof readGenerationMemoryUsage;
 };
 
-type ResolvedModelSourceEntry = {
+export type ResolvedModelSourceEntry = {
   index: number;
   source: string;
   modelId: string;
   loadOptions: LoadSourceOptions;
+  pinned: boolean;
 };
 
-type ResolvedServeModelsOptions = Omit<
+export type ResolvedServeModelsOptions = Omit<
   ServeLoadedModelsOptions,
   "models" | "disposeModelsOnStop"
 > & {
   models: readonly ResolvedModelSourceEntry[];
+  modelLoadPolicy: SourceModelLoadPolicy;
+  modelIdleTtlMs?: number;
+  pinnedModelIds: readonly string[];
 };
 
-type ResolvedServeModelsRuntimeOptions = Omit<ResolvedServeModelsOptions, "models">;
+type ResolvedServeModelsRuntimeOptions = Omit<
+  ResolvedServeModelsOptions,
+  "models" | "modelLoadPolicy" | "modelIdleTtlMs" | "pinnedModelIds"
+>;
 type PromptPrefixCacheRetentionOption = Pick<
   ResolvedServeModelsRuntimeOptions,
   "promptPrefixCacheMaxEntries" | "promptPrefixCacheMaxBytes"
@@ -146,7 +160,52 @@ function resolveSourceEntry(
     source,
     modelId,
     loadOptions: resolveLoadOptions(index, entry, options, source, modelId),
+    pinned: entry.pinned ?? false,
   };
+}
+
+function resolveModelLoadPolicy(value: SourceModelLoadPolicy | undefined): SourceModelLoadPolicy {
+  if (value === undefined || value === "eager" || value === "lazy") {
+    return value ?? "eager";
+  }
+  throw new Error(`Unknown modelLoadPolicy: ${value}`);
+}
+
+function modelIdleTtlMsOption(value: number | undefined): { modelIdleTtlMs?: number } {
+  return value === undefined
+    ? {}
+    : { modelIdleTtlMs: requirePositiveInteger("modelIdleTtlMs", value) };
+}
+
+function resolvePinnedModelIds(
+  options: ServeModelsOptions,
+  models: readonly ResolvedModelSourceEntry[],
+): readonly string[] {
+  const available = new Set(models.map((model) => model.modelId));
+  const pinned = new Set(models.filter((model) => model.pinned).map((model) => model.modelId));
+  for (const modelId of options.pinnedModels ?? []) {
+    const resolved = requireNonEmpty("pinnedModels", modelId);
+    if (!available.has(resolved)) {
+      throw new Error(`pinned model "${resolved}" is not part of this serveModels() call.`);
+    }
+    pinned.add(resolved);
+  }
+  return [...pinned];
+}
+
+function requireLazyPoolOptions(
+  policy: SourceModelLoadPolicy,
+  options: { modelIdleTtlMs?: number; pinnedModelIds: readonly string[] },
+): void {
+  if (policy === "lazy") {
+    return;
+  }
+  if (options.modelIdleTtlMs !== undefined) {
+    throw new Error('modelIdleTtlMs requires modelLoadPolicy="lazy".');
+  }
+  if (options.pinnedModelIds.length > 0) {
+    throw new Error('pinned source models require modelLoadPolicy="lazy".');
+  }
 }
 
 function promptPrefixCacheRetentionOption(
@@ -211,8 +270,18 @@ function resolveServeModelsOptions(options: ServeModelsOptions): ResolvedServeMo
     resolveSourceEntry(model, index, options),
   );
   requireDistinctModelIds(models);
+  const modelLoadPolicy = resolveModelLoadPolicy(options.modelLoadPolicy);
+  const idle = modelIdleTtlMsOption(options.modelIdleTtlMs);
+  const pinnedModelIds = resolvePinnedModelIds(options, models);
+  requireLazyPoolOptions(modelLoadPolicy, {
+    ...idle,
+    pinnedModelIds,
+  });
   return {
     models,
+    modelLoadPolicy,
+    ...idle,
+    pinnedModelIds,
     ...resolveServeModelsRuntimeOptions(options),
   };
 }
@@ -327,6 +396,9 @@ export async function serveModelsWithRuntime(
 ): Promise<RunningModelServer> {
   const resolved = resolveServeModelsOptions(options);
   const gpuMemoryUtilization = resolvedGpuMemoryUtilization(options);
+  if (resolved.modelLoadPolicy === "lazy") {
+    return serveLazyModelsWithRuntime(resolved, runtime, gpuMemoryUtilization, loadModelEntry);
+  }
   const loaded: LoadedModelServerEntry[] = [];
   try {
     for (const model of resolved.models) {

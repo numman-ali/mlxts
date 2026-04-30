@@ -53,6 +53,13 @@ image, and bounded tool endpoints while benchmark and scheduler work continues.
   MLX memory and `gpuMemoryUtilization` when telemetry and sizing are present;
   missing telemetry or sizing skips the preflight rather than making an unsafe
   claim.
+- **Lazy source-backed model pool**: `serveModels({ modelLoadPolicy: "lazy" })`
+  now publishes configured model ids at startup, loads checkpoints on first
+  request, shares concurrent first loads per model, serializes cold loads across
+  model ids so memory preflight stays honest, evicts idle non-pinned models
+  after `modelIdleTtlMs`, and keeps pinned models resident until shutdown. The
+  eager policy remains the default and single-model eager CLI serving still
+  routes through `serveModel()`.
 - **Image serving**: Qwen image transport, host decode, and prepared-prompt
   cache shipped with explicit boundary — serve owns I/O and decode, transformers
   owns preprocessing and prompt expansion. OpenAI Chat/OpenResponses accept
@@ -210,6 +217,15 @@ Full evidence ladder lives in
   rerunning training. Tiny live official-model smokes passed individually for
   LoRA, QLoRA, SFT, and DPO; DPO verifier output now includes 41 checks in the
   live runner, including adapter equality and profile knob checks.
+- Source-backed lazy model pool lifecycle passed focused lazy/CLI tests
+  (`33 pass`), all `packages/serve` tests (`384 pass`), and full
+  `bun run validate`. `bun run regression:qwen-gemma -- --profile quick` also
+  passed (`84` transformer focused tests and `222` serve focused tests).
+  Avicenna reviewed the tranche and identified three lifecycle blockers before
+  final gating: racing cold loads across different model ids, lazy setup cleanup
+  after model load, and queued cold loads starting after pool shutdown. All
+  three are fixed and covered by regression tests; the final follow-up review
+  reported no remaining blockers.
 - Gemma 4 A4B MoE proof passed against the cached
   `mlx-community/gemma-4-26b-a4b-it-4bit` snapshot. Transformer decode at
   `128x128` reported `generation_tps=108.604`, `evals_per_token=1.00`, and

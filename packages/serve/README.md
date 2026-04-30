@@ -30,6 +30,25 @@ mlxts-serve \
   --local-files-only
 ```
 
+Source-backed multi-model serving can load models lazily when the endpoint must
+advertise several large checkpoints without keeping all of them resident at
+startup:
+
+```bash
+mlxts-serve \
+  --model gemma=mlx-community/gemma-4-26b-a4b-it-4bit \
+  --model qwen=mlx-community/Qwen3.6-27B-4bit \
+  --model-load-policy lazy \
+  --model-idle-ttl-ms 600000 \
+  --pin-model qwen \
+  --local-files-only
+```
+
+Lazy models run the same memory preflight before each first load, then use the
+normal per-model generation engine. Idle eviction disposes loaded engines and
+model weights only after in-flight requests and streams finish; pinned models
+stay resident until server shutdown.
+
 The server exposes `/health`, `/info`, `/metrics`, `/v1/models`,
 `/v1/completions`, `/v1/chat/completions`, `/v1/responses`, and
 `/v1/messages`:

@@ -89,7 +89,7 @@ function endpointFor(server: ReturnType<typeof Bun.serve>): string {
   return `http://${server.hostname}:${server.port}`;
 }
 
-function createLoadedModelEngine(
+export function createLoadedModelEngine(
   model: ResolvedLoadedModelEntry,
   options: ResolvedLoadedModelsOptions,
 ) {

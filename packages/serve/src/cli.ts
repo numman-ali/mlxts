@@ -1,12 +1,8 @@
 #!/usr/bin/env bun
 
 import type { PretrainedLoadProgressEvent } from "@mlxts/transformers";
-import {
-  formatServeUsage,
-  parseServeArgs,
-  type ServeCliOptions,
-  type ServeCliParseResult,
-} from "./cli-options";
+import { parseServeArgs, type ServeCliOptions, type ServeCliParseResult } from "./cli-options";
+import { formatServeUsage } from "./cli-usage";
 import {
   type RunningModelServer,
   type ServeModelOptions,
@@ -87,6 +83,14 @@ export function formatServeReady(endpoint: string, options: ServeCliOptions): st
     `Prompt-token limit: ${options.maxPromptTokens}`,
     `Total-token limit: ${options.maxTotalTokens}`,
     `GPU memory budget: ${Math.round(options.gpuMemoryUtilization * 100)}%`,
+    `Model load policy: ${
+      options.modelLoadPolicy === "lazy"
+        ? `lazy${options.modelIdleTtlMs === undefined ? "" : ` idle_ttl=${formatDuration(options.modelIdleTtlMs)}`}`
+        : "eager"
+    }`,
+    `Pinned models: ${
+      options.pinnedModels.length === 0 ? "none" : options.pinnedModels.join(", ")
+    }`,
     [
       `Batch scheduler: max_batch=${options.maxBatchSize}`,
       `window_ms=${options.batchWindowMs}`,
@@ -299,6 +303,9 @@ function toServeModelsOptions(options: ServeCliOptions): ServeModelsOptions {
       source: model.source,
       modelId: model.modelId,
     })),
+    modelLoadPolicy: options.modelLoadPolicy,
+    ...(options.modelIdleTtlMs === undefined ? {} : { modelIdleTtlMs: options.modelIdleTtlMs }),
+    pinnedModels: options.pinnedModels,
     hostname: options.hostname,
     port: options.port,
     maxGeneratedTokens: options.maxGeneratedTokens,
@@ -336,7 +343,7 @@ async function startParsedServer(
     }
   };
 
-  if (options.models.length === 1) {
+  if (options.models.length === 1 && options.modelLoadPolicy === "eager") {
     const startModelServer = runtime.serveModel ?? serveModel;
     return startModelServer({
       ...toServeModelOptions(options),

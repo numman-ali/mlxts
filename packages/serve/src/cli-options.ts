@@ -24,6 +24,9 @@ export type ServeCliOptions = {
   source: string;
   modelId: string;
   models: readonly ServeCliModelOption[];
+  modelLoadPolicy: "eager" | "lazy";
+  modelIdleTtlMs?: number;
+  pinnedModels: readonly string[];
   hostname: string;
   port: number;
   maxGeneratedTokens: number;
@@ -63,6 +66,9 @@ type ParseState = {
   source?: string;
   modelId?: string;
   models: ServeCliModelOption[];
+  modelLoadPolicy: "eager" | "lazy";
+  modelIdleTtlMs?: number;
+  pinnedModels: string[];
   hostname: string;
   port: number;
   maxGeneratedTokens: number;
@@ -144,9 +150,18 @@ function parseModelFlagValue(rawValue: string): ServeCliModelOption {
   return { source, modelId };
 }
 
+function readModelLoadPolicy(value: string): "eager" | "lazy" {
+  if (value === "eager" || value === "lazy") {
+    return value;
+  }
+  throw new Error(`Unknown model load policy: ${value}.`);
+}
+
 function createParseState(): ParseState {
   return {
     models: [],
+    modelLoadPolicy: "eager",
+    pinnedModels: [],
     hostname: DEFAULT_MODEL_SERVER_HOSTNAME,
     port: DEFAULT_MODEL_SERVER_PORT,
     maxGeneratedTokens: DEFAULT_MODEL_SERVER_MAX_GENERATED_TOKENS,
@@ -179,6 +194,20 @@ function applyFlag(state: ParseState, argv: readonly string[], index: number): n
   switch (arg) {
     case "--model":
       state.models.push(parseModelFlagValue(readStringFlag(arg, argv[index + 1])));
+      return index + 1;
+    case "--model-load-policy":
+      state.modelLoadPolicy = readModelLoadPolicy(readStringFlag(arg, argv[index + 1]));
+      return index + 1;
+    case "--model-idle-ttl-ms":
+      state.modelIdleTtlMs = readIntegerFlag(
+        arg,
+        argv[index + 1],
+        (value) => value > 0,
+        "a positive integer",
+      );
+      return index + 1;
+    case "--pin-model":
+      state.pinnedModels.push(readStringFlag(arg, argv[index + 1]));
       return index + 1;
     case "--model-id":
     case "--served-model-name":
@@ -377,8 +406,39 @@ function modelOptionsFromState(state: ParseState): readonly ServeCliModelOption[
   ];
 }
 
+function requirePinnedModelsExist(
+  models: readonly ServeCliModelOption[],
+  pinnedModels: readonly string[],
+): void {
+  const servedIds = new Set(models.map((model) => model.modelId));
+  for (const modelId of pinnedModels) {
+    if (!servedIds.has(modelId)) {
+      throw new Error(`Pinned model "${modelId}" is not part of this serve command.`);
+    }
+  }
+}
+
+function requireLazyModelPoolOptions(
+  modelLoadPolicy: "eager" | "lazy",
+  modelIdleTtlMs: number | undefined,
+  pinnedModels: readonly string[],
+): void {
+  if (modelLoadPolicy === "lazy") {
+    return;
+  }
+  if (modelIdleTtlMs !== undefined) {
+    throw new Error("--model-idle-ttl-ms requires --model-load-policy lazy.");
+  }
+  if (pinnedModels.length > 0) {
+    throw new Error("--pin-model requires --model-load-policy lazy.");
+  }
+}
+
 function stateToOptions(state: ParseState): ServeCliParseResult {
   const models = modelOptionsFromState(state);
+  const pinnedModels = [...new Set(state.pinnedModels)];
+  requirePinnedModelsExist(models, pinnedModels);
+  requireLazyModelPoolOptions(state.modelLoadPolicy, state.modelIdleTtlMs, pinnedModels);
   const [primaryModel] = models;
   if (primaryModel === undefined) {
     throw new Error("Missing model path or Hugging Face repo id.");
@@ -390,6 +450,9 @@ function stateToOptions(state: ParseState): ServeCliParseResult {
       source: primaryModel.source,
       modelId: primaryModel.modelId,
       models,
+      modelLoadPolicy: state.modelLoadPolicy,
+      ...(state.modelIdleTtlMs === undefined ? {} : { modelIdleTtlMs: state.modelIdleTtlMs }),
+      pinnedModels,
       hostname: state.hostname,
       port: state.port,
       maxGeneratedTokens: state.maxGeneratedTokens,
@@ -416,51 +479,6 @@ function stateToOptions(state: ParseState): ServeCliParseResult {
       verbose: state.verbose,
     },
   };
-}
-
-export function formatServeUsage(): string {
-  return [
-    "Serve one or more local or Hugging Face models through the @mlxts/serve OpenAI-compatible API.",
-    "",
-    "Usage:",
-    "  mlxts-serve <model-path-or-repo-id> [options]",
-    "  mlxts-serve --model <model-path-or-repo-id> [--model <model-id=path-or-repo-id>] [options]",
-    "  bunx @mlxts/serve <model-path-or-repo-id> [options]",
-    "",
-    "Options:",
-    "  --model <source|id=source>  Add a model source; repeat for multi-model serving",
-    "  --model-id <id>             Served model id for positional single-model usage",
-    "  --served-model-name <id>    Alias for --model-id",
-    `  --host <host>               Hostname to bind (default: ${DEFAULT_MODEL_SERVER_HOSTNAME})`,
-    `  --port <port>               Port to bind (default: ${DEFAULT_MODEL_SERVER_PORT})`,
-    `  --max-generated-tokens <n>  Reject requests above this max_tokens cap (default: ${DEFAULT_MODEL_SERVER_MAX_GENERATED_TOKENS})`,
-    `  --max-prompt-tokens <n>     Reject prompts above this tokenized prompt cap (default: ${DEFAULT_MODEL_SERVER_MAX_PROMPT_TOKENS})`,
-    `  --max-total-tokens <n>      Reject prompt_tokens + max_tokens above this cap (default: ${DEFAULT_MODEL_SERVER_MAX_TOTAL_TOKENS})`,
-    `  --max-batch-size <n>        Admission micro-batch size per model instance (default: ${DEFAULT_MODEL_SERVER_MAX_BATCH_SIZE})`,
-    `  --batch-window-ms <n>       Wait window before flushing a micro-batch (default: ${DEFAULT_MODEL_SERVER_BATCH_WINDOW_MS})`,
-    `  --prefill-step-size <n>     Cold prompt-prefill chunk size (default: ${DEFAULT_MODEL_SERVER_PREFILL_STEP_SIZE})`,
-    [
-      "  --active-prefill-step-size <n>",
-      `Prompt-prefill chunk size while rows are decoding (default: ${DEFAULT_MODEL_SERVER_ACTIVE_PREFILL_STEP_SIZE})`,
-    ].join("  "),
-    [
-      "  --active-decode-steps-per-prefill-chunk <n>",
-      `Decode-step quantum before long prompt-prefill work resumes (default: ${DEFAULT_MODEL_SERVER_ACTIVE_DECODE_STEPS_PER_PREFILL_CHUNK})`,
-    ].join("  "),
-    `  --stream-decode-interval <n>  Decode/flush streaming text every n generated token(s) (default: ${DEFAULT_MODEL_SERVER_STREAM_DECODE_INTERVAL})`,
-    `  --max-concurrent-requests <n>  Max in-flight jobs per served model (default: ${DEFAULT_MODEL_SERVER_MAX_CONCURRENT_REQUESTS})`,
-    `  --prompt-prefix-cache-max-entries <n>  Retained prompt-prefix snapshots per served model (default: ${DEFAULT_MODEL_SERVER_PROMPT_PREFIX_CACHE_MAX_ENTRIES})`,
-    "  --prompt-prefix-cache-max-bytes <n>  Estimated retained prompt-prefix snapshot bytes per served model",
-    `  --gpu-memory-utilization <f>   Reject estimated requests above this fraction of MLX memory limit (default: ${DEFAULT_MODEL_SERVER_GPU_MEMORY_UTILIZATION})`,
-    "  --remote-image-host <host>      Allow remote image URLs from this exact host; repeat for redirects/CDNs",
-    "  --revision <ref>            Hugging Face revision when source is a repo id",
-    "  --access-token <token>      Hugging Face access token for private or gated repos",
-    "  --cache-dir <path>          Hugging Face cache directory",
-    "  --api-key <key>             Require Authorization: Bearer <key> for /v1 routes",
-    "  --local-files-only          Use only already-cached/local files",
-    "  --verbose                   Log request and generation lifecycle events",
-    "  --help                      Show this help",
-  ].join("\n");
 }
 
 export function parseServeArgs(argv: readonly string[]): ServeCliParseResult {

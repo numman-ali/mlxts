@@ -62,6 +62,27 @@ class FakeModel implements CausalLM {
   }
 }
 
+class FailingAdmissionModel extends FakeModel {
+  override readonly config: BaseModelConfig = new Proxy(
+    {
+      family: "llama",
+      modelType: "fake",
+      rawConfig: {},
+      vocabSize: 8,
+      hiddenSize: 4,
+      numHiddenLayers: 0,
+    },
+    {
+      get(target, property, receiver) {
+        if (property === "rawConfig") {
+          throw new Error("admission metadata failed");
+        }
+        return Reflect.get(target, property, receiver);
+      },
+    },
+  );
+}
+
 class FakeTokenizer implements Tokenizer {
   readonly vocabSize = 8;
   readonly bosTokenId = undefined;
@@ -237,6 +258,22 @@ function removeDirectory(path: string): void {
   Bun.spawnSync(["rm", "-rf", path]);
 }
 
+function deferred<T>() {
+  let resolveValue: (value: T) => void = () => {};
+  const promise = new Promise<T>((resolve) => {
+    resolveValue = resolve;
+  });
+  return { promise, resolve: resolveValue };
+}
+
+function completionRequest(model: string): RequestInit {
+  return {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ model, prompt: "hello", max_tokens: 1 }),
+  };
+}
+
 describe("serveModels", () => {
   test("loads multiple sources sequentially and serves them as owned models", async () => {
     const calls: string[] = [];
@@ -293,7 +330,79 @@ describe("serveModels", () => {
         runtime,
       ),
     ).rejects.toThrow('modelId "repo/one" is duplicated.');
+    await expect(
+      serveModelsWithRuntime({ models: [{ source: "repo/one", pinned: true }] }, runtime),
+    ).rejects.toThrow('pinned source models require modelLoadPolicy="lazy"');
+    await expect(
+      serveModelsWithRuntime({ models: [{ source: "repo/one" }], modelIdleTtlMs: 1000 }, runtime),
+    ).rejects.toThrow('modelIdleTtlMs requires modelLoadPolicy="lazy"');
+    await expect(
+      serveModelsWithRuntime(
+        {
+          models: [{ source: "repo/one" }],
+          modelLoadPolicy: "lazy",
+          pinnedModels: ["missing"],
+        },
+        runtime,
+      ),
+    ).rejects.toThrow('pinned model "missing" is not part of this serveModels() call');
     expect(calls).toEqual([]);
+  });
+
+  test("starts a lazy source pool without resolving models at startup", async () => {
+    const calls: string[] = [];
+    const runtime = testRuntime({ calls });
+
+    const running = await serveModelsWithRuntime(
+      {
+        models: [
+          { source: "repo/gemma", modelId: "gemma" },
+          { source: "repo/qwen", modelId: "qwen", pinned: true },
+        ],
+        modelLoadPolicy: "lazy",
+        modelIdleTtlMs: 1000,
+        port: 0,
+      },
+      runtime,
+    );
+
+    try {
+      expect(calls).toEqual([]);
+      expect(running.modelIds).toEqual(["gemma", "qwen"]);
+      const response = await fetch(`${running.endpoint}/v1/models`);
+      expect(response.status).toBe(200);
+      expect(await response.json()).toMatchObject({
+        data: [{ id: "gemma" }, { id: "qwen" }],
+      });
+      expect(calls).toEqual([]);
+    } finally {
+      running.stop();
+    }
+  });
+
+  test("disposes lazy-loaded models when setup fails before engine publication", async () => {
+    const calls: string[] = [];
+    const model = new FailingAdmissionModel();
+    const runtime = testRuntime({ calls, models: [model] });
+    const running = await serveModelsWithRuntime(
+      {
+        models: [{ source: "repo/gemma", modelId: "gemma" }],
+        modelLoadPolicy: "lazy",
+        port: 0,
+      },
+      runtime,
+    );
+
+    try {
+      const response = await fetch(
+        `${running.endpoint}/v1/completions`,
+        completionRequest("gemma"),
+      );
+      expect(response.status).toBe(500);
+      expect(model.disposeCount).toBe(1);
+    } finally {
+      running.stop();
+    }
   });
 
   test("disposes previously loaded models when later loading fails", async () => {
@@ -377,6 +486,83 @@ describe("serveModels", () => {
       ]);
       expect(first.disposeCount).toBe(1);
       expect(second.disposeCount).toBe(0);
+    } finally {
+      removeDirectory(firstDirectory);
+      removeDirectory(secondDirectory);
+    }
+  });
+
+  test("serializes lazy first loads so memory preflight sees earlier loads", async () => {
+    const calls: string[] = [];
+    const firstDirectory = await createSafetensorDirectory(100);
+    const secondDirectory = await createSafetensorDirectory(100);
+    const first = new FakeModel();
+    const second = new FakeModel();
+    const firstLoadStarted = deferred<void>();
+    const releaseFirstLoad = deferred<FakeModel>();
+    let memoryReads = 0;
+    const runtime: ServeModelsRuntime = {
+      ...testRuntime({ calls, models: [second] }),
+      readGenerationMemoryUsage() {
+        memoryReads += 1;
+        return {
+          activeBytes: memoryReads === 1 ? 0 : 850,
+          cacheBytes: 0,
+          peakBytes: 0,
+          limitBytes: 1000,
+        };
+      },
+      async loadCausalLM(source) {
+        calls.push(`model:${source}`);
+        if (source === firstDirectory) {
+          firstLoadStarted.resolve();
+          return releaseFirstLoad.promise;
+        }
+        return second;
+      },
+    };
+
+    try {
+      const running = await serveModelsWithRuntime(
+        {
+          models: [
+            { source: firstDirectory, modelId: "first" },
+            { source: secondDirectory, modelId: "second" },
+          ],
+          modelLoadPolicy: "lazy",
+          gpuMemoryUtilization: 0.9,
+          port: 0,
+        },
+        runtime,
+      );
+      try {
+        const firstResponse = fetch(
+          `${running.endpoint}/v1/completions`,
+          completionRequest("first"),
+        );
+        await firstLoadStarted.promise;
+        const secondResponse = fetch(
+          `${running.endpoint}/v1/completions`,
+          completionRequest("second"),
+        );
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        releaseFirstLoad.resolve(first);
+
+        const [, secondResult] = await Promise.all([firstResponse, secondResponse]);
+        expect(secondResult.status).toBe(503);
+        expect(memoryReads).toBe(2);
+        expect(calls).toEqual([
+          `resolve:${firstDirectory}:undefined:false`,
+          `model:${firstDirectory}`,
+          `tokenizer:${firstDirectory}`,
+          `profile:${firstDirectory}`,
+          `resolve:${secondDirectory}:undefined:false`,
+        ]);
+        expect(first.disposeCount).toBe(0);
+        expect(second.disposeCount).toBe(0);
+      } finally {
+        running.stop();
+      }
     } finally {
       removeDirectory(firstDirectory);
       removeDirectory(secondDirectory);

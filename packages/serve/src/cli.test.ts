@@ -8,6 +8,7 @@ import {
   parseServeArgs,
   publicBindWarning,
   runServeCli,
+  type ServeCliOptions,
   shouldLogServeEvent,
 } from "./cli";
 import type { RunningModelServer } from "./model-loading/server";
@@ -48,6 +49,8 @@ describe("serve CLI args", () => {
             modelId: "mlx-community/Qwen3.6-27B-4bit",
           },
         ],
+        modelLoadPolicy: "eager",
+        pinnedModels: [],
         hostname: "127.0.0.1",
         port: 8000,
         maxGeneratedTokens: 2048,
@@ -126,6 +129,8 @@ describe("serve CLI args", () => {
         source: "local-model",
         modelId: "mlx-community/Qwen3.6-27B-4bit",
         models: [{ source: "local-model", modelId: "mlx-community/Qwen3.6-27B-4bit" }],
+        modelLoadPolicy: "eager",
+        pinnedModels: [],
         hostname: "0.0.0.0",
         port: 8080,
         maxGeneratedTokens: 512,
@@ -158,6 +163,12 @@ describe("serve CLI args", () => {
       "gemma=google/gemma-4-E2B-it",
       "--model",
       "mlx-community/Qwen3.6-27B-4bit",
+      "--model-load-policy",
+      "lazy",
+      "--model-idle-ttl-ms",
+      "60000",
+      "--pin-model",
+      "gemma",
       "--local-files-only",
     ]);
 
@@ -173,6 +184,9 @@ describe("serve CLI args", () => {
             modelId: "mlx-community/Qwen3.6-27B-4bit",
           },
         ],
+        modelLoadPolicy: "lazy",
+        modelIdleTtlMs: 60000,
+        pinnedModels: ["gemma"],
         localFilesOnly: true,
       },
     });
@@ -247,6 +261,35 @@ describe("serve CLI args", () => {
       exitCode: 1,
       message:
         'Expected --gpu-memory-utilization to be a number greater than 0 and less than or equal to 1, got "1.5".',
+    });
+    expect(parseServeArgs(["model", "--model-load-policy", "unknown"])).toMatchObject({
+      kind: "help",
+      message: "Unknown model load policy: unknown.",
+    });
+    expect(parseServeArgs(["model", "--model-idle-ttl-ms", "0"])).toMatchObject({
+      kind: "help",
+      message: 'Expected --model-idle-ttl-ms to be a positive integer, got "0".',
+    });
+    expect(parseServeArgs(["model", "--model-idle-ttl-ms", "1000"])).toMatchObject({
+      kind: "help",
+      message: "--model-idle-ttl-ms requires --model-load-policy lazy.",
+    });
+    expect(parseServeArgs(["model", "--pin-model", "model"])).toMatchObject({
+      kind: "help",
+      message: "--pin-model requires --model-load-policy lazy.",
+    });
+    expect(
+      parseServeArgs([
+        "--model",
+        "alpha=repo/alpha",
+        "--model-load-policy",
+        "lazy",
+        "--pin-model",
+        "missing",
+      ]),
+    ).toMatchObject({
+      kind: "help",
+      message: 'Pinned model "missing" is not part of this serve command.',
     });
     expect(parseServeArgs(["model", "--model-id"])).toMatchObject({
       kind: "help",
@@ -335,7 +378,7 @@ describe("serve CLI args", () => {
       formatPretrainedLoadProgress({ stage: "tokenizer", status: "complete", directory: "/tmp" }),
     ).toBe("[tokenizer] ready");
 
-    const options = {
+    const options: ServeCliOptions = {
       source: "repo/model",
       modelId: "mlx-community/Qwen3.6-27B-4bit",
       models: [{ source: "repo/model", modelId: "mlx-community/Qwen3.6-27B-4bit" }],
@@ -352,6 +395,8 @@ describe("serve CLI args", () => {
       streamDecodeInterval: 1,
       maxConcurrentRequests: 1,
       promptPrefixCacheMaxEntries: 1,
+      modelLoadPolicy: "eager",
+      pinnedModels: [],
       remoteImageHosts: [],
       gpuMemoryUtilization: 0.75,
       localFilesOnly: false,
@@ -928,6 +973,32 @@ describe("serve CLI args", () => {
     expect(errors).toEqual([]);
     expect(logs.join("\n")).toContain("[load 1/2 gemma] [resolve] resolving repo/gemma");
     expect(logs.join("\n")).toContain("Models: gemma, qwen");
+    expect(running.stopped).toBe(true);
+  });
+
+  test("routes lazy single-model CLI serving through the source model pool", async () => {
+    const running = fakeRunningServer(["repo/model"]);
+    await runServeCli(
+      ["repo/model", "--model-load-policy", "lazy", "--model-idle-ttl-ms", "1000"],
+      {
+        async serveModel() {
+          throw new Error("eager single-model server should not be used for lazy loading");
+        },
+        async serveModels(options) {
+          expect(options.models).toEqual([{ source: "repo/model", modelId: "repo/model" }]);
+          expect(options.modelLoadPolicy).toBe("lazy");
+          expect(options.modelIdleTtlMs).toBe(1000);
+          expect(options.pinnedModels).toEqual([]);
+          return running;
+        },
+        log() {},
+        error() {},
+        async waitForShutdown(server) {
+          server.stop();
+        },
+      },
+    );
+
     expect(running.stopped).toBe(true);
   });
 
