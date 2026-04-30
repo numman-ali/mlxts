@@ -669,6 +669,112 @@ describe("serve fetch handler", () => {
     });
   });
 
+  test("routes Anthropic tools and returns tool_use content blocks", async () => {
+    const seen: NormalizedGenerationRequest[] = [];
+    const engine: GenerationEngine = {
+      generate(normalized) {
+        seen.push(normalized);
+        return {
+          text: '<tool_call>{"name":"read_file","arguments":{"path":"README.md"}}</tool_call>',
+          finishReason: "stop",
+          usage: { promptTokens: 7, completionTokens: 5, totalTokens: 12 },
+        };
+      },
+    };
+    const fetch = createFetchHandler({
+      engine,
+      idGenerator: () => "msg-tool",
+      now: () => new Date(123_000),
+    });
+
+    const response = await fetch(
+      request("/v1/messages", {
+        model: "tiny",
+        tools: [
+          {
+            name: "read_file",
+            input_schema: {
+              type: "object",
+              properties: { path: { type: "string" } },
+            },
+          },
+        ],
+        messages: [{ role: "user", content: "Read the README." }],
+        max_tokens: 8,
+      }),
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(seen[0]).toMatchObject({
+      id: "msg-tool",
+      input: {
+        kind: "messages",
+        messages: [{ role: "user", content: "Read the README." }],
+        tools: [
+          {
+            type: "function",
+            function: {
+              name: "read_file",
+              parameters: {
+                type: "object",
+                properties: { path: { type: "string" } },
+              },
+            },
+          },
+        ],
+      },
+      protocol: "anthropic.messages",
+    });
+    expect(body).toMatchObject({
+      id: "msg-tool",
+      type: "message",
+      role: "assistant",
+      stop_reason: "tool_use",
+      content: [
+        {
+          type: "tool_use",
+          id: "call_1",
+          name: "read_file",
+          input: { path: "README.md" },
+        },
+      ],
+      usage: { input_tokens: 7, output_tokens: 5 },
+    });
+  });
+
+  test("rejects Anthropic streaming tool use before generation", async () => {
+    let invoked = false;
+    const fetch = createFetchHandler({
+      engine: {
+        generate() {
+          invoked = true;
+          return { text: "", finishReason: "stop" };
+        },
+        async *stream() {
+          invoked = true;
+          yield { type: "text", text: "" };
+        },
+      },
+      idGenerator: () => "msg-tool-stream",
+    });
+
+    const response = await fetch(
+      request("/v1/messages", {
+        model: "tiny",
+        stream: true,
+        tools: [{ name: "read_file", input_schema: { type: "object" } }],
+        messages: [{ role: "user", content: "Read the README." }],
+        max_tokens: 8,
+      }),
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(400);
+    expect(body.error.message).toContain("streaming tool use is not supported");
+    expect(invoked).toBe(false);
+  });
+
   test("routes Anthropic image messages through content input", async () => {
     const seen: NormalizedGenerationRequest[] = [];
     const engine: GenerationEngine = {

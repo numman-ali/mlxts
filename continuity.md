@@ -138,6 +138,13 @@ Full evidence ladder lives in
   thinking for short visual descriptions; the proof resized a generated `96x96`
   quadrant BMP to `256x256`, finished with `eos`, generated `34` tokens, and
   named all four quadrants correctly.
+- Anthropic Messages tool-use adapter support passed focused protocol and HTTP
+  route tests (`51 pass`) and full `bun run validate`. `/v1/messages` now
+  accepts client tools, assistant `tool_use` history, and user `tool_result`
+  history, formats generated tool calls as Anthropic `tool_use` blocks with
+  `stop_reason="tool_use"`, and rejects incomplete tool-result transcripts,
+  streaming tool use, tool-result errors, and rich tool-result media until those
+  semantics are implemented explicitly.
 - Gemma 4 A4B MoE proof passed against the cached
   `mlx-community/gemma-4-26b-a4b-it-4bit` snapshot. Transformer decode at
   `128x128` reported `generation_tps=108.604`, `evals_per_token=1.00`, and

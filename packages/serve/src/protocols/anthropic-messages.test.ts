@@ -121,6 +121,94 @@ describe("Anthropic messages adapter", () => {
     });
   });
 
+  test("normalizes Anthropic tools and tool-result turns into internal chat messages", () => {
+    const normalized = normalizeAnthropicMessageRequest(
+      {
+        model: "mlx-community/Qwen3.6-27B-4bit",
+        tools: [
+          {
+            name: "get_weather",
+            description: "Get weather for a city.",
+            input_schema: {
+              type: "object",
+              properties: { location: { type: "string" } },
+              required: ["location"],
+            },
+          },
+        ],
+        messages: [
+          { role: "user", content: "What is the weather in London?" },
+          {
+            role: "assistant",
+            content: [
+              { type: "text", text: "I will check." },
+              {
+                type: "tool_use",
+                id: "toolu_1",
+                name: "get_weather",
+                input: { location: "London" },
+              },
+            ],
+          },
+          {
+            role: "user",
+            content: [
+              {
+                type: "tool_result",
+                tool_use_id: "toolu_1",
+                content: [{ type: "text", text: "15 degrees and raining." }],
+              },
+              { type: "text", text: "Summarize it." },
+            ],
+          },
+        ],
+        max_tokens: 32,
+      },
+      { id: "msg-tools" },
+    );
+
+    expect(normalized.request.input).toEqual({
+      kind: "messages",
+      messages: [
+        { role: "user", content: "What is the weather in London?" },
+        {
+          role: "assistant",
+          content: "I will check.",
+          tool_calls: [
+            {
+              id: "toolu_1",
+              type: "function",
+              function: {
+                name: "get_weather",
+                arguments: JSON.stringify({ location: "London" }),
+              },
+            },
+          ],
+        },
+        {
+          role: "tool",
+          content: "15 degrees and raining.",
+          tool_call_id: "toolu_1",
+        },
+        { role: "user", content: "Summarize it." },
+      ],
+      tools: [
+        {
+          type: "function",
+          function: {
+            name: "get_weather",
+            description: "Get weather for a city.",
+            parameters: {
+              type: "object",
+              properties: { location: { type: "string" } },
+              required: ["location"],
+            },
+          },
+        },
+      ],
+    });
+  });
+
   test("formats visible and thinking output as Anthropic content blocks", () => {
     const normalized = normalizeAnthropicMessageRequest(
       {
@@ -156,6 +244,83 @@ describe("Anthropic messages adapter", () => {
     });
   });
 
+  test("formats generated tool calls as Anthropic tool_use blocks", () => {
+    const normalized = normalizeAnthropicMessageRequest(
+      {
+        model: "mlx-community/Qwen3.6-27B-4bit",
+        tools: [
+          {
+            name: "get_weather",
+            input_schema: {
+              type: "object",
+              properties: { location: { type: "string" } },
+            },
+          },
+        ],
+        messages: [{ role: "user", content: "Weather?" }],
+        max_tokens: 64,
+      },
+      { id: "msg-tool-format" },
+    );
+
+    const response = formatAnthropicMessageResponse(
+      normalized,
+      {
+        text: 'Let me check. <tool_call>{"name":"get_weather","arguments":{"location":"London"}}</tool_call>',
+        finishReason: "stop",
+        usage: { promptTokens: 12, completionTokens: 9, totalTokens: 21 },
+      },
+      { id: "msg-tool-format" },
+    );
+
+    expect(response).toEqual({
+      id: "msg-tool-format",
+      type: "message",
+      role: "assistant",
+      content: [
+        { type: "text", text: "Let me check." },
+        {
+          type: "tool_use",
+          id: "call_1",
+          name: "get_weather",
+          input: { location: "London" },
+        },
+      ],
+      model: "mlx-community/Qwen3.6-27B-4bit",
+      stop_reason: "tool_use",
+      stop_sequence: null,
+      usage: { input_tokens: 12, output_tokens: 9 },
+    });
+  });
+
+  test("leaves generated tool-call-looking text alone when tools are inactive", () => {
+    const normalized = normalizeAnthropicMessageRequest(
+      {
+        model: "mlx-community/Qwen3.6-27B-4bit",
+        messages: [{ role: "user", content: "Weather?" }],
+        max_tokens: 64,
+      },
+      { id: "msg-no-tool-format" },
+    );
+
+    const response = formatAnthropicMessageResponse(
+      normalized,
+      {
+        text: '<tool_call>{"name":"get_weather","arguments":{"location":"London"}}</tool_call>',
+        finishReason: "stop",
+      },
+      { id: "msg-no-tool-format" },
+    );
+
+    expect(response.content).toEqual([
+      {
+        type: "text",
+        text: '<tool_call>{"name":"get_weather","arguments":{"location":"London"}}</tool_call>',
+      },
+    ]);
+    expect(response.stop_reason).toBe("end_turn");
+  });
+
   test("rejects unsupported Anthropic shapes explicitly", () => {
     expect(() =>
       normalizeAnthropicMessageRequest(
@@ -180,12 +345,13 @@ describe("Anthropic messages adapter", () => {
         {
           model: "mlx-community/Qwen3.6-27B-4bit",
           max_tokens: 8,
+          stream: true,
           messages: [{ role: "user", content: "Hi" }],
-          tools: [{ name: "read_file" }],
+          tools: [{ name: "read_file", input_schema: { type: "object" } }],
         },
-        { id: "tools" },
+        { id: "tools-stream" },
       ),
-    ).toThrow("tools are not supported");
+    ).toThrow("streaming tool use is not supported");
   });
 
   test("normalizes optional Anthropic variants without sampling overrides", () => {
@@ -216,6 +382,27 @@ describe("Anthropic messages adapter", () => {
       chatTemplate: { enableThinking: false, preserveThinking: true },
     });
     expect(disabledThinking.request.sampling).toEqual({ maxTokens: 4 });
+
+    const noToolChoice = normalizeAnthropicMessageRequest(
+      {
+        model: "mlx-community/Qwen3.6-27B-4bit",
+        messages: [{ role: "user", content: "Hi" }],
+        max_tokens: 4,
+        stream: true,
+        tools: [{ name: "read_file", input_schema: { type: "object" } }],
+        tool_choice: { type: "none" },
+      },
+      { id: "tool-none" },
+    );
+
+    expect(noToolChoice.request.input).toMatchObject({
+      kind: "messages",
+      messages: [{ role: "user", content: "Hi" }],
+    });
+    expect(noToolChoice.stream).toBe(true);
+    expect(
+      noToolChoice.request.input.kind === "messages" ? noToolChoice.request.input.tools : null,
+    ).toBeUndefined();
 
     const assistantText = normalizeAnthropicMessageRequest(
       {
@@ -275,6 +462,41 @@ describe("Anthropic messages adapter", () => {
     expect(() =>
       normalizeAnthropicMessageRequest({ ...base, chat_template_kwargs: [] }, { id: "template" }),
     ).toThrow('"chat_template_kwargs" must be an object');
+    expect(() =>
+      normalizeAnthropicMessageRequest({ ...base, tools: "read_file" }, { id: "tools-shape" }),
+    ).toThrow('"tools" must be an array');
+    expect(() =>
+      normalizeAnthropicMessageRequest(
+        { ...base, tools: [{ name: "bad space", input_schema: { type: "object" } }] },
+        { id: "tool-name" },
+      ),
+    ).toThrow('tool "name" must match');
+    expect(() =>
+      normalizeAnthropicMessageRequest(
+        { ...base, tools: [{ name: "read_file" }] },
+        { id: "tool-schema" },
+      ),
+    ).toThrow('tool "input_schema" must be an object');
+    expect(() =>
+      normalizeAnthropicMessageRequest(
+        {
+          ...base,
+          tools: [{ name: "read_file", input_schema: { type: "object" } }],
+          tool_choice: "auto",
+        },
+        { id: "tool-choice-shape" },
+      ),
+    ).toThrow('"tool_choice" must be an object');
+    expect(() =>
+      normalizeAnthropicMessageRequest(
+        {
+          ...base,
+          tools: [{ name: "read_file", input_schema: { type: "object" } }],
+          tool_choice: { type: "tool", name: "read_file" },
+        },
+        { id: "tool-choice-forced" },
+      ),
+    ).toThrow('tool_choice "any" and "tool" are not supported');
   });
 
   test("rejects malformed Anthropic message content fields", () => {
@@ -426,6 +648,188 @@ describe("Anthropic messages adapter", () => {
         { id: "image-type" },
       ),
     ).toThrow('image source type must be "base64", "url", or "file"');
+    expect(() =>
+      normalizeAnthropicMessageRequest(
+        {
+          ...base,
+          messages: [
+            {
+              role: "user",
+              content: [
+                { type: "text", text: "late" },
+                { type: "tool_result", tool_use_id: "toolu_1", content: "result" },
+              ],
+            },
+          ],
+        },
+        { id: "tool-result-order" },
+      ),
+    ).toThrow("tool_result blocks must precede");
+    expect(() =>
+      normalizeAnthropicMessageRequest(
+        {
+          ...base,
+          messages: [
+            {
+              role: "user",
+              content: [{ type: "tool_result", content: "result" }],
+            },
+          ],
+        },
+        { id: "tool-result-id" },
+      ),
+    ).toThrow('tool_result blocks require a non-empty "tool_use_id" field');
+    expect(() =>
+      normalizeAnthropicMessageRequest(
+        {
+          ...base,
+          messages: [
+            {
+              role: "user",
+              content: [{ type: "tool_result", tool_use_id: "toolu_1", content: "result" }],
+            },
+          ],
+        },
+        { id: "tool-result-orphan" },
+      ),
+    ).toThrow("tool_result blocks must immediately follow");
+    expect(() =>
+      normalizeAnthropicMessageRequest(
+        {
+          ...base,
+          messages: [
+            {
+              role: "assistant",
+              content: [
+                { type: "tool_use", id: "toolu_1", name: "read_file", input: { path: "a" } },
+              ],
+            },
+            {
+              role: "user",
+              content: [{ type: "tool_result", tool_use_id: "toolu_2", content: "result" }],
+            },
+          ],
+        },
+        { id: "tool-result-mismatch" },
+      ),
+    ).toThrow("tool_result blocks must match");
+    expect(() =>
+      normalizeAnthropicMessageRequest(
+        {
+          ...base,
+          messages: [
+            {
+              role: "assistant",
+              content: [
+                { type: "tool_use", id: "toolu_1", name: "read_file", input: { path: "a" } },
+              ],
+            },
+            {
+              role: "user",
+              content: "I do not have the result.",
+            },
+          ],
+        },
+        { id: "tool-result-missing" },
+      ),
+    ).toThrow("tool_result blocks must immediately follow");
+    expect(() =>
+      normalizeAnthropicMessageRequest(
+        {
+          ...base,
+          messages: [
+            {
+              role: "assistant",
+              content: [
+                { type: "tool_use", id: "toolu_1", name: "read_file", input: { path: "a" } },
+                { type: "tool_use", id: "toolu_2", name: "read_file", input: { path: "b" } },
+              ],
+            },
+            {
+              role: "user",
+              content: [{ type: "tool_result", tool_use_id: "toolu_1", content: "result" }],
+            },
+          ],
+        },
+        { id: "tool-result-partial" },
+      ),
+    ).toThrow("tool_result blocks must match");
+    expect(() =>
+      normalizeAnthropicMessageRequest(
+        {
+          ...base,
+          messages: [
+            {
+              role: "assistant",
+              content: [
+                { type: "tool_use", id: "toolu_1", name: "read_file", input: { path: "a" } },
+              ],
+            },
+            {
+              role: "user",
+              content: [
+                { type: "tool_result", tool_use_id: "toolu_1", content: "one" },
+                { type: "tool_result", tool_use_id: "toolu_1", content: "two" },
+              ],
+            },
+          ],
+        },
+        { id: "tool-result-duplicate" },
+      ),
+    ).toThrow("tool_result blocks must not repeat");
+    expect(() =>
+      normalizeAnthropicMessageRequest(
+        {
+          ...base,
+          messages: [
+            {
+              role: "assistant",
+              content: [
+                { type: "tool_use", id: "toolu_1", name: "read_file", input: { path: "a" } },
+              ],
+            },
+            {
+              role: "user",
+              content: [
+                { type: "tool_result", tool_use_id: "toolu_1", content: "boom", is_error: true },
+              ],
+            },
+          ],
+        },
+        { id: "tool-result-error" },
+      ),
+    ).toThrow("tool_result is_error=true is not supported");
+    expect(() =>
+      normalizeAnthropicMessageRequest(
+        {
+          ...base,
+          messages: [
+            {
+              role: "assistant",
+              content: [
+                { type: "tool_use", id: "toolu_1", name: "read_file", input: { path: "a" } },
+              ],
+            },
+            {
+              role: "user",
+              content: [
+                {
+                  type: "tool_result",
+                  tool_use_id: "toolu_1",
+                  content: [
+                    {
+                      type: "image",
+                      source: { type: "base64", media_type: "image/png", data: "x" },
+                    },
+                  ],
+                },
+              ],
+            },
+          ],
+        },
+        { id: "tool-result-image" },
+      ),
+    ).toThrow("tool_result content supports string or text blocks");
   });
 
   test("rejects malformed Anthropic assistant content fields", () => {
@@ -485,7 +889,7 @@ describe("Anthropic messages adapter", () => {
         },
         { id: "assistant-tool" },
       ),
-    ).toThrow("tool content blocks are not supported");
+    ).toThrow('tool_use blocks require a non-empty "name" field');
     expect(() =>
       normalizeAnthropicMessageRequest(
         {
@@ -494,6 +898,6 @@ describe("Anthropic messages adapter", () => {
         },
         { id: "assistant-unknown" },
       ),
-    ).toThrow("assistant content supports text and thinking blocks");
+    ).toThrow("assistant content supports text, thinking, and tool_use blocks");
   });
 });

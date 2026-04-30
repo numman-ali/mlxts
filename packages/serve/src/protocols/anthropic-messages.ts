@@ -3,6 +3,7 @@
  * @module
  */
 
+import type { ChatTool } from "@mlxts/transformers";
 import { isRecord, ServeError } from "../errors";
 import type { NormalizedGenerationRequest } from "../types";
 import {
@@ -22,7 +23,17 @@ export type AnthropicThinkingBlock = {
   signature: string;
 };
 
-export type AnthropicContentBlock = AnthropicTextBlock | AnthropicThinkingBlock;
+export type AnthropicToolUseBlock = {
+  type: "tool_use";
+  id: string;
+  name: string;
+  input: Record<string, unknown>;
+};
+
+export type AnthropicContentBlock =
+  | AnthropicTextBlock
+  | AnthropicThinkingBlock
+  | AnthropicToolUseBlock;
 
 export type AnthropicUsage = {
   input_tokens: number;
@@ -156,27 +167,6 @@ function parseStopSequences(record: Record<string, unknown>): readonly string[] 
   });
 }
 
-function validateUnsupportedFields(record: Record<string, unknown>): void {
-  const tools = record.tools;
-  if (tools !== undefined && tools !== null) {
-    if (!Array.isArray(tools)) {
-      throw new ServeError('Anthropic messages: "tools" must be an array or null.', {
-        param: "tools",
-      });
-    }
-    if (tools.length > 0) {
-      throw new ServeError("Anthropic messages: tools are not supported yet.", {
-        param: "tools",
-      });
-    }
-  }
-  if (record.tool_choice !== undefined && record.tool_choice !== null) {
-    throw new ServeError("Anthropic messages: tool_choice is not supported yet.", {
-      param: "tool_choice",
-    });
-  }
-}
-
 function chatTemplateFlag(
   record: Record<string, unknown>,
   key: "enable_thinking" | "preserve_thinking",
@@ -241,6 +231,88 @@ function parseMetadata(record: Record<string, unknown>): Record<string, unknown>
   return { ...metadata };
 }
 
+function anthropicTool(value: unknown): ChatTool {
+  if (!isRecord(value)) {
+    throw new ServeError('Anthropic messages: "tools" entries must be objects.', {
+      param: "tools",
+    });
+  }
+  const name = value.name;
+  if (typeof name !== "string" || name.trim() === "") {
+    throw new ServeError('Anthropic messages: tool "name" must be a non-empty string.', {
+      param: "tools",
+    });
+  }
+  if (!/^[a-zA-Z0-9_-]{1,64}$/.test(name)) {
+    throw new ServeError('Anthropic messages: tool "name" must match /^[a-zA-Z0-9_-]{1,64}$/.', {
+      param: "tools",
+    });
+  }
+  if (!isRecord(value.input_schema)) {
+    throw new ServeError('Anthropic messages: tool "input_schema" must be an object.', {
+      param: "tools",
+    });
+  }
+  if (value.description !== undefined && typeof value.description !== "string") {
+    throw new ServeError('Anthropic messages: tool "description" must be a string when present.', {
+      param: "tools",
+    });
+  }
+  return {
+    type: "function",
+    function: {
+      name,
+      ...(typeof value.description === "string" ? { description: value.description } : {}),
+      parameters: value.input_schema,
+    },
+  };
+}
+
+function parseAnthropicTools(record: Record<string, unknown>): ChatTool[] | undefined {
+  const value = record.tools;
+  if (value === undefined || value === null) {
+    return undefined;
+  }
+  if (!Array.isArray(value)) {
+    throw new ServeError('Anthropic messages: "tools" must be an array or null.', {
+      param: "tools",
+    });
+  }
+  return value.map(anthropicTool);
+}
+
+function selectedAnthropicTools(
+  record: Record<string, unknown>,
+  tools: readonly ChatTool[] | undefined,
+): readonly ChatTool[] | undefined {
+  const value = record.tool_choice;
+  if (value === undefined || value === null) {
+    return tools;
+  }
+  if (!isRecord(value)) {
+    throw new ServeError('Anthropic messages: "tool_choice" must be an object or null.', {
+      param: "tool_choice",
+    });
+  }
+  switch (value.type) {
+    case "auto":
+      return tools;
+    case "none":
+      return undefined;
+    case "any":
+    case "tool":
+      throw new ServeError(
+        'Anthropic messages: tool_choice "any" and "tool" are not supported yet.',
+        { param: "tool_choice" },
+      );
+    default:
+      throw new ServeError(
+        'Anthropic messages: "tool_choice.type" must be "auto", "none", "any", or "tool".',
+        { param: "tool_choice" },
+      );
+  }
+}
+
 /** Normalize an Anthropic Messages JSON body into one generation request. */
 export function normalizeAnthropicMessageRequest(
   body: unknown,
@@ -250,7 +322,6 @@ export function normalizeAnthropicMessageRequest(
     throw new ServeError("Anthropic messages: request body must be a JSON object.");
   }
 
-  validateUnsupportedFields(body);
   const model = stringField(body, "model");
   const stream = optionalBoolean(body, "stream") ?? false;
   const maxTokens = requiredMaxTokens(body);
@@ -269,6 +340,13 @@ export function normalizeAnthropicMessageRequest(
   const templateOptions = chatTemplateOptions(body);
   const metadata = parseMetadata(body);
   const userId = optionalString(metadata, "user_id");
+  const selectedTools = selectedAnthropicTools(body, parseAnthropicTools(body));
+  if (stream && selectedTools !== undefined && selectedTools.length > 0) {
+    throw new ServeError(
+      "Anthropic messages: streaming tool use is not supported until Anthropic tool SSE blocks are implemented.",
+      { param: "stream" },
+    );
+  }
 
   return {
     model,
@@ -280,7 +358,7 @@ export function normalizeAnthropicMessageRequest(
     request: {
       id: options.id,
       model,
-      input: parseAnthropicMessagesInput(body, system, templateOptions),
+      input: parseAnthropicMessagesInput(body, system, templateOptions, selectedTools),
       sampling: {
         maxTokens,
         ...(temperature === undefined ? {} : { temperature }),
