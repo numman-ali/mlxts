@@ -124,6 +124,13 @@ Full evidence ladder lives in
   tests and `205` serve focused tests). Retained full-KV descendants charge
   only private tail blocks while their source snapshot is live; batch cache
   restore/filter/extend/extract keeps source lineage for continuous serving.
+- Qwen image serving product regression passed against cached
+  `mlx-community/Qwen3.6-27B-4bit` through OpenAI Chat image content,
+  OpenResponses image input, and Anthropic Messages base64 image blocks. The
+  harness command is `bun run regression:qwen-image`; the latest run described
+  a generated 2x2 red/green/blue/yellow grid, routed every request as
+  `single:media_input`, kept continuous scheduler phases at `0`, and read `92`
+  cached prompt tokens on exact repeats.
 - Gemma 4 A4B MoE proof passed against the cached
   `mlx-community/gemma-4-26b-a4b-it-4bit` snapshot. Transformer decode at
   `128x128` reported `generation_tps=108.604`, `evals_per_token=1.00`, and
