@@ -76,11 +76,13 @@ function resolveFileSet(source: string | TokenizerFileSet): TokenizerFileSet {
   }
 
   if (isDirectory(source)) {
+    const tokenizerModelPath = join(source, "tokenizer.model");
+    const spieceModelPath = join(source, "spiece.model");
     return {
       directory: source,
       tokenizerJsonPath: join(source, "tokenizer.json"),
       tekkenJsonPath: join(source, "tekken.json"),
-      tokenizerModelPath: join(source, "tokenizer.model"),
+      tokenizerModelPath: existsSync(tokenizerModelPath) ? tokenizerModelPath : spieceModelPath,
       tokenizerConfigPath: join(source, "tokenizer_config.json"),
       specialTokensMapPath: join(source, "special_tokens_map.json"),
       vocabJsonPath: join(source, "vocab.json"),

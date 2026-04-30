@@ -1,4 +1,4 @@
 {
   "extends": "./tsconfig.json",
-  "include": ["examples/stable-diffusion/**/*.ts"]
+  "include": ["examples/stable-diffusion/**/*.ts", "examples/flux/**/*.ts"]
 }

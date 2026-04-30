@@ -60,6 +60,10 @@ function createEncoding(
   return encoding;
 }
 
+function nonNegativeSpecialId(id: number | undefined): number | undefined {
+  return id === undefined || id < 0 ? undefined : id;
+}
+
 /** SentencePiece unigram tokenizer with byte fallback support. */
 export class SentencePieceTokenizer implements Tokenizer {
   #pieces: string[];
@@ -110,10 +114,10 @@ export class SentencePieceTokenizer implements Tokenizer {
       ),
     );
     this.#byteFallback = config.byteFallback;
-    this.#unkId = config.unkId;
-    this.#bosId = config.bosId;
-    this.#eosIds = config.eosId === undefined ? [] : [config.eosId];
-    this.#padId = config.padId;
+    this.#unkId = nonNegativeSpecialId(config.unkId);
+    this.#bosId = nonNegativeSpecialId(config.bosId);
+    this.#eosIds = config.eosId === undefined || config.eosId < 0 ? [] : [config.eosId];
+    this.#padId = nonNegativeSpecialId(config.padId);
     this.#addDummyPrefix = config.addDummyPrefix ?? true;
     this.#removeExtraWhitespaces = config.removeExtraWhitespaces ?? true;
     this.#escapeWhitespaces = config.escapeWhitespaces ?? true;

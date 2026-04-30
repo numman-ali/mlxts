@@ -28,9 +28,9 @@ type ReadCursor = {
   offset: number;
 };
 
-function readVarint(bytes: Uint8Array, cursor: ReadCursor): number {
+function readVarintBigInt(bytes: Uint8Array, cursor: ReadCursor): bigint {
   let shift = 0;
-  let result = 0;
+  let result = 0n;
 
   while (cursor.offset < bytes.length) {
     const byte = bytes[cursor.offset];
@@ -39,7 +39,7 @@ function readVarint(bytes: Uint8Array, cursor: ReadCursor): number {
     }
 
     cursor.offset += 1;
-    result |= (byte & 0x7f) << shift;
+    result |= BigInt(byte & 0x7f) << BigInt(shift);
     if ((byte & 0x80) === 0) {
       return result;
     }
@@ -47,6 +47,18 @@ function readVarint(bytes: Uint8Array, cursor: ReadCursor): number {
   }
 
   throw new UnsupportedTokenizerError("SentencePiece model is truncated");
+}
+
+function readVarint(bytes: Uint8Array, cursor: ReadCursor): number {
+  const value = readVarintBigInt(bytes, cursor);
+  if (value > BigInt(Number.MAX_SAFE_INTEGER)) {
+    throw new UnsupportedTokenizerError("SentencePiece varint exceeds safe integer range");
+  }
+  return Number(value);
+}
+
+function readInt32Varint(bytes: Uint8Array, cursor: ReadCursor): number {
+  return Number(BigInt.asIntN(32, readVarintBigInt(bytes, cursor)));
 }
 
 function readBytes(bytes: Uint8Array, cursor: ReadCursor): Uint8Array {
@@ -130,16 +142,16 @@ function applyTrainerSpecField(
       model.byteFallback = readVarint(message, cursor) !== 0;
       return true;
     case 40:
-      model.unkId = readVarint(message, cursor);
+      model.unkId = readInt32Varint(message, cursor);
       return true;
     case 41:
-      model.bosId = readVarint(message, cursor);
+      model.bosId = readInt32Varint(message, cursor);
       return true;
     case 42:
-      model.eosId = readVarint(message, cursor);
+      model.eosId = readInt32Varint(message, cursor);
       return true;
     case 43:
-      model.padId = readVarint(message, cursor);
+      model.padId = readInt32Varint(message, cursor);
       return true;
     default:
       return false;
