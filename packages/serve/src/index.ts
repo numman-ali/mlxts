@@ -84,6 +84,7 @@ export {
   type ServeModelsOptions,
   type ServeModelsProgressContext,
   type ServeModelsRuntime,
+  type SourceModelPressurePolicy,
   serveModels,
   serveModelsWithRuntime,
 } from "./model-loading/sources";

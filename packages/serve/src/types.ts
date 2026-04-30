@@ -432,6 +432,15 @@ export type ServeEvent =
       maxTokensByRequest: readonly number[];
     }
   | {
+      type: "model_pool_pressure";
+      targetModel: string;
+      action: "evict_idle" | "abort_active";
+      reason: "model_load_memory_exceeded" | "memory_budget_exceeded";
+      evictedModels: readonly string[];
+      abortedRequestIds: readonly string[];
+      activeRequests: number;
+    }
+  | {
       type: "generation_complete";
       id: string;
       protocol: GenerationProtocol;

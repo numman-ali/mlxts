@@ -1,3 +1,4 @@
+import { readIntegerFlag, readNumberFlag, readStringFlag } from "./cli-flag-readers";
 import {
   parseModelFlagValue,
   requireDistinctModelIds,
@@ -20,6 +21,7 @@ import {
   DEFAULT_MODEL_SERVER_PROMPT_PREFIX_CACHE_MAX_ENTRIES,
   DEFAULT_MODEL_SERVER_STREAM_DECODE_INTERVAL,
 } from "./model-loading/server";
+import type { SourceModelPressurePolicy } from "./model-loading/sources";
 
 export type { ServeCliModelOption };
 
@@ -29,6 +31,7 @@ export type ServeCliOptions = {
   models: readonly ServeCliModelOption[];
   modelRoots: readonly string[];
   modelLoadPolicy: "eager" | "lazy";
+  modelPressurePolicy: SourceModelPressurePolicy;
   modelIdleTtlMs?: number;
   pinnedModels: readonly string[];
   hostname: string;
@@ -74,6 +77,7 @@ type ParseState = {
   modelRoots: string[];
   modelLoadPolicy: "eager" | "lazy";
   modelLoadPolicyExplicit: boolean;
+  modelPressurePolicy: SourceModelPressurePolicy;
   modelIdleTtlMs?: number;
   pinnedModels: string[];
   hostname: string;
@@ -101,46 +105,18 @@ type ParseState = {
   verbose: boolean;
 };
 
-function readStringFlag(flag: string, value: string | undefined): string {
-  if (value === undefined || value.trim() === "") {
-    throw new Error(`Missing value for ${flag}.`);
-  }
-  return value;
-}
-
-function readIntegerFlag(
-  flag: string,
-  value: string | undefined,
-  isValid: (value: number) => boolean,
-  description: string,
-): number {
-  const raw = readStringFlag(flag, value);
-  const parsed = Number(raw);
-  if (!Number.isInteger(parsed) || !isValid(parsed)) {
-    throw new Error(`Expected ${flag} to be ${description}, got "${raw}".`);
-  }
-  return parsed;
-}
-
-function readNumberFlag(
-  flag: string,
-  value: string | undefined,
-  isValid: (value: number) => boolean,
-  description: string,
-): number {
-  const raw = readStringFlag(flag, value);
-  const parsed = Number(raw);
-  if (!Number.isFinite(parsed) || !isValid(parsed)) {
-    throw new Error(`Expected ${flag} to be ${description}, got "${raw}".`);
-  }
-  return parsed;
-}
-
 function readModelLoadPolicy(value: string): "eager" | "lazy" {
   if (value === "eager" || value === "lazy") {
     return value;
   }
   throw new Error(`Unknown model load policy: ${value}.`);
+}
+
+function readModelPressurePolicy(value: string): SourceModelPressurePolicy {
+  if (value === "reject" || value === "shed_non_pinned") {
+    return value;
+  }
+  throw new Error(`Unknown model pressure policy: ${value}.`);
 }
 
 function createParseState(): ParseState {
@@ -149,6 +125,7 @@ function createParseState(): ParseState {
     modelRoots: [],
     modelLoadPolicy: "eager",
     modelLoadPolicyExplicit: false,
+    modelPressurePolicy: "reject",
     pinnedModels: [],
     hostname: DEFAULT_MODEL_SERVER_HOSTNAME,
     port: DEFAULT_MODEL_SERVER_PORT,
@@ -198,6 +175,9 @@ function applyFlag(state: ParseState, argv: readonly string[], index: number): n
         (value) => value > 0,
         "a positive integer",
       );
+      return index + 1;
+    case "--model-pressure-policy":
+      state.modelPressurePolicy = readModelPressurePolicy(readStringFlag(arg, argv[index + 1]));
       return index + 1;
     case "--pin-model":
       state.pinnedModels.push(readStringFlag(arg, argv[index + 1]));
@@ -406,6 +386,7 @@ function modelOptionsFromState(state: ParseState): readonly ServeCliModelOption[
 function requireLazyModelPoolOptions(
   modelLoadPolicy: "eager" | "lazy",
   modelIdleTtlMs: number | undefined,
+  modelPressurePolicy: SourceModelPressurePolicy,
   pinnedModels: readonly string[],
 ): void {
   if (modelLoadPolicy === "lazy") {
@@ -413,6 +394,9 @@ function requireLazyModelPoolOptions(
   }
   if (modelIdleTtlMs !== undefined) {
     throw new Error("--model-idle-ttl-ms requires --model-load-policy lazy.");
+  }
+  if (modelPressurePolicy !== "reject") {
+    throw new Error("--model-pressure-policy requires --model-load-policy lazy.");
   }
   if (pinnedModels.length > 0) {
     throw new Error("--pin-model requires --model-load-policy lazy.");
@@ -434,7 +418,12 @@ function stateToOptions(state: ParseState): ServeCliParseResult {
   if (state.modelRoots.length === 0) {
     requirePinnedModelsExist(models, pinnedModels);
   }
-  requireLazyModelPoolOptions(modelLoadPolicy, state.modelIdleTtlMs, pinnedModels);
+  requireLazyModelPoolOptions(
+    modelLoadPolicy,
+    state.modelIdleTtlMs,
+    state.modelPressurePolicy,
+    pinnedModels,
+  );
   const [primaryModel] = models;
   const fallbackRoot = state.modelRoots[0];
   const source = primaryModel?.source ?? fallbackRoot;
@@ -451,6 +440,7 @@ function stateToOptions(state: ParseState): ServeCliParseResult {
       models,
       modelRoots: [...new Set(state.modelRoots)],
       modelLoadPolicy,
+      modelPressurePolicy: state.modelPressurePolicy,
       ...(state.modelIdleTtlMs === undefined ? {} : { modelIdleTtlMs: state.modelIdleTtlMs }),
       pinnedModels,
       hostname: state.hostname,

@@ -1,9 +1,11 @@
 import { describe, expect, test } from "bun:test";
+import { ServeError } from "../errors";
 import { createFetchHandler } from "../http/server";
 import type {
   GenerationEngine,
   GenerationStreamEvent,
   NormalizedGenerationRequest,
+  ServeEvent,
 } from "../types";
 import { createSourceModelPoolGenerationEngine, type LoadedSourceModelPoolEntry } from "./pool";
 
@@ -73,6 +75,23 @@ async function expectRejectionMessage(
     throw new Error("Expected promise to reject with an Error.");
   }
   expect(rejection.message).toContain(message);
+}
+
+async function expectServeErrorCode(
+  result: unknown | Promise<unknown>,
+  code: string,
+): Promise<void> {
+  let rejection: unknown;
+  try {
+    await result;
+  } catch (error) {
+    rejection = error;
+  }
+  expect(rejection).toBeInstanceOf(ServeError);
+  if (!(rejection instanceof ServeError)) {
+    throw new Error("Expected promise to reject with a ServeError.");
+  }
+  expect(rejection.code).toBe(code);
 }
 
 function loadedEntry(
@@ -287,6 +306,218 @@ describe("source model pool generation engine", () => {
 
     engine[Symbol.dispose]?.();
     expect(disposeCount).toBe(1);
+  });
+
+  test("evicts idle non-pinned models to retry cold loads under memory pressure", async () => {
+    const loads: string[] = [];
+    const events: ServeEvent[] = [];
+    let alphaDisposals = 0;
+    let betaAttempts = 0;
+    const engine = createSourceModelPoolGenerationEngine({
+      entries: [{ modelId: "alpha" }, { modelId: "beta" }],
+      pressurePolicy: "shed_non_pinned",
+      onEvent(event) {
+        events.push(event);
+      },
+      async load(entry) {
+        loads.push(entry.modelId);
+        if (entry.modelId === "alpha") {
+          return loadedEntry("a", () => {
+            alphaDisposals += 1;
+          });
+        }
+        betaAttempts += 1;
+        if (betaAttempts === 1) {
+          throw new ServeError("beta needs more model memory", {
+            code: "model_load_memory_exceeded",
+            status: 503,
+          });
+        }
+        return loadedEntry("b", () => {});
+      },
+    });
+
+    await expect(engine.generate(request("one", "alpha"))).resolves.toMatchObject({
+      text: "a:one",
+    });
+    await expect(engine.generate(request("two", "beta"))).resolves.toMatchObject({
+      text: "b:two",
+    });
+
+    expect(loads).toEqual(["alpha", "beta", "beta"]);
+    expect(betaAttempts).toBe(2);
+    expect(alphaDisposals).toBe(1);
+    expect(events).toContainEqual({
+      type: "model_pool_pressure",
+      targetModel: "beta",
+      action: "evict_idle",
+      reason: "model_load_memory_exceeded",
+      evictedModels: ["alpha"],
+      abortedRequestIds: [],
+      activeRequests: 0,
+    });
+  });
+
+  test("keeps pinned idle models loaded when cold-load pressure cannot be relieved", async () => {
+    let alphaDisposals = 0;
+    let betaAttempts = 0;
+    const events: ServeEvent[] = [];
+    const engine = createSourceModelPoolGenerationEngine({
+      entries: [{ modelId: "alpha", pinned: true }, { modelId: "beta" }],
+      pressurePolicy: "shed_non_pinned",
+      onEvent(event) {
+        events.push(event);
+      },
+      async load(entry) {
+        if (entry.modelId === "alpha") {
+          return loadedEntry("a", () => {
+            alphaDisposals += 1;
+          });
+        }
+        betaAttempts += 1;
+        throw new ServeError("beta needs more model memory", {
+          code: "model_load_memory_exceeded",
+          status: 503,
+        });
+      },
+    });
+
+    await engine.generate(request("one", "alpha"));
+    await expectServeErrorCode(
+      engine.generate(request("two", "beta")),
+      "model_load_memory_exceeded",
+    );
+
+    expect(betaAttempts).toBe(1);
+    expect(alphaDisposals).toBe(0);
+    expect(events).toEqual([]);
+    engine[Symbol.dispose]?.();
+    expect(alphaDisposals).toBe(1);
+  });
+
+  test("aborts active non-pinned streams before retrying cold loads", async () => {
+    const events: ServeEvent[] = [];
+    let betaAttempts = 0;
+    const engine = createSourceModelPoolGenerationEngine({
+      entries: [{ modelId: "alpha" }, { modelId: "beta" }],
+      pressurePolicy: "shed_non_pinned",
+      onEvent(event) {
+        events.push(event);
+      },
+      async load(entry) {
+        if (entry.modelId === "alpha") {
+          return {
+            engine: {
+              generate(normalized) {
+                return { text: `a:${normalized.id}`, finishReason: "stop" };
+              },
+              async *stream(normalized) {
+                yield { type: "text", text: "a" } satisfies GenerationStreamEvent;
+                await new Promise<void>((resolve) => {
+                  normalized.abortSignal?.addEventListener("abort", () => resolve(), {
+                    once: true,
+                  });
+                });
+                yield { type: "done", finishReason: "cancelled" } satisfies GenerationStreamEvent;
+              },
+            },
+            dispose() {},
+          };
+        }
+        betaAttempts += 1;
+        if (betaAttempts === 1) {
+          throw new ServeError("beta needs more model memory", {
+            code: "model_load_memory_exceeded",
+            status: 503,
+          });
+        }
+        return loadedEntry("b", () => {});
+      },
+    });
+
+    const stream = await engine.stream?.(request("stream", "alpha"));
+    const iterator = stream?.[Symbol.asyncIterator]();
+    if (iterator === undefined) {
+      throw new Error("expected stream iterator");
+    }
+    await expect(iterator.next()).resolves.toMatchObject({
+      value: { type: "text", text: "a" },
+    });
+    const pressureCancelled = iterator.next();
+    const beta = engine.generate(request("cold", "beta"));
+
+    await expectServeErrorCode(pressureCancelled, "model_pool_memory_pressure");
+    await expect(beta).resolves.toMatchObject({ text: "b:cold" });
+
+    expect(betaAttempts).toBe(2);
+    expect(events).toContainEqual({
+      type: "model_pool_pressure",
+      targetModel: "beta",
+      action: "abort_active",
+      reason: "model_load_memory_exceeded",
+      evictedModels: [],
+      abortedRequestIds: ["stream"],
+      activeRequests: 1,
+    });
+  });
+
+  test("aborts competing active leases before retrying request memory preflight", async () => {
+    const events: ServeEvent[] = [];
+    let shortAttempts = 0;
+    const engine = createSourceModelPoolGenerationEngine({
+      entries: [{ modelId: "alpha" }],
+      pressurePolicy: "shed_non_pinned",
+      onEvent(event) {
+        events.push(event);
+      },
+      async load() {
+        return {
+          engine: {
+            async generate(normalized) {
+              if (normalized.id === "long") {
+                await new Promise<void>((_, reject) => {
+                  normalized.abortSignal?.addEventListener(
+                    "abort",
+                    () => {
+                      const error = new Error("aborted");
+                      error.name = "AbortError";
+                      reject(error);
+                    },
+                    { once: true },
+                  );
+                });
+              }
+              shortAttempts += 1;
+              if (shortAttempts === 1) {
+                throw new ServeError("request exceeds memory budget", {
+                  code: "memory_budget_exceeded",
+                  status: 429,
+                });
+              }
+              return { text: `a:${normalized.id}`, finishReason: "stop" };
+            },
+          },
+          dispose() {},
+        };
+      },
+    });
+
+    const long = engine.generate(request("long", "alpha"));
+    await sleep(0);
+    const short = engine.generate(request("short", "alpha"));
+
+    await expectServeErrorCode(long, "model_pool_memory_pressure");
+    await expect(short).resolves.toMatchObject({ text: "a:short" });
+    expect(shortAttempts).toBe(2);
+    expect(events).toContainEqual({
+      type: "model_pool_pressure",
+      targetModel: "alpha",
+      action: "abort_active",
+      reason: "memory_budget_exceeded",
+      evictedModels: [],
+      abortedRequestIds: ["long"],
+      activeRequests: 2,
+    });
   });
 
   test("holds active stream leases until the stream closes", async () => {

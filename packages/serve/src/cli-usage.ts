@@ -32,6 +32,7 @@ export function formatServeUsage(): string {
     "  --model-root <directory>    Discover supported autoregressive checkpoints under root and org/model folders",
     "  --model-load-policy <eager|lazy>  Load all models at startup or on first request",
     "  --model-idle-ttl-ms <n>     Evict lazy-loaded idle models after n milliseconds",
+    "  --model-pressure-policy <reject|shed_non_pinned>  Lazy-pool response when memory pressure blocks a load or request",
     "  --pin-model <id>            Keep a lazy-loaded model resident; repeat as needed",
     "  --model-id <id>             Served model id for positional single-model usage",
     "  --served-model-name <id>    Alias for --model-id",

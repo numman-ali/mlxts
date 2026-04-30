@@ -115,6 +115,7 @@ export function formatServeReady(endpoint: string, options: ServeCliOptions): st
         ? `lazy${options.modelIdleTtlMs === undefined ? "" : ` idle_ttl=${formatDuration(options.modelIdleTtlMs)}`}`
         : "eager"
     }`,
+    `Model pressure policy: ${options.modelPressurePolicy}`,
     `Pinned models: ${
       options.pinnedModels.length === 0 ? "none" : options.pinnedModels.join(", ")
     }`,
@@ -247,6 +248,8 @@ export function formatServeEvent(event: ServeEvent): string {
       return formatSchedulerPhase(event);
     case "generation_admission_batch":
       return `[batch] ${event.mode} model=${event.model} size=${event.batchSize} engine=${event.engineMode} max_tokens=${event.maxTokens} per_request=${event.maxTokensByRequest.join(",")} ids=${event.ids.join(",")} admitted`;
+    case "model_pool_pressure":
+      return `[pool] target=${event.targetModel} action=${event.action} reason=${event.reason} evicted=${event.evictedModels.join(",") || "-"} aborted=${event.abortedRequestIds.join(",") || "-"} active=${event.activeRequests}`;
     case "generation_complete":
       return `[generation] ${event.id} ${event.finishReason}${event.promptTokens === undefined ? "" : ` prompt_tokens=${event.promptTokens}`} tokens=${event.completionTokens ?? "?"}${event.totalTokens === undefined ? "" : ` total_tokens=${event.totalTokens}`} in ${formatDuration(event.durationMs)}${formatMemoryUsage(event.memory)}`;
     case "generation_error":
@@ -266,6 +269,8 @@ export function shouldLogServeEvent(event: ServeEvent, verbose: boolean): boolea
     case "generation_stream_end":
     case "generation_batch_start":
     case "generation_scheduler_phase":
+      return true;
+    case "model_pool_pressure":
       return true;
     case "generation_stream_chunk":
       return verbose;
@@ -335,6 +340,7 @@ function toServeModelsOptions(options: ServeCliOptions): ServeModelsOptions {
       modelId: model.modelId,
     })),
     modelLoadPolicy: options.modelLoadPolicy,
+    modelPressurePolicy: options.modelPressurePolicy,
     ...(options.modelIdleTtlMs === undefined ? {} : { modelIdleTtlMs: options.modelIdleTtlMs }),
     pinnedModels: options.pinnedModels,
     hostname: options.hostname,
@@ -482,9 +488,8 @@ export async function runServeCli(
   await shutdown(running);
 }
 
-export async function main(argv: readonly string[] = Bun.argv.slice(2)): Promise<void> {
-  await runServeCli(argv);
-}
+export const main = (argv: readonly string[] = Bun.argv.slice(2)): Promise<void> =>
+  runServeCli(argv);
 
 if (import.meta.main) {
   main().catch((error) => {

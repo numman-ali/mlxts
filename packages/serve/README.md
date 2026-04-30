@@ -49,6 +49,13 @@ normal per-model generation engine. Idle eviction disposes loaded engines and
 model weights only after in-flight requests and streams finish; pinned models
 stay resident until server shutdown.
 
+`--model-pressure-policy shed_non_pinned` opts the lazy pool into memory-pressure
+relief when a cold load or request memory preflight cannot fit. The pool first
+evicts idle non-pinned models, then aborts active non-pinned request scopes and
+waits for normal generation cleanup before retrying once. The default
+`reject` policy preserves existing active requests and returns the original
+memory-budget error.
+
 Use repeatable `--model-root <directory>` when a local model store already uses
 flat checkpoint folders or Hugging Face-style `org/model` folders. Discovery
 finds supported autoregressive checkpoint directories with `config.json` plus
@@ -126,6 +133,11 @@ the lower of the server setting and checkpoint-declared context window.
 `--local-image-root <directory>` enables image `file_id` values as relative
 image paths under that directory. File IDs stay image-only, reject traversal and
 symlink escapes, and do not enable `/v1/files` or non-image file uploads.
+`--model-pressure-policy <reject|shed_non_pinned>` controls lazy-pool behavior
+when model-load or request memory pressure blocks progress. `reject` keeps
+existing requests untouched. `shed_non_pinned` can evict idle non-pinned models
+and cancel active non-pinned requests with `model_pool_memory_pressure`; pinned
+models are never pressure-shed.
 `--gpu-memory-utilization <f>` adds a best-effort MLX memory preflight: the
 server estimates request-local KV cache, recurrent cache state, and prefill
 temporary memory from the loaded model config, then rejects requests whose
@@ -185,9 +197,10 @@ request ids/prompts/errors are not labels. The surface currently covers HTTP
 request counts/latency/in-flight gauges, generation starts/completions/errors,
 token totals and histograms, route decisions, model-lane waits, scheduler
 phases, scheduler token and estimated-memory pressure, batch sizes, prefill
-chunks, stream terminal results, server-side TTFT, SSE frame/byte counts, output
-frame counts, and latest MLX allocator memory gauges. Stream TTFT is measured
-inside the server from generation start to the first output-bearing SSE frame;
+chunks, lazy model-pool pressure events, stream terminal results, server-side
+TTFT, SSE frame/byte counts, output frame counts, and latest MLX allocator
+memory gauges. Stream TTFT is measured inside the server from generation start
+to the first output-bearing SSE frame;
 benchmark TTFT remains client-observed and is kept separate. Scraping
 `/metrics` is excluded from HTTP counters so Prometheus polling does not
 dominate local operator signals.

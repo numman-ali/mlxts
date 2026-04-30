@@ -68,9 +68,11 @@ major product-agent focus on package-owned CLIs and future PI-agent integration.
   now publishes configured model ids at startup, loads checkpoints on first
   request, shares concurrent first loads per model, serializes cold loads across
   model ids so memory preflight stays honest, evicts idle non-pinned models
-  after `modelIdleTtlMs`, and keeps pinned models resident until shutdown. The
-  eager policy remains the default and single-model eager CLI serving still
-  routes through `serveModel()`.
+  after `modelIdleTtlMs`, and keeps pinned models resident until shutdown.
+  `modelPressurePolicy` defaults to `reject`; `shed_non_pinned` can evict idle
+  non-pinned models and abort active non-pinned request scopes with
+  `model_pool_memory_pressure` before one retry. The eager policy remains the
+  default and single-model eager CLI serving still routes through `serveModel()`.
 - **Image serving**: Qwen image transport, host decode, and prepared-prompt
   cache shipped with explicit boundary — serve owns I/O and decode, transformers
   owns preprocessing and prompt expansion. OpenAI Chat/OpenResponses accept
@@ -265,6 +267,10 @@ Full evidence ladder lives in
   `bun run validate`. Bohr's review caught the Hugging Face snapshot symlink
   case before commit; the final scanner stats `.safetensors` symlink targets
   and the regression test covers that path.
+- Lazy model-pool pressure policy passed focused pool/source/CLI/metrics tests
+  (`54 pass`), all `packages/serve` tests (`424 pass`), and focused serve
+  typecheck. The default remains reject-only; `shed_non_pinned` is the explicit
+  active guard for memory-pressure relief.
 
 ## Next Work
 
@@ -283,9 +289,11 @@ Full evidence ladder lives in
   served retention limits are explicit runtime/CLI knobs by entry count and
   estimated retained snapshot bytes. Paged attention and cache-tensor block
   deduplication remain later cache-backend work.
-- Next memory work is active-request abort policy when one loaded model needs
-  to shed KV pressure. Lazy source loading, idle eviction, pinned models, TTL
-  policy, and local model-root discovery are in place.
+- Next memory work is policy refinement for pressure shedding: bounded victim
+  selection, non-cooperative release timeouts, and real-model smokes for
+  `shed_non_pinned` under Qwen/Gemma memory pressure. Lazy source loading,
+  idle eviction, pinned models, TTL policy, local model-root discovery, and the
+  explicit active-guard policy are in place.
 - Use `bun run bench:serve --stream` for huge prompt rungs; buffered JSON is
   a poor acceptance shape when client TTFT exceeds a few minutes.
 - For publishable parity claims, use

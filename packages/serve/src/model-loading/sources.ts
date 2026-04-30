@@ -18,6 +18,7 @@ import { createQwen3_5ImageContentAdapter } from "../engine/content";
 import { readGenerationMemoryUsage } from "../runtime/memory";
 import { requirePositiveFraction, requirePositiveInteger } from "../runtime/strategy";
 import { requireModelLoadMemoryBudget } from "./memory-preflight";
+import type { ModelPoolPressurePolicy } from "./pool-types";
 import {
   type LoadedModelServerEntry,
   type RunningModelServer,
@@ -37,6 +38,8 @@ export type ServeModelSourceEntry = SourceLoadOptions & {
 
 export type SourceModelLoadPolicy = "eager" | "lazy";
 
+export type SourceModelPressurePolicy = ModelPoolPressurePolicy;
+
 export type ServeModelsProgressContext = {
   index: number;
   source: string;
@@ -47,6 +50,7 @@ export type ServeModelsOptions = Omit<ServeLoadedModelsOptions, "models" | "disp
   SourceLoadOptions & {
     models: readonly ServeModelSourceEntry[];
     modelLoadPolicy?: SourceModelLoadPolicy;
+    modelPressurePolicy?: SourceModelPressurePolicy;
     modelIdleTtlMs?: number;
     pinnedModels?: readonly string[];
     onProgress?: (event: PretrainedLoadProgressEvent, context: ServeModelsProgressContext) => void;
@@ -83,13 +87,14 @@ export type ResolvedServeModelsOptions = Omit<
 > & {
   models: readonly ResolvedModelSourceEntry[];
   modelLoadPolicy: SourceModelLoadPolicy;
+  modelPressurePolicy: SourceModelPressurePolicy;
   modelIdleTtlMs?: number;
   pinnedModelIds: readonly string[];
 };
 
 type ResolvedServeModelsRuntimeOptions = Omit<
   ResolvedServeModelsOptions,
-  "models" | "modelLoadPolicy" | "modelIdleTtlMs" | "pinnedModelIds"
+  "models" | "modelLoadPolicy" | "modelPressurePolicy" | "modelIdleTtlMs" | "pinnedModelIds"
 >;
 type PromptPrefixCacheRetentionOption = Pick<
   ResolvedServeModelsRuntimeOptions,
@@ -171,6 +176,15 @@ function resolveModelLoadPolicy(value: SourceModelLoadPolicy | undefined): Sourc
   throw new Error(`Unknown modelLoadPolicy: ${value}`);
 }
 
+function resolveModelPressurePolicy(
+  value: SourceModelPressurePolicy | undefined,
+): SourceModelPressurePolicy {
+  if (value === undefined || value === "reject" || value === "shed_non_pinned") {
+    return value ?? "reject";
+  }
+  throw new Error(`Unknown modelPressurePolicy: ${value}`);
+}
+
 function modelIdleTtlMsOption(value: number | undefined): { modelIdleTtlMs?: number } {
   return value === undefined
     ? {}
@@ -195,13 +209,20 @@ function resolvePinnedModelIds(
 
 function requireLazyPoolOptions(
   policy: SourceModelLoadPolicy,
-  options: { modelIdleTtlMs?: number; pinnedModelIds: readonly string[] },
+  options: {
+    modelIdleTtlMs?: number;
+    modelPressurePolicy: SourceModelPressurePolicy;
+    pinnedModelIds: readonly string[];
+  },
 ): void {
   if (policy === "lazy") {
     return;
   }
   if (options.modelIdleTtlMs !== undefined) {
     throw new Error('modelIdleTtlMs requires modelLoadPolicy="lazy".');
+  }
+  if (options.modelPressurePolicy !== "reject") {
+    throw new Error('modelPressurePolicy requires modelLoadPolicy="lazy".');
   }
   if (options.pinnedModelIds.length > 0) {
     throw new Error('pinned source models require modelLoadPolicy="lazy".');
@@ -278,15 +299,18 @@ function resolveServeModelsOptions(options: ServeModelsOptions): ResolvedServeMo
   );
   requireDistinctModelIds(models);
   const modelLoadPolicy = resolveModelLoadPolicy(options.modelLoadPolicy);
+  const modelPressurePolicy = resolveModelPressurePolicy(options.modelPressurePolicy);
   const idle = modelIdleTtlMsOption(options.modelIdleTtlMs);
   const pinnedModelIds = resolvePinnedModelIds(options, models);
   requireLazyPoolOptions(modelLoadPolicy, {
     ...idle,
+    modelPressurePolicy,
     pinnedModelIds,
   });
   return {
     models,
     modelLoadPolicy,
+    modelPressurePolicy,
     ...idle,
     pinnedModelIds,
     ...resolveServeModelsRuntimeOptions(options),

@@ -5,6 +5,7 @@
 
 import type { GenerationMemoryUsage, GenerationProtocol, ServeEvent } from "../types";
 import { HistogramMetric, metricKey, NumberMetric } from "./metrics-registry";
+import { ServeModelPoolPressureMetrics } from "./pool-pressure-metrics";
 import { ServeSchedulerMetrics } from "./scheduler-metrics";
 import { ServeStreamMetrics } from "./stream-metrics";
 
@@ -212,6 +213,7 @@ export class ServeMetrics {
     },
     WAIT_DURATION_BUCKETS,
   );
+  readonly #poolPressureMetrics = new ServeModelPoolPressureMetrics();
   readonly #schedulerMetrics = new ServeSchedulerMetrics();
   readonly #streamMetrics = new ServeStreamMetrics();
 
@@ -282,6 +284,9 @@ export class ServeMetrics {
           1,
         );
         break;
+      case "model_pool_pressure":
+        this.#recordPoolPressure(event);
+        break;
       case "generation_complete":
         this.#recordGenerationComplete(event);
         break;
@@ -322,6 +327,7 @@ export class ServeMetrics {
       this.#modelLaneWaitDurations,
     ];
     const lines = metrics.flatMap((metric) => metric.format());
+    lines.push(...this.#poolPressureMetrics.format());
     lines.push(...this.#schedulerMetrics.format());
     lines.push(...this.#streamMetrics.format());
     return `${lines.join("\n")}\n`;
@@ -422,6 +428,10 @@ export class ServeMetrics {
     this.#promptCacheTokens.add([...labels, "prompt"], event.promptTokens);
     this.#promptCacheTokens.add([...labels, "read"], event.cacheReadTokens);
     this.#promptCacheTokens.add([...labels, "write"], event.cacheWriteTokens);
+  }
+
+  #recordPoolPressure(event: Extract<ServeEvent, { type: "model_pool_pressure" }>): void {
+    this.#poolPressureMetrics.record(this.#modelLabel(event.targetModel), event);
   }
 
   #recordMemory(model: string, memory: GenerationMemoryUsage | undefined): void {

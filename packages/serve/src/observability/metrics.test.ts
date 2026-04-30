@@ -132,6 +132,15 @@ describe("serve metrics", () => {
       scheduledMemoryBytes: 1024,
       maxScheduledMemoryBytes: 4096,
     });
+    metrics.record({
+      type: "model_pool_pressure",
+      targetModel: "unknown-model",
+      action: "abort_active",
+      reason: "memory_budget_exceeded",
+      evictedModels: [],
+      abortedRequestIds: ["cmpl-2", "cmpl-3"],
+      activeRequests: 3,
+    });
 
     const text = metrics.format();
 
@@ -195,6 +204,12 @@ describe("serve metrics", () => {
     );
     expect(text).toContain(
       'mlxts_serve_generation_route_decisions_total{model="__unknown__",protocol="openai.completions",route="single",eligible="false",reason="unsupported_model_type",model_type="odd\\"model",scheduler="auto",cache="managed",attention="auto",decoding="model",stream="false"} 1',
+    );
+    expect(text).toContain(
+      'mlxts_serve_model_pool_pressure_events_total{model="__unknown__",action="abort_active",reason="memory_budget_exceeded"} 1',
+    );
+    expect(text).toContain(
+      'mlxts_serve_model_pool_pressure_affected_total{model="__unknown__",action="abort_active",kind="aborted_requests"} 2',
     );
   });
 

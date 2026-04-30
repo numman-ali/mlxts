@@ -358,6 +358,12 @@ describe("serveModels", () => {
     ).rejects.toThrow('modelIdleTtlMs requires modelLoadPolicy="lazy"');
     await expect(
       serveModelsWithRuntime(
+        { models: [{ source: "repo/one" }], modelPressurePolicy: "shed_non_pinned" },
+        runtime,
+      ),
+    ).rejects.toThrow('modelPressurePolicy requires modelLoadPolicy="lazy"');
+    await expect(
+      serveModelsWithRuntime(
         {
           models: [{ source: "repo/one" }],
           modelLoadPolicy: "lazy",

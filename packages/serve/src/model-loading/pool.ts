@@ -10,40 +10,31 @@ import type {
   NormalizedGenerationRequest,
   NormalizedGenerationResult,
 } from "../types";
+import {
+  activeCount,
+  cancelledByPressure,
+  createActiveLease,
+  isServeErrorCode,
+  ModelPoolPressureController,
+  mapPressureAbortError,
+  modelPoolPressureError,
+  readPressureAwareStream,
+  withAbortSignal,
+} from "./pool-pressure";
+import type {
+  LoadedModelState,
+  LoadedSourceModelPoolEntry,
+  ModelLease,
+  ModelPoolState,
+  SourceModelPoolEntry,
+  SourceModelPoolGenerationEngineOptions,
+} from "./pool-types";
 
-export type SourceModelPoolEntry = {
-  modelId: string;
-  pinned?: boolean;
-};
-
-export type LoadedSourceModelPoolEntry = {
-  engine: GenerationEngine;
-  dispose(): void;
-};
-
-export type SourceModelPoolGenerationEngineOptions = {
-  entries: readonly SourceModelPoolEntry[];
-  load(entry: SourceModelPoolEntry): Promise<LoadedSourceModelPoolEntry>;
-  idleTtlMs?: number;
-};
-
-type IdleTimer = ReturnType<typeof setTimeout>;
-
-type LoadedModelState = {
-  kind: "loaded";
-  entry: SourceModelPoolEntry;
-  engine: GenerationEngine;
-  dispose(): void;
-  activeCount: number;
-  idleTimer?: IdleTimer;
-};
-
-type LoadingModelState = {
-  kind: "loading";
-  promise: Promise<LoadedModelState>;
-};
-
-type ModelPoolState = LoadedModelState | LoadingModelState;
+export type {
+  LoadedSourceModelPoolEntry,
+  SourceModelPoolEntry,
+  SourceModelPoolGenerationEngineOptions,
+} from "./pool-types";
 
 function requireEntries(
   entries: readonly SourceModelPoolEntry[],
@@ -101,17 +92,6 @@ async function generateForEngine(
   return results;
 }
 
-async function* releaseAfterStream(
-  stream: AsyncIterable<GenerationStreamEvent>,
-  release: () => void,
-) {
-  try {
-    yield* stream;
-  } finally {
-    release();
-  }
-}
-
 /** Create a generation engine that loads source-backed models on first use. */
 export function createSourceModelPoolGenerationEngine(
   options: SourceModelPoolGenerationEngineOptions,
@@ -156,7 +136,7 @@ export function createSourceModelPoolGenerationEngine(
 
   function evictLoadedState(state: LoadedModelState): void {
     const current = states.get(state.entry.modelId);
-    if (current !== state || state.activeCount !== 0 || state.entry.pinned === true) {
+    if (current !== state || activeCount(state) !== 0 || state.entry.pinned === true) {
       return;
     }
     states.delete(state.entry.modelId);
@@ -165,7 +145,11 @@ export function createSourceModelPoolGenerationEngine(
 
   function scheduleIdleEviction(state: LoadedModelState): void {
     clearIdleTimer(state);
-    if (options.idleTtlMs === undefined || state.entry.pinned === true || state.activeCount !== 0) {
+    if (
+      options.idleTtlMs === undefined ||
+      state.entry.pinned === true ||
+      activeCount(state) !== 0
+    ) {
       return;
     }
     state.idleTimer = setTimeout(() => {
@@ -173,6 +157,14 @@ export function createSourceModelPoolGenerationEngine(
       evictLoadedState(state);
     }, options.idleTtlMs);
   }
+
+  const pressure = new ModelPoolPressureController({
+    states,
+    policy: options.pressurePolicy ?? "reject",
+    onEvent: options.onEvent,
+    disposeLoadedState,
+    requireOpen,
+  });
 
   async function loadSequentially(
     entry: SourceModelPoolEntry,
@@ -198,6 +190,27 @@ export function createSourceModelPoolGenerationEngine(
     }
   }
 
+  async function loadWithMemoryPressureRelief(
+    entry: SourceModelPoolEntry,
+  ): Promise<LoadedSourceModelPoolEntry> {
+    try {
+      return await loadSequentially(entry);
+    } catch (error) {
+      if (!isServeErrorCode(error, "model_load_memory_exceeded")) {
+        throw error;
+      }
+      const relieved = await pressure.relieveMemoryPressure({
+        targetModel: entry.modelId,
+        reason: "model_load_memory_exceeded",
+      });
+      if (!relieved) {
+        throw error;
+      }
+      requireOpen();
+      return await loadSequentially(entry);
+    }
+  }
+
   async function ensureLoaded(entry: SourceModelPoolEntry): Promise<LoadedModelState> {
     requireOpen();
     const existing = states.get(entry.modelId);
@@ -209,7 +222,7 @@ export function createSourceModelPoolGenerationEngine(
     }
 
     let promise: Promise<LoadedModelState>;
-    promise = loadSequentially(entry).then(
+    promise = loadWithMemoryPressureRelief(entry).then(
       (loaded) => {
         if (disposed) {
           loaded.dispose();
@@ -223,7 +236,7 @@ export function createSourceModelPoolGenerationEngine(
           entry,
           engine: loaded.engine,
           dispose: loaded.dispose,
-          activeCount: 0,
+          activeLeases: new Set(),
         };
         states.set(entry.modelId, state);
         return state;
@@ -240,37 +253,179 @@ export function createSourceModelPoolGenerationEngine(
     return promise;
   }
 
-  async function acquire(modelId: string, count: number): Promise<LoadedModelState> {
+  async function acquire(
+    modelId: string,
+    requests: readonly NormalizedGenerationRequest[],
+  ): Promise<ModelLease> {
     const state = await ensureLoaded(entryFor(modelId));
     requireOpen();
     clearIdleTimer(state);
-    state.activeCount += count;
-    return state;
+    const leases = requests.map((request) => createActiveLease(request));
+    for (const lease of leases) {
+      state.activeLeases.add(lease);
+    }
+    const linkedRequests: NormalizedGenerationRequest[] = [];
+    for (let index = 0; index < requests.length; index += 1) {
+      const request = requests[index];
+      const lease = leases[index];
+      if (request === undefined || lease === undefined) {
+        throw new ServeError("Source model pool lost request lease alignment.", {
+          code: "invalid_engine_result",
+          status: 500,
+        });
+      }
+      linkedRequests.push(withAbortSignal(request, lease.controller.signal));
+    }
+    return {
+      state,
+      leases,
+      requests: linkedRequests,
+    };
   }
 
-  function release(state: LoadedModelState, count: number): void {
-    state.activeCount -= count;
-    scheduleIdleEviction(state);
+  function release(modelLease: ModelLease): void {
+    for (const lease of modelLease.leases) {
+      lease.cleanup();
+      modelLease.state.activeLeases.delete(lease);
+    }
+    pressure.notifyReleasedLease();
+    scheduleIdleEviction(modelLease.state);
+  }
+
+  async function runWithGenerationPressureRetry<T>(
+    modelLease: ModelLease,
+    work: () => Promise<T>,
+  ): Promise<T> {
+    try {
+      return await work();
+    } catch (error) {
+      const mapped = mapPressureAbortError(error, modelLease.leases);
+      if (mapped !== error) {
+        throw mapped;
+      }
+      const retry = await pressure.retryMemoryBudgetAfterRelief(error, modelLease, true);
+      if (!retry) {
+        throw error;
+      }
+      return await work();
+    }
+  }
+
+  async function createPressureAwareStream(
+    modelLease: ModelLease,
+    createStream: () =>
+      | AsyncIterable<GenerationStreamEvent>
+      | Promise<AsyncIterable<GenerationStreamEvent>>,
+  ): Promise<AsyncIterable<GenerationStreamEvent>> {
+    try {
+      const firstStream = await createStream();
+      return streamWithGenerationPressureRetry(modelLease, firstStream, createStream);
+    } catch (error) {
+      const mapped = mapPressureAbortError(error, modelLease.leases);
+      if (mapped !== error) {
+        release(modelLease);
+        throw mapped;
+      }
+      const retry = await pressure.retryMemoryBudgetAfterRelief(error, modelLease, true);
+      if (!retry) {
+        release(modelLease);
+        throw error;
+      }
+      try {
+        const retryStream = await createStream();
+        return streamWithGenerationPressureRetry(modelLease, retryStream, createStream);
+      } catch (retryError) {
+        release(modelLease);
+        throw mapPressureAbortError(retryError, modelLease.leases);
+      }
+    }
+  }
+
+  async function* streamWithGenerationPressureRetry(
+    modelLease: ModelLease,
+    firstStream: AsyncIterable<GenerationStreamEvent>,
+    createRetryStream: () =>
+      | AsyncIterable<GenerationStreamEvent>
+      | Promise<AsyncIterable<GenerationStreamEvent>>,
+  ): AsyncIterable<GenerationStreamEvent> {
+    let emitted = false;
+    try {
+      try {
+        yield* readMappedPressureStream(modelLease, firstStream, () => {
+          emitted = true;
+        });
+      } catch (error) {
+        const retry = await pressure.retryMemoryBudgetAfterRelief(error, modelLease, !emitted);
+        if (!retry) {
+          throw error;
+        }
+        let retryStream: AsyncIterable<GenerationStreamEvent>;
+        try {
+          retryStream = await createRetryStream();
+        } catch (retryError) {
+          throw mapPressureAbortError(retryError, modelLease.leases);
+        }
+        yield* readMappedPressureStream(modelLease, retryStream);
+      }
+    } finally {
+      release(modelLease);
+    }
+  }
+
+  async function* readMappedPressureStream(
+    modelLease: ModelLease,
+    stream: AsyncIterable<GenerationStreamEvent>,
+    markEmitted?: () => void,
+  ): AsyncIterable<GenerationStreamEvent> {
+    try {
+      for await (const event of readPressureAwareStream(stream, modelLease.leases)) {
+        markEmitted?.();
+        yield event;
+      }
+    } catch (error) {
+      throw mapPressureAbortError(error, modelLease.leases);
+    }
   }
 
   return {
     async generate(request) {
-      const state = await acquire(request.model, 1);
+      const modelLease = await acquire(request.model, [request]);
+      const linkedRequest = modelLease.requests[0];
+      if (linkedRequest === undefined) {
+        release(modelLease);
+        throw new ServeError("Source model pool failed to acquire a request lease.", {
+          code: "invalid_engine_result",
+          status: 500,
+        });
+      }
       try {
-        return await state.engine.generate(request);
+        return await runWithGenerationPressureRetry(modelLease, async () => {
+          const result = await modelLease.state.engine.generate(linkedRequest);
+          if (cancelledByPressure(result, modelLease.leases)) {
+            throw modelPoolPressureError();
+          }
+          return result;
+        });
       } finally {
-        release(state, 1);
+        release(modelLease);
       }
     },
     async generateBatch(requests) {
       const results: (NormalizedGenerationResult | undefined)[] = [];
       for (const [model, group] of groupByModel(requests)) {
-        const state = await acquire(model, group.length);
+        const groupedRequests = group.map((entry) => entry.request);
+        const modelLease = await acquire(model, groupedRequests);
         try {
-          const groupedResults = await generateForEngine(
-            state.engine,
-            group.map((entry) => entry.request),
-          );
+          const groupedResults = await runWithGenerationPressureRetry(modelLease, async () => {
+            const innerResults = await generateForEngine(
+              modelLease.state.engine,
+              modelLease.requests,
+            );
+            if (innerResults.some((result) => cancelledByPressure(result, modelLease.leases))) {
+              throw modelPoolPressureError();
+            }
+            return innerResults;
+          });
           for (const [groupIndex, result] of groupedResults.entries()) {
             const original = group[groupIndex];
             if (original === undefined) {
@@ -282,7 +437,7 @@ export function createSourceModelPoolGenerationEngine(
             results[original.index] = result;
           }
         } finally {
-          release(state, group.length);
+          release(modelLease);
         }
       }
 
@@ -300,21 +455,24 @@ export function createSourceModelPoolGenerationEngine(
       return completed;
     },
     async stream(request) {
-      const state = await acquire(request.model, 1);
-      const stream = state.engine.stream;
+      const modelLease = await acquire(request.model, [request]);
+      const linkedRequest = modelLease.requests[0];
+      if (linkedRequest === undefined) {
+        release(modelLease);
+        throw new ServeError("Source model pool failed to acquire a stream lease.", {
+          code: "invalid_engine_result",
+          status: 500,
+        });
+      }
+      const stream = modelLease.state.engine.stream;
       if (stream === undefined) {
-        release(state, 1);
+        release(modelLease);
         throw new ServeError(`Model "${request.model}" does not support streaming.`, {
           code: "stream_not_supported",
           param: "stream",
         });
       }
-      try {
-        return releaseAfterStream(await stream(request), () => release(state, 1));
-      } catch (error) {
-        release(state, 1);
-        throw error;
-      }
+      return createPressureAwareStream(modelLease, () => stream(linkedRequest));
     },
     [Symbol.dispose]() {
       if (disposed) {

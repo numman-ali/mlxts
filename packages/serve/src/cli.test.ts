@@ -54,6 +54,7 @@ describe("serve CLI args", () => {
         ],
         modelRoots: [],
         modelLoadPolicy: "eager",
+        modelPressurePolicy: "reject",
         pinnedModels: [],
         hostname: "127.0.0.1",
         port: 8000,
@@ -140,6 +141,7 @@ describe("serve CLI args", () => {
         models: [{ source: "local-model", modelId: "mlx-community/Qwen3.6-27B-4bit" }],
         modelRoots: [],
         modelLoadPolicy: "eager",
+        modelPressurePolicy: "reject",
         pinnedModels: [],
         hostname: "0.0.0.0",
         port: 8080,
@@ -176,6 +178,8 @@ describe("serve CLI args", () => {
       "mlx-community/Qwen3.6-27B-4bit",
       "--model-load-policy",
       "lazy",
+      "--model-pressure-policy",
+      "shed_non_pinned",
       "--model-idle-ttl-ms",
       "60000",
       "--pin-model",
@@ -197,6 +201,7 @@ describe("serve CLI args", () => {
         ],
         modelRoots: [],
         modelLoadPolicy: "lazy",
+        modelPressurePolicy: "shed_non_pinned",
         modelIdleTtlMs: 60000,
         pinnedModels: ["gemma"],
         localFilesOnly: true,
@@ -213,6 +218,7 @@ describe("serve CLI args", () => {
         models: [],
         modelRoots: ["/models"],
         modelLoadPolicy: "lazy",
+        modelPressurePolicy: "reject",
         pinnedModels: [],
       },
     });
@@ -236,6 +242,7 @@ describe("serve CLI args", () => {
         models: [{ source: "repo/manual", modelId: "manual" }],
         modelRoots: ["/models"],
         modelLoadPolicy: "lazy",
+        modelPressurePolicy: "reject",
         pinnedModels: ["org/qwen"],
       },
     });
@@ -372,6 +379,16 @@ describe("serve CLI args", () => {
     expect(parseServeArgs(["model", "--model-idle-ttl-ms", "1000"])).toMatchObject({
       kind: "help",
       message: "--model-idle-ttl-ms requires --model-load-policy lazy.",
+    });
+    expect(parseServeArgs(["model", "--model-pressure-policy", "shed_non_pinned"])).toMatchObject({
+      kind: "help",
+      message: "--model-pressure-policy requires --model-load-policy lazy.",
+    });
+    expect(
+      parseServeArgs(["model", "--model-load-policy", "lazy", "--model-pressure-policy", "bogus"]),
+    ).toMatchObject({
+      kind: "help",
+      message: "Unknown model pressure policy: bogus.",
     });
     expect(
       parseServeArgs(["--model-root", "/models", "--model-load-policy", "eager"]),
@@ -511,6 +528,7 @@ describe("serve CLI args", () => {
       maxConcurrentRequests: 1,
       promptPrefixCacheMaxEntries: 1,
       modelLoadPolicy: "eager",
+      modelPressurePolicy: "reject",
       pinnedModels: [],
       localImageRoots: [],
       remoteImageHosts: [],
@@ -840,6 +858,19 @@ describe("serve CLI args", () => {
     );
     expect(
       formatServeEvent({
+        type: "model_pool_pressure",
+        targetModel: "mlx-community/Qwen3.6-27B-4bit",
+        action: "abort_active",
+        reason: "memory_budget_exceeded",
+        evictedModels: [],
+        abortedRequestIds: ["cmpl-a", "cmpl-b"],
+        activeRequests: 3,
+      }),
+    ).toBe(
+      "[pool] target=mlx-community/Qwen3.6-27B-4bit action=abort_active reason=memory_budget_exceeded evicted=- aborted=cmpl-a,cmpl-b active=3",
+    );
+    expect(
+      formatServeEvent({
         type: "generation_complete",
         id: "cmpl-test",
         protocol: "openai.chat_completions",
@@ -972,6 +1003,20 @@ describe("serve CLI args", () => {
     ).toBe(true);
     expect(
       shouldLogServeEvent(
+        {
+          type: "model_pool_pressure",
+          targetModel: "mlx-community/Qwen3.6-27B-4bit",
+          action: "evict_idle",
+          reason: "model_load_memory_exceeded",
+          evictedModels: ["gemma"],
+          abortedRequestIds: [],
+          activeRequests: 0,
+        },
+        false,
+      ),
+    ).toBe(true);
+    expect(
+      shouldLogServeEvent(
         { type: "request_start", method: "POST", path: "/v1/chat/completions" },
         true,
       ),
@@ -1090,6 +1135,7 @@ describe("serve CLI args", () => {
           { source: "repo/gemma", modelId: "gemma" },
           { source: "repo/qwen", modelId: "qwen" },
         ]);
+        expect(options.modelPressurePolicy).toBe("reject");
         expect(options.promptPrefixCacheMaxEntries).toBe(1);
         expect(options.promptPrefixCacheMaxBytes).toBeUndefined();
         return running;
@@ -1122,6 +1168,7 @@ describe("serve CLI args", () => {
         async serveModels(options) {
           expect(options.models).toEqual([{ source: "repo/model", modelId: "repo/model" }]);
           expect(options.modelLoadPolicy).toBe("lazy");
+          expect(options.modelPressurePolicy).toBe("reject");
           expect(options.modelIdleTtlMs).toBe(1000);
           expect(options.pinnedModels).toEqual([]);
           return running;
@@ -1155,6 +1202,7 @@ describe("serve CLI args", () => {
             { source: "/models/flat", modelId: "flat" },
           ]);
           expect(options.modelLoadPolicy).toBe("lazy");
+          expect(options.modelPressurePolicy).toBe("reject");
           expect(options.pinnedModels).toEqual(["org/qwen"]);
           return running;
         },

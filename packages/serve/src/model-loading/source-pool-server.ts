@@ -75,6 +75,8 @@ export function serveLazyModelsWithRuntime(
   const engine = createSourceModelPoolGenerationEngine({
     entries: sourceModelPoolEntries(resolved),
     ...(resolved.modelIdleTtlMs === undefined ? {} : { idleTtlMs: resolved.modelIdleTtlMs }),
+    pressurePolicy: resolved.modelPressurePolicy,
+    onEvent: instrumentedOnEvent,
     async load(entry) {
       const sourceEntry = entriesById.get(entry.modelId);
       if (sourceEntry === undefined) {

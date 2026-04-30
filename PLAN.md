@@ -867,7 +867,7 @@ reporting.
 
 ### 9d. Multi-model serving and memory management
 
-**Engine pool**: Manage multiple loaded models with LRU eviction, model pinning (priority models never evicted), per-model TTL (idle timeout). Estimate model memory from safetensors file sizes + 25% KV headroom before loading. (Reference: oMLX EnginePool)
+**Engine pool**: Manage multiple loaded models with LRU eviction, model pinning (priority models never evicted), per-model TTL (idle timeout). Estimate model memory from safetensors file sizes + 25% KV headroom before loading. Landed source-backed lazy loading with idle TTL, pins, local model-root discovery, and an explicit `modelPressurePolicy` where `reject` preserves active requests and `shed_non_pinned` evicts idle models before aborting active non-pinned request scopes. (Reference: oMLX EnginePool)
 
 **Dual-layer memory management**: Bookkeeping-based estimates for fast pre-load decisions (will this model fit?) + real `mx.get_active_memory()` polling as safety net. Do NOT use `mx.set_memory_limit()` — it causes alloc/free churn during model loading that triggers swap. When only one model is loaded and memory is critical: abort active requests but keep model loaded (frees KV cache so short-context requests can still be served). (Reference: oMLX ProcessMemoryEnforcer)
 
