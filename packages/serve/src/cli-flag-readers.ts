@@ -4,7 +4,7 @@
  */
 
 export function readStringFlag(flag: string, value: string | undefined): string {
-  if (value === undefined || value.trim() === "") {
+  if (value === undefined || value.trim() === "" || value.startsWith("--")) {
     throw new Error(`Missing value for ${flag}.`);
   }
   return value;
@@ -17,6 +17,9 @@ export function readIntegerFlag(
   description: string,
 ): number {
   const raw = readStringFlag(flag, value);
+  if (!/^-?\d+$/.test(raw)) {
+    throw new Error(`Expected ${flag} to be ${description}, got "${raw}".`);
+  }
   const parsed = Number(raw);
   if (!Number.isInteger(parsed) || !isValid(parsed)) {
     throw new Error(`Expected ${flag} to be ${description}, got "${raw}".`);

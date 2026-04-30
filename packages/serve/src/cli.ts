@@ -1,6 +1,5 @@
 #!/usr/bin/env bun
 
-import type { PretrainedLoadProgressEvent } from "@mlxts/transformers";
 import { runServeDiscoverCli } from "./cli-discovery-command";
 import {
   requireDistinctModelIds,
@@ -8,7 +7,16 @@ import {
   type ServeCliModelOption,
 } from "./cli-model-options";
 import { parseServeArgs, type ServeCliOptions, type ServeCliParseResult } from "./cli-options";
-import { formatServeUsage } from "./cli-usage";
+import {
+  formatBytes,
+  formatDuration,
+  formatModelLoadProgress,
+  formatPretrainedLoadProgress,
+  formatServeCliError,
+  formatServeReady,
+  formatServeUsage,
+  publicBindWarning,
+} from "./cli-usage";
 import {
   type DiscoveredLocalModelSource,
   discoverLocalModelSources,
@@ -36,7 +44,14 @@ export {
   parseServeStatusArgs,
 } from "./observability/cli-status-command";
 export type { ServeCliOptions, ServeCliParseResult };
-export { formatServeUsage, parseServeArgs };
+export {
+  formatPretrainedLoadProgress,
+  formatServeCliError,
+  formatServeReady,
+  formatServeUsage,
+  parseServeArgs,
+  publicBindWarning,
+};
 
 export type ServeCliRuntime = {
   serveModel?: (options: ServeModelOptions) => Promise<RunningModelServer>;
@@ -49,124 +64,6 @@ export type ServeCliRuntime = {
   exit?: (code: number) => void;
   waitForShutdown?: (running: RunningModelServer) => Promise<void>;
 };
-
-function formatBytes(bytes: number): string {
-  if (bytes >= 1e9) {
-    return `${(bytes / 1e9).toFixed(1)} GB`;
-  }
-  if (bytes >= 1e6) {
-    return `${(bytes / 1e6).toFixed(1)} MB`;
-  }
-  if (bytes >= 1e3) {
-    return `${(bytes / 1e3).toFixed(1)} KB`;
-  }
-  return `${bytes} B`;
-}
-
-export function formatPretrainedLoadProgress(event: PretrainedLoadProgressEvent): string {
-  switch (event.stage) {
-    case "resolve":
-      if (event.status === "start") {
-        return `[resolve] resolving ${event.source}`;
-      }
-      return `[resolve] ${event.directory} (${event.fileCount} files, ${formatBytes(event.totalBytes)})`;
-    case "download":
-      return `[download] ${event.index}/${event.totalFiles} ${event.status} ${event.relativePath} ${formatBytes(event.completedBytes)} / ${formatBytes(event.totalBytes)}`;
-    case "model":
-      return event.status === "weights-start"
-        ? `[model] loading ${event.shardCount} safetensor shard(s)`
-        : `[model] loaded ${event.shardCount} safetensor shard(s)`;
-    case "tokenizer":
-      return event.status === "start"
-        ? `[tokenizer] loading from ${event.directory}`
-        : "[tokenizer] ready";
-  }
-}
-
-function formatModelLoadProgress(
-  event: PretrainedLoadProgressEvent,
-  index: number,
-  total: number,
-  modelId: string,
-): string {
-  return `[load ${index + 1}/${total} ${modelId}] ${formatPretrainedLoadProgress(event)}`;
-}
-
-function authHeader(options: ServeCliOptions): string[] {
-  return options.apiKey === undefined ? [] : ["-H 'authorization: Bearer <your-api-key>'"];
-}
-
-export function formatServeReady(endpoint: string, options: ServeCliOptions): string {
-  const modelIds = options.models.map((model) => model.modelId);
-  const servingLine =
-    modelIds.length === 1
-      ? `Serving ${options.modelId} at ${endpoint}`
-      : `Serving ${modelIds.length} models at ${endpoint}`;
-  return [
-    "",
-    servingLine,
-    `Models: ${modelIds.join(", ")}`,
-    `Generated-token limit: ${options.maxGeneratedTokens}`,
-    `Prompt-token limit: ${options.maxPromptTokens}`,
-    `Total-token limit: ${options.maxTotalTokens}`,
-    `GPU memory budget: ${Math.round(options.gpuMemoryUtilization * 100)}%`,
-    `Model load policy: ${
-      options.modelLoadPolicy === "lazy"
-        ? `lazy${options.modelIdleTtlMs === undefined ? "" : ` idle_ttl=${formatDuration(options.modelIdleTtlMs)}`}`
-        : "eager"
-    }`,
-    `Model pressure policy: ${options.modelPressurePolicy}`,
-    `Pinned models: ${
-      options.pinnedModels.length === 0 ? "none" : options.pinnedModels.join(", ")
-    }`,
-    [
-      `Batch scheduler: max_batch=${options.maxBatchSize}`,
-      `window_ms=${options.batchWindowMs}`,
-      `prefill=${options.prefillStepSize}`,
-      `active_prefill=${options.activePrefillStepSize}`,
-      `active_decode_quantum=${options.activeDecodeStepsPerPrefillChunk}`,
-    ].join(" "),
-    `Streaming decode interval: ${options.streamDecodeInterval} token(s)`,
-    `Model execution lanes: max_in_flight=${options.maxConcurrentRequests}`,
-    `Prompt-prefix cache entries: ${options.promptPrefixCacheMaxEntries}`,
-    `Prompt-prefix cache bytes: ${
-      options.promptPrefixCacheMaxBytes === undefined
-        ? "unbounded"
-        : formatBytes(options.promptPrefixCacheMaxBytes)
-    }`,
-    `Remote image hosts: ${
-      options.remoteImageHosts.length === 0 ? "disabled" : options.remoteImageHosts.join(", ")
-    }`,
-    `Local image roots: ${
-      options.localImageRoots.length === 0 ? "disabled" : options.localImageRoots.join(", ")
-    }`,
-    "",
-    "Try:",
-    [
-      "curl",
-      "-s",
-      `${endpoint}/v1/completions`,
-      ...authHeader(options),
-      "-H 'content-type: application/json'",
-      "-d",
-      `'${JSON.stringify({
-        model: options.modelId,
-        prompt: "Write one crisp sentence about Apple Silicon ML.",
-        max_tokens: 64,
-      })}'`,
-    ].join(" \\\n  "),
-    "",
-  ].join("\n");
-}
-export function publicBindWarning(options: ServeCliOptions): string | null {
-  if (options.hostname !== "0.0.0.0" || options.apiKey !== undefined) {
-    return null;
-  }
-  return "[warning] Binding to 0.0.0.0 without --api-key exposes the endpoint to your network.";
-}
-function formatDuration(ms: number): string {
-  return ms >= 1000 ? `${(ms / 1000).toFixed(1)}s` : `${ms.toFixed(1)}ms`;
-}
 
 function formatMemoryUsage(memory: GenerationMemoryUsage | undefined): string {
   if (memory === undefined) {
@@ -283,7 +180,10 @@ export function shouldLogServeEvent(event: ServeEvent, verbose: boolean): boolea
   }
 }
 
-function waitForShutdown(running: RunningModelServer): Promise<void> {
+function waitForShutdown(
+  running: RunningModelServer,
+  diagnostic: (message: string) => void,
+): Promise<void> {
   return new Promise((resolve) => {
     let closed = false;
     const close = () => {
@@ -291,7 +191,7 @@ function waitForShutdown(running: RunningModelServer): Promise<void> {
         return;
       }
       closed = true;
-      console.log("\nStopping server...");
+      diagnostic("\nStopping server...");
       running.stop(true);
       resolve();
     };
@@ -442,6 +342,41 @@ async function startParsedServer(
   });
 }
 
+function exceptionMessage(exception: unknown): string {
+  return exception instanceof Error ? exception.message : String(exception);
+}
+
+function expandDiscoveredModelRootsOrExit(
+  options: ServeCliOptions,
+  runtime: ServeCliRuntime,
+  log: (message: string) => void,
+  exit: (code: number) => void,
+): ServeCliOptions | null {
+  try {
+    return expandDiscoveredModelRoots(options, runtime);
+  } catch (exception) {
+    log(formatServeCliError(exceptionMessage(exception), "startup"));
+    exit(1);
+    return null;
+  }
+}
+
+async function startParsedServerOrExit(
+  options: ServeCliOptions,
+  runtime: ServeCliRuntime,
+  diagnostic: (message: string) => void,
+  log: (message: string) => void,
+  exit: (code: number) => void,
+): Promise<RunningModelServer | null> {
+  try {
+    return await startParsedServer(options, runtime, diagnostic);
+  } catch (exception) {
+    log(formatServeCliError(exceptionMessage(exception), "runtime"));
+    exit(1);
+    return null;
+  }
+}
+
 export async function runServeCli(
   argv: readonly string[] = Bun.argv.slice(2),
   runtime: ServeCliRuntime = {},
@@ -456,35 +391,37 @@ export async function runServeCli(
   }
 
   const log = runtime.log ?? console.log;
-  const error = runtime.error ?? console.error;
+  const diagnostic = runtime.error ?? console.error;
   const exit = runtime.exit ?? process.exit;
-  const shutdown = runtime.waitForShutdown ?? waitForShutdown;
+  const shutdown =
+    runtime.waitForShutdown ??
+    ((running: RunningModelServer) => waitForShutdown(running, diagnostic));
   const parsed = parseServeArgs(argv);
   if (parsed.kind === "help") {
     if (parsed.message !== undefined) {
-      error(parsed.message);
-      error("");
+      log(formatServeCliError(parsed.message));
+      exit(parsed.exitCode);
+      return;
     }
-    error(formatServeUsage());
+    log(formatServeUsage());
     exit(parsed.exitCode);
     return;
   }
 
-  let options: ServeCliOptions;
-  try {
-    options = expandDiscoveredModelRoots(parsed.options, runtime);
-  } catch (exception) {
-    error(exception instanceof Error ? exception.message : String(exception));
-    exit(1);
+  const options = expandDiscoveredModelRootsOrExit(parsed.options, runtime, log, exit);
+  if (options === null) {
     return;
   }
 
-  const running = await startParsedServer(options, runtime, log);
+  const running = await startParsedServerOrExit(options, runtime, diagnostic, log, exit);
+  if (running === null) {
+    return;
+  }
   const warning = publicBindWarning(options);
   if (warning !== null) {
-    log(warning);
+    diagnostic(warning);
   }
-  log(formatServeReady(running.endpoint, options));
+  diagnostic(formatServeReady(running.endpoint, options));
   await shutdown(running);
 }
 
@@ -493,7 +430,9 @@ export const main = (argv: readonly string[] = Bun.argv.slice(2)): Promise<void>
 
 if (import.meta.main) {
   main().catch((error) => {
-    console.error(error instanceof Error ? error.message : String(error));
+    console.log(
+      formatServeCliError(error instanceof Error ? error.message : String(error), "runtime"),
+    );
     process.exit(1);
   });
 }

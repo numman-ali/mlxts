@@ -24,7 +24,7 @@ export type ServeDiscoverCliRuntime = {
 };
 
 function readStringFlag(flag: string, value: string | undefined): string {
-  if (value === undefined || value.trim() === "") {
+  if (value === undefined || value.trim() === "" || value.startsWith("--")) {
     throw new Error(`Missing value for ${flag}.`);
   }
   return value;

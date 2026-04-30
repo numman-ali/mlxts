@@ -445,7 +445,7 @@ export function parseServeArgs(argv: readonly string[]): ServeCliParseResult {
   } catch (error) {
     return {
       kind: "help",
-      exitCode: 1,
+      exitCode: 2,
       message: error instanceof Error ? error.message : String(error),
     };
   }

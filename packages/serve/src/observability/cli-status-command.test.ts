@@ -215,6 +215,16 @@ describe("serve status CLI command", () => {
       exitCode: 2,
       message: 'Expected --base-url to use http or https, got "ftp:".',
     });
+    expect(parseServeStatusArgs(["--base-url", "--full"], {})).toMatchObject({
+      kind: "help",
+      exitCode: 2,
+      message: "Missing value for --base-url.",
+    });
+    expect(parseServeStatusArgs(["--timeout-ms", "1e3"], {})).toMatchObject({
+      kind: "help",
+      exitCode: 2,
+      message: 'Expected --timeout-ms to be a positive integer, got "1e3".',
+    });
     expect(formatServeStatusError("Missing value for --base-url.")).toContain("error:");
     expect(formatServeStatusUsage()).toContain("mlxts-serve status --base-url <url>");
   });

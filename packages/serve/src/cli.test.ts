@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 
 import {
   formatPretrainedLoadProgress,
+  formatServeCliError,
   formatServeDiscoverResults,
   formatServeEvent,
   formatServeReady,
@@ -270,6 +271,11 @@ describe("serve CLI args", () => {
       exitCode: 2,
       message: "Unknown argument: --unknown",
     });
+    expect(parseServeDiscoverArgs(["--model-root", "--full"])).toMatchObject({
+      kind: "help",
+      exitCode: 2,
+      message: "Missing value for --model-root.",
+    });
   });
 
   test("formats finite AXI model discovery output", () => {
@@ -304,72 +310,82 @@ describe("serve CLI args", () => {
   test("returns help for invalid or missing inputs", () => {
     expect(parseServeArgs([])).toMatchObject({
       kind: "help",
-      exitCode: 1,
+      exitCode: 2,
       message: "Missing model path or Hugging Face repo id.",
     });
     expect(parseServeArgs(["model", "--max-generated-tokens", "0"])).toMatchObject({
       kind: "help",
-      exitCode: 1,
+      exitCode: 2,
       message: 'Expected --max-generated-tokens to be a positive integer, got "0".',
     });
     expect(parseServeArgs(["model", "--max-prompt-tokens", "0"])).toMatchObject({
       kind: "help",
-      exitCode: 1,
+      exitCode: 2,
       message: 'Expected --max-prompt-tokens to be a positive integer, got "0".',
     });
     expect(parseServeArgs(["model", "--max-batch-size", "0"])).toMatchObject({
       kind: "help",
-      exitCode: 1,
+      exitCode: 2,
       message: 'Expected --max-batch-size to be a positive integer, got "0".',
     });
     expect(parseServeArgs(["model", "--batch-window-ms", "-1"])).toMatchObject({
       kind: "help",
-      exitCode: 1,
+      exitCode: 2,
       message: 'Expected --batch-window-ms to be a non-negative integer, got "-1".',
     });
     expect(parseServeArgs(["model", "--prefill-step-size", "0"])).toMatchObject({
       kind: "help",
-      exitCode: 1,
+      exitCode: 2,
       message: 'Expected --prefill-step-size to be a positive integer, got "0".',
     });
     expect(parseServeArgs(["model", "--active-prefill-step-size", "0"])).toMatchObject({
       kind: "help",
-      exitCode: 1,
+      exitCode: 2,
       message: 'Expected --active-prefill-step-size to be a positive integer, got "0".',
     });
     expect(parseServeArgs(["model", "--active-decode-steps-per-prefill-chunk", "0"])).toMatchObject(
       {
         kind: "help",
-        exitCode: 1,
+        exitCode: 2,
         message:
           'Expected --active-decode-steps-per-prefill-chunk to be a positive integer, got "0".',
       },
     );
     expect(parseServeArgs(["model", "--stream-decode-interval", "0"])).toMatchObject({
       kind: "help",
-      exitCode: 1,
+      exitCode: 2,
       message: 'Expected --stream-decode-interval to be a positive integer, got "0".',
     });
     expect(parseServeArgs(["model", "--max-concurrent-requests", "0"])).toMatchObject({
       kind: "help",
-      exitCode: 1,
+      exitCode: 2,
       message: 'Expected --max-concurrent-requests to be a positive integer, got "0".',
     });
     expect(parseServeArgs(["model", "--prompt-prefix-cache-max-entries", "0"])).toMatchObject({
       kind: "help",
-      exitCode: 1,
+      exitCode: 2,
       message: 'Expected --prompt-prefix-cache-max-entries to be a positive integer, got "0".',
     });
     expect(parseServeArgs(["model", "--prompt-prefix-cache-max-bytes", "0"])).toMatchObject({
       kind: "help",
-      exitCode: 1,
+      exitCode: 2,
       message: 'Expected --prompt-prefix-cache-max-bytes to be a positive integer, got "0".',
     });
     expect(parseServeArgs(["model", "--gpu-memory-utilization", "1.5"])).toMatchObject({
       kind: "help",
-      exitCode: 1,
+      exitCode: 2,
       message:
         'Expected --gpu-memory-utilization to be a number greater than 0 and less than or equal to 1, got "1.5".',
+    });
+    expect(parseServeArgs(["model", "--max-generated-tokens", "1e3"])).toMatchObject({
+      kind: "help",
+      exitCode: 2,
+      message: 'Expected --max-generated-tokens to be a positive integer, got "1e3".',
+    });
+    expect(parseServeArgs(["model", "--model-id", "--verbose"])).toMatchObject({
+      kind: "help",
+      exitCode: 2,
+      message: "Missing value for --model-id.",
     });
     expect(parseServeArgs(["model", "--model-load-policy", "unknown"])).toMatchObject({
       kind: "help",
@@ -466,7 +482,9 @@ describe("serve CLI args", () => {
       message: "Unexpected extra positional argument: two",
     });
     expect(parseServeArgs(["--help"])).toEqual({ kind: "help", exitCode: 0 });
+    expect(formatServeCliError("Missing model path")).toContain('code: "usage"');
     expect(formatServeUsage()).toContain("bunx @mlxts/serve");
+    expect(formatServeUsage()).toContain("options[33]{flag,description}:");
   });
 
   test("formats progress, ready output, and public bind warnings", () => {
@@ -1063,8 +1081,8 @@ describe("serve CLI args", () => {
       },
     });
 
-    const output = logs.join("\n");
-    expect(errors).toEqual([]);
+    const output = errors.join("\n");
+    expect(logs).toEqual([]);
     expect(output).not.toContain("[request]");
     expect(output).toContain("[generation] cmpl-test");
     expect(running.stopped).toBe(true);
@@ -1122,10 +1140,10 @@ describe("serve CLI args", () => {
       },
     );
 
-    expect(errors).toEqual([]);
-    expect(logs.join("\n")).toContain("[tokenizer] ready");
-    expect(logs.join("\n")).toContain("[request] POST /v1/chat/completions started");
-    expect(logs.join("\n")).toContain("without --api-key");
+    expect(logs).toEqual([]);
+    expect(errors.join("\n")).toContain("[tokenizer] ready");
+    expect(errors.join("\n")).toContain("[request] POST /v1/chat/completions started");
+    expect(errors.join("\n")).toContain("without --api-key");
     expect(running.stopped).toBe(true);
   });
 
@@ -1162,9 +1180,9 @@ describe("serve CLI args", () => {
       },
     });
 
-    expect(errors).toEqual([]);
-    expect(logs.join("\n")).toContain("[load 1/2 gemma] [resolve] resolving repo/gemma");
-    expect(logs.join("\n")).toContain("Models: gemma, qwen");
+    expect(logs).toEqual([]);
+    expect(errors.join("\n")).toContain("[load 1/2 gemma] [resolve] resolving repo/gemma");
+    expect(errors.join("\n")).toContain("Models: gemma, qwen");
     expect(running.stopped).toBe(true);
   });
 
@@ -1257,9 +1275,9 @@ describe("serve CLI args", () => {
       },
     );
 
-    expect(errors).toEqual([]);
-    expect(logs.join("\n")).toContain("Models: manual, org/qwen, flat");
-    expect(logs.join("\n")).toContain("Model load policy: lazy");
+    expect(logs).toEqual([]);
+    expect(errors.join("\n")).toContain("Models: manual, org/qwen, flat");
+    expect(errors.join("\n")).toContain("Model load policy: lazy");
     expect(running.stopped).toBe(true);
   });
 
@@ -1431,6 +1449,7 @@ describe("serve CLI args", () => {
   });
 
   test("reports empty model-root discovery before server start", async () => {
+    const logs: string[] = [];
     const errors: string[] = [];
     let exitCode = -1;
 
@@ -1442,6 +1461,9 @@ describe("serve CLI args", () => {
         expect(root).toBe("/empty");
         return [];
       },
+      log(message) {
+        logs.push(message);
+      },
       error(message) {
         errors.push(message);
       },
@@ -1451,12 +1473,15 @@ describe("serve CLI args", () => {
     });
 
     expect(exitCode).toBe(1);
-    expect(errors).toEqual([
+    expect(errors).toEqual([]);
+    expect(logs.join("\n")).toContain("error:");
+    expect(logs.join("\n")).toContain(
       "No supported local autoregressive model checkpoints discovered under /empty.",
-    ]);
+    );
   });
 
   test("reports invalid post-discovery model-root entries before server start", async () => {
+    const duplicateLogs: string[] = [];
     const duplicateErrors: string[] = [];
     let duplicateExitCode = -1;
 
@@ -1476,6 +1501,9 @@ describe("serve CLI args", () => {
           },
         ];
       },
+      log(message) {
+        duplicateLogs.push(message);
+      },
       error(message) {
         duplicateErrors.push(message);
       },
@@ -1485,8 +1513,10 @@ describe("serve CLI args", () => {
     });
 
     expect(duplicateExitCode).toBe(1);
-    expect(duplicateErrors).toEqual(['model id "flat" is duplicated.']);
+    expect(duplicateErrors).toEqual([]);
+    expect(duplicateLogs.join("\n")).toContain("duplicated");
 
+    const pinLogs: string[] = [];
     const pinErrors: string[] = [];
     let pinExitCode = -1;
 
@@ -1506,6 +1536,9 @@ describe("serve CLI args", () => {
           },
         ];
       },
+      log(message) {
+        pinLogs.push(message);
+      },
       error(message) {
         pinErrors.push(message);
       },
@@ -1515,14 +1548,19 @@ describe("serve CLI args", () => {
     });
 
     expect(pinExitCode).toBe(1);
-    expect(pinErrors).toEqual(['Pinned model "missing" is not part of this serve command.']);
+    expect(pinErrors).toEqual([]);
+    expect(pinLogs.join("\n")).toContain("Pinned model");
   });
 
   test("runs help through injectable exit", async () => {
+    const logs: string[] = [];
     const errors: string[] = [];
     let exitCode = -1;
 
     await runServeCli([], {
+      log(message) {
+        logs.push(message);
+      },
       error(message) {
         errors.push(message);
       },
@@ -1531,9 +1569,10 @@ describe("serve CLI args", () => {
       },
     });
 
-    expect(exitCode).toBe(1);
-    expect(errors.join("\n")).toContain("Missing model path");
-    expect(errors.join("\n")).toContain("mlxts-serve");
+    expect(exitCode).toBe(2);
+    expect(errors).toEqual([]);
+    expect(logs.join("\n")).toContain("Missing model path");
+    expect(logs.join("\n")).toContain("mlxts-serve --help");
   });
 });
 

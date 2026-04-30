@@ -28,7 +28,7 @@ const DEFAULT_BASE_URL = "http://127.0.0.1:8000";
 const DEFAULT_TIMEOUT_MS = 5_000;
 
 function readStringFlag(flag: string, value: string | undefined): string {
-  if (value === undefined || value.trim() === "") {
+  if (value === undefined || value.trim() === "" || value.startsWith("--")) {
     throw new Error(`Missing value for ${flag}.`);
   }
   return value;
@@ -36,6 +36,9 @@ function readStringFlag(flag: string, value: string | undefined): string {
 
 function readPositiveIntegerFlag(flag: string, value: string | undefined): number {
   const raw = readStringFlag(flag, value);
+  if (!/^\d+$/.test(raw)) {
+    throw new Error(`Expected ${flag} to be a positive integer, got "${raw}".`);
+  }
   const parsed = Number(raw);
   if (!Number.isInteger(parsed) || parsed <= 0) {
     throw new Error(`Expected ${flag} to be a positive integer, got "${raw}".`);
