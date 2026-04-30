@@ -92,6 +92,14 @@ major product-agent focus on package-owned CLIs and future PI-agent integration.
   lookup. Local image `file_id` values are enabled only when the operator
   configures `localImageRoots` / `--local-image-root`; they resolve as relative
   image paths under those roots and do not create a general files API.
+- **Phase 10 diffusion**: `@mlxts/diffusion` now parses local Diffusers
+  snapshot manifests, scheduler configs, Stable Diffusion VAE/UNet configs, and
+  constructs the Stable Diffusion AutoencoderKL VAE. VAE safetensor loading is
+  package-owned: Diffusers names map into the camelCase module tree, Conv2d
+  weights transpose from PyTorch kernel layout to MLX channel-last layout, and
+  single-shard plus index-sharded VAE weights are covered by synthetic
+  safetensor tests. UNet construction/loading and full pipeline parity remain
+  the next diffusion tranches.
 - **Qwen conditional serving**: top-level Qwen 3.5 / 3.6 conditional
   checkpoints expose the Qwen text batch-cache surface for text-only continuous
   serving. Media/content requests still route as `media_input` and stay off

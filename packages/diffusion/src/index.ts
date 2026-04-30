@@ -1,4 +1,8 @@
-export { DiffusionConfigError } from "./errors";
+export {
+  DiffusionConfigError,
+  DiffusionMissingWeightsError,
+  DiffusionWeightMismatchError,
+} from "./errors";
 export {
   StableDiffusionAutoencoderKL,
   StableDiffusionVaeDecoder,
@@ -27,6 +31,14 @@ export {
   type StableDiffusionVaeDownBlockType,
   type StableDiffusionVaeUpBlockType,
 } from "./families/stable-diffusion/config";
+export {
+  loadStableDiffusionAutoencoderFromSnapshot,
+  loadStableDiffusionAutoencoderWeights,
+  type StableDiffusionAutoencoderWeightLoadOptions,
+  type StableDiffusionAutoencoderWeightLoadResult,
+  stableDiffusionAutoencoderWeightPath,
+  transformStableDiffusionAutoencoderWeight,
+} from "./families/stable-diffusion/weights";
 export {
   type DiffusersPipelineClassName,
   type DiffusionComponentName,
