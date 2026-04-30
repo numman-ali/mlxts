@@ -19,6 +19,7 @@ import {
   serveModel,
 } from "./model-loading/server";
 import { type ServeModelsOptions, serveModels } from "./model-loading/sources";
+import { runServeStatusCli, type ServeStatusFetch } from "./observability/cli-status-command";
 import type { GenerationMemoryUsage, ServeEvent } from "./types";
 
 export {
@@ -27,6 +28,13 @@ export {
   formatServeDiscoverUsage,
   parseServeDiscoverArgs,
 } from "./cli-discovery-command";
+export {
+  fetchServeStatusInfo,
+  formatServeStatus,
+  formatServeStatusError,
+  formatServeStatusUsage,
+  parseServeStatusArgs,
+} from "./observability/cli-status-command";
 export type { ServeCliOptions, ServeCliParseResult };
 export { formatServeUsage, parseServeArgs };
 
@@ -34,6 +42,8 @@ export type ServeCliRuntime = {
   serveModel?: (options: ServeModelOptions) => Promise<RunningModelServer>;
   serveModels?: (options: ServeModelsOptions) => Promise<RunningModelServer>;
   discoverLocalModelSources?: (root: string) => readonly DiscoveredLocalModelSource[];
+  fetch?: ServeStatusFetch;
+  env?: Readonly<Record<string, string | undefined>>;
   log?: (message: string) => void;
   error?: (message: string) => void;
   exit?: (code: number) => void;
@@ -427,6 +437,10 @@ export async function runServeCli(
 ): Promise<void> {
   if (argv[0] === "discover") {
     runServeDiscoverCli(argv.slice(1), runtime);
+    return;
+  }
+  if (argv[0] === "status") {
+    await runServeStatusCli(argv.slice(1), runtime);
     return;
   }
 

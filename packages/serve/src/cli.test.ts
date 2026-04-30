@@ -13,6 +13,7 @@ import {
   type ServeCliOptions,
   shouldLogServeEvent,
 } from "./cli";
+import { formatServeInfoResponse } from "./http/route-info";
 import type { RunningModelServer } from "./model-loading/server";
 
 const ROUTE_STRATEGY = {
@@ -1204,6 +1205,63 @@ describe("serve CLI args", () => {
     expect(errors).toEqual([]);
     expect(logs.join("\n")).toContain("models[1]{model_id,source,model_type,has_vision}:");
     expect(logs.join("\n")).toContain('"flat","/models/flat","gemma",false');
+  });
+
+  test("runs finite AXI endpoint status without starting a server", async () => {
+    const logs: string[] = [];
+    const errors: string[] = [];
+    const calls: string[] = [];
+    let exitCode = -1;
+    const info = formatServeInfoResponse({
+      engine: {
+        generate() {
+          throw new Error("unused generation path");
+        },
+      },
+      models: [
+        {
+          id: "local/qwen",
+          admission: {
+            contextWindow: 131_072,
+            maxPromptTokens: 131_072,
+            maxTotalTokens: 131_072,
+            effectiveTotalTokens: 131_072,
+          },
+        },
+      ],
+      limits: {
+        maxGeneratedTokens: 32_768,
+        maxPromptTokens: 131_072,
+        maxTotalTokens: 131_072,
+        gpuMemoryUtilization: 0.85,
+      },
+    });
+
+    await runServeCli(["status", "--base-url", "http://localhost:9000/v1"], {
+      async serveModels() {
+        throw new Error("server should not start for finite status");
+      },
+      async fetch(input) {
+        const url = String(input);
+        calls.push(url);
+        return url.endsWith("/health") ? Response.json({ status: "ok" }) : Response.json(info);
+      },
+      log(message) {
+        logs.push(message);
+      },
+      error(message) {
+        errors.push(message);
+      },
+      exit(code) {
+        exitCode = code;
+      },
+    });
+
+    expect(exitCode).toBe(0);
+    expect(errors).toEqual([]);
+    expect(calls).toEqual(["http://localhost:9000/health", "http://localhost:9000/info"]);
+    expect(logs.join("\n")).toContain('base_url: "http://localhost:9000"');
+    expect(logs.join("\n")).toContain('"local/qwen",131072,131072,131072');
   });
 
   test("reports finite AXI discovery usage errors on stdout", async () => {

@@ -287,7 +287,7 @@ safe to drive through shell tools.
 | Errors are structured and actionable | Tests assert stdout error bodies plus exit `1` or `2` as appropriate |
 | Progress and diagnostics stay off stdout | Tests or manual CLI review checks stdout/stderr separation |
 | Non-TTY paths never prompt | Tests run missing-required-value paths without hanging |
-| `mlxts-serve` finite inspection commands are AXI-shaped | `mlxts-serve discover --model-root <dir>` and follow-up finite commands have snapshot-style tests |
+| `mlxts-serve` finite inspection commands are AXI-shaped | `mlxts-serve discover --model-root <dir>` and `mlxts-serve status --base-url <url>` have snapshot-style tests |
 | Experimental `mlxts-agent` one-shot and non-TTY error paths are AXI-shaped | `bun test packages/agent/src` covers one-shot help/error/status output |
 | Training proof, run manager, benchmark, and Phase 10 proof commands adopt AXI before becoming canonical | Focused tests or review artifacts for each command tranche |
 | Long-running servers, REPLs, and managers expose status/report/transcript surfaces instead of one final data blob | Manual review plus command-specific smokes |

@@ -24,6 +24,7 @@ export function formatServeUsage(): string {
     "  mlxts-serve --model <model-path-or-repo-id> [--model <model-id=path-or-repo-id>] [options]",
     "  mlxts-serve --model-root <directory> [--model-root <directory>] [options]",
     "  mlxts-serve discover --model-root <directory> [--full]",
+    "  mlxts-serve status [--base-url <url>] [--api-key <key>] [--timeout-ms <n>] [--full]",
     "  bunx @mlxts/serve <model-path-or-repo-id> [options]",
     "",
     "Options:",

@@ -964,9 +964,9 @@ in [`.agents/skills/axi/SKILL.md`](./.agents/skills/axi/SKILL.md).
   `examples/nanogpt` manager commands, training proof commands, Qwen image
   workbooks, benchmark/report commands, and future diffusion/multimodal
   inspection commands.
-- `mlxts-serve discover --model-root <directory>` is the first landed finite
-  AXI-shaped serve command; broader serve startup logs and `mlxts-agent`
-  non-TTY/error paths remain follow-up migration tranches.
+- `mlxts-serve discover --model-root <directory>` and
+  `mlxts-serve status --base-url <url>` are landed finite AXI-shaped serve
+  commands; broader serve startup logs remain a follow-up migration tranche.
 
 **Exit criteria**: See
 [gates-and-milestones.md](./docs/gates-and-milestones.md#phase-95-product-agent-experience-and-axi-hardening).

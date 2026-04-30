@@ -63,6 +63,14 @@ mlxts-serve discover --model-root ~/Models/mlxts --full
 output for the discovered model ids, sources, and model types.
 
 ```bash
+mlxts-serve status --base-url http://127.0.0.1:8000
+```
+
+`status` is a finite agent-facing command: it checks `/health` and `/info`,
+then emits compact structured stdout for served model ids, limits,
+capabilities, and runtime strategy without sending generation work.
+
+```bash
 mlxts-serve \
   --model-root ~/Models/mlxts \
   --model-root ~/Models/hf-checkpoints \
