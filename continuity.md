@@ -113,10 +113,12 @@ major product-agent focus on package-owned CLIs and future PI-agent integration.
 - **Phase 10 CLIP conditioning**: `@mlxts/transformers` now owns a
   `families/clip/` text encoder surface with CLIP text config parsing, causal
   text attention, quick GELU, EOS pooling, projected text features, and retained
-  hidden-state outputs for SDXL. It is intentionally outside the CausalLM
-  registry. Weight loading, CLIP vocab/merges tokenization, and the higher-level
-  Stable Diffusion conditioning composer remain the next prompt-conditioning
-  steps.
+  hidden-state outputs for SDXL. It also has explicit plain and projected CLIP
+  text loader entry points that map Hugging Face `text_model.*` safetensor names
+  and `text_projection.weight` into the module tree. CLIP is intentionally
+  outside the CausalLM registry. CLIP vocab/merges tokenization and the
+  higher-level Stable Diffusion conditioning composer remain the next
+  prompt-conditioning steps.
 - **Qwen conditional serving**: top-level Qwen 3.5 / 3.6 conditional
   checkpoints expose the Qwen text batch-cache surface for text-only continuous
   serving. Media/content requests still route as `media_input` and stay off

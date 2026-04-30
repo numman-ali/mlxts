@@ -13,6 +13,12 @@ export {
 } from "./chat-template";
 export { parseCLIPTextConfig } from "./families/clip/config";
 export {
+  type LoadCLIPTextModelOptions,
+  loadCLIPTextModel,
+  loadCLIPTextModelWithProjection,
+  resolveCLIPTextModelSource,
+} from "./families/clip/load";
+export {
   CLIPTextEmbeddings,
   CLIPTextModel,
   CLIPTextModelWithProjection,
@@ -26,6 +32,13 @@ export type {
   CLIPTextModelOutput,
   CLIPTextProjectionOutput,
 } from "./families/clip/types";
+export {
+  type CLIPTextWeightLoadOptions,
+  type CLIPTextWeightLoadResult,
+  type CLIPTextWeightTarget,
+  clipTextWeightPath,
+  loadCLIPTextWeights,
+} from "./families/clip/weights";
 export {
   loadQwen3_5ForConditionalGeneration,
   shouldLoadQwen3_5ForConditionalGeneration,
