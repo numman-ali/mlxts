@@ -22,6 +22,7 @@ export type PreferenceDatasetOptions = {
   referenceModel: CausalLM;
   padTokenId: number;
   batchSize: number;
+  beta?: number;
 };
 
 export type SupervisionTrainingStepsOptions = SupervisionDatasetOptions & {
@@ -36,7 +37,6 @@ export type PreferenceTrainingStepsOptions = PreferenceDatasetOptions & {
   optimizer: OptimizerLike;
   steps: number;
   seed: number;
-  beta?: number;
   learningRate?: number;
   maxGradNorm?: number | null;
 };

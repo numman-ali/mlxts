@@ -113,6 +113,14 @@ describe("align recipes", () => {
       examples,
       padTokenId: 0,
       batchSize: 2,
+      beta: 0.1,
+    });
+    const widerBetaLoss = evaluatePreferenceDatasetLoss(policyModel, {
+      referenceModel,
+      examples,
+      padTokenId: 0,
+      batchSize: 2,
+      beta: 0.5,
     });
     const result = runPreferenceTrainingSteps(policyModel, {
       referenceModel,
@@ -128,6 +136,7 @@ describe("align recipes", () => {
     });
 
     expect(evalLoss).toBeGreaterThan(0);
+    expect(widerBetaLoss).not.toBe(evalLoss);
     expect(result.averageLoss).toBeGreaterThan(0);
   });
 

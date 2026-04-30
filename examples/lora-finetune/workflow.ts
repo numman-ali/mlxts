@@ -1,3 +1,4 @@
+import type { ChatMessage } from "@mlxts/data";
 import { applyLoRAToModule, mergeLoRAInModule } from "@mlxts/lora";
 import {
   expectTrainableModule,
@@ -48,7 +49,7 @@ function buildReport(
   evalLossBefore: number,
   evalLossAfter: number,
   averageTrainingLoss: number,
-  samplePrompt: readonly { role: string; content: string }[],
+  samplePrompt: readonly ChatMessage[],
   trainedSample: string,
   reloadedSample: string,
   mergedSample: string,
@@ -86,7 +87,7 @@ async function runReloadAndMergeChecks(
   adapterDirectory: string,
   args: FinetuneArgs,
   assets: Awaited<ReturnType<typeof loadAssets>>,
-  samplePrompt: readonly { role: string; content: string }[],
+  samplePrompt: readonly ChatMessage[],
 ): Promise<{ reloadedSample: string; mergedSample: string }> {
   using reloadedModel = await loadCausalLM(loadSource);
   await loadCausalLMAdapters(reloadedModel, adapterDirectory, {

@@ -9,8 +9,8 @@ import {
 import type { TrainingProofArgs } from "./args";
 
 export type TrainingProofRawDatasets = {
-  supervisionTrainMessages: readonly ChatMessage[][];
-  supervisionEvalMessages: readonly ChatMessage[][];
+  supervisionTrainMessages: readonly (readonly ChatMessage[])[];
+  supervisionEvalMessages: readonly (readonly ChatMessage[])[];
   preferenceTrainRows: readonly ChatPreferenceConversation[];
   preferenceEvalRows: readonly ChatPreferenceConversation[];
   samplePromptMessages: readonly ChatMessage[];
@@ -90,7 +90,7 @@ function repeatToLength<T>(items: readonly T[], length: number): T[] {
 }
 
 async function runCommand(args: readonly string[]): Promise<string> {
-  const process = Bun.spawn(args, {
+  const process = Bun.spawn([...args], {
     stdout: "pipe",
     stderr: "pipe",
   });

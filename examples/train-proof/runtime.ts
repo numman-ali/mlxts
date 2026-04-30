@@ -131,12 +131,14 @@ export function evaluatePreferenceDatasetLoss(
   examples: readonly PreferenceExample[],
   padTokenId: number,
   batchSize: number,
+  beta = DEFAULT_DPO_BETA,
 ): number {
   return alignEvaluatePreferenceDatasetLoss(policyModel, {
     referenceModel,
     examples,
     padTokenId,
     batchSize,
+    beta,
   });
 }
 

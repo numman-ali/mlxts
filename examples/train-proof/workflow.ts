@@ -7,6 +7,7 @@ import { prepareTrainingProofData } from "./prepare";
 import { loadAssets } from "./runtime";
 import { printStage, runDPOStage, runLoRAStage, runQLoRAStage, runSFTStage } from "./stages";
 import type { StageReport, TrainingProofReport } from "./types";
+import { assertTrainingProofReport, verificationOptionsFromArgs } from "./verification";
 
 export async function runTrainingProof(argv: readonly string[]): Promise<void> {
   const parsed: TrainingProofArgs = parseTrainingProofArgs(argv);
@@ -94,8 +95,14 @@ export async function runTrainingProof(argv: readonly string[]): Promise<void> {
     dataNotes: preparedData.notes,
     stages,
   };
+  const verification = assertTrainingProofReport(report, verificationOptionsFromArgs(parsed));
+  const verifiedReport: TrainingProofReport = {
+    ...report,
+    verification,
+  };
 
   mkdirSync(dirname(parsed.reportPath), { recursive: true });
-  await Bun.write(parsed.reportPath, `${JSON.stringify(report, null, 2)}\n`);
+  await Bun.write(parsed.reportPath, `${JSON.stringify(verifiedReport, null, 2)}\n`);
   console.log(`Report written to ${parsed.reportPath}`);
+  console.log(`Report verification passed (${verification.checks.length} checks).`);
 }

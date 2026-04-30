@@ -18,6 +18,7 @@ These gates are non-negotiable at every phase boundary. Code does not advance un
 | Tensor lifetimes | `bun run check:tensor-lifetimes` | No anonymous disposable intermediates in nested calls |
 | Runtime review | `bun run check:runtime-review` | Runtime-sensitive diffs have review artifacts |
 | Coverage | `bun run check:coverage` | Package-specific line/function/branch thresholds |
+| Training proof surfaces | `bun run check:training-proofs` | Phase 8 example proof code typechecks and report-verifier tests pass |
 | Full validation | `bun run validate` | All of the above in sequence |
 
 ### Architectural Gates
@@ -197,6 +198,7 @@ And it works. On their Mac. From TypeScript.
 | `@mlxts/data` supports HuggingFace datasets format | Test: load a dataset from Hub |
 | Chat template support for instruction tuning | Test: format conversations correctly |
 | Canonical proof uses pinned real-data subsets | Test: short runs on `HuggingFaceH4/ultrachat_200k` and `HuggingFaceH4/ultrafeedback_binarized` produce held-out metrics |
+| Canonical proof reports are machine-checkable | `bun run check:training-proofs` plus `examples/train-proof/verify-report.ts <report.json>` |
 | Canonical training proof is runnable on self-hosted Apple Silicon | Manual `Training Proof` workflow or local `bun run examples/train-proof/index.ts` succeeds on the official anchor |
 | `examples/lora-finetune/` runs end-to-end | Fine-tune, merge, generate |
 | Memory fits within 64GB for 1B-3B parameter models with LoRA | Measure peak memory |
@@ -355,6 +357,7 @@ If a developer can follow the example and do the same for a different paper, the
 - Coverage thresholds enforced per package
 - Type assertion check prevents `as` leaking out of FFI
 - Tensor lifetime check prevents anonymous intermediate leaks
+- `check:training-proofs` keeps Phase 8 proof/example surfaces statically checked without running heavy model training
 - The heavier `bun run examples/train-proof/index.ts` proof currently lives on a manual self-hosted Apple Silicon workflow; it can be promoted to a stricter regression gate later
 
 ### Semi-Automated (Agent Review)

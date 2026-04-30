@@ -89,9 +89,10 @@ function evaluateDpoBatchLoss(
   policyModel: CausalLM,
   referenceModel: CausalLM,
   batch: ReturnType<typeof collatePreferenceBatch>,
+  beta: number | undefined,
 ): number {
   try {
-    return evaluateLoss(dpoLoss(policyModel, referenceModel, batch));
+    return evaluateLoss(dpoLoss(policyModel, referenceModel, batch, beta));
   } finally {
     freePreferenceBatch(batch);
   }
@@ -236,6 +237,7 @@ export function evaluatePreferenceDatasetLoss(
       policyModel,
       options.referenceModel,
       collatePreferenceBatch(chunk, options.padTokenId),
+      options.beta,
     );
     batches += 1;
   }
@@ -245,7 +247,7 @@ export function evaluatePreferenceDatasetLoss(
 /** Evaluate reward-aware DPO metrics over a preference-example dataset. */
 export function evaluatePreferenceMetrics(
   policyModel: CausalLM,
-  options: PreferenceDatasetOptions & { beta?: number },
+  options: PreferenceDatasetOptions,
 ): PreferenceEvalMetrics {
   const context = "align.evaluatePreferenceMetrics";
   expectExamples(options.examples, context);

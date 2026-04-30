@@ -86,3 +86,10 @@ The proof report records:
 - DPO held-out reward accuracy, reward margin, chosen/rejected rewards, and chosen/rejected log-probs
 - supplemental raw policy-only preference accuracy for DPO debugging
 - a short sample after each stage
+- verification checks that fail the runner when proof evidence is missing or malformed
+
+Existing reports can be checked without rerunning training:
+
+```bash
+bun run examples/train-proof/verify-report.ts .tmp/training-proof/meta-llama-Llama-3.2-1B-Instruct-report.json
+```

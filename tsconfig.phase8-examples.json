@@ -1,0 +1,4 @@
+{
+  "extends": "./tsconfig.json",
+  "include": ["examples/train-proof/**/*.ts", "examples/lora-finetune/**/*.ts"]
+}

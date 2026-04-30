@@ -24,6 +24,17 @@ export type StageReport = {
   notes: string[];
 };
 
+export type TrainingProofVerificationCheck = {
+  id: string;
+  passed: boolean;
+  message: string;
+};
+
+export type TrainingProofVerification = {
+  passed: boolean;
+  checks: TrainingProofVerificationCheck[];
+};
+
 export type TrainingProofReport = {
   source: string;
   quantizedOutputDir: string;
@@ -36,6 +47,7 @@ export type TrainingProofReport = {
   seed: number;
   dataNotes: string[];
   stages: StageReport[];
+  verification?: TrainingProofVerification;
 };
 
 export type LoadedAssets = {

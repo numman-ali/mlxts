@@ -75,10 +75,16 @@ function resolveDPOProofConfig(profile: DPOProofProfile): DPOProofConfig {
 
 function applyDPOTrainingLoRA(model: CausalLM, profile: DPOProofProfile): AppliedLoRA {
   const config = resolveDPOProofConfig(profile);
-  const resolved = resolveLoRATargets(model, {
+  const resolveOptions: {
+    preset: DPOProofConfig["preset"];
+    lastLayers?: number;
+  } = {
     preset: config.preset,
-    lastLayers: config.lastLayers ?? undefined,
-  });
+  };
+  if (config.lastLayers !== null) {
+    resolveOptions.lastLayers = config.lastLayers;
+  }
+  const resolved = resolveLoRATargets(model, resolveOptions);
   applyLoRAToModule(expectTrainableModule(model), {
     paths: resolved.paths,
     rank: config.rank,
@@ -292,6 +298,7 @@ export async function runDPOStage(
     data.preferenceEval,
     padTokenId,
     args.batchSize,
+    dpoConfig.beta,
   );
 
   return {

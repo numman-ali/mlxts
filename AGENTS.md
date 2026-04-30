@@ -234,6 +234,9 @@ bun run check:tensor-lifetimes
 bun run check:per-package-agents
 bun run check:cross-package-imports
 
+# Check Phase 8 proof surfaces
+bun run check:training-proofs
+
 # Generation and serving benchmarks
 bun run bench:generation
 bun run bench:generation:parity

@@ -169,6 +169,12 @@ Full evidence ladder lives in
   active client tools and emits Anthropic-shaped `tool_use` content blocks with
   `input_json_delta` argument deltas while keeping malformed/tool-looking text
   visible when tools are inactive.
+- Phase 8 proof surfaces now have a cheap static gate. `bun run check:training-proofs`
+  typechecks `examples/train-proof` and `examples/lora-finetune`, then runs
+  helper/report-verifier tests (`13 pass`). The canonical training proof report
+  now carries machine-checkable verification evidence, and
+  `examples/train-proof/verify-report.ts` can check an existing report without
+  rerunning training.
 - Gemma 4 A4B MoE proof passed against the cached
   `mlx-community/gemma-4-26b-a4b-it-4bit` snapshot. Transformer decode at
   `128x128` reported `generation_tps=108.604`, `evals_per_token=1.00`, and
@@ -221,5 +227,5 @@ Full evidence ladder lives in
 - Phase 7f has Gemma A4B and Qwen A3B real checkpoint proofs. Choose the next
   model-family proof deliberately, with Mixtral only when there is a clear
   user-facing need. Otherwise the next high-value product areas are Phase 9
-  cache backend work, Qwen image product proof, and Phase 8 training proof
-  hardening.
+  cache backend work, live Phase 8 training-proof evidence, and broader Phase
+  10 multimodal/diffusion research.

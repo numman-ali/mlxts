@@ -1,0 +1,386 @@
+import type { TrainingProofArgs, TrainingProofDatasetSource, TrainingProofStageName } from "./args";
+import type {
+  MetricPair,
+  StageReport,
+  TrainingProofReport,
+  TrainingProofVerification,
+  TrainingProofVerificationCheck,
+} from "./types";
+
+export { parseTrainingProofReport } from "./report-schema";
+
+export type TrainingProofVerificationOptions = {
+  expectedSource?: string;
+  expectedDatasetSource?: TrainingProofDatasetSource;
+  expectedTrainLimit?: number;
+  expectedEvalLimit?: number;
+  expectedBatchSize?: number;
+  expectedSteps?: number;
+  expectedMaxSequenceLength?: number;
+  expectedSeed?: number;
+  requiredStages?: readonly TrainingProofStageName[];
+  expectedDPOProfile?: TrainingProofArgs["dpoProfile"];
+  requireMetricImprovement?: boolean;
+};
+
+function isStageName(value: unknown): value is TrainingProofStageName {
+  return value === "lora" || value === "qlora" || value === "sft" || value === "dpo";
+}
+
+function check(
+  checks: TrainingProofVerificationCheck[],
+  id: string,
+  passed: boolean,
+  message: string,
+): void {
+  checks.push({ id, passed, message });
+}
+
+function noteValue(report: StageReport, key: string): string | undefined {
+  const prefix = `${key}=`;
+  const note = report.notes.find((entry) => entry.startsWith(prefix));
+  return note?.slice(prefix.length);
+}
+
+function hasNote(report: StageReport, note: string): boolean {
+  return report.notes.includes(note);
+}
+
+function readPositiveNote(report: StageReport, key: string): number | undefined {
+  const value = noteValue(report, key);
+  if (value === undefined) {
+    return undefined;
+  }
+  const parsed = Number(value);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : undefined;
+}
+
+function isKnownPreset(value: string | undefined): boolean {
+  return value === "attention" || value === "attention+mlp" || value === "all-linear";
+}
+
+function metricPairIsConsistent(metric: MetricPair): boolean {
+  const expected = metric.after - metric.before;
+  return Math.abs(metric.delta - expected) <= 1e-9;
+}
+
+function metricPairIsImproved(metric: MetricPair): boolean {
+  return metric.after <= metric.before;
+}
+
+function isMetricPair(value: unknown): value is MetricPair {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    !Array.isArray(value) &&
+    "before" in value &&
+    typeof value.before === "number" &&
+    Number.isFinite(value.before) &&
+    "after" in value &&
+    typeof value.after === "number" &&
+    Number.isFinite(value.after) &&
+    "delta" in value &&
+    typeof value.delta === "number" &&
+    Number.isFinite(value.delta)
+  );
+}
+
+function checkOptionalMetric(
+  checks: TrainingProofVerificationCheck[],
+  stage: StageReport,
+  key: keyof StageReport,
+): void {
+  const metric = stage[key];
+  const id = `${stage.stage}.${String(key)}`;
+  if (metric === undefined) {
+    check(checks, id, false, `${stage.stage} missing ${String(key)}.`);
+    return;
+  }
+  if (!isMetricPair(metric)) {
+    check(checks, id, false, `${stage.stage} ${String(key)} is not a metric pair.`);
+    return;
+  }
+  check(
+    checks,
+    id,
+    metricPairIsConsistent(metric),
+    `${stage.stage} ${String(key)} records consistent before/after/delta values.`,
+  );
+}
+
+function checkStageCommon(
+  checks: TrainingProofVerificationCheck[],
+  report: StageReport,
+  options: TrainingProofVerificationOptions,
+): void {
+  check(
+    checks,
+    `${report.stage}.known`,
+    isStageName(report.stage),
+    `${report.stage} is a known proof stage.`,
+  );
+  checkOptionalMetric(checks, report, "evalLoss");
+  if (options.requireMetricImprovement && report.evalLoss !== undefined) {
+    check(
+      checks,
+      `${report.stage}.eval_loss_improves`,
+      metricPairIsImproved(report.evalLoss),
+      `${report.stage} held-out loss does not increase.`,
+    );
+  }
+  check(
+    checks,
+    `${report.stage}.training_loss`,
+    report.averageTrainingLoss !== undefined && report.averageTrainingLoss > 0,
+    `${report.stage} records a positive average training loss.`,
+  );
+  check(
+    checks,
+    `${report.stage}.sample`,
+    typeof report.sampleText === "string" && report.sampleText.trim() !== "",
+    `${report.stage} records a non-empty sample.`,
+  );
+  check(
+    checks,
+    `${report.stage}.train_examples`,
+    readPositiveNote(report, "train_examples") !== undefined,
+    `${report.stage} records positive train example evidence.`,
+  );
+  check(
+    checks,
+    `${report.stage}.eval_examples`,
+    readPositiveNote(report, "eval_examples") !== undefined,
+    `${report.stage} records positive eval example evidence.`,
+  );
+}
+
+function checkAdapterStage(
+  checks: TrainingProofVerificationCheck[],
+  report: StageReport,
+  expectedPreset: string,
+): void {
+  const targetCount = readPositiveNote(report, "target_count");
+  const mergedTargets = readPositiveNote(report, "merged_targets");
+  const preset = noteValue(report, "preset");
+  check(
+    checks,
+    `${report.stage}.preset`,
+    preset === expectedPreset && isKnownPreset(preset),
+    `${report.stage} uses the ${expectedPreset} LoRA preset.`,
+  );
+  check(
+    checks,
+    `${report.stage}.target_count`,
+    targetCount !== undefined,
+    `${report.stage} records positive LoRA target count.`,
+  );
+  check(
+    checks,
+    `${report.stage}.merged_targets`,
+    mergedTargets !== undefined && mergedTargets === targetCount,
+    `${report.stage} merges every selected LoRA target.`,
+  );
+}
+
+function checkDPOStage(
+  checks: TrainingProofVerificationCheck[],
+  report: StageReport,
+  options: TrainingProofVerificationOptions,
+): void {
+  for (const key of [
+    "rewardAccuracy",
+    "rewardMargin",
+    "chosenReward",
+    "rejectedReward",
+    "chosenLogProb",
+    "rejectedLogProb",
+    "rawPreferenceAccuracy",
+  ] satisfies (keyof StageReport)[]) {
+    checkOptionalMetric(checks, report, key);
+  }
+  check(
+    checks,
+    "dpo.reference_model",
+    hasNote(report, "reference_model=frozen_copy"),
+    "dpo records frozen reference model evidence.",
+  );
+  if (options.expectedDPOProfile !== undefined) {
+    check(
+      checks,
+      "dpo.profile",
+      noteValue(report, "dpo_profile") === options.expectedDPOProfile,
+      `dpo profile is ${options.expectedDPOProfile}.`,
+    );
+  }
+}
+
+function expectedDPOPreset(report: StageReport, options: TrainingProofVerificationOptions): string {
+  if (options.expectedDPOProfile === "handbook") {
+    return "attention+mlp";
+  }
+  if (options.expectedDPOProfile === "canonical") {
+    return "attention";
+  }
+  return noteValue(report, "preset") ?? "";
+}
+
+function checkStageSpecific(
+  checks: TrainingProofVerificationCheck[],
+  report: StageReport,
+  options: TrainingProofVerificationOptions,
+): void {
+  if (report.stage === "lora") {
+    checkAdapterStage(checks, report, "attention");
+    return;
+  }
+  if (report.stage === "qlora") {
+    checkAdapterStage(checks, report, "all-linear");
+    check(
+      checks,
+      "qlora.quantized_base",
+      hasNote(report, "quantized_base_preserved=true"),
+      "qlora records quantized base preservation after merge.",
+    );
+    return;
+  }
+  if (report.stage === "sft") {
+    check(checks, "sft.dense_model", hasNote(report, "dense_model=true"), "sft uses dense model.");
+    return;
+  }
+  if (report.stage === "dpo") {
+    checkAdapterStage(checks, report, expectedDPOPreset(report, options));
+    checkDPOStage(checks, report, options);
+  }
+}
+
+function checkExpectedNumber(
+  checks: TrainingProofVerificationCheck[],
+  id: string,
+  actual: number,
+  expected: number | undefined,
+): void {
+  if (expected === undefined) {
+    return;
+  }
+  check(checks, id, actual === expected, `${id} is ${expected}.`);
+}
+
+function checkReportShape(
+  checks: TrainingProofVerificationCheck[],
+  report: TrainingProofReport,
+  options: TrainingProofVerificationOptions,
+): void {
+  if (options.expectedSource !== undefined) {
+    check(
+      checks,
+      "source",
+      report.source === options.expectedSource,
+      "source matches proof input.",
+    );
+  }
+  if (options.expectedDatasetSource !== undefined) {
+    check(
+      checks,
+      "dataset_source",
+      report.datasetSource === options.expectedDatasetSource,
+      "dataset source matches proof input.",
+    );
+  }
+  checkExpectedNumber(checks, "train_limit", report.trainLimit, options.expectedTrainLimit);
+  checkExpectedNumber(checks, "eval_limit", report.evalLimit, options.expectedEvalLimit);
+  checkExpectedNumber(checks, "batch_size", report.batchSize, options.expectedBatchSize);
+  checkExpectedNumber(checks, "steps", report.steps, options.expectedSteps);
+  checkExpectedNumber(
+    checks,
+    "max_sequence_length",
+    report.maxSequenceLength,
+    options.expectedMaxSequenceLength,
+  );
+  checkExpectedNumber(checks, "seed", report.seed, options.expectedSeed);
+  check(checks, "stages.non_empty", report.stages.length > 0, "report includes proof stages.");
+
+  const observedStages = new Set(report.stages.map((stage) => stage.stage));
+  for (const stage of options.requiredStages ?? []) {
+    check(
+      checks,
+      `required_stage.${stage}`,
+      observedStages.has(stage),
+      `report includes required ${stage} stage.`,
+    );
+  }
+  check(
+    checks,
+    "stages.unique",
+    observedStages.size === report.stages.length,
+    "report does not contain duplicate stages.",
+  );
+
+  check(
+    checks,
+    "data_notes.dataset_source",
+    report.dataNotes.includes(`dataset_source=${report.datasetSource}`),
+    "data notes record the dataset source.",
+  );
+  if (report.datasetSource === "huggingface") {
+    check(
+      checks,
+      "data_notes.supervision_dataset",
+      report.dataNotes.some((note) => note.startsWith("supervision_dataset=")),
+      "data notes record the supervision dataset.",
+    );
+    check(
+      checks,
+      "data_notes.preference_dataset",
+      report.dataNotes.some((note) => note.startsWith("preference_dataset=")),
+      "data notes record the preference dataset.",
+    );
+  }
+}
+
+export function verifyTrainingProofReport(
+  report: TrainingProofReport,
+  options: TrainingProofVerificationOptions = {},
+): TrainingProofVerification {
+  const checks: TrainingProofVerificationCheck[] = [];
+  checkReportShape(checks, report, options);
+  for (const stage of report.stages) {
+    checkStageCommon(checks, stage, options);
+    checkStageSpecific(checks, stage, options);
+  }
+  return {
+    passed: checks.every((entry) => entry.passed),
+    checks,
+  };
+}
+
+export function assertTrainingProofReport(
+  report: TrainingProofReport,
+  options: TrainingProofVerificationOptions = {},
+): TrainingProofVerification {
+  const verification = verifyTrainingProofReport(report, options);
+  if (!verification.passed) {
+    const failures = verification.checks
+      .filter((entry) => !entry.passed)
+      .map((entry) => `- ${entry.id}: ${entry.message}`)
+      .join("\n");
+    throw new Error(`Training proof verification failed:\n${failures}`);
+  }
+  return verification;
+}
+
+export function verificationOptionsFromArgs(
+  args: TrainingProofArgs,
+): TrainingProofVerificationOptions {
+  return {
+    expectedSource: args.source,
+    expectedDatasetSource: args.datasetSource,
+    expectedTrainLimit: args.trainLimit,
+    expectedEvalLimit: args.evalLimit,
+    expectedBatchSize: args.batchSize,
+    expectedSteps: args.steps,
+    expectedMaxSequenceLength: args.maxSequenceLength,
+    expectedSeed: args.seed,
+    requiredStages: args.stages,
+    expectedDPOProfile: args.dpoProfile,
+  };
+}

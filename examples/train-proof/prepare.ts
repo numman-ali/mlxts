@@ -31,7 +31,7 @@ function appendPreparationNotes(
 }
 
 function buildPreparedSupervisionExamples(
-  rawMessages: readonly TrainingProofRawDatasets["supervisionTrainMessages"],
+  rawMessages: TrainingProofRawDatasets["supervisionTrainMessages"],
   tokenizer: LoadedAssets["tokenizer"],
   profile: InteractionProfile,
   limit: number,
@@ -49,7 +49,7 @@ function buildPreparedSupervisionExamples(
 }
 
 function buildPreparedPreferenceExamples(
-  rawRows: readonly TrainingProofRawDatasets["preferenceTrainRows"],
+  rawRows: TrainingProofRawDatasets["preferenceTrainRows"],
   tokenizer: LoadedAssets["tokenizer"],
   profile: InteractionProfile,
   limit: number,
