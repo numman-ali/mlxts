@@ -1,5 +1,20 @@
 export { DiffusionConfigError } from "./errors";
 export {
+  StableDiffusionAutoencoderKL,
+  StableDiffusionVaeDecoder,
+  StableDiffusionVaeEncoder,
+  StableDiffusionVaePosterior,
+} from "./families/stable-diffusion/autoencoder";
+export {
+  StableDiffusionVaeAttentionBlock2d,
+  StableDiffusionVaeDownEncoderBlock2d,
+  StableDiffusionVaeDownsample2d,
+  StableDiffusionVaeMidBlock2d,
+  StableDiffusionVaeResnetBlock2d,
+  StableDiffusionVaeUpDecoderBlock2d,
+  StableDiffusionVaeUpsample2d,
+} from "./families/stable-diffusion/autoencoder-blocks";
+export {
   loadStableDiffusionComponentConfigs,
   parseStableDiffusionAutoencoderConfig,
   parseStableDiffusionUNetConfig,
