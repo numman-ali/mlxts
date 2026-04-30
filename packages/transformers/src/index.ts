@@ -11,6 +11,21 @@ export {
   type ChatToolCall,
   loadChatTemplate,
 } from "./chat-template";
+export { parseCLIPTextConfig } from "./families/clip/config";
+export {
+  CLIPTextEmbeddings,
+  CLIPTextModel,
+  CLIPTextModelWithProjection,
+  disposeCLIPTextModelOutput,
+  disposeCLIPTextProjectionOutput,
+} from "./families/clip/model";
+export type {
+  CLIPHiddenActivation,
+  CLIPTextConfig,
+  CLIPTextModelOptions,
+  CLIPTextModelOutput,
+  CLIPTextProjectionOutput,
+} from "./families/clip/types";
 export {
   loadQwen3_5ForConditionalGeneration,
   shouldLoadQwen3_5ForConditionalGeneration,

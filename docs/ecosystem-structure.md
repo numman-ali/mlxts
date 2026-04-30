@@ -202,6 +202,8 @@ parsers and model constructors. Shared LLaMA-like structure lives under
 under `families/<family>/`. The `CausalLM` contract is the right boundary for
 all autoregressive models — MoE is a block-level swap, multimodal understanding
 is a composition layer. See [design-reasoning.md § Contract Boundaries](../docs/design-reasoning.md#contract-boundaries).
+CLIP text encoders live under `families/clip/` as explicit encoder surfaces for
+conditioning and multimodal composition; they are not registered as CausalLMs.
 
 #### `@mlxts/diffusion` (Phase 10)
 

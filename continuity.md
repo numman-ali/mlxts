@@ -110,6 +110,13 @@ major product-agent focus on package-owned CLIs and future PI-agent integration.
   explicit rejection for required/enabled safety-checker semantics. Real
   checkpoint image proof remains the next diffusion tranche once a conditioning
   source and finite AXI proof command are in place.
+- **Phase 10 CLIP conditioning**: `@mlxts/transformers` now owns a
+  `families/clip/` text encoder surface with CLIP text config parsing, causal
+  text attention, quick GELU, EOS pooling, projected text features, and retained
+  hidden-state outputs for SDXL. It is intentionally outside the CausalLM
+  registry. Weight loading, CLIP vocab/merges tokenization, and the higher-level
+  Stable Diffusion conditioning composer remain the next prompt-conditioning
+  steps.
 - **Qwen conditional serving**: top-level Qwen 3.5 / 3.6 conditional
   checkpoints expose the Qwen text batch-cache surface for text-only continuous
   serving. Media/content requests still route as `media_input` and stay off
