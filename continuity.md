@@ -174,6 +174,11 @@ Full evidence ladder lives in
   `bun run examples/train-proof/verify-report.ts <report.json>` emits compact
   structured stdout success/error bodies, exits `2` for usage errors, and is
   covered by `bun run check:training-proofs`.
+- The package-local serve matrix is now AXI-shaped:
+  `bun run --filter '@mlxts/serve' regression:serve` keeps focused test and
+  benchmark progress on stderr, emits compact structured stdout pass/error
+  summaries, and preserves JSON reports under `--report-dir` for real-model
+  smoke rungs.
 - Prompt-prefix cache byte-budget retention passed focused serve/transformer
   cache tests (`113 pass`), `bun run typecheck`, and
   `bun run regression:qwen-gemma -- --profile quick` (`84` transformer focused

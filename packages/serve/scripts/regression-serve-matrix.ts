@@ -22,6 +22,32 @@ type CliOptions = {
   requestTimeoutMs: number;
 };
 
+type ServeRegressionCommand = { kind: "help" } | { kind: "run"; options: CliOptions };
+
+type ServeRegressionRunReport = {
+  label: string;
+  modelId: string;
+  rung: string;
+  protocol: ProtocolMode;
+  stream: boolean;
+  reportPath: string;
+};
+
+type ServeRegressionResult = {
+  focusedChecks: "passed";
+  realModels: boolean;
+  reports: ServeRegressionRunReport[];
+};
+
+type ServeRegressionRuntime = {
+  stdout?: (text: string) => void;
+  stderr?: (text: string) => void;
+  runRegression?: (
+    options: CliOptions,
+    progress: (text: string) => void,
+  ) => Promise<ServeRegressionResult>;
+};
+
 export type ServeRegressionBudget = {
   minCompletionTps: number;
   minPostTtftCompletionTps?: number;
@@ -109,19 +135,29 @@ const FOCUSED_TESTS = [
   "packages/serve/scripts/regression-serve-matrix.test.ts",
 ];
 
-function usage(): string {
+class ServeRegressionUsageError extends Error {}
+
+export function formatServeRegressionUsage(): string {
   return [
-    "Usage: bun run packages/serve/scripts/regression-serve-matrix.ts [options]",
-    "",
-    "Options:",
-    "  --real-models             Run cached Qwen/Gemma endpoint smoke benchmarks.",
-    "  --fairness-smoke         Add mixed long-prefill/short-arrival serving guardrails; implies --real-models.",
-    "  --capability-smoke        Add longer output/context rungs; implies --real-models.",
-    "  --qwen-model <id>         Qwen model id/path.",
-    "  --gemma4-model <id>       Gemma 4 model id/path.",
-    "  --report-dir <path>       Directory for benchmark JSON evidence.",
-    "  --request-timeout-ms <n>  Client timeout per benchmark request.",
-    "  --allow-download          Allow Hub downloads; default is cached/local only.",
+    "description: Run the @mlxts/serve regression matrix and optional real-model smoke benchmarks",
+    "usage[3]:",
+    "  bun run --filter '@mlxts/serve' regression:serve",
+    "  bun run packages/serve/scripts/regression-serve-matrix.ts --real-models",
+    "  bun run packages/serve/scripts/regression-serve-matrix.ts --capability-smoke",
+    "options[9]{flag,description}:",
+    '  "--real-models","Run cached Qwen/Gemma endpoint smoke benchmarks"',
+    '  "--fairness-smoke","Add mixed long-prefill/short-arrival guardrails; implies --real-models"',
+    '  "--capability-smoke","Add longer output/context rungs; implies --real-models"',
+    '  "--qwen-model <id>","Qwen model id/path"',
+    '  "--gemma4-model <id>","Gemma 4 model id/path"',
+    '  "--report-dir <path>","Directory for benchmark JSON evidence"',
+    '  "--request-timeout-ms <n>","Client timeout per benchmark request; default 3600000"',
+    '  "--allow-download","Allow Hub downloads; default is cached/local only"',
+    '  "--help","Show this help"',
+    "exit_codes[3]{code,meaning}:",
+    '  0,"regression passed"',
+    '  1,"runtime or regression failure"',
+    '  2,"usage error"',
   ].join("\n");
 }
 
@@ -140,31 +176,39 @@ function defaultOptions(): CliOptions {
 
 function readStringFlag(args: readonly string[], index: number, flag: string): string {
   const value = args[index + 1];
-  if (value === undefined || value.startsWith("--")) {
-    throw new Error(`${flag} requires a value.\n\n${usage()}`);
+  if (value === undefined || value.trim() === "" || value.startsWith("-")) {
+    throw new ServeRegressionUsageError(`${flag} requires a value.`);
   }
   return value;
 }
 
 function readPositiveIntegerFlag(args: readonly string[], index: number, flag: string): number {
-  const value = Number.parseInt(readStringFlag(args, index, flag), 10);
+  const rawValue = args[index + 1]?.trim();
+  if (rawValue === undefined || rawValue === "" || rawValue.startsWith("--")) {
+    throw new ServeRegressionUsageError(`${flag} requires a value.`);
+  }
+  const value = /^\d+$/.test(rawValue) ? Number(rawValue) : Number.NaN;
   if (!Number.isInteger(value) || value <= 0) {
-    throw new Error(`${flag} must be a positive integer.`);
+    throw new ServeRegressionUsageError(`${flag} must be a positive integer.`);
   }
   return value;
 }
 
-export function parseServeRegressionArgs(argv: readonly string[]): CliOptions {
+export function parseServeRegressionArgs(argv: readonly string[]): ServeRegressionCommand {
+  if (argv.length === 1 && (argv[0] === "--help" || argv[0] === "-h")) {
+    return { kind: "help" };
+  }
   const options = defaultOptions();
 
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
+    if (arg === undefined) {
+      throw new ServeRegressionUsageError("argument parsing reached an empty slot.");
+    }
     switch (arg) {
       case "--help":
       case "-h":
-        console.log(usage());
-        process.exit(0);
-        return options;
+        return { kind: "help" };
       case "--real-models":
         options.realModels = true;
         break;
@@ -197,11 +241,13 @@ export function parseServeRegressionArgs(argv: readonly string[]): CliOptions {
         options.allowDownload = true;
         break;
       default:
-        throw new Error(`Unknown option: ${arg}\n\n${usage()}`);
+        throw new ServeRegressionUsageError(
+          arg.startsWith("-") ? `unknown option "${arg}".` : `unexpected argument "${arg}".`,
+        );
     }
   }
 
-  return options;
+  return { kind: "run", options };
 }
 
 function inheritedStringEnv(): Record<string, string> {
@@ -213,22 +259,56 @@ function inheritedStringEnv(): Record<string, string> {
   );
 }
 
-async function runCommand(label: string, args: readonly string[]): Promise<void> {
-  console.log(`[serve-regression] ${label}: ${args.join(" ")}`);
+async function pipeReadableToProgress(
+  stream: ReadableStream<Uint8Array> | null,
+  progress: (text: string) => void,
+): Promise<void> {
+  if (stream === null) {
+    return;
+  }
+  const decoder = new TextDecoder();
+  let pending = "";
+  for await (const chunk of stream) {
+    pending += decoder.decode(chunk, { stream: true });
+    let newline = pending.indexOf("\n");
+    while (newline !== -1) {
+      const line = pending.slice(0, newline);
+      if (line !== "") {
+        progress(line);
+      }
+      pending = pending.slice(newline + 1);
+      newline = pending.indexOf("\n");
+    }
+  }
+  pending += decoder.decode();
+  if (pending !== "") {
+    progress(pending);
+  }
+}
+
+async function runCommand(
+  label: string,
+  args: readonly string[],
+  progress: (text: string) => void,
+): Promise<void> {
+  progress(`[serve-regression] ${label}: ${args.join(" ")}`);
   const child = Bun.spawn([...args], {
     cwd: new URL("../../..", import.meta.url).pathname,
     env: inheritedStringEnv(),
-    stdout: "inherit",
-    stderr: "inherit",
+    stdout: "pipe",
+    stderr: "pipe",
   });
+  const stdout = pipeReadableToProgress(child.stdout, progress);
+  const stderr = pipeReadableToProgress(child.stderr, progress);
   const exitCode = await child.exited;
+  await Promise.all([stdout, stderr]);
   if (exitCode !== 0) {
     throw new Error(`[serve-regression] ${label} failed with exit code ${exitCode}.`);
   }
 }
 
-async function runFocusedUnitChecks(): Promise<void> {
-  await runCommand("focused unit checks", ["bun", "test", ...FOCUSED_TESTS]);
+async function runFocusedUnitChecks(progress: (text: string) => void): Promise<void> {
+  await runCommand("focused unit checks", ["bun", "test", ...FOCUSED_TESTS], progress);
 }
 
 function sanitizeLabel(label: string): string {
@@ -1637,7 +1717,11 @@ function benchmarkRungArgs(spec: ServeRegressionSpec): [string, string] {
   throw new Error(`[serve-regression] ${spec.label} must set rungs or mixedRungs.`);
 }
 
-async function runServeBenchmark(spec: ServeRegressionSpec, options: CliOptions): Promise<void> {
+async function runServeBenchmark(
+  spec: ServeRegressionSpec,
+  options: CliOptions,
+  progress: (text: string) => void,
+): Promise<ServeRegressionRunReport> {
   mkdirSync(options.reportDir, { recursive: true });
   const reportPath = join(options.reportDir, `${sanitizeLabel(spec.label)}.json`);
   const [rungFlag, rungSpec] = benchmarkRungArgs(spec);
@@ -1689,37 +1773,143 @@ async function runServeBenchmark(spec: ServeRegressionSpec, options: CliOptions)
     args.push("--allow-download");
   }
 
-  await runCommand(spec.label, args);
+  await runCommand(spec.label, args, progress);
   if (!existsSync(reportPath)) {
     throw new Error(`[serve-regression] ${spec.label} did not write ${reportPath}.`);
   }
   assertServeReportBudget(spec.label, readBenchmarkReport(reportPath), spec.budget);
-  console.log(`[serve-regression] ${spec.label} passed budgets report=${reportPath}`);
+  progress(`[serve-regression] ${spec.label} passed budgets report=${reportPath}`);
+  return {
+    label: spec.label,
+    modelId: spec.modelId,
+    rung: spec.mixedRungs ?? spec.rungs ?? "unknown",
+    protocol: spec.protocol ?? "completions",
+    stream: spec.stream,
+    reportPath,
+  };
 }
 
-async function runRealModelSmoke(options: CliOptions): Promise<void> {
+async function runRealModelSmoke(
+  options: CliOptions,
+  progress: (text: string) => void,
+): Promise<ServeRegressionRunReport[]> {
   const specs = [
     ...baseSpecs(options),
     ...protocolHealthSpecs(options),
     ...(options.fairnessSmoke ? fairnessSpecs(options) : []),
     ...(options.capabilitySmoke ? capabilitySpecs(options) : []),
   ];
+  const reports: ServeRegressionRunReport[] = [];
   for (const spec of specs) {
-    await runServeBenchmark(spec, options);
+    reports.push(await runServeBenchmark(spec, options, progress));
   }
+  return reports;
 }
 
-export async function runServeRegression(options: CliOptions): Promise<void> {
-  await runFocusedUnitChecks();
+export async function runServeRegression(
+  options: CliOptions,
+  progress: (text: string) => void = console.error,
+): Promise<ServeRegressionResult> {
+  await runFocusedUnitChecks(progress);
+  const reports: ServeRegressionRunReport[] = [];
   if (options.realModels) {
     using _runtimeLock = acquireRuntimeCommandLock("regression:serve");
-    await runRealModelSmoke(options);
+    reports.push(...(await runRealModelSmoke(options, progress)));
+  }
+  return {
+    focusedChecks: "passed",
+    realModels: options.realModels,
+    reports,
+  };
+}
+
+function toon(value: string | number | boolean | null): string {
+  return typeof value === "string" ? JSON.stringify(value) : String(value);
+}
+
+function formatMultilineField(name: string, value: string): string[] {
+  const lines = value.split(/\r?\n/);
+  if (lines.length === 1) {
+    return [`  ${name}: ${toon(value)}`];
+  }
+  return [`  ${name}: |`, ...lines.map((line) => `    ${line}`)];
+}
+
+export function formatServeRegressionSuccess(result: ServeRegressionResult): string {
+  const reportState =
+    result.realModels && result.reports.length > 0
+      ? `passed:${result.reports.length}`
+      : result.realModels
+        ? "passed:0"
+        : "skipped";
+  return [
+    "serve_regression:",
+    "  status: passed",
+    `  focused_checks: ${result.focusedChecks}`,
+    `  real_model_smoke: ${reportState}`,
+    `  reports: ${result.reports.length}`,
+    `reports[${result.reports.length}]{label,model_id,rung,protocol,stream,path}:`,
+    ...result.reports.map((report) =>
+      [
+        `  ${toon(report.label)}`,
+        toon(report.modelId),
+        toon(report.rung),
+        toon(report.protocol),
+        toon(report.stream),
+        toon(report.reportPath),
+      ].join(","),
+    ),
+  ].join("\n");
+}
+
+export function formatServeRegressionError(message: string, help: string): string {
+  return ["error:", ...formatMultilineField("message", message), `help: ${toon(help)}`].join("\n");
+}
+
+export async function runServeRegressionCommand(
+  argv: readonly string[],
+  runtime: ServeRegressionRuntime = {},
+): Promise<number> {
+  const stdout = runtime.stdout ?? console.log;
+  const stderr = runtime.stderr ?? console.error;
+  const runRegression = runtime.runRegression ?? runServeRegression;
+  let command: ServeRegressionCommand;
+
+  try {
+    command = parseServeRegressionArgs(argv);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    stdout(
+      formatServeRegressionError(
+        message,
+        "bun run packages/serve/scripts/regression-serve-matrix.ts [--real-models]",
+      ),
+    );
+    return error instanceof ServeRegressionUsageError ? 2 : 1;
+  }
+
+  if (command.kind === "help") {
+    stdout(formatServeRegressionUsage());
+    return 0;
+  }
+
+  try {
+    const result = await runRegression(command.options, stderr);
+    stdout(formatServeRegressionSuccess(result));
+    return 0;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    stdout(
+      formatServeRegressionError(
+        message,
+        "review stderr and rerun the serve regression command after fixing the failure",
+      ),
+    );
+    return 1;
   }
 }
 
 if (import.meta.main) {
-  runServeRegression(parseServeRegressionArgs(Bun.argv.slice(2))).catch((error) => {
-    console.error(error instanceof Error ? error.message : String(error));
-    process.exit(1);
-  });
+  const exitCode = await runServeRegressionCommand(Bun.argv.slice(2));
+  process.exit(exitCode);
 }

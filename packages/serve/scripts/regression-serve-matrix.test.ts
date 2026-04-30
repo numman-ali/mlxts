@@ -4,8 +4,12 @@ import type { BenchmarkReport, TrialMetrics } from "./benchmark-serve";
 import type { ServeBenchmarkRung } from "./benchmark-serve-options";
 import {
   assertServeReportBudget,
+  formatServeRegressionError,
+  formatServeRegressionSuccess,
+  formatServeRegressionUsage,
   parseServeRegressionArgs,
   protocolHealthBudget,
+  runServeRegressionCommand,
   type ServeRegressionBudget,
 } from "./regression-serve-matrix";
 
@@ -233,13 +237,16 @@ const budget: ServeRegressionBudget = {
 describe("serve regression matrix", () => {
   test("parses cheap, real-model, and capability options", () => {
     expect(parseServeRegressionArgs([])).toMatchObject({
-      realModels: false,
-      fairnessSmoke: false,
-      capabilitySmoke: false,
-      qwenModel: "mlx-community/Qwen3.6-27B-4bit",
-      gemma4Model: "google/gemma-4-E2B-it",
-      reportDir: ".tmp/serve-regression",
-      allowDownload: false,
+      kind: "run",
+      options: {
+        realModels: false,
+        fairnessSmoke: false,
+        capabilitySmoke: false,
+        qwenModel: "mlx-community/Qwen3.6-27B-4bit",
+        gemma4Model: "google/gemma-4-E2B-it",
+        reportDir: ".tmp/serve-regression",
+        allowDownload: false,
+      },
     });
 
     expect(
@@ -256,21 +263,144 @@ describe("serve regression matrix", () => {
         "--allow-download",
       ]),
     ).toMatchObject({
-      realModels: true,
-      fairnessSmoke: true,
-      capabilitySmoke: true,
-      qwenModel: "qwen",
-      gemma4Model: "gemma",
-      reportDir: ".tmp/reports",
-      requestTimeoutMs: 120000,
-      allowDownload: true,
+      kind: "run",
+      options: {
+        realModels: true,
+        fairnessSmoke: true,
+        capabilitySmoke: true,
+        qwenModel: "qwen",
+        gemma4Model: "gemma",
+        reportDir: ".tmp/reports",
+        requestTimeoutMs: 120000,
+        allowDownload: true,
+      },
     });
 
     expect(parseServeRegressionArgs(["--fairness-smoke"])).toMatchObject({
-      realModels: true,
-      fairnessSmoke: true,
-      capabilitySmoke: false,
+      kind: "run",
+      options: {
+        realModels: true,
+        fairnessSmoke: true,
+        capabilitySmoke: false,
+      },
     });
+  });
+
+  test("parses help and rejects usage errors without exiting", () => {
+    expect(parseServeRegressionArgs(["--help"])).toEqual({ kind: "help" });
+    expect(parseServeRegressionArgs(["-h"])).toEqual({ kind: "help" });
+    expect(() => parseServeRegressionArgs(["--qwen-model", ""])).toThrow(
+      "--qwen-model requires a value.",
+    );
+    expect(() => parseServeRegressionArgs(["--request-timeout-ms", "0"])).toThrow(
+      "--request-timeout-ms must be a positive integer.",
+    );
+    expect(() => parseServeRegressionArgs(["--request-timeout-ms", "1.5"])).toThrow(
+      "--request-timeout-ms must be a positive integer.",
+    );
+    expect(() => parseServeRegressionArgs(["--request-timeout-ms", "123abc"])).toThrow(
+      "--request-timeout-ms must be a positive integer.",
+    );
+    expect(() => parseServeRegressionArgs(["-x"])).toThrow('unknown option "-x".');
+  });
+
+  test("formats compact AXI success and error output", () => {
+    expect(
+      formatServeRegressionSuccess({
+        focusedChecks: "passed",
+        realModels: true,
+        reports: [
+          {
+            label: "qwen36-completions-stream",
+            modelId: "mlx-community/Qwen3.6-27B-4bit",
+            rung: "1024x128@1",
+            protocol: "completions",
+            stream: true,
+            reportPath: ".tmp/serve-regression/qwen36-completions-stream.json",
+          },
+        ],
+      }),
+    ).toBe(
+      [
+        "serve_regression:",
+        "  status: passed",
+        "  focused_checks: passed",
+        "  real_model_smoke: passed:1",
+        "  reports: 1",
+        "reports[1]{label,model_id,rung,protocol,stream,path}:",
+        '  "qwen36-completions-stream","mlx-community/Qwen3.6-27B-4bit","1024x128@1","completions",true,".tmp/serve-regression/qwen36-completions-stream.json"',
+      ].join("\n"),
+    );
+    expect(
+      formatServeRegressionSuccess({
+        focusedChecks: "passed",
+        realModels: false,
+        reports: [],
+      }),
+    ).toContain("  real_model_smoke: skipped");
+    expect(formatServeRegressionError("bad flag", "rerun")).toBe(
+      ["error:", '  message: "bad flag"', 'help: "rerun"'].join("\n"),
+    );
+    expect(formatServeRegressionError("bad\nflag", "rerun")).toContain("  message: |");
+  });
+
+  test("runs help, success, usage error, and runtime error paths with AXI stdout", async () => {
+    const helpStdout: string[] = [];
+    expect(
+      await runServeRegressionCommand(["--help"], {
+        stdout: (text) => helpStdout.push(text),
+      }),
+    ).toBe(0);
+    expect(helpStdout.join("\n")).toBe(formatServeRegressionUsage());
+
+    const stdout: string[] = [];
+    const stderr: string[] = [];
+    expect(
+      await runServeRegressionCommand(["--real-models"], {
+        stdout: (text) => stdout.push(text),
+        stderr: (text) => stderr.push(text),
+        runRegression: async (options, progress) => {
+          expect(options.realModels).toBe(true);
+          progress("[serve-regression] focused unit checks passed");
+          return {
+            focusedChecks: "passed",
+            realModels: true,
+            reports: [
+              {
+                label: "qwen36-completions-stream",
+                modelId: "qwen",
+                rung: "1024x128@1",
+                protocol: "completions",
+                stream: true,
+                reportPath: ".tmp/qwen.json",
+              },
+            ],
+          };
+        },
+      }),
+    ).toBe(0);
+    expect(stderr).toEqual(["[serve-regression] focused unit checks passed"]);
+    expect(stdout.join("\n")).toContain("serve_regression:");
+    expect(stdout.join("\n")).toContain('  "qwen36-completions-stream","qwen"');
+
+    const usageStdout: string[] = [];
+    expect(
+      await runServeRegressionCommand(["--request-timeout-ms", "0"], {
+        stdout: (text) => usageStdout.push(text),
+      }),
+    ).toBe(2);
+    expect(usageStdout.join("\n")).toContain("--request-timeout-ms must be a positive integer.");
+
+    const runtimeStdout: string[] = [];
+    expect(
+      await runServeRegressionCommand([], {
+        stdout: (text) => runtimeStdout.push(text),
+        runRegression: async () => {
+          throw new Error("focused check failed");
+        },
+      }),
+    ).toBe(1);
+    expect(runtimeStdout.join("\n")).toContain("focused check failed");
   });
 
   test("accepts reports that clear serving budgets", () => {
