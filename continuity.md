@@ -164,6 +164,12 @@ Full evidence ladder lives in
   `mlx-community/gemma-4-26b-a4b-it-4bit` with server prompt-cache hits and
   nonzero read tokens; the generic MoE real profile stops on the dense Qwen
   active-memory budget before generation, not on cache behavior.
+- Agent-cache regression gate landed on 2026-04-30:
+  `bun run regression:agent-cache` automates divergent Pi-style A/B chat
+  sessions, warm replay cache hits, OpenAI-compatible cached-token usage, and
+  same-server Qwen+Gemma isolation. Dense Qwen/Gemma plus multi-dense passed;
+  Qwen/Gemma MoE singles and same-server multi-MoE also passed with warm
+  prompt-cache hits and nonzero read tokens.
 - Prompt-prefix cache byte-budget retention passed focused serve/transformer
   cache tests (`113 pass`), `bun run typecheck`, and
   `bun run regression:qwen-gemma -- --profile quick` (`84` transformer focused

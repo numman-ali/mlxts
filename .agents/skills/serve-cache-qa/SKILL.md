@@ -65,6 +65,10 @@ Real checkpoint proof, when cached models and runtime budget are available:
 - repeated Pi-style chat turn for one session, then two divergent sessions, then
   exact A/B/A replay
 
+Use `bun run regression:agent-cache -- --scenarios qwen-dense,gemma-dense,multi-dense`
+for the automated dense proof. Add `--include-moe` when the Qwen/Gemma MoE
+checkpoints and memory budget are available.
+
 Use `cmux` for Pi/server smokes so server logs and two client terminals remain
 visible. Heavy MLX commands remain exclusive.
 

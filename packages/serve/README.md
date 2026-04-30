@@ -564,6 +564,16 @@ evidence, client-observed streaming responsiveness, server-side stream writer
 evidence, and continuous scheduler counters, including concurrent `@2` streamed
 completions, so batching claims stay tied to observed endpoint behavior.
 
+For Pi-style repeated chat sessions, run the agent-cache regression:
+
+```bash
+bun run regression:agent-cache -- --scenarios qwen-dense,gemma-dense,multi-dense
+```
+
+It runs divergent A/B chat sessions cold, replays both warm, and fails unless
+both warm replays produce server prompt-cache hits plus OpenAI-compatible cached
+token usage. Add `--include-moe` for the proven Qwen/Gemma MoE checkpoints.
+
 ## Engine Primitives
 
 The package starts with OpenAI completions, chat completions, narrow Responses,

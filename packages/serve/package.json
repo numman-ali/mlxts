@@ -46,6 +46,7 @@
     "test": "bun test",
     "test:coverage": "bun test --coverage",
     "bench": "bun run scripts/benchmark-serve.ts",
+    "regression:agent-cache": "bun run scripts/regression-agent-cache.ts",
     "regression:lazy-pool-pressure": "bun run scripts/regression-lazy-pool-pressure.ts",
     "regression:serve": "bun run scripts/regression-serve-matrix.ts",
     "build": "bun run ../../scripts/build-package.ts --entry src/index.ts --entry src/cli.ts"

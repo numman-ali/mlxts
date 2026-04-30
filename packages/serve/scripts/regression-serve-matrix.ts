@@ -105,6 +105,7 @@ const FOCUSED_TESTS = [
   "packages/serve/scripts/benchmark-serve-options.test.ts",
   "packages/serve/scripts/benchmark-serve-completions.test.ts",
   "packages/serve/scripts/benchmark-serve.test.ts",
+  "packages/serve/scripts/regression-agent-cache.test.ts",
   "packages/serve/scripts/regression-serve-matrix.test.ts",
 ];
 

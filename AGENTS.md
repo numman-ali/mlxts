@@ -264,6 +264,9 @@ bun run bench:generation:parity
 bun run bench:generation:context
 bun run bench:serve
 
+# Agent-cache regression for Pi-style repeated chat sessions
+bun run regression:agent-cache
+
 # Focused Qwen/Gemma regression profiles
 bun run regression:qwen-gemma -- --profile quick
 bun run regression:qwen-gemma -- --profile real
