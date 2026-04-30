@@ -4,6 +4,19 @@ export {
   DiffusionWeightMismatchError,
 } from "./errors";
 export {
+  type FluxComponentConfigs,
+  type FluxRopeAxes,
+  type FluxTransformerConfig,
+  loadFluxComponentConfigs,
+  parseFluxTransformerConfig,
+} from "./families/flux/config";
+export {
+  createFluxLatentImageIds,
+  fluxPackedLatentShape,
+  packFluxLatents,
+  unpackFluxLatents,
+} from "./families/flux/latents";
+export {
   StableDiffusionAutoencoderKL,
   StableDiffusionVaeDecoder,
   StableDiffusionVaeEncoder,
