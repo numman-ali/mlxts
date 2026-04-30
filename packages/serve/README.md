@@ -158,9 +158,9 @@ transformer engine decodes generated tokens into SSE text; the default is `1`
 for interactive chat responsiveness, while larger values can reduce tokenizer
 work on long-output throughput runs.
 `--prompt-prefix-cache-max-entries <n>` bounds retained prompt-boundary
-snapshots per served model. The default keeps one snapshot; raise it
-deliberately for divergent repeated-turn agents that should reuse more than the
-most recent compatible prompt prefix.
+snapshots per served model. The default keeps four snapshots so a small set of
+active agent sessions can replay exact continuation prefixes without evicting
+each other; raise it deliberately for larger divergent repeated-turn workloads.
 `--prompt-prefix-cache-max-bytes <n>` bounds the estimated retained tensor bytes
 for those snapshots per served model. Oversized snapshots are disposed instead
 of being retained.
@@ -377,7 +377,7 @@ const server = await serveModel({
   batchWindowMs: 2,
   streamDecodeInterval: 1,
   maxConcurrentRequests: 1,
-  promptPrefixCacheMaxEntries: 1,
+  promptPrefixCacheMaxEntries: 4,
 });
 
 console.log(server.endpoint);
@@ -400,7 +400,7 @@ const server = await serveModels({
   ],
   port: 8000,
   maxConcurrentRequests: 1,
-  promptPrefixCacheMaxEntries: 1,
+  promptPrefixCacheMaxEntries: 4,
 });
 
 console.log(server.modelIds);

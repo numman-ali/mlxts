@@ -44,11 +44,12 @@ major product-agent focus on package-owned CLIs and future PI-agent integration.
   from client-observed TTFT. Reports now also expose protocol usage cache
   tokens plus server-event prompt-prefix cache hits, writes, and read/write
   tokens.
-- **Prompt-prefix cache retention**: serve keeps the default at one retained
-  prompt-boundary snapshot per served model, but `promptPrefixCacheMaxEntries`
-  / `--prompt-prefix-cache-max-entries` and `promptPrefixCacheMaxBytes` /
-  `--prompt-prefix-cache-max-bytes` now bound retained snapshots by count and
-  live estimated tensor bytes without changing family-owned snapshot/fork cache
+- **Prompt-prefix cache retention**: serve now defaults to four retained
+  prompt-boundary snapshots per served model so small parallel Pi-style agent
+  sessions can stay warm. `promptPrefixCacheMaxEntries` /
+  `--prompt-prefix-cache-max-entries` and `promptPrefixCacheMaxBytes` /
+  `--prompt-prefix-cache-max-bytes` bound retained snapshots by count and live
+  estimated tensor bytes without changing family-owned snapshot/fork cache
   semantics. Full-KV, trimmable retained snapshots share complete 64-token
   tensor blocks across prompt-prefix descendants; active decode storage, Qwen
   hybrid caches, and Gemma sliding/layer-pattern semantics are unchanged.
@@ -150,11 +151,19 @@ Full evidence ladder lives in
   `continuous:eligible` for text requests (`30.972` Qwen post-TTFT tok/s,
   `82.759` Gemma post-TTFT tok/s); media-shaped Anthropic requests route
   through the existing single-request content path.
-- Prompt-prefix cache retention knob passed focused serve tests, all
-  `packages/serve` tests, `bun run validate`, and
-  `bun run regression:qwen-gemma -- --profile quick`. Default retention remains
-  one snapshot, so existing real-regression prompt-cache requirements stay
-  unchanged.
+- Prompt-prefix cache retention now defaults to four retained prompt-boundary
+  snapshots per served model, preserving small parallel Pi-style A/B/A agent
+  sessions for exact-boundary Gemma layer-pattern and Qwen hybrid caches without
+  changing family-owned snapshot/fork semantics. `--prompt-prefix-cache-max-bytes`
+  remains the operator cap for large-context memory tradeoffs.
+- Prompt-prefix cache retention proof on 2026-04-30: `bun run validate`,
+  `bun run regression:qwen-gemma -- --profile quick`, and dense
+  `bun run regression:qwen-gemma -- --profile real --report-dir .tmp/qwen-gemma-regression-cache-retention-dense`
+  passed. Targeted MoE chat serving smokes passed for
+  `unsloth/Qwen3.6-35B-A3B-UD-MLX-4bit` and
+  `mlx-community/gemma-4-26b-a4b-it-4bit` with server prompt-cache hits and
+  nonzero read tokens; the generic MoE real profile stops on the dense Qwen
+  active-memory budget before generation, not on cache behavior.
 - Prompt-prefix cache byte-budget retention passed focused serve/transformer
   cache tests (`113 pass`), `bun run typecheck`, and
   `bun run regression:qwen-gemma -- --profile quick` (`84` transformer focused

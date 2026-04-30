@@ -26,6 +26,7 @@ import {
   promptPrefixCacheEntryEstimatedByteSize,
   promptPrefixCacheEntryMetadata,
   promptPrefixCacheIdentitiesCompatible,
+  promptPrefixCacheIdentitiesEqual,
   promptPrefixCacheMatchTypeFor,
   shouldEvictPromptPrefixCacheEntry,
 } from "./prefix-cache-entry";
@@ -267,6 +268,14 @@ export class PromptPrefixCache implements Disposable {
     }
 
     const entryTokenIds = tokenIds.slice(0, snapshot.offset);
+    const duplicate = this.#findExactEntry(entryTokenIds, identity);
+    if (duplicate !== undefined) {
+      this.#replaceEntrySnapshot(duplicate, snapshot);
+      duplicate.lastUsed = ++this.#clock;
+      this.#evictOverflow();
+      return duplicate.tokenIds.length;
+    }
+
     let tokenBlocks: PromptPrefixTokenBlockHandle;
     try {
       tokenBlocks = this.#blockStore.retain(entryTokenIds);
@@ -285,6 +294,27 @@ export class PromptPrefixCache implements Disposable {
     this.#blockIndex.add(entry);
     this.#evictOverflow();
     return entry.tokenIds.length;
+  }
+
+  #findExactEntry(
+    tokenIds: readonly number[],
+    identity: PromptPrefixCacheIdentity | undefined,
+  ): PromptPrefixCacheEntry | undefined {
+    for (const entry of this.#entries) {
+      if (
+        entry.tokenIds.length === tokenIds.length &&
+        commonPrefixLength(entry.tokenIds, tokenIds) === tokenIds.length &&
+        promptPrefixCacheIdentitiesEqual(entry.identity, identity)
+      ) {
+        return entry;
+      }
+    }
+    return undefined;
+  }
+
+  #replaceEntrySnapshot(entry: PromptPrefixCacheEntry, snapshot: TransformerCacheSnapshot): void {
+    entry.snapshot[Symbol.dispose]();
+    entry.snapshot = snapshot;
   }
 
   [Symbol.dispose](): void {

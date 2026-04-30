@@ -68,7 +68,7 @@ describe("serve CLI args", () => {
         activeDecodeStepsPerPrefillChunk: 16,
         streamDecodeInterval: 1,
         maxConcurrentRequests: 1,
-        promptPrefixCacheMaxEntries: 1,
+        promptPrefixCacheMaxEntries: 4,
         localImageRoots: [],
         remoteImageHosts: [],
         gpuMemoryUtilization: 0.9,
@@ -537,7 +537,7 @@ describe("serve CLI args", () => {
       activeDecodeStepsPerPrefillChunk: 16,
       streamDecodeInterval: 1,
       maxConcurrentRequests: 1,
-      promptPrefixCacheMaxEntries: 1,
+      promptPrefixCacheMaxEntries: 4,
       modelLoadPolicy: "eager",
       modelPressurePolicy: "reject",
       pinnedModels: [],
@@ -563,7 +563,7 @@ describe("serve CLI args", () => {
       "Model execution lanes: max_in_flight=1",
     );
     expect(formatServeReady("http://127.0.0.1:8000", options)).toContain(
-      "Prompt-prefix cache entries: 1",
+      "Prompt-prefix cache entries: 4",
     );
     expect(formatServeReady("http://127.0.0.1:8000", options)).toContain(
       "Prompt-prefix cache bytes: unbounded",
@@ -1103,7 +1103,7 @@ describe("serve CLI args", () => {
           expect(options.activeDecodeStepsPerPrefillChunk).toBe(16);
           expect(options.streamDecodeInterval).toBe(1);
           expect(options.maxConcurrentRequests).toBe(1);
-          expect(options.promptPrefixCacheMaxEntries).toBe(1);
+          expect(options.promptPrefixCacheMaxEntries).toBe(4);
           expect(options.promptPrefixCacheMaxBytes).toBeUndefined();
           expect(options.localImageRoots).toEqual(["/images"]);
           expect(options.remoteImageHosts).toEqual(["example.com"]);
@@ -1147,7 +1147,7 @@ describe("serve CLI args", () => {
           { source: "repo/qwen", modelId: "qwen" },
         ]);
         expect(options.modelPressurePolicy).toBe("reject");
-        expect(options.promptPrefixCacheMaxEntries).toBe(1);
+        expect(options.promptPrefixCacheMaxEntries).toBe(4);
         expect(options.promptPrefixCacheMaxBytes).toBeUndefined();
         return running;
       },

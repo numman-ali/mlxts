@@ -23,6 +23,26 @@ centers on:
 - **End of session**: append durable learnings to Tier 2, and promote only broadly important items into Tier 1.
 - Keep doctrine in `AGENTS.md` and durable operational learnings in `MEMORY.md`; do not duplicate both unless the repetition is temporary and intentional.
 
+## Repo Skills
+
+Repo-local skills under [`.agents/skills`](./.agents/skills) capture repeatable
+agent operating procedures. Use a skill when the work has a durable workflow,
+debug ladder, CLI contract, QA matrix, or reference pattern that future agents
+must execute rather than rediscover from memory.
+
+- Use skills as procedural automation and memory as durable facts. Do not copy
+  long doctrine into both places.
+- When a runtime incident, repeated debug path, or large product workflow
+  produces a reusable procedure, add or update a concise repo skill and validate
+  it with the skill-creator guidance.
+- Skills stay small, triggerable, and executable. The frontmatter description
+  states when the skill applies; the body gives the shortest useful workflow and
+  links to deeper references only when needed.
+- Treat skills as part of the agentic loop: before broad Phase 7-10 work, check
+  whether a repo-local skill already captures the relevant operating practice;
+  after a tranche teaches a new repeatable practice, improve the skill instead
+  of leaving the learning only in chat history.
+
 ## Architecture Decisions
 
 - **Runtime**: Bun (for FFI, speed, TypeScript-first)

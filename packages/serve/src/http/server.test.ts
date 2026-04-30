@@ -128,7 +128,7 @@ describe("serve fetch handler", () => {
         batchWindowMs: 1,
         streamDecodeInterval: 1,
         maxConcurrentRequests: 1,
-        promptPrefixCacheMaxEntries: 1,
+        promptPrefixCacheMaxEntries: 4,
         gpuMemoryUtilization: 0.9,
       },
     });
@@ -157,7 +157,7 @@ describe("serve fetch handler", () => {
         active_decode_steps_per_prefill_chunk: null,
         stream_decode_interval: 1,
         max_concurrent_requests: 1,
-        prompt_prefix_cache_max_entries: 1,
+        prompt_prefix_cache_max_entries: 4,
         prompt_prefix_cache_max_bytes: null,
         gpu_memory_utilization: 0.9,
       },
@@ -200,7 +200,7 @@ describe("serve fetch handler", () => {
         cache: {
           backend: "managed",
           precision: "model",
-          prompt_prefix_max_entries: 1,
+          prompt_prefix_max_entries: 4,
           prompt_prefix_max_bytes: null,
         },
         attention: {

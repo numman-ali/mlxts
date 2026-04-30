@@ -113,7 +113,7 @@ export type ServeRuntimeStrategyInfo = {
 };
 
 export const DEFAULT_SERVE_PREFILL_STEP_SIZE = 512;
-export const DEFAULT_SERVE_PROMPT_PREFIX_CACHE_MAX_ENTRIES = 1;
+export const DEFAULT_SERVE_PROMPT_PREFIX_CACHE_MAX_ENTRIES = 4;
 
 export const TRANSFORMERS_ENGINE_RUNTIME_DEFAULTS: ServeRuntimeDefaults = {
   maxBatchSize: 1,

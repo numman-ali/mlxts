@@ -79,6 +79,24 @@ export function promptPrefixCacheIdentitiesCompatible(
   );
 }
 
+export function promptPrefixCacheIdentitiesEqual(
+  left: PromptPrefixCacheIdentity | undefined,
+  right: PromptPrefixCacheIdentity | undefined,
+): boolean {
+  if (left === undefined || right === undefined) {
+    return left === undefined && right === undefined;
+  }
+  if (left.contentKeys.length !== right.contentKeys.length) {
+    return false;
+  }
+  for (let index = 0; index < left.contentKeys.length; index += 1) {
+    if (left.contentKeys[index] !== right.contentKeys[index]) {
+      return false;
+    }
+  }
+  return true;
+}
+
 export function disposePromptPrefixCacheEntry(entry: PromptPrefixCacheEntry): void {
   try {
     entry.snapshot[Symbol.dispose]();

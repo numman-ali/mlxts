@@ -15,6 +15,7 @@ import {
   type TransformerCacheForkOptions,
   type TransformerCacheSnapshot,
 } from "@mlxts/transformers";
+import { createModelRouterGenerationEngine } from "../model-loading/router";
 import type { GenerationStreamEvent, NormalizedGenerationRequest, ServeEvent } from "../types";
 import { createTransformersGenerationEngine } from "./index";
 import { enforceGenerationMemoryBudget } from "./shared";
@@ -305,16 +306,18 @@ class CountingCache implements TransformerCache {
 
 class SnapshotCountingModel extends TinyModel {
   readonly snapshots: CountingCacheSnapshot[] = [];
+  readonly #cacheLayerKinds: readonly CacheLayerKind[];
 
   constructor(
     config: TinyModelConfig = {},
     readonly trimmableCache = true,
   ) {
     super(config);
+    this.#cacheLayerKinds = config.layerKinds ?? ["full"];
   }
 
   override createCache(): TransformerCache {
-    return new CountingCache(this.snapshots, 0, this.trimmableCache);
+    return new CountingCache(this.snapshots, 0, this.trimmableCache, this.#cacheLayerKinds);
   }
 }
 
@@ -1448,6 +1451,57 @@ describe("transformers generation engine", () => {
     });
   });
 
+  test("keeps parallel exact-boundary agent sessions warm by default", async () => {
+    using model = new SnapshotCountingModel(
+      { family: "gemma", modelType: "gemma4", layerKinds: ["full", "sliding"] },
+      false,
+    );
+    const tokenizer = new CharCodeTokenizer();
+    const events: ServeEvent[] = [];
+    const engine = createTransformersGenerationEngine({
+      model,
+      tokenizer,
+      interactionProfile: contentOnlyChatProfile,
+      onEvent(event) {
+        events.push(event);
+      },
+    });
+    const request = (id: string, content: string): NormalizedGenerationRequest => ({
+      id,
+      model: "tiny",
+      input: {
+        kind: "messages",
+        messages: [
+          { role: "system", content: "AGENTS.md stable repo instructions" },
+          { role: "user", content },
+        ],
+      },
+      sampling: { maxTokens: 1, temperature: 0 },
+      stream: false,
+      protocol: "openai.chat_completions",
+    });
+
+    const firstAgentCold = await engine.generate(request("agent-a-cold", "work on Gemma"));
+    const secondAgentCold = await engine.generate(request("agent-b-cold", "work on Qwen"));
+    model.forwardSequenceLengths.length = 0;
+    events.length = 0;
+
+    const firstAgentWarm = await engine.generate(request("agent-a-warm", "work on Gemma"));
+    const secondAgentWarm = await engine.generate(request("agent-b-warm", "work on Qwen"));
+
+    expect(firstAgentCold.usage).toMatchObject({ cacheReadTokens: 0 });
+    expect(secondAgentCold.usage).toMatchObject({ cacheReadTokens: 0 });
+    expect(firstAgentWarm.usage?.cacheReadTokens).toBeGreaterThan(0);
+    expect(secondAgentWarm.usage?.cacheReadTokens).toBeGreaterThan(0);
+    expect(firstAgentWarm.usage?.cacheWriteTokens).toBe(0);
+    expect(secondAgentWarm.usage?.cacheWriteTokens).toBe(0);
+    expect(model.forwardSequenceLengths).toEqual([1, 1]);
+    expect(
+      events.filter((event) => event.type === "generation_prompt_cache" && event.result === "hit")
+        .length,
+    ).toBe(2);
+  });
+
   test("reuses message prompt prefixes through continuous batch cache seeding", async () => {
     using model = new CacheWritingTinyModel();
     const tokenizer = new TinyTokenizer();
@@ -1553,6 +1607,103 @@ describe("transformers generation engine", () => {
     expect(first.usage).toMatchObject({ cacheReadTokens: 0, cacheWriteTokens: 12 });
     expect(second.usage).toMatchObject({ cacheReadTokens: 12, cacheWriteTokens: 3 });
     expect(model.forwardSequenceLengths).toEqual([3, 1]);
+  });
+
+  test("keeps parallel Qwen exact-boundary agent sessions warm by default", async () => {
+    using model = new SnapshotCountingModel(
+      { family: "qwen", modelType: "qwen3_5_text", layerKinds: ["linear-recurrent", "full"] },
+      false,
+    );
+    const tokenizer = new CharCodeTokenizer();
+    const engine = createTransformersGenerationEngine({
+      model,
+      tokenizer,
+      interactionProfile: contentOnlyChatProfile,
+    });
+    const request = (id: string, content: string): NormalizedGenerationRequest => ({
+      id,
+      model: "tiny",
+      input: {
+        kind: "messages",
+        messages: [
+          { role: "system", content: "AGENTS.md stable repo instructions" },
+          { role: "user", content },
+        ],
+      },
+      sampling: { maxTokens: 1, temperature: 0 },
+      stream: false,
+      protocol: "openai.chat_completions",
+    });
+
+    await engine.generate(request("qwen-agent-a-cold", "inspect cache"));
+    await engine.generate(request("qwen-agent-b-cold", "inspect routing"));
+    model.forwardSequenceLengths.length = 0;
+
+    const firstAgentWarm = await engine.generate(request("qwen-agent-a-warm", "inspect cache"));
+    const secondAgentWarm = await engine.generate(request("qwen-agent-b-warm", "inspect routing"));
+
+    expect(firstAgentWarm.usage?.cacheReadTokens).toBeGreaterThan(0);
+    expect(secondAgentWarm.usage?.cacheReadTokens).toBeGreaterThan(0);
+    expect(firstAgentWarm.usage?.cacheWriteTokens).toBe(0);
+    expect(secondAgentWarm.usage?.cacheWriteTokens).toBe(0);
+    expect(model.forwardSequenceLengths).toEqual([1, 1]);
+  });
+
+  test("keeps Gemma and Qwen prompt caches isolated in one multi-model server", async () => {
+    using gemmaModel = new SnapshotCountingModel(
+      { family: "gemma", modelType: "gemma4", layerKinds: ["full", "sliding"] },
+      false,
+    );
+    using qwenModel = new SnapshotCountingModel(
+      { family: "qwen", modelType: "qwen3_5_text", layerKinds: ["linear-recurrent", "full"] },
+      false,
+    );
+    const tokenizer = new CharCodeTokenizer();
+    const router = createModelRouterGenerationEngine({
+      engines: {
+        gemma: createTransformersGenerationEngine({
+          model: gemmaModel,
+          tokenizer,
+          interactionProfile: contentOnlyChatProfile,
+        }),
+        qwen: createTransformersGenerationEngine({
+          model: qwenModel,
+          tokenizer,
+          interactionProfile: contentOnlyChatProfile,
+        }),
+      },
+    });
+    const request = (id: string, model: string): NormalizedGenerationRequest => ({
+      id,
+      model,
+      input: {
+        kind: "messages",
+        messages: [
+          { role: "system", content: "AGENTS.md stable repo instructions" },
+          { role: "user", content: `serve ${model}` },
+        ],
+      },
+      sampling: { maxTokens: 1, temperature: 0 },
+      stream: false,
+      protocol: "openai.chat_completions",
+    });
+
+    try {
+      await router.generate(request("gemma-cold", "gemma"));
+      await router.generate(request("qwen-cold", "qwen"));
+      gemmaModel.forwardSequenceLengths.length = 0;
+      qwenModel.forwardSequenceLengths.length = 0;
+
+      const gemmaWarm = await router.generate(request("gemma-warm", "gemma"));
+      const qwenWarm = await router.generate(request("qwen-warm", "qwen"));
+
+      expect(gemmaWarm.usage?.cacheReadTokens).toBeGreaterThan(0);
+      expect(qwenWarm.usage?.cacheReadTokens).toBeGreaterThan(0);
+      expect(gemmaModel.forwardSequenceLengths).toEqual([1]);
+      expect(qwenModel.forwardSequenceLengths).toEqual([1]);
+    } finally {
+      router[Symbol.dispose]?.();
+    }
   });
 
   test("disposes stored prompt cache snapshots when the engine is disposed", async () => {

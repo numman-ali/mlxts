@@ -220,6 +220,57 @@ describe("PromptPrefixCache", () => {
     hit?.cache[Symbol.dispose]();
   });
 
+  test("retains divergent exact-boundary agent sessions when capacity allows it", () => {
+    using cache = new PromptPrefixCache(2);
+    const firstSnapshot = new FakeSnapshot(5, {
+      exactForkOnly: true,
+      layerKinds: ["full", "sliding"],
+      trimmable: false,
+    });
+    const secondSnapshot = new FakeSnapshot(5, {
+      exactForkOnly: true,
+      layerKinds: ["linear-recurrent", "full"],
+      trimmable: false,
+    });
+
+    expect(cache.store([1, 2, 3, 4, 5, 6], firstSnapshot)).toBe(5);
+    expect(cache.store([1, 2, 3, 7, 8, 9], secondSnapshot)).toBe(5);
+
+    expect(cache.lookup([1, 2, 3, 4, 99])).toBeNull();
+
+    const firstHit = cache.lookup([1, 2, 3, 4, 5, 6]);
+    const secondHit = cache.lookup([1, 2, 3, 7, 8, 9]);
+    expect(firstHit?.readTokens).toBe(5);
+    expect(firstHit?.source.layerKinds).toEqual(["full", "sliding"]);
+    expect(secondHit?.readTokens).toBe(5);
+    expect(secondHit?.source.layerKinds).toEqual(["linear-recurrent", "full"]);
+    firstHit?.cache[Symbol.dispose]();
+    secondHit?.cache[Symbol.dispose]();
+  });
+
+  test("replaces duplicate exact prompt boundaries without consuming retention slots", () => {
+    using cache = new PromptPrefixCache(2);
+    const firstOriginal = new FakeSnapshot(3);
+    const firstReplacement = new FakeSnapshot(3);
+    const second = new FakeSnapshot(3);
+
+    expect(cache.store([1, 2, 3, 4], firstOriginal)).toBe(3);
+    expect(cache.store([1, 2, 3, 4], firstReplacement)).toBe(3);
+    expect(cache.store([5, 6, 7, 8], second)).toBe(3);
+
+    expect(firstOriginal.disposeCount).toBe(1);
+    expect(firstReplacement.disposeCount).toBe(0);
+    expect(cache.stats().entries).toBe(2);
+
+    const firstHit = cache.lookup([1, 2, 3, 4]);
+    const secondHit = cache.lookup([5, 6, 7, 8]);
+    expect(firstHit?.readTokens).toBe(3);
+    expect(secondHit?.readTokens).toBe(3);
+    expect(firstReplacement.forkOffsets).toEqual([3]);
+    firstHit?.cache[Symbol.dispose]();
+    secondHit?.cache[Symbol.dispose]();
+  });
+
   test("deduplicates retained token blocks and releases evicted entries", () => {
     using cache = new PromptPrefixCache({ maxEntries: 2, blockSize: 2 });
     expect(cache.stats()).toEqual({
