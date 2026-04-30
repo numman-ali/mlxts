@@ -56,11 +56,11 @@ type FakeSnapshotOptions = {
 
 class FakeSnapshot implements TransformerCacheSnapshot {
   readonly offset: number;
-  readonly estimatedByteSize: number;
   readonly layerKinds: readonly CacheLayerKind[];
   readonly trimmable: boolean;
   readonly maxForkOffset: number;
   readonly exactForkOnly: boolean;
+  #estimatedByteSize: number;
   disposeCount = 0;
   forkOffsets: number[] = [];
 
@@ -71,7 +71,7 @@ class FakeSnapshot implements TransformerCacheSnapshot {
       this.exactForkOnly = false;
       this.layerKinds = [];
       this.trimmable = true;
-      this.estimatedByteSize = offset * 4;
+      this.#estimatedByteSize = offset * 4;
       return;
     }
 
@@ -79,7 +79,15 @@ class FakeSnapshot implements TransformerCacheSnapshot {
     this.exactForkOnly = maxForkOffsetOrOptions.exactForkOnly ?? false;
     this.layerKinds = maxForkOffsetOrOptions.layerKinds ?? [];
     this.trimmable = maxForkOffsetOrOptions.trimmable ?? true;
-    this.estimatedByteSize = maxForkOffsetOrOptions.estimatedByteSize ?? offset * 4;
+    this.#estimatedByteSize = maxForkOffsetOrOptions.estimatedByteSize ?? offset * 4;
+  }
+
+  get estimatedByteSize(): number {
+    return this.#estimatedByteSize;
+  }
+
+  setEstimatedByteSize(estimatedByteSize: number): void {
+    this.#estimatedByteSize = estimatedByteSize;
   }
 
   canFork(options: TransformerCacheForkOptions = {}): boolean {
@@ -291,6 +299,23 @@ describe("PromptPrefixCache", () => {
     const hit = cache.lookup([4, 5, 6]);
     expect(hit?.readTokens).toBe(2);
     expect(hit?.source.estimatedByteSize).toBe(8);
+    hit?.cache[Symbol.dispose]();
+  });
+
+  test("reports retained snapshot bytes from live snapshot estimates", () => {
+    using cache = new PromptPrefixCache({ maxEntries: 2, maxBytes: 32 });
+    const first = new FakeSnapshot(2, { estimatedByteSize: 8 });
+    const second = new FakeSnapshot(2, { estimatedByteSize: 12 });
+
+    expect(cache.store([1, 2, 3], first)).toBe(2);
+    expect(cache.store([4, 5, 6], second)).toBe(2);
+    expect(cache.stats().retainedSnapshotBytes).toBe(20);
+
+    first.setEstimatedByteSize(4);
+    expect(cache.stats().retainedSnapshotBytes).toBe(16);
+
+    const hit = cache.lookup([1, 2, 3]);
+    expect(hit?.source.estimatedByteSize).toBe(4);
     hit?.cache[Symbol.dispose]();
   });
 

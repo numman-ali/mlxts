@@ -122,6 +122,10 @@ function runChunkGrowthScenario(cache: LayerPatternKVCache): void {
   expect(secondView.toList()).toEqual([[[...firstSequence, ...secondSequence]]]);
 }
 
+function sequenceValues(start: number, length: number): number[][] {
+  return Array.from({ length }, (_value, index) => [start + index]);
+}
+
 describe("Transformer caches", () => {
   test("managed caches expose counts, offset helpers, and constructor validation", () => {
     using cache = new KVCache(2);
@@ -211,6 +215,101 @@ describe("Transformer caches", () => {
     using prefix = snapshot.fork({ offset: 2 });
     expect(prefix.offset).toBe(2);
     expect(cacheArrayLists(prefix)).toEqual([[[[[1], [2]]]], [[[[10], [20]]]]]);
+  });
+
+  test("managed KVCache prompt snapshots share block-aligned full-KV prefixes", () => {
+    using cache = new KVCache(1);
+    const initialKeys = sequenceValues(1, 65);
+    const initialValues = sequenceValues(1_001, 65);
+    using keys = array([[[...initialKeys]]], "float32");
+    using values = array([[[...initialValues]]], "float32");
+    using view = cache.updateAndFetch(0, keys, values).keys;
+    cache.advance(65);
+    mxEval(view);
+
+    const parent = cache.snapshot();
+    try {
+      expect(parent.estimatedByteSize).toBe(520);
+      using fork = parent.fork();
+      const suffixKeys = sequenceValues(66, 15);
+      const suffixValues = sequenceValues(1_066, 15);
+      using nextKeys = array([[[...suffixKeys]]], "float32");
+      using nextValues = array([[[...suffixValues]]], "float32");
+      using forkView = fork.updateAndFetch(0, nextKeys, nextValues).keys;
+      fork.advance(15);
+      mxEval(forkView);
+
+      const child = fork.snapshot();
+      try {
+        expect(parent.estimatedByteSize).toBe(520);
+        expect(child.estimatedByteSize).toBe(128);
+
+        using trimmed = child.fork({ offset: 70 });
+        expect(trimmed.offset).toBe(70);
+        expect(cacheArrayLists(trimmed)).toEqual([
+          [[sequenceValues(1, 70)]],
+          [[sequenceValues(1_001, 70)]],
+        ]);
+
+        parent[Symbol.dispose]();
+        expect(child.estimatedByteSize).toBe(640);
+      } finally {
+        child[Symbol.dispose]();
+      }
+    } finally {
+      parent[Symbol.dispose]();
+    }
+  });
+
+  test("managed BatchKVCache preserves seeded full-KV block lineage across extend", () => {
+    using cache = new KVCache(1);
+    using keys = array([[[...sequenceValues(1, 65)]]], "float32");
+    using values = array([[[...sequenceValues(1_001, 65)]]], "float32");
+    using view = cache.updateAndFetch(0, keys, values).keys;
+    cache.advance(65);
+    mxEval(view);
+
+    const parent = cache.snapshot();
+    try {
+      const seeded = parent.fork();
+      const seededBatch = new BatchKVCache(1, [0]);
+      try {
+        try {
+          seededBatch.restoreFromCache(0, seeded);
+        } finally {
+          seeded[Symbol.dispose]();
+        }
+
+        using nextKeys = array([[[...sequenceValues(66, 15)]]], "float32");
+        using nextValues = array([[[...sequenceValues(1_066, 15)]]], "float32");
+        using seededView = seededBatch.updateAndFetch(0, nextKeys, nextValues).keys;
+        seededBatch.advance(15);
+        mxEval(seededView);
+
+        using aggregate = new BatchKVCache(1, [0]);
+        using aggregateKeys = array([[[...sequenceValues(501, 80)]]], "float32");
+        using aggregateValues = array([[[...sequenceValues(1_501, 80)]]], "float32");
+        using aggregateView = aggregate.updateAndFetch(0, aggregateKeys, aggregateValues).keys;
+        aggregate.advance(80);
+        mxEval(aggregateView);
+        aggregate.extend(seededBatch);
+
+        using extracted = aggregate.extract(1);
+        const child = extracted.snapshot();
+        try {
+          expect(parent.estimatedByteSize).toBe(520);
+          expect(child.estimatedByteSize).toBe(128);
+          parent[Symbol.dispose]();
+          expect(child.estimatedByteSize).toBe(640);
+        } finally {
+          child[Symbol.dispose]();
+        }
+      } finally {
+        seededBatch[Symbol.dispose]();
+      }
+    } finally {
+      parent[Symbol.dispose]();
+    }
   });
 
   test("managed BatchKVCache restores one-row state from a single full-KV cache", () => {

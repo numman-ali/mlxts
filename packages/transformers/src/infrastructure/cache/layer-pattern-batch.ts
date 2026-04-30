@@ -28,6 +28,7 @@ import {
   retainedLayerStateArrays,
 } from "./runtime";
 import { LayerPatternKVCache } from "./single";
+import type { FullKVBlockSnapshotSource } from "./tensor-block-snapshot";
 import { INTERNAL_CACHE_VIEW, type TransformerCacheView } from "./view";
 
 function validateUpdateBatchSize(keys: MxArray, values: MxArray, batchSize: number): void {
@@ -40,6 +41,29 @@ function validateUpdateBatchSize(keys: MxArray, values: MxArray, batchSize: numb
   }
 }
 
+function disposeFullKVBlockSnapshotSources(
+  sources: readonly (FullKVBlockSnapshotSource | null)[],
+): void {
+  for (const source of sources) {
+    source?.[Symbol.dispose]();
+  }
+}
+
+function retainFullKVBlockSnapshotSources(
+  sources: readonly (FullKVBlockSnapshotSource | null)[],
+): (FullKVBlockSnapshotSource | null)[] {
+  const retained: (FullKVBlockSnapshotSource | null)[] = [];
+  try {
+    for (const source of sources) {
+      retained.push(source?.retain() ?? null);
+    }
+    return retained;
+  } catch (error) {
+    disposeFullKVBlockSnapshotSources(retained);
+    throw error;
+  }
+}
+
 /** Batch cache that applies full or sliding retention independently per layer. */
 export class LayerPatternBatchKVCache implements TransformerBatchCache {
   #layers: LayerState[];
@@ -47,6 +71,7 @@ export class LayerPatternBatchKVCache implements TransformerBatchCache {
   readonly #layerKinds: readonly CacheLayerKind[];
   #leftPadding: number[];
   #offsets: number[];
+  #fullKVBlockSnapshotSources: (FullKVBlockSnapshotSource | null)[];
   #logicalLength = 0;
 
   constructor(
@@ -61,6 +86,7 @@ export class LayerPatternBatchKVCache implements TransformerBatchCache {
     }
     this.#leftPadding = validateLeftPadding(leftPadding);
     this.#offsets = this.#leftPadding.map((padding) => (padding === 0 ? 0 : -padding));
+    this.#fullKVBlockSnapshotSources = this.#leftPadding.map(() => null);
     this.#layerWindowSizes = validateLayerWindows(layerCount, layerWindowSizes);
     this.#layerKinds = cacheLayerKindsFromWindowSizes(this.#layerWindowSizes);
     this.#layers = Array.from({ length: layerCount }, () => createEmptyLayerState());
@@ -113,8 +139,16 @@ export class LayerPatternBatchKVCache implements TransformerBatchCache {
     const nextLeftPadding = indices.map((index) => this.#leftPadding[index] ?? 0);
     const trimLeft = Math.min(...nextLeftPadding);
     const previousLogicalLength = this.#logicalLength;
+    const nextSources = indices.map((index) => this.#fullKVBlockSnapshotSources[index] ?? null);
+    const retained = new Set(indices);
+    for (let index = 0; index < this.#fullKVBlockSnapshotSources.length; index += 1) {
+      if (!retained.has(index)) {
+        this.#fullKVBlockSnapshotSources[index]?.[Symbol.dispose]();
+      }
+    }
     this.#leftPadding = nextLeftPadding.map((padding) => padding - trimLeft);
     this.#offsets = indices.map((index) => this.#offsets[index] ?? 0);
+    this.#fullKVBlockSnapshotSources = nextSources;
     this.#logicalLength = Math.max(0, this.#logicalLength - trimLeft);
     for (const layer of this.#layers) {
       const alreadyTrimmed = Math.max(0, previousLogicalLength - layer.length);
@@ -159,6 +193,10 @@ export class LayerPatternBatchKVCache implements TransformerBatchCache {
       ...other.#leftPadding.map((padding) => padding + rightAdjustment),
     ];
     this.#offsets = [...this.#offsets, ...other.#offsets];
+    this.#fullKVBlockSnapshotSources = [
+      ...this.#fullKVBlockSnapshotSources,
+      ...retainFullKVBlockSnapshotSources(other.#fullKVBlockSnapshotSources),
+    ];
     this.#logicalLength = targetLogicalLength;
   }
 
@@ -194,6 +232,8 @@ export class LayerPatternBatchKVCache implements TransformerBatchCache {
     }
     this.#leftPadding = [0];
     this.#offsets = [source.offset];
+    disposeFullKVBlockSnapshotSources(this.#fullKVBlockSnapshotSources);
+    this.#fullKVBlockSnapshotSources = [source.retainFullKVBlockSnapshotSource()];
     this.#logicalLength = source.offset;
   }
 
@@ -204,35 +244,44 @@ export class LayerPatternBatchKVCache implements TransformerBatchCache {
       );
     }
     const cache = new LayerPatternKVCache(this.layerCount, this.#layerWindowSizes);
-    for (let layerIndex = 0; layerIndex < this.#layers.length; layerIndex += 1) {
-      const layer = this.#layers[layerIndex];
-      if (layer === undefined || layer.keys === null || layer.values === null) {
-        continue;
+    try {
+      for (let layerIndex = 0; layerIndex < this.#layers.length; layerIndex += 1) {
+        const layer = this.#layers[layerIndex];
+        if (layer === undefined || layer.keys === null || layer.values === null) {
+          continue;
+        }
+        const padding = this.leftPaddingForLayer(batchIndex, layer.length, 0);
+        const visibleLength = Math.max(0, layer.length - padding);
+        if (visibleLength === 0) {
+          continue;
+        }
+        const heads = layer.keys.shape[1] ?? 0;
+        const keyWidth = layer.keys.shape[3] ?? 0;
+        const valueWidth = layer.values.shape[3] ?? 0;
+        using keys = slice(
+          layer.keys,
+          [batchIndex, 0, padding, 0],
+          [batchIndex + 1, heads, layer.length, keyWidth],
+        );
+        using values = slice(
+          layer.values,
+          [batchIndex, 0, padding, 0],
+          [batchIndex + 1, heads, layer.length, valueWidth],
+        );
+        const updated = cache.updateAndFetch(layerIndex, keys, values);
+        updated.keys.free();
+        updated.values.free();
       }
-      const padding = this.leftPaddingForLayer(batchIndex, layer.length, 0);
-      const visibleLength = Math.max(0, layer.length - padding);
-      if (visibleLength === 0) {
-        continue;
+      cache.advance(Math.max(0, this.#offsets[batchIndex] ?? 0));
+      const source = this.#fullKVBlockSnapshotSources[batchIndex];
+      if (source !== undefined && source !== null) {
+        cache.setFullKVBlockSnapshotSource(source.retain());
       }
-      const heads = layer.keys.shape[1] ?? 0;
-      const keyWidth = layer.keys.shape[3] ?? 0;
-      const valueWidth = layer.values.shape[3] ?? 0;
-      using keys = slice(
-        layer.keys,
-        [batchIndex, 0, padding, 0],
-        [batchIndex + 1, heads, layer.length, keyWidth],
-      );
-      using values = slice(
-        layer.values,
-        [batchIndex, 0, padding, 0],
-        [batchIndex + 1, heads, layer.length, valueWidth],
-      );
-      const updated = cache.updateAndFetch(layerIndex, keys, values);
-      updated.keys.free();
-      updated.values.free();
+      return cache;
+    } catch (error) {
+      cache[Symbol.dispose]();
+      throw error;
     }
-    cache.advance(Math.max(0, this.#offsets[batchIndex] ?? 0));
-    return cache;
   }
 
   offsetTensor(): MxArray {
@@ -285,6 +334,8 @@ export class LayerPatternBatchKVCache implements TransformerBatchCache {
   }
 
   [Symbol.dispose](): void {
+    disposeFullKVBlockSnapshotSources(this.#fullKVBlockSnapshotSources);
+    this.#fullKVBlockSnapshotSources = [];
     for (const state of this.#layers) {
       disposeLayerState(state);
     }

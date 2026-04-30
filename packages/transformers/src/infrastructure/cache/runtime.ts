@@ -51,6 +51,21 @@ export function createEmptyLayerState(): LayerState {
   };
 }
 
+export function createLayerStateSnapshot(
+  keys: MxArray | null,
+  values: MxArray | null,
+  length: number,
+  cursor: number,
+): LayerStateSnapshot {
+  return {
+    keys,
+    values,
+    length,
+    cursor,
+    [LAYER_STATE_SNAPSHOT_BRAND]: true,
+  };
+}
+
 function createOwnedAppendResult(keys: MxArray, values: MxArray): CacheAppendResult {
   return { keys, values, ownsBuffers: true };
 }
@@ -138,26 +153,14 @@ function visibleStateForSnapshot(state: LayerState): { keys: MxArray; values: Mx
 export function cloneLayerStateSnapshot(state: LayerState): LayerStateSnapshot {
   const visible = visibleStateForSnapshot(state);
   if (visible === null) {
-    return {
-      keys: null,
-      values: null,
-      length: 0,
-      cursor: 0,
-      [LAYER_STATE_SNAPSHOT_BRAND]: true,
-    };
+    return createLayerStateSnapshot(null, null, 0, 0);
   }
   let keys: MxArray | null = null;
   let values: MxArray | null = null;
   try {
     keys = cloneCacheArray(visible.keys);
     values = cloneCacheArray(visible.values);
-    return {
-      keys,
-      values,
-      length: state.length,
-      cursor: state.cursor,
-      [LAYER_STATE_SNAPSHOT_BRAND]: true,
-    };
+    return createLayerStateSnapshot(keys, values, state.length, state.cursor);
   } catch (error) {
     keys?.free();
     values?.free();

@@ -5,11 +5,7 @@
 
 import { type MxArray, retainArray, slice } from "@mlxts/core";
 
-import type {
-  TransformerCache,
-  TransformerCacheForkOptions,
-  TransformerCacheSnapshot,
-} from "../../types";
+import type { TransformerCache, TransformerCacheSnapshot } from "../../types";
 import {
   type CacheLayerKind,
   cacheLayerKindsFromWindowSizes,
@@ -27,18 +23,12 @@ import {
   disposeLayerStateSnapshot,
   type LayerState,
   type LayerStateSnapshot,
-  layerStateSnapshotByteSize,
   materializeOwnedAppendResult,
   retainedLayerStateArrays,
 } from "./runtime";
+import type { CacheFactory, SnapshotTrimPolicy } from "./snapshot";
+import { createCacheSnapshot, type FullKVBlockSnapshotSource } from "./tensor-block-snapshot";
 import { INTERNAL_CACHE_VIEW, type TransformerCacheView } from "./view";
-
-type SnapshotTrimPolicy = "exact" | "prefix";
-type CacheFactory = () => CacheBase;
-
-function validateSnapshotOffset(offset: number, snapshotOffset: number): boolean {
-  return Number.isInteger(offset) && offset >= 0 && offset <= snapshotOffset;
-}
 
 function sliceSnapshotArray(value: MxArray, length: number): MxArray {
   const existingLength = value.shape[2];
@@ -54,110 +44,10 @@ function sliceSnapshotArray(value: MxArray, length: number): MxArray {
   return slice(value, [0, 0, 0, 0], [batch, heads, length, width]);
 }
 
-class CacheSnapshot implements TransformerCacheSnapshot {
-  readonly offset: number;
-  readonly estimatedByteSize: number;
-  readonly layerKinds: readonly CacheLayerKind[];
-  readonly trimmable: boolean;
-  readonly #layers: LayerStateSnapshot[];
-  readonly #createCache: CacheFactory;
-  readonly #trimPolicy: SnapshotTrimPolicy;
-  #disposed = false;
-
-  constructor(options: {
-    offset: number;
-    layerKinds: readonly CacheLayerKind[];
-    layers: LayerStateSnapshot[];
-    createCache: CacheFactory;
-    trimPolicy: SnapshotTrimPolicy;
-  }) {
-    this.offset = options.offset;
-    this.layerKinds = [...options.layerKinds];
-    this.estimatedByteSize = options.layers.reduce(
-      (total, layer) => total + layerStateSnapshotByteSize(layer),
-      0,
-    );
-    this.trimmable = options.trimPolicy === "prefix";
-    this.#layers = options.layers;
-    this.#createCache = options.createCache;
-    this.#trimPolicy = options.trimPolicy;
-  }
-
-  canFork(options: TransformerCacheForkOptions = {}): boolean {
-    if (this.#disposed) {
-      return false;
-    }
-    const targetOffset = options.offset ?? this.offset;
-    if (!validateSnapshotOffset(targetOffset, this.offset)) {
-      return false;
-    }
-    return targetOffset === this.offset || this.#trimPolicy === "prefix";
-  }
-
-  fork(options: TransformerCacheForkOptions = {}): TransformerCache {
-    const targetOffset = options.offset ?? this.offset;
-    if (!this.canFork({ offset: targetOffset })) {
-      throw new Error(
-        `TransformerCacheSnapshot.fork: cannot fork offset ${targetOffset} from snapshot offset ${this.offset}.`,
-      );
-    }
-
-    const cache = this.#createCache();
-    try {
-      for (let layerIndex = 0; layerIndex < this.#layers.length; layerIndex += 1) {
-        this.applyLayer(cache, layerIndex, targetOffset);
-      }
-      cache.advance(targetOffset);
-      return cache;
-    } catch (error) {
-      cache[Symbol.dispose]();
-      throw error;
-    }
-  }
-
-  [Symbol.dispose](): void {
-    if (this.#disposed) {
-      return;
-    }
-    for (const layer of this.#layers) {
-      disposeLayerStateSnapshot(layer);
-    }
-    this.#disposed = true;
-  }
-
-  private layerLengthForFork(layer: LayerStateSnapshot, targetOffset: number): number {
-    if (targetOffset === this.offset) {
-      return layer.length;
-    }
-    return Math.min(layer.length, targetOffset);
-  }
-
-  private layerCursorForFork(layer: LayerStateSnapshot, targetOffset: number): number {
-    return targetOffset === this.offset ? layer.cursor : 0;
-  }
-
-  private applyLayer(cache: CacheBase, layerIndex: number, targetOffset: number): void {
-    const layer = this.#layers[layerIndex];
-    if (layer === undefined || layer.keys === null || layer.values === null) {
-      return;
-    }
-    const length = this.layerLengthForFork(layer, targetOffset);
-    if (length <= 0) {
-      return;
-    }
-
-    cache.restoreLayerSnapshot(
-      layerIndex,
-      layer,
-      length,
-      this.layerCursorForFork(layer, targetOffset),
-    );
-  }
-}
-
 abstract class CacheBase implements TransformerCache {
   offset = 0;
   #layers: LayerState[];
+  #fullKVBlockSnapshotSource: FullKVBlockSnapshotSource | null = null;
 
   constructor(layerCount: number) {
     if (!Number.isInteger(layerCount) || layerCount <= 0) {
@@ -186,12 +76,15 @@ abstract class CacheBase implements TransformerCache {
       for (const state of this.#layers) {
         layers.push(cloneLayerStateSnapshot(state));
       }
-      return new CacheSnapshot({
+      return createCacheSnapshot({
         offset: this.offset,
         layerKinds: this.layerKinds,
         layers,
         createCache: this.snapshotCacheFactory(),
         trimPolicy: this.snapshotTrimPolicy(),
+        ...(this.#fullKVBlockSnapshotSource === null
+          ? {}
+          : { source: this.#fullKVBlockSnapshotSource }),
       });
     } catch (error) {
       for (const layer of layers) {
@@ -222,6 +115,17 @@ abstract class CacheBase implements TransformerCache {
     return cloneLayerStateSnapshot(this.layerState(layerIndex));
   }
 
+  /** Retain full-KV block lineage for a later prompt-boundary snapshot. */
+  setFullKVBlockSnapshotSource(source: FullKVBlockSnapshotSource | null): void {
+    this.#fullKVBlockSnapshotSource?.[Symbol.dispose]();
+    this.#fullKVBlockSnapshotSource = source;
+  }
+
+  /** Retain full-KV block lineage for transfer into a batch cache. */
+  retainFullKVBlockSnapshotSource(): FullKVBlockSnapshotSource | null {
+    return this.#fullKVBlockSnapshotSource?.retain() ?? null;
+  }
+
   protected appendLayer(layerIndex: number, keys: MxArray, values: MxArray): CacheAppendResult {
     return appendFullCacheState(this.layerState(layerIndex), keys, values);
   }
@@ -232,6 +136,7 @@ abstract class CacheBase implements TransformerCache {
     length: number,
     cursor: number,
   ): void {
+    this.setFullKVBlockSnapshotSource(null);
     const state = this.layerState(layerIndex);
     disposeLayerState(state);
     if (length === 0) {
@@ -281,6 +186,7 @@ abstract class CacheBase implements TransformerCache {
   }
 
   [Symbol.dispose](): void {
+    this.setFullKVBlockSnapshotSource(null);
     for (const state of this.#layers) {
       disposeLayerState(state);
     }

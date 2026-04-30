@@ -23,6 +23,7 @@ import {
   type PromptPrefixCacheEntryMetadata,
   type PromptPrefixCacheIdentity,
   type PromptPrefixCacheMatchType,
+  promptPrefixCacheEntryEstimatedByteSize,
   promptPrefixCacheEntryMetadata,
   promptPrefixCacheIdentitiesCompatible,
   promptPrefixCacheMatchTypeFor,
@@ -119,7 +120,6 @@ export class PromptPrefixCache implements Disposable {
   readonly #blockStore: PromptPrefixTokenBlockStore;
   readonly #blockIndex: PromptPrefixCacheBlockIndex<PromptPrefixCacheEntry>;
   #entries: PromptPrefixCacheEntry[] = [];
-  #retainedSnapshotBytes = 0;
   #clock = 0;
 
   constructor(options: number | PromptPrefixCacheOptions = DEFAULT_MAX_ENTRIES) {
@@ -260,14 +260,12 @@ export class PromptPrefixCache implements Disposable {
     }
     const entry: PromptPrefixCacheEntry = {
       tokenIds: entryTokenIds,
-      estimatedByteSize: snapshot.estimatedByteSize,
       ...(identity === undefined ? {} : { identity: clonePromptPrefixCacheIdentity(identity) }),
       snapshot,
       tokenBlocks,
       lastUsed: ++this.#clock,
     };
     this.#entries.push(entry);
-    this.#retainedSnapshotBytes += entry.estimatedByteSize;
     this.#blockIndex.add(entry);
     this.#evictOverflow();
     return entry.tokenIds.length;
@@ -278,7 +276,6 @@ export class PromptPrefixCache implements Disposable {
       this.#disposeEntry(entry);
     }
     this.#entries = [];
-    this.#retainedSnapshotBytes = 0;
     this.#blockIndex.clear();
   }
 
@@ -286,7 +283,7 @@ export class PromptPrefixCache implements Disposable {
   stats(): PromptPrefixCacheStats {
     return {
       entries: this.#entries.length,
-      retainedSnapshotBytes: this.#retainedSnapshotBytes,
+      retainedSnapshotBytes: this.#retainedSnapshotBytes(),
       indexedBlockHashes: this.#blockIndex.size,
       tokenBlocks: this.#blockStore.stats(),
     };
@@ -294,17 +291,20 @@ export class PromptPrefixCache implements Disposable {
 
   #disposeEntry(entry: PromptPrefixCacheEntry): void {
     this.#blockIndex.delete(entry);
-    this.#retainedSnapshotBytes = Math.max(
-      0,
-      this.#retainedSnapshotBytes - entry.estimatedByteSize,
-    );
     disposePromptPrefixCacheEntry(entry);
+  }
+
+  #retainedSnapshotBytes(): number {
+    return this.#entries.reduce(
+      (total, entry) => total + promptPrefixCacheEntryEstimatedByteSize(entry),
+      0,
+    );
   }
 
   #evictOverflow(): void {
     while (
       this.#entries.length > this.#maxEntries ||
-      (this.#maxBytes !== undefined && this.#retainedSnapshotBytes > this.#maxBytes)
+      (this.#maxBytes !== undefined && this.#retainedSnapshotBytes() > this.#maxBytes)
     ) {
       let evictionIndex = 0;
       for (let index = 1; index < this.#entries.length; index += 1) {

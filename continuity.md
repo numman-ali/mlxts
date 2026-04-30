@@ -37,8 +37,10 @@ text endpoints while benchmark and scheduler work continues.
   prompt-boundary snapshot per served model, but `promptPrefixCacheMaxEntries`
   / `--prompt-prefix-cache-max-entries` and `promptPrefixCacheMaxBytes` /
   `--prompt-prefix-cache-max-bytes` now bound retained snapshots by count and
-  estimated tensor bytes without changing family-owned snapshot/fork cache
-  semantics.
+  live estimated tensor bytes without changing family-owned snapshot/fork cache
+  semantics. Full-KV, trimmable retained snapshots share complete 64-token
+  tensor blocks across prompt-prefix descendants; active decode storage, Qwen
+  hybrid caches, and Gemma sliding/layer-pattern semantics are unchanged.
 - **Continuous memory admission**: continuous serving uses the existing
   model-level reservation controller for prompt, completion, aggregate total,
   and estimated memory pressure. Memory estimation remains serve-owned and
@@ -115,6 +117,13 @@ Full evidence ladder lives in
   tests and `205` serve focused tests). `estimatedByteSize` is now exposed on
   cache snapshots, and serve can dispose over-budget prompt-boundary snapshots
   instead of retaining them.
+- Full-KV prompt-prefix tensor-block retention passed focused cache/serve tests
+  (`42 pass`), focused package tests (`350 pass`), `bun run typecheck`,
+  `bun run check:coverage`, `bun run validate`, and
+  `bun run regression:qwen-gemma -- --profile quick` (`84` transformer focused
+  tests and `205` serve focused tests). Retained full-KV descendants charge
+  only private tail blocks while their source snapshot is live; batch cache
+  restore/filter/extend/extract keeps source lineage for continuous serving.
 - Gemma 4 A4B MoE proof passed against the cached
   `mlx-community/gemma-4-26b-a4b-it-4bit` snapshot. Transformer decode at
   `128x128` reported `generation_tps=108.604`, `evals_per_token=1.00`, and

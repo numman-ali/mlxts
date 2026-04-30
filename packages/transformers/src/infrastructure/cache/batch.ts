@@ -28,13 +28,38 @@ import {
   retainedLayerStateArrays,
 } from "./runtime";
 import { KVCache } from "./single";
+import type { FullKVBlockSnapshotSource } from "./tensor-block-snapshot";
 import { INTERNAL_CACHE_VIEW, type TransformerCacheView } from "./view";
+
+function disposeFullKVBlockSnapshotSources(
+  sources: readonly (FullKVBlockSnapshotSource | null)[],
+): void {
+  for (const source of sources) {
+    source?.[Symbol.dispose]();
+  }
+}
+
+function retainFullKVBlockSnapshotSources(
+  sources: readonly (FullKVBlockSnapshotSource | null)[],
+): (FullKVBlockSnapshotSource | null)[] {
+  const retained: (FullKVBlockSnapshotSource | null)[] = [];
+  try {
+    for (const source of sources) {
+      retained.push(source?.retain() ?? null);
+    }
+    return retained;
+  } catch (error) {
+    disposeFullKVBlockSnapshotSources(retained);
+    throw error;
+  }
+}
 
 /** Full KV cache for a left-padded batch of active requests. */
 export class BatchKVCache implements TransformerBatchCache {
   #layers: LayerState[];
   #leftPadding: number[];
   #offsets: number[];
+  #fullKVBlockSnapshotSources: (FullKVBlockSnapshotSource | null)[];
   readonly #layerKinds: readonly CacheLayerKind[];
 
   constructor(layerCount: number, leftPadding: readonly number[]) {
@@ -43,6 +68,7 @@ export class BatchKVCache implements TransformerBatchCache {
     }
     this.#leftPadding = validateBatchMetadata(leftPadding);
     this.#offsets = this.#leftPadding.map((padding) => (padding === 0 ? 0 : -padding));
+    this.#fullKVBlockSnapshotSources = this.#leftPadding.map(() => null);
     this.#layers = Array.from({ length: layerCount }, () => createEmptyLayerState());
     this.#layerKinds = repeatedCacheLayerKinds(layerCount, "full");
   }
@@ -92,8 +118,16 @@ export class BatchKVCache implements TransformerBatchCache {
     const indices = validateBatchIndices(batchIndices, this.batchSize);
     const nextLeftPadding = indices.map((index) => this.#leftPadding[index] ?? 0);
     const trimLeft = Math.min(...nextLeftPadding);
+    const nextSources = indices.map((index) => this.#fullKVBlockSnapshotSources[index] ?? null);
+    const retained = new Set(indices);
+    for (let index = 0; index < this.#fullKVBlockSnapshotSources.length; index += 1) {
+      if (!retained.has(index)) {
+        this.#fullKVBlockSnapshotSources[index]?.[Symbol.dispose]();
+      }
+    }
     this.#leftPadding = nextLeftPadding.map((padding) => padding - trimLeft);
     this.#offsets = indices.map((index) => this.#offsets[index] ?? 0);
+    this.#fullKVBlockSnapshotSources = nextSources;
     for (const layer of this.#layers) {
       filterLayerState(layer, indices, trimLeft);
     }
@@ -137,6 +171,10 @@ export class BatchKVCache implements TransformerBatchCache {
       ...other.#leftPadding.map((padding) => padding + rightAdjustment),
     ];
     this.#offsets = [...this.#offsets, ...other.#offsets];
+    this.#fullKVBlockSnapshotSources = [
+      ...this.#fullKVBlockSnapshotSources,
+      ...retainFullKVBlockSnapshotSources(other.#fullKVBlockSnapshotSources),
+    ];
   }
 
   restoreLayerState(layerIndex: number, snapshot: LayerStateSnapshot): void {
@@ -168,6 +206,8 @@ export class BatchKVCache implements TransformerBatchCache {
     }
     this.#leftPadding = [0];
     this.#offsets = [source.offset];
+    disposeFullKVBlockSnapshotSources(this.#fullKVBlockSnapshotSources);
+    this.#fullKVBlockSnapshotSources = [source.retainFullKVBlockSnapshotSource()];
   }
 
   extractLayer(batchIndex: number, layerIndex: number): { keys: MxArray; values: MxArray } | null {
@@ -211,21 +251,30 @@ export class BatchKVCache implements TransformerBatchCache {
       );
     }
     const cache = new KVCache(this.layerCount);
-    let visibleLength = 0;
-    for (let layerIndex = 0; layerIndex < this.#layers.length; layerIndex += 1) {
-      const pair = this.extractLayer(batchIndex, layerIndex);
-      if (pair === null) {
-        continue;
+    try {
+      let visibleLength = 0;
+      for (let layerIndex = 0; layerIndex < this.#layers.length; layerIndex += 1) {
+        const pair = this.extractLayer(batchIndex, layerIndex);
+        if (pair === null) {
+          continue;
+        }
+        using keys = pair.keys;
+        using values = pair.values;
+        const updated = cache.updateAndFetch(layerIndex, keys, values);
+        updated.keys.free();
+        updated.values.free();
+        visibleLength = Math.max(visibleLength, pair.keys.shape[2] ?? 0);
       }
-      using keys = pair.keys;
-      using values = pair.values;
-      const updated = cache.updateAndFetch(layerIndex, keys, values);
-      updated.keys.free();
-      updated.values.free();
-      visibleLength = Math.max(visibleLength, pair.keys.shape[2] ?? 0);
+      cache.advance(visibleLength);
+      const source = this.#fullKVBlockSnapshotSources[batchIndex];
+      if (source !== undefined && source !== null) {
+        cache.setFullKVBlockSnapshotSource(source.retain());
+      }
+      return cache;
+    } catch (error) {
+      cache[Symbol.dispose]();
+      throw error;
     }
-    cache.advance(visibleLength);
-    return cache;
   }
 
   offsetTensor(): MxArray {
@@ -259,6 +308,8 @@ export class BatchKVCache implements TransformerBatchCache {
   }
 
   [Symbol.dispose](): void {
+    disposeFullKVBlockSnapshotSources(this.#fullKVBlockSnapshotSources);
+    this.#fullKVBlockSnapshotSources = [];
     for (const state of this.#layers) {
       disposeLayerState(state);
     }

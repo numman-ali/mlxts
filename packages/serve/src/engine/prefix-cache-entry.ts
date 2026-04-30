@@ -31,7 +31,6 @@ export type PromptPrefixCacheEntryMetadata = {
 
 export type PromptPrefixCacheEntry = {
   tokenIds: number[];
-  estimatedByteSize: number;
   identity?: PromptPrefixCacheIdentity;
   snapshot: TransformerCacheSnapshot;
   tokenBlocks: PromptPrefixTokenBlockHandle;
@@ -88,6 +87,10 @@ export function disposePromptPrefixCacheEntry(entry: PromptPrefixCacheEntry): vo
   }
 }
 
+export function promptPrefixCacheEntryEstimatedByteSize(entry: PromptPrefixCacheEntry): number {
+  return entry.snapshot.estimatedByteSize;
+}
+
 export function shouldEvictPromptPrefixCacheEntry(
   candidate: PromptPrefixCacheEntry,
   current: PromptPrefixCacheEntry,
@@ -120,7 +123,7 @@ export function promptPrefixCacheEntryMetadata(
 ): PromptPrefixCacheEntryMetadata {
   return {
     tokenLength: entry.tokenIds.length,
-    estimatedByteSize: entry.estimatedByteSize,
+    estimatedByteSize: promptPrefixCacheEntryEstimatedByteSize(entry),
     snapshotOffset: entry.snapshot.offset,
     layerKinds: [...entry.snapshot.layerKinds],
     trimmable: entry.snapshot.trimmable,
