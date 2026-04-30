@@ -39,6 +39,7 @@ export type ServeCliOptions = {
   promptPrefixCacheMaxEntries: number;
   promptPrefixCacheMaxBytes?: number;
   gpuMemoryUtilization: number;
+  remoteImageHosts: readonly string[];
   revision?: string;
   accessToken?: string;
   cacheDir?: string;
@@ -77,6 +78,7 @@ type ParseState = {
   promptPrefixCacheMaxEntries: number;
   promptPrefixCacheMaxBytes?: number;
   gpuMemoryUtilization: number;
+  remoteImageHosts: string[];
   revision?: string;
   accessToken?: string;
   cacheDir?: string;
@@ -159,6 +161,7 @@ function createParseState(): ParseState {
     maxConcurrentRequests: DEFAULT_MODEL_SERVER_MAX_CONCURRENT_REQUESTS,
     promptPrefixCacheMaxEntries: DEFAULT_MODEL_SERVER_PROMPT_PREFIX_CACHE_MAX_ENTRIES,
     gpuMemoryUtilization: DEFAULT_MODEL_SERVER_GPU_MEMORY_UTILIZATION,
+    remoteImageHosts: [],
     localFilesOnly: false,
     verbose: false,
   };
@@ -296,6 +299,9 @@ function applyFlag(state: ParseState, argv: readonly string[], index: number): n
         "a number greater than 0 and less than or equal to 1",
       );
       return index + 1;
+    case "--remote-image-host":
+      state.remoteImageHosts.push(readStringFlag(arg, argv[index + 1]).toLowerCase());
+      return index + 1;
     case "--revision":
       state.revision = readStringFlag(arg, argv[index + 1]);
       return index + 1;
@@ -401,6 +407,7 @@ function stateToOptions(state: ParseState): ServeCliParseResult {
         ? {}
         : { promptPrefixCacheMaxBytes: state.promptPrefixCacheMaxBytes }),
       gpuMemoryUtilization: state.gpuMemoryUtilization,
+      remoteImageHosts: [...new Set(state.remoteImageHosts)],
       ...(state.revision === undefined ? {} : { revision: state.revision }),
       ...(state.accessToken === undefined ? {} : { accessToken: state.accessToken }),
       ...(state.cacheDir === undefined ? {} : { cacheDir: state.cacheDir }),
@@ -445,6 +452,7 @@ export function formatServeUsage(): string {
     `  --prompt-prefix-cache-max-entries <n>  Retained prompt-prefix snapshots per served model (default: ${DEFAULT_MODEL_SERVER_PROMPT_PREFIX_CACHE_MAX_ENTRIES})`,
     "  --prompt-prefix-cache-max-bytes <n>  Estimated retained prompt-prefix snapshot bytes per served model",
     `  --gpu-memory-utilization <f>   Reject estimated requests above this fraction of MLX memory limit (default: ${DEFAULT_MODEL_SERVER_GPU_MEMORY_UTILIZATION})`,
+    "  --remote-image-host <host>      Allow remote image URLs from this exact host; repeat for redirects/CDNs",
     "  --revision <ref>            Hugging Face revision when source is a repo id",
     "  --access-token <token>      Hugging Face access token for private or gated repos",
     "  --cache-dir <path>          Hugging Face cache directory",

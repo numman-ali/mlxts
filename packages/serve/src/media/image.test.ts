@@ -229,10 +229,20 @@ describe("media image helpers", () => {
     ).rejects.toThrow("at least");
   });
 
-  test("rejects remote image URLs for the local serving path", async () => {
-    await expect(
-      readImageSourceBytes({ kind: "url", url: "https://example.com/image.png" }),
-    ).rejects.toThrow("Remote image URLs are not supported");
+  test("loads remote image URLs through the injected transport policy", async () => {
+    const bytes = await readImageSourceBytes(
+      { kind: "url", url: "https://example.com/image.png" },
+      {
+        remoteImageHosts: ["example.com"],
+        remoteResolve: async () => [{ address: "93.184.216.34", family: 4 }],
+        remoteFetch: async () =>
+          new Response("abc", {
+            headers: { "content-type": "image/png", "content-length": "3" },
+          }),
+      },
+    );
+
+    expect(Array.from(bytes)).toEqual([97, 98, 99]);
   });
 
   test("rejects file-id image sources and aborted image reads", async () => {

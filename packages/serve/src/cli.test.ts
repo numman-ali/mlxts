@@ -61,6 +61,7 @@ describe("serve CLI args", () => {
         streamDecodeInterval: 1,
         maxConcurrentRequests: 1,
         promptPrefixCacheMaxEntries: 1,
+        remoteImageHosts: [],
         gpuMemoryUtilization: 0.9,
         localFilesOnly: false,
         verbose: false,
@@ -111,6 +112,10 @@ describe("serve CLI args", () => {
       ".cache/hf",
       "--api-key",
       "secret",
+      "--remote-image-host",
+      "EXAMPLE.com",
+      "--remote-image-host",
+      "cdn.example.com",
       "--local-files-only",
       "--verbose",
     ]);
@@ -140,6 +145,7 @@ describe("serve CLI args", () => {
         accessToken: "hf_secret",
         cacheDir: ".cache/hf",
         apiKey: "secret",
+        remoteImageHosts: ["example.com", "cdn.example.com"],
         localFilesOnly: true,
         verbose: true,
       },
@@ -346,6 +352,7 @@ describe("serve CLI args", () => {
       streamDecodeInterval: 1,
       maxConcurrentRequests: 1,
       promptPrefixCacheMaxEntries: 1,
+      remoteImageHosts: [],
       gpuMemoryUtilization: 0.75,
       localFilesOnly: false,
       verbose: false,
@@ -371,6 +378,15 @@ describe("serve CLI args", () => {
     expect(formatServeReady("http://127.0.0.1:8000", options)).toContain(
       "Prompt-prefix cache bytes: unbounded",
     );
+    expect(formatServeReady("http://127.0.0.1:8000", options)).toContain(
+      "Remote image hosts: disabled",
+    );
+    expect(
+      formatServeReady("http://127.0.0.1:8000", {
+        ...options,
+        remoteImageHosts: ["example.com", "cdn.example.com"],
+      }),
+    ).toContain("Remote image hosts: example.com, cdn.example.com");
     expect(
       formatServeReady("http://127.0.0.1:8000", {
         ...options,
@@ -832,35 +848,43 @@ describe("serve CLI args", () => {
     const logs: string[] = [];
     const errors: string[] = [];
     const running = fakeRunningServer();
-    await runServeCli(["repo/model", "--host", "0.0.0.0", "--verbose"], {
-      async serveModel(options) {
-        options.onProgress?.({ stage: "tokenizer", status: "complete", directory: "/tmp" });
-        options.onEvent?.({ type: "request_start", method: "POST", path: "/v1/chat/completions" });
-        expect(options.source).toBe("repo/model");
-        expect(options.hostname).toBe("0.0.0.0");
-        expect(options.maxPromptTokens).toBe(4096);
-        expect(options.maxBatchSize).toBe(32);
-        expect(options.batchWindowMs).toBe(1);
-        expect(options.prefillStepSize).toBe(512);
-        expect(options.activePrefillStepSize).toBe(128);
-        expect(options.activeDecodeStepsPerPrefillChunk).toBe(16);
-        expect(options.streamDecodeInterval).toBe(1);
-        expect(options.maxConcurrentRequests).toBe(1);
-        expect(options.promptPrefixCacheMaxEntries).toBe(1);
-        expect(options.promptPrefixCacheMaxBytes).toBeUndefined();
-        expect(options.gpuMemoryUtilization).toBe(0.9);
-        return running;
+    await runServeCli(
+      ["repo/model", "--host", "0.0.0.0", "--remote-image-host", "example.com", "--verbose"],
+      {
+        async serveModel(options) {
+          options.onProgress?.({ stage: "tokenizer", status: "complete", directory: "/tmp" });
+          options.onEvent?.({
+            type: "request_start",
+            method: "POST",
+            path: "/v1/chat/completions",
+          });
+          expect(options.source).toBe("repo/model");
+          expect(options.hostname).toBe("0.0.0.0");
+          expect(options.maxPromptTokens).toBe(4096);
+          expect(options.maxBatchSize).toBe(32);
+          expect(options.batchWindowMs).toBe(1);
+          expect(options.prefillStepSize).toBe(512);
+          expect(options.activePrefillStepSize).toBe(128);
+          expect(options.activeDecodeStepsPerPrefillChunk).toBe(16);
+          expect(options.streamDecodeInterval).toBe(1);
+          expect(options.maxConcurrentRequests).toBe(1);
+          expect(options.promptPrefixCacheMaxEntries).toBe(1);
+          expect(options.promptPrefixCacheMaxBytes).toBeUndefined();
+          expect(options.remoteImageHosts).toEqual(["example.com"]);
+          expect(options.gpuMemoryUtilization).toBe(0.9);
+          return running;
+        },
+        log(message) {
+          logs.push(message);
+        },
+        error(message) {
+          errors.push(message);
+        },
+        async waitForShutdown(server) {
+          server.stop();
+        },
       },
-      log(message) {
-        logs.push(message);
-      },
-      error(message) {
-        errors.push(message);
-      },
-      async waitForShutdown(server) {
-        server.stop();
-      },
-    });
+    );
 
     expect(errors).toEqual([]);
     expect(logs.join("\n")).toContain("[tokenizer] ready");

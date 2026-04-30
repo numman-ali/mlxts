@@ -820,6 +820,7 @@ describe("serveLoadedModel", () => {
         return fakeInteractionProfile;
       },
       serveLoadedModel(options) {
+        expect(options.remoteImageHosts).toEqual(["example.com", "cdn.example.com"]);
         calls.push(
           `serve:${options.modelId}:${options.apiKey}:${options.maxPromptTokens}:${options.maxTotalTokens}:${options.maxBatchSize}:${options.batchWindowMs}:${options.prefillStepSize}:${options.activePrefillStepSize}:${options.activeDecodeStepsPerPrefillChunk}:${options.streamDecodeInterval}:${options.maxConcurrentRequests}:${options.promptPrefixCacheMaxEntries}:${options.promptPrefixCacheMaxBytes}:${options.gpuMemoryUtilization}:${options.disposeModelOnStop}`,
         );
@@ -844,6 +845,7 @@ describe("serveLoadedModel", () => {
         promptPrefixCacheMaxEntries: 5,
         promptPrefixCacheMaxBytes: 4096,
         gpuMemoryUtilization: 0.8,
+        remoteImageHosts: ["example.com", "cdn.example.com"],
       },
       runtime,
     );

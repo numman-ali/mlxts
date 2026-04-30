@@ -53,6 +53,7 @@ export type ModelServerRuntimeOptions = {
   promptPrefixCacheMaxEntries?: number;
   promptPrefixCacheMaxBytes?: number;
   gpuMemoryUtilization?: number;
+  remoteImageHosts?: readonly string[];
   apiKey?: string;
   onEvent?: (event: ServeEvent) => void;
 };
@@ -105,6 +106,7 @@ export type ResolvedRuntimeOptions = {
   promptPrefixCacheMaxEntries: number;
   promptPrefixCacheMaxBytes?: number;
   gpuMemoryUtilization: number;
+  remoteImageHosts: readonly string[];
   apiKey?: string;
   onEvent?: (event: ServeEvent) => void;
 };
@@ -166,6 +168,14 @@ function promptPrefixCacheMaxBytesOption(
 ): Partial<Pick<ResolvedRuntimeOptions, "promptPrefixCacheMaxBytes">> {
   const resolved = resolvePromptPrefixCacheMaxBytes(value);
   return resolved === undefined ? {} : { promptPrefixCacheMaxBytes: resolved };
+}
+
+function resolveRemoteImageHosts(hosts: readonly string[] | undefined): readonly string[] {
+  return [
+    ...new Set(
+      (hosts ?? []).map((host) => requireNonEmpty("remoteImageHosts", host).toLowerCase()),
+    ),
+  ];
 }
 
 export function resolveRuntimeOptions(options: ModelServerRuntimeOptions): ResolvedRuntimeOptions {
@@ -230,6 +240,7 @@ export function resolveRuntimeOptions(options: ModelServerRuntimeOptions): Resol
     promptPrefixCacheMaxEntries,
     ...promptPrefixCacheMaxBytesOption(options.promptPrefixCacheMaxBytes),
     gpuMemoryUtilization,
+    remoteImageHosts: resolveRemoteImageHosts(options.remoteImageHosts),
     ...(options.apiKey === undefined ? {} : { apiKey: options.apiKey }),
     ...(options.onEvent === undefined ? {} : { onEvent: options.onEvent }),
   };
@@ -334,6 +345,7 @@ export function runtimeServeOptions(options: ResolvedRuntimeOptions): ModelServe
       ? {}
       : { promptPrefixCacheMaxBytes: options.promptPrefixCacheMaxBytes }),
     gpuMemoryUtilization: options.gpuMemoryUtilization,
+    remoteImageHosts: options.remoteImageHosts,
     ...(options.apiKey === undefined ? {} : { apiKey: options.apiKey }),
     ...(options.onEvent === undefined ? {} : { onEvent: options.onEvent }),
   };

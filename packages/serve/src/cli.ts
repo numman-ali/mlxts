@@ -102,6 +102,9 @@ export function formatServeReady(endpoint: string, options: ServeCliOptions): st
         ? "unbounded"
         : formatBytes(options.promptPrefixCacheMaxBytes)
     }`,
+    `Remote image hosts: ${
+      options.remoteImageHosts.length === 0 ? "disabled" : options.remoteImageHosts.join(", ")
+    }`,
     "",
     "Try:",
     [
@@ -281,6 +284,7 @@ function toServeModelOptions(options: ServeCliOptions): ServeModelOptions {
       ? {}
       : { promptPrefixCacheMaxBytes: options.promptPrefixCacheMaxBytes }),
     gpuMemoryUtilization: options.gpuMemoryUtilization,
+    remoteImageHosts: options.remoteImageHosts,
     ...(options.revision === undefined ? {} : { revision: options.revision }),
     ...(options.accessToken === undefined ? {} : { accessToken: options.accessToken }),
     ...(options.cacheDir === undefined ? {} : { cacheDir: options.cacheDir }),
@@ -312,6 +316,7 @@ function toServeModelsOptions(options: ServeCliOptions): ServeModelsOptions {
       ? {}
       : { promptPrefixCacheMaxBytes: options.promptPrefixCacheMaxBytes }),
     gpuMemoryUtilization: options.gpuMemoryUtilization,
+    remoteImageHosts: options.remoteImageHosts,
     ...(options.revision === undefined ? {} : { revision: options.revision }),
     ...(options.accessToken === undefined ? {} : { accessToken: options.accessToken }),
     ...(options.cacheDir === undefined ? {} : { cacheDir: options.cacheDir }),

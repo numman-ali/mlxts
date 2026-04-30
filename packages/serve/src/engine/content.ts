@@ -53,6 +53,7 @@ export type TransformersContentAdapterLoadContext = {
   tokenizer: Tokenizer;
   interactionProfile?: InteractionProfile;
   signal?: AbortSignal;
+  remoteImageHosts?: readonly string[];
 };
 
 /** Model state available only while the model execution lane is held. */
@@ -202,8 +203,13 @@ function emitPromptPrepare(
   });
 }
 
-function imageReadOptions(signal: AbortSignal | undefined): ImageReadOptions {
-  return signal === undefined ? {} : { signal };
+function imageReadOptions(context: TransformersContentAdapterLoadContext): ImageReadOptions {
+  return {
+    ...(context.signal === undefined ? {} : { signal: context.signal }),
+    ...(context.remoteImageHosts === undefined
+      ? {}
+      : { remoteImageHosts: context.remoteImageHosts }),
+  };
 }
 
 function hexDigest(bytes: Uint8Array): string {
@@ -238,12 +244,12 @@ function preprocessorCacheKey(preprocessor: Qwen3_5VisionPreprocessorConfig): st
 async function decodeQwenImage(
   part: GenerationContentPart,
   preprocessor: Qwen3_5VisionPreprocessorConfig,
-  signal: AbortSignal | undefined,
+  context: TransformersContentAdapterLoadContext,
 ): Promise<DecodedQwenImage> {
   if (part.kind !== "image") {
     throw new Error("decodeQwenImage requires an image part.");
   }
-  const readOptions = imageReadOptions(signal);
+  const readOptions = imageReadOptions(context);
   const bytes = await readImageSourceBytes(part.source, readOptions);
   const originalSize = await readImageBytesSize(bytes, readOptions);
   const resizedSize = smartResizeQwen3_5Image(
@@ -281,7 +287,7 @@ export function createQwen3_5ImageContentAdapter(
       const decodedImages: DecodedQwen3_5Image[] = [];
       const contentKeys: string[] = [];
       for (const image of images) {
-        const decoded = await decodeQwenImage(image, preprocessor, context.signal);
+        const decoded = await decodeQwenImage(image, preprocessor, context);
         decodedImages.push(decoded.image);
         contentKeys.push(decoded.cacheKey);
       }
@@ -336,6 +342,9 @@ export async function loadContentGenerationRequest(
       ? {}
       : { interactionProfile: options.interactionProfile }),
     ...(request.abortSignal === undefined ? {} : { signal: request.abortSignal }),
+    ...(options.remoteImageHosts === undefined
+      ? {}
+      : { remoteImageHosts: options.remoteImageHosts }),
   });
   throwIfRequestAborted(request, "loadContentGenerationRequest");
   return { request, ...loaded, startedAt };

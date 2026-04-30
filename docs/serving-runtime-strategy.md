@@ -247,10 +247,11 @@ The next work should stay ordered around architecture truth:
    signals; deepen it as cache backends, cancellation state, and scheduler
    fairness gain more first-class state.
 8. Expand protocols and modalities through the shared request model. Qwen image
-   data URLs now prove the first media adapter path for Chat Completions and
-   Responses, and Anthropic base64 image blocks use the same content route. The
-   next slices are fuller Responses and Anthropic tools, structured
-   output/logprobs, Gemma image/video truth, and broader file/audio inputs.
+   data URLs and allowlisted remote HTTP(S) image URLs prove the first media
+   adapter path for Chat Completions and Responses, and Anthropic base64/URL
+   image blocks use the same content route. The next slices are fuller
+   Responses and Anthropic tools, structured output/logprobs, Gemma image/video
+   truth, and broader file/audio inputs.
    Image/video/audio/PDF/file support should normalize into typed content parts
    first, then route through model-family adapters when the underlying
    checkpoint genuinely supports that modality.

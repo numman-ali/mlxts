@@ -108,6 +108,7 @@ function createLoadedModelEngine(
       ? {}
       : { promptPrefixCacheMaxBytes: options.promptPrefixCacheMaxBytes }),
     gpuMemoryUtilization: options.gpuMemoryUtilization,
+    remoteImageHosts: options.remoteImageHosts,
     ...(model.interactionProfile === undefined
       ? {}
       : { interactionProfile: model.interactionProfile }),

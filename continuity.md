@@ -49,9 +49,10 @@ image, and bounded tool endpoints while benchmark and scheduler work continues.
 - **Image serving**: Qwen image transport, host decode, and prepared-prompt
   cache shipped with explicit boundary — serve owns I/O and decode, transformers
   owns preprocessing and prompt expansion. OpenAI Chat/OpenResponses accept
-  data-url images; Anthropic Messages accepts local base64 user image blocks
-  through the same content route. Remote/file image sources remain rejected
-  until transport policy exists.
+  data-url and allowlisted remote HTTP(S) images; Anthropic Messages accepts
+  local base64 and allowlisted remote HTTP(S) user image blocks through the same
+  content route. File image sources remain rejected until a file-store policy
+  exists.
 - **Qwen conditional serving**: top-level Qwen 3.5 / 3.6 conditional
   checkpoints expose the Qwen text batch-cache surface for text-only continuous
   serving. Media/content requests still route as `media_input` and stay off

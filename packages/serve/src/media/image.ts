@@ -5,6 +5,11 @@
 
 import { ServeError } from "../errors";
 import type { GenerationMediaSource } from "../types";
+import {
+  type RemoteImageFetcher,
+  type RemoteImageResolver,
+  readRemoteImageUrlBytes,
+} from "./remote-image";
 
 /** Default decoded image input byte cap for local serving media payloads. */
 export const DEFAULT_IMAGE_SOURCE_MAX_BYTES = 32 * 1024 * 1024;
@@ -25,6 +30,11 @@ export type DecodedRgbImage = ImageSize & {
 export type ImageReadOptions = {
   signal?: AbortSignal;
   maxBytes?: number;
+  remoteImageHosts?: readonly string[];
+  remoteTimeoutMs?: number;
+  remoteMaxRedirects?: number;
+  remoteFetch?: RemoteImageFetcher;
+  remoteResolve?: RemoteImageResolver;
 };
 
 function temporaryPath(extension: string): string {
@@ -393,10 +403,7 @@ export async function readImageSourceBytes(
         "Image data URL",
       );
     case "url":
-      throw new ServeError(
-        "Remote image URLs are not supported by local serving yet. Send image data URLs instead.",
-        { code: "unsupported_input", param: "messages" },
-      );
+      return readRemoteImageUrlBytes(source.url, { ...options, maxBytes });
     case "file":
       throw new ServeError("File-id image inputs are not supported by local serving yet.", {
         code: "unsupported_input",

@@ -157,6 +157,14 @@ function promptPrefixCacheRetentionOption(
   };
 }
 
+function remoteImageHostsOption(
+  options: ServeModelsOptions,
+): Pick<ResolvedServeModelsRuntimeOptions, "remoteImageHosts"> | Record<string, never> {
+  return options.remoteImageHosts === undefined
+    ? {}
+    : { remoteImageHosts: options.remoteImageHosts };
+}
+
 function resolveServeModelsRuntimeOptions(
   options: ServeModelsOptions,
 ): ResolvedServeModelsRuntimeOptions {
@@ -187,6 +195,7 @@ function resolveServeModelsRuntimeOptions(
     ...(options.gpuMemoryUtilization === undefined
       ? {}
       : { gpuMemoryUtilization: options.gpuMemoryUtilization }),
+    ...remoteImageHostsOption(options),
     ...(options.apiKey === undefined ? {} : { apiKey: options.apiKey }),
     ...(options.onEvent === undefined ? {} : { onEvent: options.onEvent }),
   };

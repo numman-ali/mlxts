@@ -203,6 +203,10 @@ function testRuntime(options: {
             .join(",")}`,
         );
       }
+      const remoteImageHosts = serveOptions.remoteImageHosts ?? [];
+      if (remoteImageHosts.length > 0) {
+        options.calls.push(`remote-image-hosts:${remoteImageHosts.join(",")}`);
+      }
       options.calls.push(
         `serve:${modelIds.join(",")}:${serveOptions.apiKey}:${serveOptions.maxBatchSize}:${serveOptions.disposeModelsOnStop}`,
       );
@@ -242,6 +246,7 @@ describe("serveModels", () => {
         revision: "main",
         apiKey: "secret",
         maxBatchSize: 16,
+        remoteImageHosts: ["example.com", "cdn.example.com"],
         onProgress(event, context) {
           progress.push(`${context.index}:${context.modelId}:${event.stage}:${context.source}`);
         },
@@ -259,6 +264,7 @@ describe("serveModels", () => {
       "model:/snapshots/repo/qwen",
       "tokenizer:/snapshots/repo/qwen",
       "profile:/snapshots/repo/qwen",
+      "remote-image-hosts:example.com,cdn.example.com",
       "serve:gemma-local,repo/qwen:secret:16:true",
     ]);
     expect(progress).toEqual(["0:gemma-local:resolve:repo/gemma", "1:repo/qwen:resolve:repo/qwen"]);
