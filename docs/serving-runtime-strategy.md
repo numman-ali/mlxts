@@ -238,9 +238,10 @@ The next work should stay ordered around architecture truth:
    covers single message/chat requests and continuous-scheduler prompt-cache
    hits through family-owned snapshot/fork semantics, one-row batch-cache
    restore, bounded operator-configured snapshot retention, and
-   OpenAI-compatible cache read/write accounting. The default retains one
-   prompt-boundary snapshot per served model; multi-entry retention is explicit
-   through the typed runtime strategy. The next proof is paged or
+   OpenAI-compatible cache read/write accounting. The default retains four
+   prompt-boundary snapshots per served model so small parallel agent sessions
+   can warm replay exact boundaries; wider retention remains explicit through
+   the typed runtime strategy and byte budget. The next proof is paged or
    block-deduplicated tensor reuse without regressing uncached continuous
    fairness.
 7. After managed prefix-cache semantics are proven in live acceptance,

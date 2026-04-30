@@ -6,7 +6,11 @@ import { mkdirSync } from "fs";
 import { dirname } from "path";
 import { acquireRuntimeCommandLock } from "../../../scripts/runtime-command-lock";
 import { serveLoadedModels } from "../src/model-loading/server";
-import type { LoadedModelServerEntry } from "../src/model-loading/server-options";
+import {
+  DEFAULT_MODEL_SERVER_MAX_CONCURRENT_REQUESTS,
+  DEFAULT_MODEL_SERVER_PROMPT_PREFIX_CACHE_MAX_ENTRIES,
+  type LoadedModelServerEntry,
+} from "../src/model-loading/server-options";
 import type { ServeEvent } from "../src/types";
 import { type BenchmarkPrompt, runCompletionRequest } from "./benchmark-serve-completions";
 import type { ServeBenchmarkOptions } from "./benchmark-serve-options";
@@ -33,6 +37,8 @@ export type AgentCacheRegressionOptions = {
   reportJson: string;
   promptTokens: number;
   maxTokens: number;
+  maxConcurrentRequests: number;
+  promptPrefixCacheMaxEntries: number;
   requestTimeoutMs: number;
   gpuMemoryUtilization: number;
   allowDownload: boolean;
@@ -99,6 +105,8 @@ export type AgentCacheRegressionReport = {
   createdAt: string;
   promptTokens: number;
   maxTokens: number;
+  maxConcurrentRequests: number;
+  promptPrefixCacheMaxEntries: number;
   scenarios: readonly AgentCacheScenarioReport[];
 };
 
@@ -113,7 +121,7 @@ export function formatAgentCacheRegressionUsage(): string {
     "  bun run regression:agent-cache",
     "  bun run regression:agent-cache -- --scenarios qwen-dense,gemma-dense,multi-dense",
     "  bun run regression:agent-cache -- --include-moe --include-moe-multi",
-    "options[14]{flag,description}:",
+    "options[16]{flag,description}:",
     '  "--scenarios <list>","Comma-separated qwen-dense,gemma-dense,multi-dense,qwen-moe,gemma-moe,multi-moe"',
     '  "--include-moe","Add qwen-moe and gemma-moe to the default scenario list"',
     '  "--include-moe-multi","Add multi-moe to the scenario list"',
@@ -123,6 +131,8 @@ export function formatAgentCacheRegressionUsage(): string {
     '  "--gemma-moe-model <id>","Gemma MoE model id/path"',
     '  "--prompt-tokens <n>","Approximate chat prompt length per session; default 128"',
     '  "--max-tokens <n>","Max generated tokens per probe; default 16"',
+    `  "--max-concurrent-requests <n>","Active model jobs allowed during probes; default ${DEFAULT_MODEL_SERVER_MAX_CONCURRENT_REQUESTS}"`,
+    `  "--prompt-prefix-cache-max-entries <n>","Retained prompt-boundary snapshots per served model; default ${DEFAULT_MODEL_SERVER_PROMPT_PREFIX_CACHE_MAX_ENTRIES}"`,
     '  "--request-timeout-ms <n>","Client timeout per request; default 3600000"',
     '  "--gpu-memory-utilization <f>","Serving memory preflight budget in (0,1]; default 0.85"',
     '  "--report-json <path>","Report path; default .tmp/agent-cache-regression/report.json"',
@@ -209,6 +219,8 @@ export function parseAgentCacheRegressionArgs(
     reportJson: ".tmp/agent-cache-regression/report.json",
     promptTokens: 128,
     maxTokens: 16,
+    maxConcurrentRequests: DEFAULT_MODEL_SERVER_MAX_CONCURRENT_REQUESTS,
+    promptPrefixCacheMaxEntries: DEFAULT_MODEL_SERVER_PROMPT_PREFIX_CACHE_MAX_ENTRIES,
     requestTimeoutMs: 3_600_000,
     gpuMemoryUtilization: 0.85,
     allowDownload: false,
@@ -259,6 +271,14 @@ export function parseAgentCacheRegressionArgs(
         options.maxTokens = readPositiveInteger(argv, index, arg);
         index += 1;
         break;
+      case "--max-concurrent-requests":
+        options.maxConcurrentRequests = readPositiveInteger(argv, index, arg);
+        index += 1;
+        break;
+      case "--prompt-prefix-cache-max-entries":
+        options.promptPrefixCacheMaxEntries = readPositiveInteger(argv, index, arg);
+        index += 1;
+        break;
       case "--request-timeout-ms":
         options.requestTimeoutMs = readPositiveInteger(argv, index, arg);
         index += 1;
@@ -307,7 +327,7 @@ function benchmarkOptions(options: AgentCacheRegressionOptions): ServeBenchmarkO
     activePrefillStepSize: 128,
     activeDecodeStepsPerPrefillChunk: 16,
     streamDecodeInterval: 1,
-    maxConcurrentRequests: 1,
+    maxConcurrentRequests: options.maxConcurrentRequests,
     requestTimeoutMs: options.requestTimeoutMs,
     gpuMemoryUtilization: options.gpuMemoryUtilization,
     maxPromptTokens: Math.max(options.promptTokens + 256, 512),
@@ -580,7 +600,8 @@ async function runScenario(
       maxBatchSize: 8,
       batchWindowMs: 2,
       streamDecodeInterval: 1,
-      maxConcurrentRequests: 1,
+      maxConcurrentRequests: options.maxConcurrentRequests,
+      promptPrefixCacheMaxEntries: options.promptPrefixCacheMaxEntries,
       gpuMemoryUtilization: options.gpuMemoryUtilization,
       onEvent(event) {
         events.push(event);
@@ -659,6 +680,8 @@ export function formatAgentCacheRegressionSuccess(
     "agent_cache_regression:",
     "  status: passed",
     `  scenarios: ${report.scenarios.length}`,
+    `  max_concurrent_requests: ${report.maxConcurrentRequests}`,
+    `  prompt_prefix_cache_max_entries: ${report.promptPrefixCacheMaxEntries}`,
     `  report_json: ${toon(reportJson)}`,
     `scenarios[${rows.length}]{id,status,models,warm_hits,warm_read_tokens,warm_client_read_tokens,exact_replay_hits,exact_replay_client_read_tokens}:`,
     ...rows.map((row) => `  ${row}`),
@@ -677,6 +700,8 @@ export async function runAgentCacheRegression(
     createdAt: new Date().toISOString(),
     promptTokens: options.promptTokens,
     maxTokens: options.maxTokens,
+    maxConcurrentRequests: options.maxConcurrentRequests,
+    promptPrefixCacheMaxEntries: options.promptPrefixCacheMaxEntries,
     scenarios,
   };
 }

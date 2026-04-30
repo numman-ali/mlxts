@@ -69,6 +69,11 @@ Use `bun run regression:agent-cache -- --scenarios qwen-dense,gemma-dense,multi-
 for the automated dense proof. Add `--include-moe` when the Qwen/Gemma MoE
 checkpoints and memory budget are available.
 
+For reports involving two active Gemma MoE agents, escalate to
+`bun run regression:agent-cache -- --scenarios gemma-moe --max-concurrent-requests 2 --report-json .tmp/agent-cache-regression/gemma-moe-concurrent.json`.
+The cold A/B requests may both miss. The warm A/B replay and exact A replay must
+hit retained prompt boundaries.
+
 Use `cmux` for Pi/server smokes so server logs and two client terminals remain
 visible. Heavy MLX commands remain exclusive.
 

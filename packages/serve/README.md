@@ -572,7 +572,17 @@ bun run regression:agent-cache -- --scenarios qwen-dense,gemma-dense,multi-dense
 
 It runs divergent A/B chat sessions cold, replays both warm, and fails unless
 both warm replays produce server prompt-cache hits plus OpenAI-compatible cached
-token usage. Add `--include-moe` for the proven Qwen/Gemma MoE checkpoints.
+token usage, then replays session A again after the divergent warm pass. Add
+`--include-moe` for the proven Qwen/Gemma MoE checkpoints and
+`--include-moe-multi` for same-server Qwen MoE + Gemma MoE. For a two-active
+Gemma MoE agent proof, run:
+
+```bash
+bun run regression:agent-cache -- --scenarios gemma-moe --max-concurrent-requests 2
+```
+
+Cold concurrent misses are expected until one completed prompt-boundary snapshot
+exists. Warm replay and exact A replay must hit retained prompt boundaries.
 
 ## Engine Primitives
 

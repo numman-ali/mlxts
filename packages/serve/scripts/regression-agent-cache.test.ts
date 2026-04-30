@@ -71,6 +71,8 @@ describe("agent cache regression", () => {
         reportJson: ".tmp/agent-cache-regression/report.json",
         promptTokens: 128,
         maxTokens: 16,
+        maxConcurrentRequests: 1,
+        promptPrefixCacheMaxEntries: 4,
         requestTimeoutMs: 3_600_000,
         gpuMemoryUtilization: 0.85,
         allowDownload: false,
@@ -102,6 +104,10 @@ describe("agent cache regression", () => {
         "256",
         "--max-tokens",
         "8",
+        "--max-concurrent-requests",
+        "2",
+        "--prompt-prefix-cache-max-entries",
+        "6",
         "--request-timeout-ms",
         "120000",
         "--gpu-memory-utilization",
@@ -118,6 +124,8 @@ describe("agent cache regression", () => {
       gemmaMoeModel: "gemma-moe",
       promptTokens: 256,
       maxTokens: 8,
+      maxConcurrentRequests: 2,
+      promptPrefixCacheMaxEntries: 6,
       requestTimeoutMs: 120000,
       gpuMemoryUtilization: 0.7,
       reportJson: ".tmp/report.json",
@@ -137,6 +145,12 @@ describe("agent cache regression", () => {
     );
     expect(() => parseAgentCacheRegressionArgs(["--max-tokens", "0"])).toThrow(
       "--max-tokens must be a positive integer",
+    );
+    expect(() => parseAgentCacheRegressionArgs(["--max-concurrent-requests", "0"])).toThrow(
+      "--max-concurrent-requests must be a positive integer",
+    );
+    expect(() => parseAgentCacheRegressionArgs(["--prompt-prefix-cache-max-entries", "0"])).toThrow(
+      "--prompt-prefix-cache-max-entries must be a positive integer",
     );
     expect(() => parseAgentCacheRegressionArgs(["--gpu-memory-utilization", "1.1"])).toThrow(
       "--gpu-memory-utilization must be between 0 and 1",
@@ -205,6 +219,8 @@ describe("agent cache regression", () => {
       createdAt: "2026-04-30T00:00:00.000Z",
       promptTokens: 128,
       maxTokens: 16,
+      maxConcurrentRequests: 2,
+      promptPrefixCacheMaxEntries: 4,
       scenarios: [
         {
           id: "multi-dense",
@@ -226,6 +242,8 @@ describe("agent cache regression", () => {
         "agent_cache_regression:",
         "  status: passed",
         "  scenarios: 1",
+        "  max_concurrent_requests: 2",
+        "  prompt_prefix_cache_max_entries: 4",
         '  report_json: ".tmp/report.json"',
         "scenarios[1]{id,status,models,warm_hits,warm_read_tokens,warm_client_read_tokens,exact_replay_hits,exact_replay_client_read_tokens}:",
         '  "multi-dense","passed","qwen-dense-local|gemma-dense-local",4,512,384,2,256',
@@ -270,6 +288,8 @@ describe("agent cache regression", () => {
             createdAt: "2026-04-30T00:00:00.000Z",
             promptTokens: options.promptTokens,
             maxTokens: options.maxTokens,
+            maxConcurrentRequests: options.maxConcurrentRequests,
+            promptPrefixCacheMaxEntries: options.promptPrefixCacheMaxEntries,
             scenarios: [
               {
                 id: "qwen-dense",
