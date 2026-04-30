@@ -27,6 +27,46 @@ This file is the roadmap. Detailed designs live in separate docs:
 | [docs/architecture.md](./docs/architecture.md) | System architecture and layer responsibilities |
 | [docs/code-standards.md](./docs/code-standards.md) | Code quality, naming, structure, testing standards |
 | [docs/agentic-loop.md](./docs/agentic-loop.md) | Multi-agent engineering workflow |
+| [`.agents/skills/axi/SKILL.md`](./.agents/skills/axi/SKILL.md) | Agent-facing CLI output contract |
+
+## Roadmap to Phase 10 Completion
+
+The current roadmap runs through Phase 10 as the active product horizon. Phase
+numbers still describe dependency order, but they are not a single serial queue:
+Phases 8, 9, and 10 fan out after the Phase 7 architecture base. Work advances
+by narrow tranches with review artifacts and gates, not by bundling multiple
+product areas into one commit.
+
+### Product-area order
+
+1. **Phase 7 closeout: model architecture truth.** Keep dense decoder families,
+   chat-template behavior, MoE text families, tokenizer parity, and generation
+   performance evidence coherent before widening the product surface.
+2. **Phase 8: fine-tuning and alignment.** Harden LoRA, QLoRA, SFT, DPO,
+   dataset preparation, official-checkpoint proofs, report verification, and
+   future training CLI surfaces without turning `@mlxts/train` into a black-box
+   framework.
+3. **Phase 9: serving and quantized inference.** Complete quantization,
+   cache-backend evolution, continuous scheduling, tool/structured protocol
+   support, dynamic model pools, embeddings, and serving regression ladders.
+4. **Phase 9.5: AXI and agent-operated CLI surfaces.** Every agent-facing CLI
+   becomes predictable for shell-driving agents: compact TOON-shaped stdout,
+   structured stdout errors, clear exit codes, no prompts in non-TTY paths, and
+   diagnostics/progress off the consumable stdout channel. Package-owned
+   binaries migrate before an umbrella `@mlxts/cli` claims the surface.
+5. **Phase 10 research spike.** Before each new modality or generation
+   paradigm, audit canonical references first: Hugging Face Transformers,
+   Diffusers, MLX examples, `mlx-lm`, and the relevant MLX runtime sources.
+6. **Phase 10a: multimodal understanding.** Expand `@mlxts/transformers` with
+   vision/audio encoders, VLM wrappers, encoder-decoder families, prepared
+   prompt contracts, and serving routes that preserve model-native media
+   semantics.
+7. **Phase 10b: diffusion and flow generation.** Create `@mlxts/diffusion` for
+   image, video, and audio generation with package-owned configs, schedulers,
+   VAE/backbone loading, conditioning, sampling, and examples.
+8. **Phase 10 completion fence.** A Phase 10 claim requires real checkpoint
+   proofs, examples/workbooks, package docs, AXI-shaped finite commands where a
+   CLI exists, runtime review artifacts for hot paths, and full validation.
 
 ## Design Philosophy
 
@@ -673,8 +713,10 @@ order is:
 1. Official-checkpoint quantization proofs and long-context evidence
 2. MoE text architectures
 3. Minimal serving on the shared request / prompt-compiler path
-4. Phase 10 multimodal and diffusion model families
-5. Deeper training orchestration ergonomics
+4. AXI-shaped agent-operated CLI surfaces for the package-owned binaries that
+   already exist
+5. Phase 10 multimodal and diffusion model families
+6. Deeper training orchestration ergonomics
 
 Training remains a first-class product surface throughout. The deferral is
 about orchestration ergonomics, not about deprioritizing fine-tuning or
@@ -859,12 +901,24 @@ reporting.
 - Future per-model settings (sampling params, TTL, aliases) persisted to JSON
 - Landed disconnect guard — monitor client disconnection and cancel generation
 
-### 9g. CLI expansion (`@mlxts/cli`)
+### 9g. Package-owned CLI expansion
 
-- `mlxts serve --model Llama-3.2-1B --quantize 4bit`
-- `mlxts convert --source hf --model meta-llama/Llama-3.2-1B`
-- `mlxts quantize --model ./my-model --bits 4`
-- `mlxts download --model meta-llama/Llama-3.2-1B`
+The current CLI shape is package-owned binaries such as `mlxts-serve`,
+`mlxts-agent`, example-local manager commands, and benchmark/report scripts.
+Keep that shape until an umbrella `@mlxts/cli` has a stronger reason to exist
+than centralizing names.
+
+- `mlxts-serve` owns model serving, model-root discovery, startup validation,
+  status/introspection, and endpoint-oriented benchmark entrypoints.
+- `mlxts-agent` owns local tool-loop operation over served models, including
+  one-shot and interactive modes.
+- `examples/nanogpt` owns its manager, status, stop/resume, acceptance, and
+  soak commands until those workflows become reusable package APIs.
+- Training proof, Qwen image, future VLM, Whisper, text-to-image, quantization,
+  and evaluation commands grow beside their backing packages/examples first.
+- The future umbrella commands (`mlxts serve`, `mlxts quantize`,
+  `mlxts download`, `mlxts train`, `mlxts eval`) wrap coherent package-owned
+  surfaces instead of hiding inconsistent CLI contracts.
 
 ### 9h. Future optimization hooks
 
@@ -882,6 +936,42 @@ The architecture must accommodate these techniques without requiring them at lau
 
 ---
 
+## Phase 9.5: Product-Agent Experience and AXI Hardening
+
+**Goal**: Make every agent-operated CLI surface predictable, token-efficient,
+and safe to drive through shell tools before Phase 10 broadens the product
+surface.
+
+Agent-driven operation is a product requirement, not a wrapper convenience.
+Every CLI that agents drive through a shell follows the repo-local AXI contract
+in [`.agents/skills/axi/SKILL.md`](./.agents/skills/axi/SKILL.md).
+
+**What this phase covers**:
+
+- Finite commands emit compact TOON-shaped stdout by default. JSON is an
+  explicit compatibility/export mode when a command already promises it.
+- Structured errors use stdout with actionable hints and stable exit codes:
+  `0` for success/no-op, `1` for runtime errors, `2` for usage errors.
+- Progress, diagnostics, debug logs, and long-running status lines stay off the
+  consumable stdout channel.
+- Non-TTY paths never prompt. Missing required values fail before calling any
+  dependency.
+- Long-running servers, REPLs, training managers, and benchmark harnesses expose
+  structured status/report surfaces rather than pretending to be one-shot data
+  commands.
+- Package-owned binaries migrate first: `mlxts-serve`, `mlxts-agent`,
+  `examples/nanogpt` manager commands, training proof commands, Qwen image
+  workbooks, benchmark/report commands, and future diffusion/multimodal
+  inspection commands.
+- `mlxts-serve discover --model-root <directory>` is the first landed finite
+  AXI-shaped serve command; broader serve startup logs and `mlxts-agent`
+  non-TTY/error paths remain follow-up migration tranches.
+
+**Exit criteria**: See
+[gates-and-milestones.md](./docs/gates-and-milestones.md#phase-95-product-agent-experience-and-axi-hardening).
+
+---
+
 ## Phase 10: Generative Media and Multimodal Understanding
 
 **Goal**: On-device generative AI across modalities — image, video, and audio generation via diffusion models; multimodal understanding via transformer encoders and VLM composition.
@@ -890,8 +980,14 @@ The architecture must accommodate these techniques without requiring them at lau
 
 **Research basis:** Phase 10 should be grounded in MLX-native reference work from
 `.reference/mlx-examples` plus diffusion pipeline and checkpoint-structure
-reference work from Hugging Face Diffusers. Clone that reference into
-`.reference/diffusers` before Phase 10 research begins.
+reference work from Hugging Face Diffusers. Refresh and audit
+`.reference/diffusers` before Phase 10 diffusion implementation begins.
+
+**Current status:** The first Qwen image-conditioned path is already real:
+`@mlxts/transformers` owns Qwen media prompt preparation, `@mlxts/serve` owns
+protocol media transport and scheduling, and `examples/qwen3_5-image` is the
+direct workbook. Broader VLM families, audio encoder/decoder families, and
+diffusion/flow generation remain Phase 10 work.
 
 **What this phase covers**:
 
@@ -927,7 +1023,26 @@ All diffusion and flow-based generation across modalities: image, video, and aud
 - `examples/qwen3_5-image/` — first dedicated Qwen image-conditioned generation example
 - `examples/vlm-chat/` — broader chat-with-images surface after the initial wrapper tranche
 
-**Exit criteria**: See [gates-and-milestones.md](./docs/gates-and-milestones.md#phase-10-diffusion-and-multi-modal).
+### 10d. Completion fence
+
+Phase 10 is complete only when multimodal understanding and diffusion/flow
+generation are both represented by package-owned APIs, examples, and product
+proofs:
+
+- At least one VLM path describes and answers questions about local images
+  through `@mlxts/transformers`, `@mlxts/serve`, and an example/workbook.
+- At least one audio or encoder-decoder path proves local preprocessing,
+  model execution, and text output without widening `CausalLM`.
+- At least one diffusion/flow pipeline generates an image through
+  `@mlxts/diffusion`, with scheduler, VAE/backbone, conditioning, and sampling
+  owned by the package.
+- Media transport, file-store, remote-fetch, preprocessing, cache, and serving
+  ownership boundaries are documented before each capability is advertised.
+- Finite Phase 10 CLI/proof commands are AXI-shaped from day one.
+- Runtime-sensitive paths have review artifacts, focused real-checkpoint
+  evidence, and the same validation posture as text serving.
+
+**Exit criteria**: See [gates-and-milestones.md](./docs/gates-and-milestones.md#phase-10-completion-fence).
 
 ---
 

@@ -354,19 +354,23 @@ Model evaluation and benchmarking.
 
 **Future umbrella package.** The current CLI shape is package-owned binaries
 such as `mlxts-serve` and `mlxts-agent`. Keep that shape until an umbrella CLI
-has a stronger reason to exist than centralizing names.
+has a stronger reason to exist than centralizing names. Agent-facing finite
+commands follow the AXI contract before they are wrapped by any umbrella
+command.
 
 Command-line tools for the mlxts ecosystem.
 
 | Concern | What it provides |
 |---------|-----------------|
-| `mlxts train` | Train any model with config-driven setup |
-| `mlxts generate` | Interactive text generation |
-| `mlxts serve` | Start an inference server |
-| `mlxts convert` | Convert HF models to mlxts format |
-| `mlxts quantize` | Quantize a model |
-| `mlxts eval` | Run benchmarks |
-| `mlxts download` | Download from HuggingFace Hub |
+| Package-owned commands | Current binaries and example-local managers stay beside their backing packages |
+| AXI finite output | Compact structured stdout, structured errors, stable exit codes, and no non-TTY prompts |
+| `mlxts train` | Future wrapper over package-owned training/proof commands |
+| `mlxts generate` | Future wrapper over text and media generation workbooks |
+| `mlxts serve` | Future wrapper over `mlxts-serve` once serving CLI contracts are coherent |
+| `mlxts convert` | Future model conversion command |
+| `mlxts quantize` | Future wrapper over `@mlxts/quantize` |
+| `mlxts eval` | Future wrapper over `@mlxts/eval` |
+| `mlxts download` | Future Hugging Face snapshot helper |
 
 **Dependencies:** All packages as needed per subcommand.
 
@@ -591,10 +595,11 @@ work is deferred unless a row says otherwise.
 - **Phase 5 creates:** `core`, `nn`, `optimizers`, `train`, `data`, `tokenizers`. These are already extracted, with `examples/nanogpt` acting as the committed example and regression harness while the package surfaces settle.
 - **Phase 7 creates:** `transformers`. Pretrained loading uses official Hugging Face JS packages plus repo-owned helpers under `packages/transformers/src/pretrained/`.
 - **Phase 8 surfaces now exist:** `lora`, `align`, and their proof/example surfaces are in-repo while the real-world evidence and CI gates continue to harden.
-- **Phase 9 surfaces now exist:** `quantize` is in-repo; `serve` remains the next major serving surface to complete.
+- **Phase 9 surfaces now exist:** `quantize`, `serve`, and `agent` are in-repo; serving, cache, scheduler, protocol, and model-pool work continue through package-owned surfaces.
+- **Phase 9.5 hardens:** agent-operated CLI contracts. Package-owned binaries adopt AXI-shaped finite output before any umbrella CLI centralizes names.
 - **Phase 10 creates:** `diffusion`. Vision/audio encoders extend `transformers`, not a separate package. Generative media (image/video/audio) uses diffusion/flow → `@mlxts/diffusion`.
 - **Phase 12 creates:** `eval`. This appears when benchmark evaluation lands.
-- **`cli` grows incrementally** — subcommands arrive as their backing packages ship.
+- **`cli` grows incrementally** — subcommands arrive as their backing packages ship, after finite command contracts are already AXI-shaped at the package-owned boundary.
 
 ---
 

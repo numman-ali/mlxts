@@ -202,7 +202,12 @@ The next work should stay ordered around architecture truth:
 
 1. Keep repo alignment current as package surfaces evolve; stale roadmap text is
    a real engineering hazard.
-2. Lock serving baselines for Qwen/Gemma across greedy and model-default
+2. Harden agent-operated CLI surfaces with AXI before widening the product
+   surface. Finite commands expose compact structured stdout and actionable
+   stdout errors; long-running servers, REPLs, and managers expose status,
+   report, or transcript surfaces without mixing progress into consumable
+   stdout.
+3. Lock serving baselines for Qwen/Gemma across greedy and model-default
    sampled generation, buffered and streaming output, staggered arrivals,
    short/long output rungs, and separate client-observed plus server-side
    stream evidence. The real matrix now includes `@4` and `@8` Qwen/Gemma
@@ -217,19 +222,19 @@ The next work should stay ordered around architecture truth:
    Message-protocol health rungs also require prompt-prefix cache hits and
    nonzero cache-read evidence in benchmark reports, so repeated-turn serving
    regressions fail before they become client-visible latency mysteries.
-3. Keep the typed internal serving/runtime strategy seam as the path for new
+4. Keep the typed internal serving/runtime strategy seam as the path for new
    backend choices. The current seam reports implemented behavior only:
    scheduler `auto`, managed model-precision cache, attention `auto`,
    model-native decoding, streaming decode cadence, admit-only memory preflight,
    and continuous scheduled-memory reservation.
-4. Harden the scheduler: continuous routes now use one model-level reservation
+5. Harden the scheduler: continuous routes now use one model-level reservation
    budget with separate prompt, completion, aggregate total, and estimated
    memory caps. Serving exposes `--prefill-step-size` for cold prompt-prefill
    chunks and keeps the default at a fairness-biased `512` so short arrivals can
    get admitted between long-prefill chunks. The next passes should add stronger
    fairness controls and keep explicit per-row decode state for sampler, stop,
    reasoning, and future logits processors.
-5. Deepen cache backends behind stable contracts. Prompt-prefix cache reuse now
+6. Deepen cache backends behind stable contracts. Prompt-prefix cache reuse now
    covers single message/chat requests and continuous-scheduler prompt-cache
    hits through family-owned snapshot/fork semantics, one-row batch-cache
    restore, bounded operator-configured snapshot retention, and
@@ -238,15 +243,15 @@ The next work should stay ordered around architecture truth:
    through the typed runtime strategy. The next proof is paged or
    block-deduplicated tensor reuse without regressing uncached continuous
    fairness.
-6. After managed prefix-cache semantics are proven in live acceptance,
+7. After managed prefix-cache semantics are proven in live acceptance,
    deepen rotating/max-KV policy, quantized KV, paged KV, and later TurboQuant
    or tiered SSD storage. Lossy or compressed cache strategies need quality
    evidence as well as speed/memory evidence.
-7. Use `/metrics` as the production observability baseline. It now covers
+8. Use `/metrics` as the production observability baseline. It now covers
    request, generation, scheduler, batch, memory, and streaming lifecycle
    signals; deepen it as cache backends, cancellation state, and scheduler
    fairness gain more first-class state.
-8. Expand protocols and modalities through the shared request model. Qwen image
+9. Expand protocols and modalities through the shared request model. Qwen image
    data URLs and allowlisted remote HTTP(S) image URLs prove the first media
    adapter path for Chat Completions and Responses, and Anthropic base64/URL
    image blocks use the same content route. The next slices are fuller

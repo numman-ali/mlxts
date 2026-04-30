@@ -47,8 +47,8 @@ The goal is not to replicate Python's entire ML ecosystem line-for-line. It is t
 | Python Package | What It Does | mlxts Equivalent | Phase | Status | Notes |
 |---|---|---|---|---|---|
 | **HuggingFace Transformers** | 200k+ pre-trained models and a unified architecture API | @mlxts/transformers | 7 | Exists | The current surface covers text decoders plus the first Qwen image-preparation path. Later autoregressive understanding families remain in the same package. |
-| **mlx-lm** | LLM loading, generation, fine-tuning for MLX | @mlxts/transformers | 7-8 | Exists / Planned | Dense text loading and generation exist now. Fine-tuning arrives in later phases. |
-| **mlx-vlm** | Vision-language models for MLX | @mlxts/transformers | 10 | Future | Vision-language understanding is later work in the transformers package, not a separate modality package. |
+| **mlx-lm** | LLM loading, generation, fine-tuning for MLX | @mlxts/transformers + @mlxts/lora + @mlxts/align | 7-8 | Exists / Hardening | Dense text loading and generation exist now. LoRA/QLoRA/SFT/DPO proof surfaces exist and continue to harden against official checkpoints. |
+| **mlx-vlm** | Vision-language models for MLX | @mlxts/transformers | 10 | Partial / Future | The first Qwen image-preparation and serving path exists. Broader VLM families remain Phase 10 work in the transformers package, not a separate modality package. |
 | **diffusers** | Stable Diffusion, image generation pipelines | @mlxts/diffusion | 10 | Future | Phase 10 scope. Requires UNet, VAE, CLIP text encoder, scheduler infrastructure. |
 
 ### 2d. Training Infrastructure
@@ -66,8 +66,8 @@ The goal is not to replicate Python's entire ML ecosystem line-for-line. It is t
 
 | Python Package | What It Does | mlxts Equivalent | Phase | Status | Notes |
 |---|---|---|---|---|---|
-| **PEFT** (LoRA, QLoRA) | Parameter-efficient fine-tuning | @mlxts/lora | 8 | Planned | LoRA and QLoRA are Phase 8 deliverables. The parameter tree system in @mlxts/nn already supports freeze/unfreeze at arbitrary granularity, which is the foundation LoRA builds on. |
-| **TRL** (DPO, PPO, SFT) | Reinforcement learning from human feedback | @mlxts/align | 8+ | Future | SFT (supervised fine-tuning) is straightforward once LoRA works. DPO is the practical RLHF method. PPO is lower priority -- DPO has largely replaced it for alignment. |
+| **PEFT** (LoRA, QLoRA) | Parameter-efficient fine-tuning | @mlxts/lora | 8 | Exists / Hardening | LoRA and QLoRA surfaces exist with adapter injection, preservation checks, and proof reporting. The official-checkpoint proof path continues to harden before being promoted to heavier CI. |
+| **TRL** (DPO, PPO, SFT) | Reinforcement learning from human feedback | @mlxts/align | 8+ | Exists / Hardening | SFT and DPO recipe/evaluation helpers exist for the proof surfaces. PPO is lower priority; DPO is the practical alignment target. |
 
 ### 2f. Tokenization and Data
 
@@ -83,10 +83,10 @@ The goal is not to replicate Python's entire ML ecosystem line-for-line. It is t
 
 | Python Package | What It Does | mlxts Equivalent | Phase | Status | Notes |
 |---|---|---|---|---|---|
-| **vLLM** | High-throughput LLM serving with PagedAttention | @mlxts/serve | 9 | Planned | Phase 9 builds an inference server with KV cache management. PagedAttention is a CUDA optimization; the Apple Silicon equivalent uses MLX's memory model and fused attention. |
+| **vLLM** | High-throughput LLM serving with PagedAttention | @mlxts/serve | 9 | Exists / Future backend | `@mlxts/serve` already provides OpenAI-compatible serving, streaming, admission, prompt-prefix cache, and cache-generic continuous scheduling. Paged/batch-native cache backends remain future Phase 9 work. |
 | **llama.cpp** | CPU/GPU inference for quantized LLMs (GGUF) | @mlxts/quantize + @mlxts/serve | 7-9 | Planned | GGUF support is now future quantization/interoperability work rather than a standalone hub package. llama.cpp's value is broad hardware support; mlxts uses MLX natively but GGUF loading still matters for the quantized ecosystem. |
-| **Ollama** | Local LLM runner with REST API | @mlxts/serve | 9 | Planned | Ollama wraps llama.cpp with a nice API. mlxts's serve package provides the same surface: REST API, model management, streaming generation. Built on Bun's native HTTP server. |
-| **TGI** (Text Generation Inference) | HuggingFace's production inference server | @mlxts/serve | 9 | Planned | TGI's features (continuous batching, streaming, structured output) are design targets for @mlxts/serve. |
+| **Ollama** | Local LLM runner with REST API | @mlxts/serve | 9 | Exists / Hardening | `@mlxts/serve` provides REST APIs, model management, streaming generation, local model-root discovery, and lazy model loading on Bun's native HTTP server. |
+| **TGI** (Text Generation Inference) | HuggingFace's production inference server | @mlxts/serve | 9 | Partial / Hardening | Streaming, continuous scheduling, OpenResponses, Anthropic Messages, tools, and benchmark/report surfaces exist in bounded form. Broader production scheduling and protocol breadth remain Phase 9 work. |
 | **TensorRT-LLM** | NVIDIA-optimized LLM inference | Not applicable | -- | Not planned | NVIDIA-exclusive. See Section 4. |
 | **SGLang** | Structured generation, constrained decoding | @mlxts/serve | 9+ | Future | Structured generation (JSON mode, grammar-constrained decoding) is a feature of the serving layer, not a separate package. |
 
@@ -433,16 +433,17 @@ The goal is that steps 1-2 (understanding what exists and what's novel) take min
 | @mlxts/optimizers | 4 | Exists | @mlxts/core, @mlxts/nn |
 | @mlxts/train | 5 | Exists | @mlxts/core, @mlxts/nn, @mlxts/optimizers |
 | @mlxts/data | 5 | Exists | @mlxts/core |
-| @mlxts/tokenizers | 5 | Exists (char tokenizer) | (mostly standalone today; broader tokenizer formats in Phase 7) |
+| @mlxts/tokenizers | 5 | Exists | tokenizer.json, SentencePiece, Tekken, and char tokenizer surfaces |
 | official `@huggingface/hub` + `@huggingface/jinja` | 7 | Exists | external JS packages used by `@mlxts/transformers` |
 | @mlxts/transformers | 7 | Exists | @mlxts/nn, @mlxts/tokenizers, @huggingface/hub, @huggingface/jinja |
-| @mlxts/lora | 8 | Planned | @mlxts/nn, @mlxts/train, @mlxts/transformers |
-| @mlxts/align | 8+ | Future | @mlxts/lora, @mlxts/train |
-| @mlxts/quantize | 9 | Planned | @mlxts/core (raw quantize/dequantize bindings already exist), GGUF tensor dequantization |
-| @mlxts/serve | 9 | Planned | @mlxts/transformers, @mlxts/quantize |
+| @mlxts/lora | 8 | Exists / Hardening | @mlxts/nn, @mlxts/train, @mlxts/transformers |
+| @mlxts/align | 8+ | Exists / Hardening | @mlxts/lora, @mlxts/train, @mlxts/data |
+| @mlxts/quantize | 9 | Exists / Hardening | @mlxts/core, GGUF tensor dequantization |
+| @mlxts/protocols | 9 | Exists | shared zero-dependency wire helpers for serve and agent |
+| @mlxts/serve | 9 | Exists / Hardening | @mlxts/transformers, @mlxts/protocols, @mlxts/quantize |
+| @mlxts/agent | 9 | Exists / Hardening | @mlxts/protocols |
 | @mlxts/diffusion | 10 | Future | @mlxts/nn, @mlxts/transformers |
 | @mlxts/webgpu | Future | Future | @mlxts/core (WebGPU backend) |
 | @mlxts/eval | 12 | Planned | @mlxts/transformers, @mlxts/tokenizers |
 | @mlxts/telemetry | 7+ | Future | (standalone) |
 | @mlxts/onnx | 11+ | Future | @mlxts/core |
-| @mlxts/vision | 10+ | Future | @mlxts/nn, @mlxts/transformers |

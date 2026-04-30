@@ -12,6 +12,13 @@ capability — not a single short benchmark. The OpenResponses and Anthropic
 Messages adapters are part of the same serving-quality push: usable text,
 image, and bounded tool endpoints while benchmark and scheduler work continues.
 
+The roadmap is now aligned through Phase 10 as the active product horizon:
+finish Phase 7 architecture truth, harden Phase 8 fine-tuning/alignment proofs,
+complete Phase 9 serving/quantized inference, run Phase 9.5 AXI hardening for
+agent-operated CLIs, then complete Phase 10 multimodal understanding and
+diffusion/flow generation with package-owned proofs. Phases 8, 9, and 10 fan
+out from Phase 7 rather than forming a strict serial chain.
+
 ## Current State
 
 - **Qwen 3.6 27B**: native gated-delta helper at `fast.qwenGatedDeltaUpdate`;

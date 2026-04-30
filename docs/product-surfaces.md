@@ -14,7 +14,7 @@ This document defines the standards for each surface. All agents must consider t
 │                     TUI (future)                     │
 │       Interactive terminal, live training view       │
 ├─────────────────────────────────────────────────────┤
-│            CLI / Serve / Agent (Phase 4-9)           │
+│          CLI / Serve / Agent (Phase 4 onward)        │
 │   train, generate, serve, inspect, benchmark, agent   │
 ├─────────────────────────────────────────────────────┤
 │              Examples / Workbooks (ongoing)          │
@@ -74,7 +74,8 @@ mx.eval(output);
 
 **Users**: Developers training models, running experiments, inspecting checkpoints, generating text.
 
-**When**: Phase 4-5. Built on top of the API.
+**When**: Phase 4 onward. Built on top of package APIs and used by serving,
+training, benchmarks, agent loops, and future Phase 10 media proof surfaces.
 
 ### Principles
 
@@ -90,7 +91,14 @@ nanogpt train
 nanogpt train --preset gpt-small --data ./data/shakespeare.txt --lr 3e-4 --batch-size 2 --grad-accum 8 --max-steps 5000
 ```
 
-**Agent-first structured output.** Agent-facing finite commands follow the repo-local AXI skill at [`.agents/skills/axi/SKILL.md`](../.agents/skills/axi/SKILL.md): TOON-shaped stdout, compact default schemas, explicit empty states, actionable structured errors, and contextual next-step hints. JSON remains available only as an explicit compatibility or export format where a surface already promises it.
+**Agent-first structured output.** Agent-facing finite commands follow the
+repo-local AXI skill at [`.agents/skills/axi/SKILL.md`](../.agents/skills/axi/SKILL.md):
+TOON-shaped stdout, compact default schemas, explicit empty states, actionable
+structured errors, and contextual next-step hints. JSON remains available only
+as an explicit compatibility or export format where a surface already promises
+it. Long-running servers, REPLs, and training managers expose structured
+status/report/transcript surfaces instead of pretending to be one final finite
+data command.
 
 **Long-run control is explicit.** Overnight training is supervised through a run-local directory with structured events, status snapshots, and checkpointed stop/resume. We do not rely on hidden daemons or ad hoc shell state.
 

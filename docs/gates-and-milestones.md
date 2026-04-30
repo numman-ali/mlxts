@@ -19,6 +19,7 @@ These gates are non-negotiable at every phase boundary. Code does not advance un
 | Runtime review | `bun run check:runtime-review` | Runtime-sensitive diffs have review artifacts |
 | Coverage | `bun run check:coverage` | Package-specific line/function/branch thresholds |
 | Training proof surfaces | `bun run check:training-proofs` | Phase 8 example proof code typechecks and report-verifier tests pass |
+| Agent-facing CLI contract | Focused CLI formatter/parser tests plus manual AXI review | Finite commands emit compact structured stdout, actionable stdout errors, stable exit codes, and no non-TTY prompts |
 | Full validation | `bun run validate` | All of the above in sequence |
 
 ### Architectural Gates
@@ -52,6 +53,7 @@ before commit.
 | Serving behavior | `bun run --filter '@mlxts/serve' regression:serve` | `bun run regression:qwen-gemma -- --profile real` for high-risk serving/model commits |
 | Serving capability claim | `bench:serve --report-json` ladder with route, scheduler, stream, and memory evidence | `bun run regression:qwen-gemma -- --profile substantial` when cached models fit |
 | Agent loop behavior | `bun test packages/agent/src` plus a served-model smoke when practical | Serve regression if protocol or streaming semantics changed |
+| Agent-facing CLI work | Parser/formatter tests plus stdout/stderr/exit-code assertions | Package typecheck and coverage; served-model or example smoke when the command executes model work |
 | Training or alignment proof | Example/package-focused tests and the relevant proof command | Promote to self-hosted Apple Silicon gate only after the proof is stable |
 | Example/workbook docs or scripts | The example's documented smoke command | No root example script; reusable behavior belongs in packages |
 
@@ -271,7 +273,47 @@ bounded Anthropic-compatible Messages support.
 
 ---
 
-## Phase 10a: Diffusion
+## Phase 9.5: Product-Agent Experience and AXI Hardening
+
+**Goal:** Agent-operated CLI surfaces are predictable, token-efficient, and
+safe to drive through shell tools.
+
+### Milestone: "Agents can inspect, run, and recover without reading logs"
+
+| Criterion | How to verify |
+|-----------|--------------|
+| Local AXI skill is the canonical CLI contract | `.agents/skills/axi/SKILL.md` exists and is linked from root/product docs |
+| Finite commands emit compact structured stdout | Formatter/parser tests assert TOON-shaped defaults and explicit empty states |
+| Errors are structured and actionable | Tests assert stdout error bodies plus exit `1` or `2` as appropriate |
+| Progress and diagnostics stay off stdout | Tests or manual CLI review checks stdout/stderr separation |
+| Non-TTY paths never prompt | Tests run missing-required-value paths without hanging |
+| `mlxts-serve` finite inspection commands are AXI-shaped | `mlxts-serve discover --model-root <dir>` and follow-up finite commands have snapshot-style tests |
+| `mlxts-agent` one-shot and non-TTY error paths are AXI-shaped | `bun test packages/agent/src` covers one-shot help/error/status output |
+| Training proof, run manager, benchmark, and Phase 10 proof commands adopt AXI before becoming canonical | Focused tests or review artifacts for each command tranche |
+| Long-running servers, REPLs, and managers expose status/report/transcript surfaces instead of one final data blob | Manual review plus command-specific smokes |
+
+---
+
+## Phase 10a: Multimodal Understanding
+
+**Goal:** Image, audio, and encoder-decoder understanding through
+`@mlxts/transformers` without widening `CausalLM`.
+
+### Milestone: "Describe and answer questions about media from TypeScript"
+
+| Criterion | How to verify |
+|-----------|--------------|
+| Qwen image-conditioned generation remains green | `bun run regression:qwen-image` |
+| VLM support extends beyond the first Qwen path | Test: at least one additional VLM family describes a known image |
+| Vision/audio encoder preprocessing is family-owned | Code review: file decode/transport stays in serve/examples; checkpoint preprocessing stays in transformers |
+| Image+text prompting works through serving protocols | Test: OpenAI Chat/OpenResponses/Anthropic media requests produce coherent output where supported |
+| Encoder-decoder or audio path works | Test: Whisper or another encoder-decoder model produces text from local media |
+| `examples/vlm-chat/` or equivalent runs | Describe a known image and verify coherent output |
+| Finite proof commands are AXI-shaped | CLI tests assert compact stdout and structured errors |
+
+---
+
+## Phase 10b: Diffusion and Flow Generation
 
 **Goal:** Image generation on Apple Silicon.
 
@@ -283,20 +325,25 @@ bounded Anthropic-compatible Messages support.
 | DDIM and Euler schedulers work | Test: different schedulers produce valid images |
 | Image preprocessing pipeline | Test: load, resize, normalize images |
 | `examples/stable-diffusion/` runs | Generate an image from "a cat sitting on a laptop" |
+| Finite proof commands are AXI-shaped | CLI tests assert compact stdout and structured errors |
 
 ---
 
-## Phase 10b: Vision-Language Models
+## Phase 10 Completion Fence
 
-**Goal:** Image-and-text understanding through `@mlxts/transformers`.
+**Goal:** Phase 10 is represented by both multimodal understanding and
+diffusion/flow generation as package-owned product surfaces.
 
-### Milestone: "Describe an image from TypeScript"
+### Milestone: "On-device media understanding and generation are real product paths"
 
 | Criterion | How to verify |
 |-----------|--------------|
-| VLM support (LLaVA or PaliGemma) | Test: describe an image |
-| Image+text prompting works | Test: answer a question about an image |
-| `examples/vlm/` runs | Describe a known image, verify coherent output |
+| `@mlxts/transformers` owns at least one real VLM path beyond toy fixtures | Real checkpoint smoke plus package tests |
+| `@mlxts/diffusion` owns at least one real text-to-image pipeline | Real checkpoint smoke plus package tests |
+| Serving advertises only implemented media semantics | Protocol tests reject unsupported media/tool/file shapes clearly |
+| Examples are workbooks, not hidden product surfaces | Manual review: reusable logic lives in packages |
+| Runtime-sensitive media paths have review artifacts | `bun run check:runtime-review` |
+| Full validation is green | `bun run validate` |
 
 ---
 
