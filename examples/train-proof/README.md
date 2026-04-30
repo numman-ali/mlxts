@@ -96,3 +96,6 @@ Existing reports can be checked without rerunning training:
 ```bash
 bun run examples/train-proof/verify-report.ts .tmp/training-proof/meta-llama-Llama-3.2-1B-Instruct-report.json
 ```
+
+The verifier is a finite agent-facing command: stdout is compact structured
+status or structured error output, and usage errors exit `2`.

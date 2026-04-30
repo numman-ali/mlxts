@@ -170,6 +170,10 @@ Full evidence ladder lives in
   same-server Qwen+Gemma isolation. Dense Qwen/Gemma plus multi-dense passed;
   Qwen/Gemma MoE singles and same-server multi-MoE also passed with warm
   prompt-cache hits and nonzero read tokens.
+- Training proof report verification is now AXI-shaped:
+  `bun run examples/train-proof/verify-report.ts <report.json>` emits compact
+  structured stdout success/error bodies, exits `2` for usage errors, and is
+  covered by `bun run check:training-proofs`.
 - Prompt-prefix cache byte-budget retention passed focused serve/transformer
   cache tests (`113 pass`), `bun run typecheck`, and
   `bun run regression:qwen-gemma -- --profile quick` (`84` transformer focused
