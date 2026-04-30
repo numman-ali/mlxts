@@ -179,6 +179,10 @@ Full evidence ladder lives in
   benchmark progress on stderr, emits compact structured stdout pass/error
   summaries, and preserves JSON reports under `--report-dir` for real-model
   smoke rungs.
+- The root Qwen/Gemma gate is now AXI-shaped:
+  `bun run regression:qwen-gemma` keeps child transformer/serve/context command
+  output on stderr and reserves stdout for structured help, pass summaries, and
+  errors with stable `0`/`1`/`2` exits.
 - Prompt-prefix cache byte-budget retention passed focused serve/transformer
   cache tests (`113 pass`), `bun run typecheck`, and
   `bun run regression:qwen-gemma -- --profile quick` (`84` transformer focused

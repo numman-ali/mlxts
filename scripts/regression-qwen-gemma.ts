@@ -14,32 +14,77 @@ type CliOptions = {
   allowDownload: boolean;
 };
 
-function usage(): string {
+type QwenGemmaRegressionCommand = { kind: "help" } | { kind: "run"; options: CliOptions };
+
+type QwenGemmaRegressionStage = {
+  label: string;
+  status: "passed";
+};
+
+type QwenGemmaRegressionStageSpec = {
+  label: string;
+  args: readonly string[];
+};
+
+type QwenGemmaRegressionResult = {
+  profile: RegressionProfile;
+  reportDir: string;
+  stages: QwenGemmaRegressionStage[];
+};
+
+type QwenGemmaRegressionRuntime = {
+  stdout?: (text: string) => void;
+  stderr?: (text: string) => void;
+  runRegression?: (
+    options: CliOptions,
+    progress: (text: string) => void,
+  ) => Promise<QwenGemmaRegressionResult>;
+};
+
+class QwenGemmaRegressionUsageError extends Error {}
+
+export function formatQwenGemmaRegressionUsage(): string {
   return [
-    "Usage: bun run regression:qwen-gemma -- [options]",
-    "",
-    "Options:",
-    "  --profile <quick|real|substantial>  Regression tier, default quick. Real includes mixed fairness.",
-    "  --qwen-model <id>                  Qwen model id/path.",
-    "  --gemma4-model <id>                Gemma 4 model id/path.",
-    "  --report-dir <path>                Directory for benchmark JSON evidence.",
-    "  --request-timeout-ms <n>           Client timeout for endpoint requests.",
-    "  --allow-download                   Allow Hub downloads where supported.",
+    "description: Run the Qwen/Gemma transformer and serve regression profiles",
+    "usage[3]:",
+    "  bun run regression:qwen-gemma",
+    "  bun run regression:qwen-gemma -- --profile real",
+    "  bun run regression:qwen-gemma -- --profile substantial --report-dir .tmp/qwen-gemma-regression",
+    "options[7]{flag,description}:",
+    '  "--profile <quick|real|substantial>","Regression tier; default quick; real includes mixed fairness"',
+    '  "--qwen-model <id>","Qwen model id/path"',
+    '  "--gemma4-model <id>","Gemma 4 model id/path"',
+    '  "--report-dir <path>","Directory for benchmark JSON evidence"',
+    '  "--request-timeout-ms <n>","Client timeout for endpoint requests; default 3600000"',
+    '  "--allow-download","Allow Hub downloads where supported"',
+    '  "--help","Show this help"',
+    "profiles[3]{name,meaning}:",
+    '  "quick","Focused unit regressions only"',
+    '  "real","Real Qwen/Gemma decode and endpoint smoke"',
+    '  "substantial","Real smoke plus capability and long-context checks"',
+    "exit_codes[3]{code,meaning}:",
+    '  0,"regression passed"',
+    '  1,"runtime or regression failure"',
+    '  2,"usage error"',
   ].join("\n");
 }
 
 function readStringFlag(args: readonly string[], index: number, flag: string): string {
   const value = args[index + 1];
-  if (value === undefined || value.startsWith("--")) {
-    throw new Error(`${flag} requires a value.\n\n${usage()}`);
+  if (value === undefined || value.trim() === "" || value.startsWith("-")) {
+    throw new QwenGemmaRegressionUsageError(`${flag} requires a value.`);
   }
   return value;
 }
 
 function readPositiveIntegerFlag(args: readonly string[], index: number, flag: string): number {
-  const value = Number.parseInt(readStringFlag(args, index, flag), 10);
+  const rawValue = args[index + 1]?.trim();
+  if (rawValue === undefined || rawValue === "" || rawValue.startsWith("--")) {
+    throw new QwenGemmaRegressionUsageError(`${flag} requires a value.`);
+  }
+  const value = /^\d+$/.test(rawValue) ? Number(rawValue) : Number.NaN;
   if (!Number.isInteger(value) || value <= 0) {
-    throw new Error(`${flag} must be a positive integer.`);
+    throw new QwenGemmaRegressionUsageError(`${flag} must be a positive integer.`);
   }
   return value;
 }
@@ -49,10 +94,13 @@ function readProfile(args: readonly string[], index: number): RegressionProfile 
   if (value === "quick" || value === "real" || value === "substantial") {
     return value;
   }
-  throw new Error('--profile must be "quick", "real", or "substantial".');
+  throw new QwenGemmaRegressionUsageError('--profile must be "quick", "real", or "substantial".');
 }
 
-export function parseQwenGemmaRegressionArgs(argv: readonly string[]): CliOptions {
+export function parseQwenGemmaRegressionArgs(argv: readonly string[]): QwenGemmaRegressionCommand {
+  if (argv.length === 1 && (argv[0] === "--help" || argv[0] === "-h")) {
+    return { kind: "help" };
+  }
   const options: CliOptions = {
     profile: "quick",
     qwenModel: "mlx-community/Qwen3.6-27B-4bit",
@@ -64,12 +112,13 @@ export function parseQwenGemmaRegressionArgs(argv: readonly string[]): CliOption
 
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
+    if (arg === undefined) {
+      throw new QwenGemmaRegressionUsageError("argument parsing reached an empty slot.");
+    }
     switch (arg) {
       case "--help":
       case "-h":
-        console.log(usage());
-        process.exit(0);
-        return options;
+        return { kind: "help" };
       case "--profile":
         options.profile = readProfile(argv, index);
         index += 1;
@@ -94,11 +143,13 @@ export function parseQwenGemmaRegressionArgs(argv: readonly string[]): CliOption
         options.allowDownload = true;
         break;
       default:
-        throw new Error(`Unknown option: ${arg}\n\n${usage()}`);
+        throw new QwenGemmaRegressionUsageError(
+          arg.startsWith("-") ? `unknown option "${arg}".` : `unexpected argument "${arg}".`,
+        );
     }
   }
 
-  return options;
+  return { kind: "run", options };
 }
 
 function inheritedStringEnv(): Record<string, string> {
@@ -110,129 +161,257 @@ function inheritedStringEnv(): Record<string, string> {
   );
 }
 
-async function runCommand(label: string, args: readonly string[]): Promise<void> {
-  console.log(`[qwen-gemma-regression] ${label}: ${args.join(" ")}`);
+async function pipeReadableToProgress(
+  stream: ReadableStream<Uint8Array> | null,
+  progress: (text: string) => void,
+): Promise<void> {
+  if (stream === null) {
+    return;
+  }
+  const decoder = new TextDecoder();
+  let pending = "";
+  for await (const chunk of stream) {
+    pending += decoder.decode(chunk, { stream: true });
+    let newline = pending.indexOf("\n");
+    while (newline !== -1) {
+      const line = pending.slice(0, newline);
+      if (line !== "") {
+        progress(line);
+      }
+      pending = pending.slice(newline + 1);
+      newline = pending.indexOf("\n");
+    }
+  }
+  pending += decoder.decode();
+  if (pending !== "") {
+    progress(pending);
+  }
+}
+
+async function runCommand(
+  label: string,
+  args: readonly string[],
+  progress: (text: string) => void,
+): Promise<QwenGemmaRegressionStage> {
+  progress(`[qwen-gemma-regression] ${label}: ${args.join(" ")}`);
   const child = Bun.spawn([...args], {
     cwd: new URL("..", import.meta.url).pathname,
     env: inheritedStringEnv(),
-    stdout: "inherit",
-    stderr: "inherit",
+    stdout: "pipe",
+    stderr: "pipe",
   });
+  const stdout = pipeReadableToProgress(child.stdout, progress);
+  const stderr = pipeReadableToProgress(child.stderr, progress);
   const exitCode = await child.exited;
+  await Promise.all([stdout, stderr]);
   if (exitCode !== 0) {
     throw new Error(`[qwen-gemma-regression] ${label} failed with exit code ${exitCode}.`);
   }
+  return { label, status: "passed" };
 }
 
-async function runQuickProfile(): Promise<void> {
-  await runCommand("transformer focused regressions", [
-    "bun",
-    "run",
-    "--filter",
-    "@mlxts/transformers",
-    "regression:models",
-  ]);
-  await runCommand("serve focused regressions", [
-    "bun",
-    "run",
-    "--filter",
-    "@mlxts/serve",
-    "regression:serve",
-  ]);
-}
-
-async function runRealProfile(options: CliOptions): Promise<void> {
-  await runCommand("transformer real decode smoke", [
-    "bun",
-    "run",
-    "packages/transformers/scripts/regression-model-matrix.ts",
-    "--decode-smoke",
-    "--qwen-model",
-    options.qwenModel,
-    "--gemma4-model",
-    options.gemma4Model,
-  ]);
-  await runCommand("serve real endpoint smoke", [
-    "bun",
-    "run",
-    "packages/serve/scripts/regression-serve-matrix.ts",
-    "--real-models",
-    "--qwen-model",
-    options.qwenModel,
-    "--gemma4-model",
-    options.gemma4Model,
-    "--fairness-smoke",
-    "--report-dir",
-    join(options.reportDir, "serve"),
-    "--request-timeout-ms",
-    String(options.requestTimeoutMs),
-    ...(options.allowDownload ? ["--allow-download"] : []),
-  ]);
-}
-
-async function runSubstantialProfile(options: CliOptions): Promise<void> {
-  await runCommand("transformer real decode smoke", [
-    "bun",
-    "run",
-    "packages/transformers/scripts/regression-model-matrix.ts",
-    "--decode-smoke",
-    "--qwen-model",
-    options.qwenModel,
-    "--gemma4-model",
-    options.gemma4Model,
-  ]);
-  await runCommand("serve capability smoke", [
-    "bun",
-    "run",
-    "packages/serve/scripts/regression-serve-matrix.ts",
-    "--capability-smoke",
-    "--qwen-model",
-    options.qwenModel,
-    "--gemma4-model",
-    options.gemma4Model,
-    "--report-dir",
-    join(options.reportDir, "serve"),
-    "--request-timeout-ms",
-    String(options.requestTimeoutMs),
-    ...(options.allowDownload ? ["--allow-download"] : []),
-  ]);
-  await runCommand("Qwen long-context retrieval smoke", [
-    "bun",
-    "run",
-    "bench:generation:context",
-    "--model",
-    options.qwenModel,
-    "--rungs",
-    "32768",
-    "--needle-placements",
-    "all",
-    "--generation-tokens",
-    "24",
-    "--fail-on-mismatch",
-    "--max-active-slope-mb-per-token",
-    "1",
-    "--report-json",
-    join(options.reportDir, "qwen36-context-32k-all.json"),
-  ]);
-}
-
-export async function runQwenGemmaRegression(options: CliOptions): Promise<void> {
+export function qwenGemmaRegressionStageSpecs(options: CliOptions): QwenGemmaRegressionStageSpec[] {
   if (options.profile === "quick") {
-    await runQuickProfile();
-    return;
+    return [
+      {
+        label: "transformer focused regressions",
+        args: ["bun", "run", "--filter", "@mlxts/transformers", "regression:models"],
+      },
+      {
+        label: "serve focused regressions",
+        args: ["bun", "run", "--filter", "@mlxts/serve", "regression:serve"],
+      },
+    ];
+  }
+
+  if (options.profile === "real") {
+    return [
+      {
+        label: "transformer real decode smoke",
+        args: [
+          "bun",
+          "run",
+          "packages/transformers/scripts/regression-model-matrix.ts",
+          "--decode-smoke",
+          "--qwen-model",
+          options.qwenModel,
+          "--gemma4-model",
+          options.gemma4Model,
+        ],
+      },
+      {
+        label: "serve real endpoint smoke",
+        args: [
+          "bun",
+          "run",
+          "packages/serve/scripts/regression-serve-matrix.ts",
+          "--real-models",
+          "--qwen-model",
+          options.qwenModel,
+          "--gemma4-model",
+          options.gemma4Model,
+          "--fairness-smoke",
+          "--report-dir",
+          join(options.reportDir, "serve"),
+          "--request-timeout-ms",
+          String(options.requestTimeoutMs),
+          ...(options.allowDownload ? ["--allow-download"] : []),
+        ],
+      },
+    ];
+  }
+
+  return [
+    {
+      label: "transformer real decode smoke",
+      args: [
+        "bun",
+        "run",
+        "packages/transformers/scripts/regression-model-matrix.ts",
+        "--decode-smoke",
+        "--qwen-model",
+        options.qwenModel,
+        "--gemma4-model",
+        options.gemma4Model,
+      ],
+    },
+    {
+      label: "serve capability smoke",
+      args: [
+        "bun",
+        "run",
+        "packages/serve/scripts/regression-serve-matrix.ts",
+        "--capability-smoke",
+        "--qwen-model",
+        options.qwenModel,
+        "--gemma4-model",
+        options.gemma4Model,
+        "--report-dir",
+        join(options.reportDir, "serve"),
+        "--request-timeout-ms",
+        String(options.requestTimeoutMs),
+        ...(options.allowDownload ? ["--allow-download"] : []),
+      ],
+    },
+    {
+      label: "Qwen long-context retrieval smoke",
+      args: [
+        "bun",
+        "run",
+        "bench:generation:context",
+        "--model",
+        options.qwenModel,
+        "--rungs",
+        "32768",
+        "--needle-placements",
+        "all",
+        "--generation-tokens",
+        "24",
+        "--fail-on-mismatch",
+        "--max-active-slope-mb-per-token",
+        "1",
+        "--report-json",
+        join(options.reportDir, "qwen36-context-32k-all.json"),
+      ],
+    },
+  ];
+}
+
+async function runStageSpecs(
+  specs: readonly QwenGemmaRegressionStageSpec[],
+  progress: (text: string) => void,
+): Promise<QwenGemmaRegressionStage[]> {
+  const stages: QwenGemmaRegressionStage[] = [];
+  for (const spec of specs) {
+    stages.push(await runCommand(spec.label, spec.args, progress));
+  }
+  return stages;
+}
+
+export async function runQwenGemmaRegression(
+  options: CliOptions,
+  progress: (text: string) => void = console.error,
+): Promise<QwenGemmaRegressionResult> {
+  const specs = qwenGemmaRegressionStageSpecs(options);
+  if (options.profile === "quick") {
+    const stages = await runStageSpecs(specs, progress);
+    return { profile: options.profile, reportDir: options.reportDir, stages };
   }
 
   using _runtimeLock = acquireRuntimeCommandLock(`regression:qwen-gemma:${options.profile}`);
-  if (options.profile === "real") {
-    await runRealProfile(options);
-    return;
+  const stages = await runStageSpecs(specs, progress);
+  return { profile: options.profile, reportDir: options.reportDir, stages };
+}
+
+function toon(value: string | number | boolean | null): string {
+  return typeof value === "string" ? JSON.stringify(value) : String(value);
+}
+
+function formatMultilineField(name: string, value: string): string[] {
+  const lines = value.split(/\r?\n/);
+  if (lines.length === 1) {
+    return [`  ${name}: ${toon(value)}`];
   }
-  await runSubstantialProfile(options);
+  return [`  ${name}: |`, ...lines.map((line) => `    ${line}`)];
+}
+
+export function formatQwenGemmaRegressionSuccess(result: QwenGemmaRegressionResult): string {
+  return [
+    "qwen_gemma_regression:",
+    "  status: passed",
+    `  profile: ${toon(result.profile)}`,
+    `  report_dir: ${toon(result.reportDir)}`,
+    `  stages: ${result.stages.length}`,
+    `stages[${result.stages.length}]{label,status}:`,
+    ...result.stages.map((stage) => `  ${toon(stage.label)},${toon(stage.status)}`),
+  ].join("\n");
+}
+
+export function formatQwenGemmaRegressionError(message: string, help: string): string {
+  return ["error:", ...formatMultilineField("message", message), `help: ${toon(help)}`].join("\n");
+}
+
+export async function runQwenGemmaRegressionCommand(
+  argv: readonly string[],
+  runtime: QwenGemmaRegressionRuntime = {},
+): Promise<number> {
+  const stdout = runtime.stdout ?? console.log;
+  const stderr = runtime.stderr ?? console.error;
+  const runRegression = runtime.runRegression ?? runQwenGemmaRegression;
+  let command: QwenGemmaRegressionCommand;
+
+  try {
+    command = parseQwenGemmaRegressionArgs(argv);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    stdout(
+      formatQwenGemmaRegressionError(message, "bun run regression:qwen-gemma -- --profile quick"),
+    );
+    return error instanceof QwenGemmaRegressionUsageError ? 2 : 1;
+  }
+
+  if (command.kind === "help") {
+    stdout(formatQwenGemmaRegressionUsage());
+    return 0;
+  }
+
+  try {
+    const result = await runRegression(command.options, stderr);
+    stdout(formatQwenGemmaRegressionSuccess(result));
+    return 0;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    stdout(
+      formatQwenGemmaRegressionError(
+        message,
+        "review stderr and rerun the Qwen/Gemma regression after fixing the failure",
+      ),
+    );
+    return 1;
+  }
 }
 
 if (import.meta.main) {
-  runQwenGemmaRegression(parseQwenGemmaRegressionArgs(Bun.argv.slice(2))).catch((error) => {
-    console.error(error instanceof Error ? error.message : String(error));
-    process.exit(1);
-  });
+  const exitCode = await runQwenGemmaRegressionCommand(Bun.argv.slice(2));
+  process.exit(exitCode);
 }
