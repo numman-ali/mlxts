@@ -32,6 +32,22 @@ export {
   type StableDiffusionVaeUpBlockType,
 } from "./families/stable-diffusion/config";
 export {
+  applyStableDiffusionClassifierFreeGuidance,
+  createStableDiffusionInitialLatents,
+  decodeStableDiffusionLatents,
+  denoiseStableDiffusionLatents,
+  generateStableDiffusionImage,
+  type StableDiffusionConditioning,
+  type StableDiffusionDenoiseOptions,
+  type StableDiffusionDenoiser,
+  type StableDiffusionDenoisingStepEvent,
+  type StableDiffusionImageGenerationOptions,
+  type StableDiffusionInitialLatentOptions,
+  type StableDiffusionLatentDecoder,
+  type StableDiffusionScheduler,
+  stableDiffusionLatentShape,
+} from "./families/stable-diffusion/pipeline";
+export {
   StableDiffusionUNet2DConditionModel,
   type StableDiffusionUNetForwardOptions,
   type StableDiffusionUNetTextTimeConditioning,

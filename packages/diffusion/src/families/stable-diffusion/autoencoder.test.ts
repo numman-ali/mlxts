@@ -79,6 +79,13 @@ describe("StableDiffusionAutoencoderKL", () => {
     expect(paths).toContain("postQuantConv.weight");
     expect(paths.some((path) => path.includes("scalingFactor"))).toBe(false);
     expect(paths.some((path) => path.includes("latentChannels"))).toBe(false);
+    expect(paths.some((path) => path.includes("vaeScaleFactor"))).toBe(false);
+  });
+
+  test("exposes the VAE scale factor derived from downsampling depth", () => {
+    using autoencoder = new StableDiffusionAutoencoderKL(tinyConfig);
+
+    expect(autoencoder.vaeScaleFactor).toBe(2);
   });
 
   test("decoder up blocks use one more resnet layer than encoder blocks", () => {

@@ -232,6 +232,7 @@ export class StableDiffusionAutoencoderKL extends Module {
   postQuantConv: Conv2d;
   #scalingFactor: number;
   #latentChannels: number;
+  #vaeScaleFactor: number;
 
   constructor(config: StableDiffusionAutoencoderConfig) {
     super();
@@ -242,6 +243,7 @@ export class StableDiffusionAutoencoderKL extends Module {
     this.postQuantConv = new Conv2d(config.latentChannels, config.latentChannels, 1, 1, 0);
     this.#scalingFactor = config.scalingFactor;
     this.#latentChannels = config.latentChannels;
+    this.#vaeScaleFactor = 2 ** (config.blockOutChannels.length - 1);
   }
 
   get scalingFactor(): number {
@@ -250,6 +252,10 @@ export class StableDiffusionAutoencoderKL extends Module {
 
   get latentChannels(): number {
     return this.#latentChannels;
+  }
+
+  get vaeScaleFactor(): number {
+    return this.#vaeScaleFactor;
   }
 
   /** Encode an NHWC image tensor into the raw posterior moment tensor. */

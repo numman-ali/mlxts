@@ -221,9 +221,12 @@ All diffusion and flow-based generation across modalities: image, video, and aud
 **Current state:** Initial scheduler infrastructure, local scheduler-config
 loading, Diffusers `model_index.json` snapshot inspection, and Stable Diffusion
 VAE/UNet config translation exist. Stable Diffusion VAE and conditional UNet
-module construction exists, with VAE and UNet safetensor loading in place.
-Flux, conditioning pipeline assembly, Hugging Face Hub-backed checkpoint
-loading, and image output remain follow-on Phase 10 tranches.
+module construction exists, with VAE and UNet safetensor loading in place. Stable
+Diffusion pipeline assembly over supplied conditioning tensors owns NHWC latent
+shape, DDIM/Euler denoising, classifier-free guidance, VAE unscale, and
+postprocessing. Flux, conditioning-source composition, Hugging Face Hub-backed
+checkpoint loading, finite CLI proof, and host image output remain follow-on
+Phase 10 tranches.
 
 **Architecture pattern:** Mirrors `@mlxts/transformers` — explicit family
 registry, config-driven model construction, and official Hugging Face JS-backed snapshot loading.
