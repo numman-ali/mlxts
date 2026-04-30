@@ -62,6 +62,7 @@ export type TransformersContentAdapterLoadContext = {
   tokenizer: Tokenizer;
   interactionProfile?: InteractionProfile;
   signal?: AbortSignal;
+  localImageRoots?: readonly string[];
   remoteImageHosts?: readonly string[];
   remoteFetch?: ImageReadOptions["remoteFetch"];
   remoteResolve?: ImageReadOptions["remoteResolve"];
@@ -228,6 +229,7 @@ function emitPromptPrepare(
 function imageReadOptions(context: TransformersContentAdapterLoadContext): ImageReadOptions {
   return {
     ...(context.signal === undefined ? {} : { signal: context.signal }),
+    ...(context.localImageRoots === undefined ? {} : { localImageRoots: context.localImageRoots }),
     ...(context.remoteImageHosts === undefined
       ? {}
       : { remoteImageHosts: context.remoteImageHosts }),
@@ -451,6 +453,7 @@ export async function loadContentGenerationRequest(
       ? {}
       : { interactionProfile: options.interactionProfile }),
     ...(request.abortSignal === undefined ? {} : { signal: request.abortSignal }),
+    ...(options.localImageRoots === undefined ? {} : { localImageRoots: options.localImageRoots }),
     ...(options.remoteImageHosts === undefined
       ? {}
       : { remoteImageHosts: options.remoteImageHosts }),

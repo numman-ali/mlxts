@@ -68,6 +68,7 @@ describe("serve CLI args", () => {
         streamDecodeInterval: 1,
         maxConcurrentRequests: 1,
         promptPrefixCacheMaxEntries: 1,
+        localImageRoots: [],
         remoteImageHosts: [],
         gpuMemoryUtilization: 0.9,
         localFilesOnly: false,
@@ -119,6 +120,10 @@ describe("serve CLI args", () => {
       ".cache/hf",
       "--api-key",
       "secret",
+      "--local-image-root",
+      "/images",
+      "--local-image-root",
+      "/more-images",
       "--remote-image-host",
       "EXAMPLE.com",
       "--remote-image-host",
@@ -155,6 +160,7 @@ describe("serve CLI args", () => {
         accessToken: "hf_secret",
         cacheDir: ".cache/hf",
         apiKey: "secret",
+        localImageRoots: ["/images", "/more-images"],
         remoteImageHosts: ["example.com", "cdn.example.com"],
         localFilesOnly: true,
         verbose: true,
@@ -506,6 +512,7 @@ describe("serve CLI args", () => {
       promptPrefixCacheMaxEntries: 1,
       modelLoadPolicy: "eager",
       pinnedModels: [],
+      localImageRoots: [],
       remoteImageHosts: [],
       gpuMemoryUtilization: 0.75,
       localFilesOnly: false,
@@ -535,12 +542,21 @@ describe("serve CLI args", () => {
     expect(formatServeReady("http://127.0.0.1:8000", options)).toContain(
       "Remote image hosts: disabled",
     );
+    expect(formatServeReady("http://127.0.0.1:8000", options)).toContain(
+      "Local image roots: disabled",
+    );
     expect(
       formatServeReady("http://127.0.0.1:8000", {
         ...options,
         remoteImageHosts: ["example.com", "cdn.example.com"],
       }),
     ).toContain("Remote image hosts: example.com, cdn.example.com");
+    expect(
+      formatServeReady("http://127.0.0.1:8000", {
+        ...options,
+        localImageRoots: ["/images"],
+      }),
+    ).toContain("Local image roots: /images");
     expect(
       formatServeReady("http://127.0.0.1:8000", {
         ...options,
@@ -1003,7 +1019,16 @@ describe("serve CLI args", () => {
     const errors: string[] = [];
     const running = fakeRunningServer();
     await runServeCli(
-      ["repo/model", "--host", "0.0.0.0", "--remote-image-host", "example.com", "--verbose"],
+      [
+        "repo/model",
+        "--host",
+        "0.0.0.0",
+        "--local-image-root",
+        "/images",
+        "--remote-image-host",
+        "example.com",
+        "--verbose",
+      ],
       {
         async serveModel(options) {
           options.onProgress?.({ stage: "tokenizer", status: "complete", directory: "/tmp" });
@@ -1024,6 +1049,7 @@ describe("serve CLI args", () => {
           expect(options.maxConcurrentRequests).toBe(1);
           expect(options.promptPrefixCacheMaxEntries).toBe(1);
           expect(options.promptPrefixCacheMaxBytes).toBeUndefined();
+          expect(options.localImageRoots).toEqual(["/images"]);
           expect(options.remoteImageHosts).toEqual(["example.com"]);
           expect(options.gpuMemoryUtilization).toBe(0.9);
           return running;

@@ -56,6 +56,7 @@ export function formatServeUsage(): string {
     `  --prompt-prefix-cache-max-entries <n>  Retained prompt-prefix snapshots per served model (default: ${DEFAULT_MODEL_SERVER_PROMPT_PREFIX_CACHE_MAX_ENTRIES})`,
     "  --prompt-prefix-cache-max-bytes <n>  Estimated retained prompt-prefix snapshot bytes per served model",
     `  --gpu-memory-utilization <f>   Reject estimated requests above this fraction of MLX memory limit (default: ${DEFAULT_MODEL_SERVER_GPU_MEMORY_UTILIZATION})`,
+    "  --local-image-root <directory>  Allow image file_id values as relative image paths under this root; repeat as needed",
     "  --remote-image-host <host>      Allow remote image URLs from this exact host; repeat for redirects/CDNs",
     "  --revision <ref>            Hugging Face revision when source is a repo id",
     "  --access-token <token>      Hugging Face access token for private or gated repos",

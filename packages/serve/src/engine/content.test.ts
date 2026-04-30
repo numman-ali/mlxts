@@ -1,5 +1,4 @@
 import { describe, expect, test } from "bun:test";
-
 import { array, type MxArray, type ParameterTree } from "@mlxts/core";
 import type { Tokenizer } from "@mlxts/tokenizers";
 import {
@@ -15,6 +14,9 @@ import {
   type TransformerCacheForkOptions,
   type TransformerCacheSnapshot,
 } from "@mlxts/transformers";
+import { mkdtempSync, rmSync, writeFileSync } from "fs";
+import { tmpdir } from "os";
+import { join } from "path";
 import { Qwen3_5ForConditionalGeneration } from "../../../transformers/src/families/qwen3_5/multimodal/conditional";
 import type {
   Qwen3_5Config,
@@ -340,6 +342,18 @@ function imageDataUrl(): string {
   return btoa(binary);
 }
 
+async function withTemporaryDirectory<T>(
+  name: string,
+  work: (directory: string) => Promise<T>,
+): Promise<T> {
+  const directory = mkdtempSync(join(tmpdir(), `${name}-`));
+  try {
+    return await work(directory);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+}
+
 function arrayBufferFromBytes(bytes: Uint8Array): ArrayBuffer {
   const buffer = new ArrayBuffer(bytes.byteLength);
   new Uint8Array(buffer).set(bytes);
@@ -536,6 +550,37 @@ describe("transformers media-content preparation", () => {
     expect(decodedImageCache.entryCount).toBe(2);
     expect(decodedImageCache.missCount).toBe(2);
     expect(decodedImageCache.hitCount).toBe(0);
+  });
+
+  test("loads local file-id image sources through the Qwen content adapter", async () => {
+    await withTemporaryDirectory("mlxts-serve-qwen-local-image", async (directory) => {
+      writeFileSync(join(directory, "pixel.bmp"), bmpBytes(1, 1, [255, 0, 0]));
+      const decodedImageCache = new DecodedImageCache(1024);
+      const adapter = createQwen3_5ImageContentAdapter(qwenPreprocessor, { decodedImageCache });
+      const request = contentRequest({
+        kind: "content",
+        messages: [
+          {
+            role: "user",
+            content: [
+              {
+                kind: "image",
+                source: { kind: "file", fileId: "pixel.bmp" },
+              },
+            ],
+          },
+        ],
+      });
+
+      await adapter.load(request, {
+        tokenizer: new QwenImageTokenizer(),
+        interactionProfile: chatProfile([]),
+        localImageRoots: [directory],
+      });
+
+      expect(decodedImageCache.entryCount).toBe(1);
+      expect(decodedImageCache.missCount).toBe(1);
+    });
   });
 
   test("refetches remote image URLs while reusing identical decoded bytes", async () => {

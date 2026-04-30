@@ -93,9 +93,9 @@ curl -s http://127.0.0.1:8000/v1/completions \
   }'
 ```
 
-For Qwen conditional checkpoints, image inputs use OpenAI-style data URLs or
-allowlisted remote HTTP(S) image URLs on the Chat Completions or Responses
-routes:
+For Qwen conditional checkpoints, image inputs use OpenAI-style data URLs,
+allowlisted remote HTTP(S) image URLs, or local file IDs under configured image
+roots on the Chat Completions or Responses routes:
 
 ```bash
 IMAGE_DATA_URL="data:image/png;base64,..."
@@ -123,6 +123,9 @@ checks.
 the model. `--max-prompt-tokens <n>` separately caps tokenized prompt/prefill
 size, and `--max-total-tokens <n>` caps `prompt_tokens + max_tokens` against
 the lower of the server setting and checkpoint-declared context window.
+`--local-image-root <directory>` enables image `file_id` values as relative
+image paths under that directory. File IDs stay image-only, reject traversal and
+symlink escapes, and do not enable `/v1/files` or non-image file uploads.
 `--gpu-memory-utilization <f>` adds a best-effort MLX memory preflight: the
 server estimates request-local KV cache, recurrent cache state, and prefill
 temporary memory from the loaded model config, then rejects requests whose
@@ -303,10 +306,12 @@ Cache metrics are truthful but narrow. OpenAI usage reports
 `/metrics`, and benchmark reports, not in Pi's current footer.
 
 Qwen conditional checkpoints such as `mlx-community/Qwen3.6-27B-4bit` can accept
-image data URLs or allowlisted remote HTTP(S) image URLs through OpenAI Chat
-Completions and OpenResponses, and base64 or allowlisted remote HTTP(S) image
-blocks through Anthropic Messages. Remote hosts are disabled until the operator
-adds exact hosts with `--remote-image-host <host>`. Keep Pi/OpenCode model
+image data URLs, local image file IDs under `--local-image-root`, or allowlisted
+remote HTTP(S) image URLs through OpenAI Chat Completions and OpenResponses, and
+base64, local file, or allowlisted remote HTTP(S) image blocks through Anthropic
+Messages. Remote hosts are disabled until the operator adds exact hosts with
+`--remote-image-host <host>`, and local file IDs are disabled until the operator
+adds image roots with `--local-image-root <directory>`. Keep Pi/OpenCode model
 metadata text-only until those clients' image/file payloads are configured and
 smoked end to end; raw compatible clients can send image payloads directly
 today.

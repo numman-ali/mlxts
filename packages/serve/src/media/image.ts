@@ -5,6 +5,7 @@
 
 import { ServeError } from "../errors";
 import type { GenerationMediaSource } from "../types";
+import { readLocalImageFileBytes } from "./local-image";
 import {
   type RemoteImageFetcher,
   type RemoteImageResolver,
@@ -30,6 +31,7 @@ export type DecodedRgbImage = ImageSize & {
 export type ImageReadOptions = {
   signal?: AbortSignal;
   maxBytes?: number;
+  localImageRoots?: readonly string[];
   remoteImageHosts?: readonly string[];
   remoteTimeoutMs?: number;
   remoteMaxRedirects?: number;
@@ -405,10 +407,7 @@ export async function readImageSourceBytes(
     case "url":
       return readRemoteImageUrlBytes(source.url, { ...options, maxBytes });
     case "file":
-      throw new ServeError("File-id image inputs are not supported by local serving yet.", {
-        code: "unsupported_input",
-        param: "messages",
-      });
+      return readLocalImageFileBytes(source.fileId, { ...options, maxBytes });
   }
 }
 

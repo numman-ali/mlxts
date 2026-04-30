@@ -887,7 +887,7 @@ reporting.
 - Landed OpenAI-compatible API slices: `/v1/chat/completions`, `/v1/completions`, `/v1/responses` text support, `/v1/models`, `/health`, and `/info`
 - Landed bounded Anthropic Messages-compatible text and base64 image-block support at `/v1/messages`, including Anthropic SSE event framing and reasoning/thinking separation
 - Future OpenAI `/v1/embeddings` support maps into the same internal request model
-- Future Anthropic tools, file image sources, and broader content-block support map into the same internal request model
+- Future Anthropic documents/audio and broader content-block support map into the same internal request model; local image file IDs are an explicit root-scoped image transport policy, not a general files API
 - `Bun.serve()` — no Express, no Node HTTP
 - Server-sent events for token streaming, cancellation, long-context heartbeats, and cooperative prefill progress
 - Landed cache-generic continuous batching for eligible LLaMA-like, Qwen 3.6 text, and Gemma 3/4 layer-pattern requests, including streaming and model-native sampled defaults

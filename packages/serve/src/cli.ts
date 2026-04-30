@@ -136,6 +136,9 @@ export function formatServeReady(endpoint: string, options: ServeCliOptions): st
     `Remote image hosts: ${
       options.remoteImageHosts.length === 0 ? "disabled" : options.remoteImageHosts.join(", ")
     }`,
+    `Local image roots: ${
+      options.localImageRoots.length === 0 ? "disabled" : options.localImageRoots.join(", ")
+    }`,
     "",
     "Try:",
     [
@@ -315,6 +318,7 @@ function toServeModelOptions(options: ServeCliOptions): ServeModelOptions {
       ? {}
       : { promptPrefixCacheMaxBytes: options.promptPrefixCacheMaxBytes }),
     gpuMemoryUtilization: options.gpuMemoryUtilization,
+    localImageRoots: options.localImageRoots,
     remoteImageHosts: options.remoteImageHosts,
     ...(options.revision === undefined ? {} : { revision: options.revision }),
     ...(options.accessToken === undefined ? {} : { accessToken: options.accessToken }),
@@ -350,6 +354,7 @@ function toServeModelsOptions(options: ServeCliOptions): ServeModelsOptions {
       ? {}
       : { promptPrefixCacheMaxBytes: options.promptPrefixCacheMaxBytes }),
     gpuMemoryUtilization: options.gpuMemoryUtilization,
+    localImageRoots: options.localImageRoots,
     remoteImageHosts: options.remoteImageHosts,
     ...(options.revision === undefined ? {} : { revision: options.revision }),
     ...(options.accessToken === undefined ? {} : { accessToken: options.accessToken }),

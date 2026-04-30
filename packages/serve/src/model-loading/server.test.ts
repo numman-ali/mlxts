@@ -10,6 +10,7 @@ import type {
   TransformerCache,
 } from "@mlxts/transformers";
 import { KVCache } from "@mlxts/transformers";
+import { realpathSync } from "fs";
 import type { ServeEvent } from "../types";
 import {
   type ServeModelRuntime,
@@ -802,6 +803,7 @@ describe("serveLoadedModel", () => {
   test("loads, serves, and disposes model-owned servers through injectable runtime", async () => {
     const model = new FakeModel();
     const calls: string[] = [];
+    const localImageRoot = createQwenConditionalDirectory();
     const runtime: ServeModelRuntime = {
       async resolvePretrainedSource(source, options) {
         calls.push(`resolve:${source}:${options?.revision}:${options?.localFilesOnly}`);
@@ -820,6 +822,7 @@ describe("serveLoadedModel", () => {
         return fakeInteractionProfile;
       },
       serveLoadedModel(options) {
+        expect(options.localImageRoots).toEqual([realpathSync(localImageRoot)]);
         expect(options.remoteImageHosts).toEqual(["example.com", "cdn.example.com"]);
         calls.push(
           `serve:${options.modelId}:${options.apiKey}:${options.maxPromptTokens}:${options.maxTotalTokens}:${options.maxBatchSize}:${options.batchWindowMs}:${options.prefillStepSize}:${options.activePrefillStepSize}:${options.activeDecodeStepsPerPrefillChunk}:${options.streamDecodeInterval}:${options.maxConcurrentRequests}:${options.promptPrefixCacheMaxEntries}:${options.promptPrefixCacheMaxBytes}:${options.gpuMemoryUtilization}:${options.disposeModelOnStop}`,
@@ -845,6 +848,7 @@ describe("serveLoadedModel", () => {
         promptPrefixCacheMaxEntries: 5,
         promptPrefixCacheMaxBytes: 4096,
         gpuMemoryUtilization: 0.8,
+        localImageRoots: [localImageRoot],
         remoteImageHosts: ["example.com", "cdn.example.com"],
       },
       runtime,
@@ -860,6 +864,7 @@ describe("serveLoadedModel", () => {
     ]);
     expect(model.disposeCount).toBe(0);
     running.stop();
+    removeDirectory(localImageRoot);
   });
 
   test("rejects single model loads that exceed the active memory preflight", async () => {

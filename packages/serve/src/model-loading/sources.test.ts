@@ -228,6 +228,10 @@ function testRuntime(options: {
       if (remoteImageHosts.length > 0) {
         options.calls.push(`remote-image-hosts:${remoteImageHosts.join(",")}`);
       }
+      const localImageRoots = serveOptions.localImageRoots ?? [];
+      if (localImageRoots.length > 0) {
+        options.calls.push(`local-image-roots:${localImageRoots.join(",")}`);
+      }
       options.calls.push(
         `serve:${modelIds.join(",")}:${serveOptions.apiKey}:${serveOptions.maxBatchSize}:${serveOptions.disposeModelsOnStop}`,
       );
@@ -285,39 +289,49 @@ describe("serveModels", () => {
     const calls: string[] = [];
     const progress: string[] = [];
     const runtime = testRuntime({ calls });
+    const localImageRoot = createQwenConditionalDirectory();
 
-    const running = await serveModelsWithRuntime(
-      {
-        models: [
-          { source: "repo/gemma", modelId: "gemma-local" },
-          { source: "repo/qwen", revision: "qwen-rev", localFilesOnly: true },
-        ],
-        revision: "main",
-        apiKey: "secret",
-        maxBatchSize: 16,
-        remoteImageHosts: ["example.com", "cdn.example.com"],
-        onProgress(event, context) {
-          progress.push(`${context.index}:${context.modelId}:${event.stage}:${context.source}`);
+    try {
+      const running = await serveModelsWithRuntime(
+        {
+          models: [
+            { source: "repo/gemma", modelId: "gemma-local" },
+            { source: "repo/qwen", revision: "qwen-rev", localFilesOnly: true },
+          ],
+          revision: "main",
+          apiKey: "secret",
+          maxBatchSize: 16,
+          localImageRoots: [localImageRoot],
+          remoteImageHosts: ["example.com", "cdn.example.com"],
+          onProgress(event, context) {
+            progress.push(`${context.index}:${context.modelId}:${event.stage}:${context.source}`);
+          },
         },
-      },
-      runtime,
-    );
+        runtime,
+      );
 
-    expect(running.modelIds).toEqual(["gemma-local", "repo/qwen"]);
-    expect(calls).toEqual([
-      "resolve:repo/gemma:main:false",
-      "model:/snapshots/repo/gemma",
-      "tokenizer:/snapshots/repo/gemma",
-      "profile:/snapshots/repo/gemma",
-      "resolve:repo/qwen:qwen-rev:true",
-      "model:/snapshots/repo/qwen",
-      "tokenizer:/snapshots/repo/qwen",
-      "profile:/snapshots/repo/qwen",
-      "remote-image-hosts:example.com,cdn.example.com",
-      "serve:gemma-local,repo/qwen:secret:16:true",
-    ]);
-    expect(progress).toEqual(["0:gemma-local:resolve:repo/gemma", "1:repo/qwen:resolve:repo/qwen"]);
-    running.stop();
+      expect(running.modelIds).toEqual(["gemma-local", "repo/qwen"]);
+      expect(calls).toEqual([
+        "resolve:repo/gemma:main:false",
+        "model:/snapshots/repo/gemma",
+        "tokenizer:/snapshots/repo/gemma",
+        "profile:/snapshots/repo/gemma",
+        "resolve:repo/qwen:qwen-rev:true",
+        "model:/snapshots/repo/qwen",
+        "tokenizer:/snapshots/repo/qwen",
+        "profile:/snapshots/repo/qwen",
+        "remote-image-hosts:example.com,cdn.example.com",
+        `local-image-roots:${localImageRoot}`,
+        "serve:gemma-local,repo/qwen:secret:16:true",
+      ]);
+      expect(progress).toEqual([
+        "0:gemma-local:resolve:repo/gemma",
+        "1:repo/qwen:resolve:repo/qwen",
+      ]);
+      running.stop();
+    } finally {
+      removeDirectory(localImageRoot);
+    }
   });
 
   test("validates source entries before resolving anything", async () => {

@@ -46,6 +46,7 @@ export type ServeCliOptions = {
   promptPrefixCacheMaxEntries: number;
   promptPrefixCacheMaxBytes?: number;
   gpuMemoryUtilization: number;
+  localImageRoots: readonly string[];
   remoteImageHosts: readonly string[];
   revision?: string;
   accessToken?: string;
@@ -90,6 +91,7 @@ type ParseState = {
   promptPrefixCacheMaxEntries: number;
   promptPrefixCacheMaxBytes?: number;
   gpuMemoryUtilization: number;
+  localImageRoots: string[];
   remoteImageHosts: string[];
   revision?: string;
   accessToken?: string;
@@ -162,6 +164,7 @@ function createParseState(): ParseState {
     maxConcurrentRequests: DEFAULT_MODEL_SERVER_MAX_CONCURRENT_REQUESTS,
     promptPrefixCacheMaxEntries: DEFAULT_MODEL_SERVER_PROMPT_PREFIX_CACHE_MAX_ENTRIES,
     gpuMemoryUtilization: DEFAULT_MODEL_SERVER_GPU_MEMORY_UTILIZATION,
+    localImageRoots: [],
     remoteImageHosts: [],
     localFilesOnly: false,
     verbose: false,
@@ -321,6 +324,9 @@ function applyFlag(state: ParseState, argv: readonly string[], index: number): n
     case "--remote-image-host":
       state.remoteImageHosts.push(readStringFlag(arg, argv[index + 1]).toLowerCase());
       return index + 1;
+    case "--local-image-root":
+      state.localImageRoots.push(readStringFlag(arg, argv[index + 1]));
+      return index + 1;
     case "--revision":
       state.revision = readStringFlag(arg, argv[index + 1]);
       return index + 1;
@@ -464,6 +470,7 @@ function stateToOptions(state: ParseState): ServeCliParseResult {
         ? {}
         : { promptPrefixCacheMaxBytes: state.promptPrefixCacheMaxBytes }),
       gpuMemoryUtilization: state.gpuMemoryUtilization,
+      localImageRoots: [...new Set(state.localImageRoots)],
       remoteImageHosts: [...new Set(state.remoteImageHosts)],
       ...(state.revision === undefined ? {} : { revision: state.revision }),
       ...(state.accessToken === undefined ? {} : { accessToken: state.accessToken }),

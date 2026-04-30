@@ -52,6 +52,7 @@ export type TransformersGenerationEngineOptions = {
   promptPrefixCacheMaxEntries?: number;
   promptPrefixCacheMaxBytes?: number;
   gpuMemoryUtilization?: number;
+  localImageRoots?: readonly string[];
   remoteImageHosts?: readonly string[];
   contentAdapter?: TransformersContentAdapter;
   onEvent?: (event: ServeEvent) => void;

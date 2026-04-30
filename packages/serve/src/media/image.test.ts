@@ -1,4 +1,7 @@
 import { describe, expect, test } from "bun:test";
+import { mkdtempSync, rmSync, writeFileSync } from "fs";
+import { tmpdir } from "os";
+import { join } from "path";
 
 import {
   decodeResizedImageBytes,
@@ -133,6 +136,18 @@ function base64Bytes(value: string): Uint8Array {
   return bytes;
 }
 
+async function withTemporaryDirectory<T>(
+  name: string,
+  work: (directory: string) => Promise<T>,
+): Promise<T> {
+  const directory = mkdtempSync(join(tmpdir(), `${name}-`));
+  try {
+    return await work(directory);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+}
+
 describe("media image helpers", () => {
   test("parses 24-bit BMP payloads into RGB bytes", () => {
     const image = parseBmp(bmpBytes(2, 1, [255, 0, 0, 0, 255, 0]));
@@ -245,9 +260,17 @@ describe("media image helpers", () => {
     expect(Array.from(bytes)).toEqual([97, 98, 99]);
   });
 
-  test("rejects file-id image sources and aborted image reads", async () => {
-    await expect(readImageSourceBytes({ kind: "file", fileId: "file-1" })).rejects.toThrow(
-      "File-id image inputs are not supported",
+  test("loads file-id image sources from configured local roots and rejects aborted image reads", async () => {
+    await withTemporaryDirectory("mlxts-serve-image-source", async (directory) => {
+      writeFileSync(join(directory, "pixel.png"), new Uint8Array([1, 2, 3]));
+      const bytes = await readImageSourceBytes(
+        { kind: "file", fileId: "pixel.png" },
+        { localImageRoots: [directory] },
+      );
+      expect(Array.from(bytes)).toEqual([1, 2, 3]);
+    });
+    await expect(readImageSourceBytes({ kind: "file", fileId: "file-1.png" })).rejects.toThrow(
+      "configured local image root",
     );
     const controller = new AbortController();
     controller.abort();

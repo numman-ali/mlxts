@@ -12,6 +12,7 @@ import type {
 } from "@mlxts/transformers";
 import type { TransformersContentAdapter } from "../engine/content";
 import { DEFAULT_STREAM_DECODE_INTERVAL } from "../engine/streaming";
+import { resolveLocalImageRoots } from "../media/local-image";
 import {
   DEFAULT_SERVE_PREFILL_STEP_SIZE,
   DEFAULT_SERVE_PROMPT_PREFIX_CACHE_MAX_ENTRIES,
@@ -53,6 +54,7 @@ export type ModelServerRuntimeOptions = {
   promptPrefixCacheMaxEntries?: number;
   promptPrefixCacheMaxBytes?: number;
   gpuMemoryUtilization?: number;
+  localImageRoots?: readonly string[];
   remoteImageHosts?: readonly string[];
   apiKey?: string;
   onEvent?: (event: ServeEvent) => void;
@@ -106,6 +108,7 @@ export type ResolvedRuntimeOptions = {
   promptPrefixCacheMaxEntries: number;
   promptPrefixCacheMaxBytes?: number;
   gpuMemoryUtilization: number;
+  localImageRoots: readonly string[];
   remoteImageHosts: readonly string[];
   apiKey?: string;
   onEvent?: (event: ServeEvent) => void;
@@ -240,6 +243,7 @@ export function resolveRuntimeOptions(options: ModelServerRuntimeOptions): Resol
     promptPrefixCacheMaxEntries,
     ...promptPrefixCacheMaxBytesOption(options.promptPrefixCacheMaxBytes),
     gpuMemoryUtilization,
+    localImageRoots: resolveLocalImageRoots(options.localImageRoots),
     remoteImageHosts: resolveRemoteImageHosts(options.remoteImageHosts),
     ...(options.apiKey === undefined ? {} : { apiKey: options.apiKey }),
     ...(options.onEvent === undefined ? {} : { onEvent: options.onEvent }),
@@ -345,6 +349,7 @@ export function runtimeServeOptions(options: ResolvedRuntimeOptions): ModelServe
       ? {}
       : { promptPrefixCacheMaxBytes: options.promptPrefixCacheMaxBytes }),
     gpuMemoryUtilization: options.gpuMemoryUtilization,
+    localImageRoots: options.localImageRoots,
     remoteImageHosts: options.remoteImageHosts,
     ...(options.apiKey === undefined ? {} : { apiKey: options.apiKey }),
     ...(options.onEvent === undefined ? {} : { onEvent: options.onEvent }),

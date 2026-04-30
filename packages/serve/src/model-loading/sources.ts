@@ -229,6 +229,12 @@ function remoteImageHostsOption(
     : { remoteImageHosts: options.remoteImageHosts };
 }
 
+function localImageRootsOption(
+  options: ServeModelsOptions,
+): Pick<ResolvedServeModelsRuntimeOptions, "localImageRoots"> | Record<string, never> {
+  return options.localImageRoots === undefined ? {} : { localImageRoots: options.localImageRoots };
+}
+
 function resolveServeModelsRuntimeOptions(
   options: ServeModelsOptions,
 ): ResolvedServeModelsRuntimeOptions {
@@ -259,6 +265,7 @@ function resolveServeModelsRuntimeOptions(
     ...(options.gpuMemoryUtilization === undefined
       ? {}
       : { gpuMemoryUtilization: options.gpuMemoryUtilization }),
+    ...localImageRootsOption(options),
     ...remoteImageHostsOption(options),
     ...(options.apiKey === undefined ? {} : { apiKey: options.apiKey }),
     ...(options.onEvent === undefined ? {} : { onEvent: options.onEvent }),

@@ -111,6 +111,7 @@ export function createLoadedModelEngine(
       ? {}
       : { promptPrefixCacheMaxBytes: options.promptPrefixCacheMaxBytes }),
     gpuMemoryUtilization: options.gpuMemoryUtilization,
+    localImageRoots: options.localImageRoots,
     remoteImageHosts: options.remoteImageHosts,
     ...(model.interactionProfile === undefined
       ? {}

@@ -81,8 +81,9 @@ major product-agent focus on package-owned CLIs and future PI-agent integration.
   Serve also keeps a per-adapter host-side decoded RGB LRU cache keyed by image
   byte digest plus Qwen preprocessor config; it stores no MLX tensors or visual
   embeddings, and remote URLs still refetch before content-addressed cache
-  lookup.
-  File image sources remain rejected until a file-store policy exists.
+  lookup. Local image `file_id` values are enabled only when the operator
+  configures `localImageRoots` / `--local-image-root`; they resolve as relative
+  image paths under those roots and do not create a general files API.
 - **Qwen conditional serving**: top-level Qwen 3.5 / 3.6 conditional
   checkpoints expose the Qwen text batch-cache surface for text-only continuous
   serving. Media/content requests still route as `media_input` and stay off

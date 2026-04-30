@@ -57,10 +57,11 @@ Serve dispatches cache-shape scheduling on `CacheLayerKind`, not on family
 identifiers.
 
 Serve owns media transport, bounded host-side I/O, decode, cancellation, and
-model-lane scheduling. Model-family preprocessing - smart resize, patch tokens,
-grid metadata, image token expansion, and vision tower wiring - stays in
-`@mlxts/transformers`. The seam is protocol-neutral content in and prepared
-prompt out.
+model-lane scheduling. Local file-id image reads require configured image roots
+and remain image-only transport, not a general files API. Model-family
+preprocessing - smart resize, patch tokens, grid metadata, image token
+expansion, and vision tower wiring - stays in `@mlxts/transformers`. The seam
+is protocol-neutral content in and prepared prompt out.
 
 SSE writers share lifecycle scaffolding. Heartbeats, stream
 observability, stop filtering, and reasoning-tag streams are common machinery;
