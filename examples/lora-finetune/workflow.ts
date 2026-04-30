@@ -10,7 +10,7 @@ import {
 import { mkdirSync } from "fs";
 import { join } from "path";
 
-import { type FinetuneArgs, type FinetuneReport, parseArgs } from "./args";
+import type { FinetuneArgs, FinetuneReport } from "./args";
 import { loadRawMessages, prepareSupervisionExamples } from "./data";
 import {
   ensureQuantizedSnapshot,
@@ -21,18 +21,18 @@ import {
   sampleText,
 } from "./runtime";
 
-function printRunSummary(args: FinetuneArgs): void {
-  console.log(`LoRA finetune source: ${args.source}`);
-  console.log(`Mode: ${args.mode}`);
-  console.log(`Preset: ${args.preset}`);
-  console.log(`Adapter format: ${args.adapterFormat}`);
-  console.log(`Dataset source: ${args.datasetSource}`);
-  console.log(`Train limit: ${args.trainLimit}`);
-  console.log(`Eval limit: ${args.evalLimit}`);
-  console.log(`Batch size: ${args.batchSize}`);
-  console.log(`Steps: ${args.steps}`);
-  console.log(`Max sequence length: ${args.maxSequenceLength}`);
-  console.log(`Output dir: ${args.outputDir}`);
+function printRunSummary(args: FinetuneArgs, writeLine: (line: string) => void): void {
+  writeLine(`LoRA finetune source: ${args.source}`);
+  writeLine(`Mode: ${args.mode}`);
+  writeLine(`Preset: ${args.preset}`);
+  writeLine(`Adapter format: ${args.adapterFormat}`);
+  writeLine(`Dataset source: ${args.datasetSource}`);
+  writeLine(`Train limit: ${args.trainLimit}`);
+  writeLine(`Eval limit: ${args.evalLimit}`);
+  writeLine(`Batch size: ${args.batchSize}`);
+  writeLine(`Steps: ${args.steps}`);
+  writeLine(`Max sequence length: ${args.maxSequenceLength}`);
+  writeLine(`Output dir: ${args.outputDir}`);
 }
 
 function resolveLoadSource(args: FinetuneArgs): Promise<string> | string {
@@ -109,21 +109,24 @@ function printCompletion(
   trainedSample: string,
   reloadedSample: string,
   mergedSample: string,
+  writeLine: (line: string) => void,
 ): void {
-  console.log(
+  writeLine(
     `LoRA finetune complete. eval_loss_before=${evalLossBefore.toFixed(4)} eval_loss_after=${evalLossAfter.toFixed(4)} target_count=${targetCount}`,
   );
-  console.log(`Adapter directory: ${adapterDirectory}`);
-  console.log(`Report: ${reportPath}`);
-  console.log(`Sample (trained): ${trainedSample}`);
-  console.log(`Sample (reloaded): ${reloadedSample}`);
-  console.log(`Sample (merged): ${mergedSample}`);
+  writeLine(`Adapter directory: ${adapterDirectory}`);
+  writeLine(`Report: ${reportPath}`);
+  writeLine(`Sample (trained): ${trainedSample}`);
+  writeLine(`Sample (reloaded): ${reloadedSample}`);
+  writeLine(`Sample (merged): ${mergedSample}`);
 }
 
-export async function runLoRAFinetune(argv: readonly string[]): Promise<void> {
-  const args = parseArgs(argv);
+export async function runLoRAFinetune(
+  args: FinetuneArgs,
+  progress: (line: string) => void = console.error,
+): Promise<FinetuneReport> {
   mkdirSync(args.outputDir, { recursive: true });
-  printRunSummary(args);
+  printRunSummary(args, progress);
 
   const loadSource = await resolveLoadSource(args);
   const assets = await loadAssets(args.source);
@@ -217,5 +220,7 @@ export async function runLoRAFinetune(argv: readonly string[]): Promise<void> {
     trainedSample,
     reloadedSample,
     mergedSample,
+    progress,
   );
+  return report;
 }

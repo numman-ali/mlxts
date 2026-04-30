@@ -17,6 +17,8 @@ export const ULTRACHAT_DATASET = "HuggingFaceH4/ultrachat_200k";
 export type FinetuneMode = "lora" | "qlora";
 export type DatasetSource = "tiny" | "huggingface" | "jsonl";
 
+export type FinetuneCommand = { kind: "help" } | { kind: "run"; options: FinetuneArgs };
+
 /** CLI arguments for the readable LoRA example surface. */
 export type FinetuneArgs = {
   source: string;
@@ -64,6 +66,14 @@ export type FinetuneReport = {
   };
 };
 
+/** Usage error raised before any model runtime work starts. */
+export class FinetuneUsageError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "FinetuneUsageError";
+  }
+}
+
 function safeSource(source: string): string {
   return source.replace(/[^A-Za-z0-9._-]+/g, "-").replace(/-+/g, "-");
 }
@@ -81,8 +91,8 @@ export function defaultReportPath(source: string): string {
 }
 
 function readValue(flag: string, value: string | undefined): string {
-  if (value === undefined || value.trim() === "") {
-    throw new Error(`lora-finetune: missing value for ${flag}.`);
+  if (value === undefined || value.trim() === "" || value.startsWith("--")) {
+    throw new FinetuneUsageError(`lora-finetune: missing value for ${flag}.`);
   }
   return value;
 }
@@ -90,7 +100,7 @@ function readValue(flag: string, value: string | undefined): string {
 function readPositiveInteger(flag: string, value: string | undefined): number {
   const parsed = Number(readValue(flag, value));
   if (!Number.isInteger(parsed) || parsed <= 0) {
-    throw new Error(`lora-finetune: ${flag} expects a positive integer.`);
+    throw new FinetuneUsageError(`lora-finetune: ${flag} expects a positive integer.`);
   }
   return parsed;
 }
@@ -99,28 +109,36 @@ function readMode(value: string): FinetuneMode {
   if (value === "lora" || value === "qlora") {
     return value;
   }
-  throw new Error(`lora-finetune: unknown mode "${value}".`);
+  throw new FinetuneUsageError(`lora-finetune: unknown mode "${value}".`);
 }
 
 function readPreset(value: string): LoRATargetPreset {
   if (value === "attention" || value === "attention+mlp" || value === "all-linear") {
     return value;
   }
-  throw new Error(`lora-finetune: unknown preset "${value}".`);
+  throw new FinetuneUsageError(`lora-finetune: unknown preset "${value}".`);
 }
 
 function readDatasetSource(value: string): DatasetSource {
   if (value === "tiny" || value === "huggingface" || value === "jsonl") {
     return value;
   }
-  throw new Error(`lora-finetune: unknown dataset source "${value}".`);
+  throw new FinetuneUsageError(`lora-finetune: unknown dataset source "${value}".`);
 }
 
 function readAdapterFormat(value: string): CausalLMAdapterFormat {
   if (value === "mlxts" || value === "peft") {
     return value;
   }
-  throw new Error(`lora-finetune: unknown adapter format "${value}".`);
+  throw new FinetuneUsageError(`lora-finetune: unknown adapter format "${value}".`);
+}
+
+/** Parse the LoRA example command before model runtime work begins. */
+export function parseFinetuneCommand(argv: readonly string[]): FinetuneCommand {
+  if (argv.includes("--help") || argv.includes("-h")) {
+    return { kind: "help" };
+  }
+  return { kind: "run", options: parseArgs(argv) };
 }
 
 /** Parse the LoRA example CLI arguments into one explicit configuration object. */
@@ -212,12 +230,14 @@ export function parseArgs(argv: readonly string[]): FinetuneArgs {
         index += 1;
         break;
       default:
-        throw new Error(`lora-finetune: unknown argument "${arg}".`);
+        throw new FinetuneUsageError(`lora-finetune: unknown argument "${arg}".`);
     }
   }
 
   if (datasetSource === "jsonl" && datasetJsonlPath === null) {
-    throw new Error("lora-finetune: --dataset-jsonl is required when --dataset-source jsonl.");
+    throw new FinetuneUsageError(
+      "lora-finetune: --dataset-jsonl is required when --dataset-source jsonl.",
+    );
   }
 
   return {

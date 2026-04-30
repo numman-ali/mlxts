@@ -53,6 +53,11 @@ Default preset behavior is intentionally simple:
 
 ## Output
 
+The command is finite and agent-facing. `--help`, success, and errors write
+compact structured output to stdout. Model loading, dataset preparation,
+training progress, sample text, and stack traces write to stderr. Usage errors
+exit with code `2`; runtime or training failures exit with code `1`.
+
 The report JSON records:
 
 - the selected source, mode, preset, and adapter format
