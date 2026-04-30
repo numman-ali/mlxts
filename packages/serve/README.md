@@ -51,10 +51,11 @@ stay resident until server shutdown.
 
 `--model-pressure-policy shed_non_pinned` opts the lazy pool into memory-pressure
 relief when a cold load or request memory preflight cannot fit. The pool first
-evicts idle non-pinned models, then aborts active non-pinned request scopes and
-waits for normal generation cleanup before retrying once. The default
-`reject` policy preserves existing active requests and returns the original
-memory-budget error.
+evicts idle non-pinned models, then aborts the oldest eligible active
+non-pinned request scope, waits a bounded time for normal generation cleanup,
+and retries. If pressure remains, the next pass sheds one more eligible active
+scope. The default `reject` policy preserves existing active requests and
+returns the original memory-budget error.
 
 Use repeatable `--model-root <directory>` when a local model store already uses
 flat checkpoint folders or Hugging Face-style `org/model` folders. Discovery
@@ -135,9 +136,10 @@ image paths under that directory. File IDs stay image-only, reject traversal and
 symlink escapes, and do not enable `/v1/files` or non-image file uploads.
 `--model-pressure-policy <reject|shed_non_pinned>` controls lazy-pool behavior
 when model-load or request memory pressure blocks progress. `reject` keeps
-existing requests untouched. `shed_non_pinned` can evict idle non-pinned models
-and cancel active non-pinned requests with `model_pool_memory_pressure`; pinned
-models are never pressure-shed.
+existing requests untouched. `shed_non_pinned` evicts idle non-pinned models
+first, then cancels active non-pinned requests one at a time with
+`model_pool_memory_pressure` while retrying between releases. Pinned models are
+never pressure-shed.
 `--gpu-memory-utilization <f>` adds a best-effort MLX memory preflight: the
 server estimates request-local KV cache, recurrent cache state, and prefill
 temporary memory from the loaded model config, then rejects requests whose

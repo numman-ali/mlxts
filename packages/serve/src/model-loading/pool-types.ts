@@ -20,6 +20,7 @@ export type SourceModelPoolGenerationEngineOptions = {
   load(entry: SourceModelPoolEntry): Promise<LoadedSourceModelPoolEntry>;
   idleTtlMs?: number;
   pressurePolicy?: ModelPoolPressurePolicy;
+  pressureReleaseTimeoutMs?: number;
   onEvent?: (event: ServeEvent) => void;
 };
 
@@ -29,6 +30,7 @@ export type ActiveRequestLease = {
   id: string;
   protocol: NormalizedGenerationRequest["protocol"];
   stream: boolean;
+  sequence: number;
   controller: AbortController;
   cleanup(): void;
   pressureAborted: boolean;

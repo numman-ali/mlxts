@@ -24,10 +24,15 @@ import { MODEL_POOL_MEMORY_PRESSURE } from "./pool-types";
 type ModelPoolPressureControllerOptions = {
   states: Map<string, ModelPoolState>;
   policy: ModelPoolPressurePolicy;
+  releaseTimeoutMs?: number | undefined;
   onEvent: ((event: ServeEvent) => void) | undefined;
   disposeLoadedState(state: LoadedModelState): void;
   requireOpen(): void;
 };
+
+const DEFAULT_PRESSURE_RELEASE_TIMEOUT_MS = 30_000;
+const MODEL_POOL_PRESSURE_TIMEOUT = "model_pool_pressure_timeout";
+let nextLeaseSequence = 0;
 
 export function withAbortSignal(
   request: NormalizedGenerationRequest,
@@ -38,6 +43,8 @@ export function withAbortSignal(
 
 export function createActiveLease(request: NormalizedGenerationRequest): ActiveRequestLease {
   const controller = new AbortController();
+  const sequence = nextLeaseSequence;
+  nextLeaseSequence += 1;
   const cleanup =
     request.abortSignal === undefined
       ? () => {}
@@ -55,6 +62,7 @@ export function createActiveLease(request: NormalizedGenerationRequest): ActiveR
     id: request.id,
     protocol: request.protocol,
     stream: request.stream,
+    sequence,
     controller,
     cleanup,
     pressureAborted: false,
@@ -119,7 +127,10 @@ function hasPressureAbortedLease(leases: readonly ActiveRequestLease[]): boolean
 export class ModelPoolPressureController {
   readonly #states: Map<string, ModelPoolState>;
   readonly #pressureWaiters = new Set<() => void>();
+  #reliefLane: Promise<void> = Promise.resolve();
+  #reliefEpoch = 0;
   readonly #policy: ModelPoolPressurePolicy;
+  readonly #releaseTimeoutMs: number;
   readonly #onEvent: ((event: ServeEvent) => void) | undefined;
   readonly #disposeLoadedState: (state: LoadedModelState) => void;
   readonly #requireOpen: () => void;
@@ -127,6 +138,7 @@ export class ModelPoolPressureController {
   constructor(options: ModelPoolPressureControllerOptions) {
     this.#states = options.states;
     this.#policy = options.policy;
+    this.#releaseTimeoutMs = resolvePressureReleaseTimeoutMs(options.releaseTimeoutMs);
     this.#onEvent = options.onEvent;
     this.#disposeLoadedState = options.disposeLoadedState;
     this.#requireOpen = options.requireOpen;
@@ -151,8 +163,50 @@ export class ModelPoolPressureController {
     if (this.#policy === "reject") {
       return false;
     }
+    const observedEpoch = this.#reliefEpoch;
+    return this.#withReliefLane(async () => {
+      if (observedEpoch !== this.#reliefEpoch) {
+        return true;
+      }
+      const relieved = await this.#relieveMemoryPressureUnlocked(options);
+      if (relieved) {
+        this.#reliefEpoch += 1;
+      }
+      return relieved;
+    });
+  }
+
+  async #withReliefLane(work: () => Promise<boolean>): Promise<boolean> {
+    const previous = this.#reliefLane;
+    let release: () => void = () => {};
+    this.#reliefLane = previous.then(
+      () =>
+        new Promise<void>((resolve) => {
+          release = resolve;
+        }),
+      () =>
+        new Promise<void>((resolve) => {
+          release = resolve;
+        }),
+    );
+    await previous.catch(() => {});
+    try {
+      return await work();
+    } finally {
+      release();
+    }
+  }
+
+  async #relieveMemoryPressureUnlocked(options: {
+    targetModel: string;
+    reason: PressureReliefReason;
+    excludeLeases?: ReadonlySet<ActiveRequestLease>;
+  }): Promise<boolean> {
     const evicted = this.#evictIdlePressureCandidates(options.targetModel, options.reason);
-    const abortedRequestIds = this.#abortPressureCandidates(options.excludeLeases);
+    if (evicted) {
+      return true;
+    }
+    const abortedRequestIds = this.#abortPressureCandidate(options.excludeLeases);
     if (abortedRequestIds.length > 0) {
       this.#emit({
         targetModel: options.targetModel,
@@ -164,7 +218,7 @@ export class ModelPoolPressureController {
       });
       await this.#waitForPressureAbortedLeases();
     }
-    return evicted || abortedRequestIds.length > 0;
+    return abortedRequestIds.length > 0;
   }
 
   async retryMemoryBudgetAfterRelief(
@@ -217,11 +271,32 @@ export class ModelPoolPressureController {
   }
 
   async #waitForPressureAbortedLeases(): Promise<void> {
+    const deadline = Date.now() + this.#releaseTimeoutMs;
     while (this.#pressureAbortedLeaseCount() > 0) {
-      await new Promise<void>((resolve) => {
-        this.#pressureWaiters.add(resolve);
-      });
+      const remainingMs = deadline - Date.now();
+      if (remainingMs <= 0) {
+        throw modelPoolPressureTimeoutError();
+      }
+      const released = await this.#waitForPressureRelease(remainingMs);
+      if (!released && this.#pressureAbortedLeaseCount() > 0) {
+        throw modelPoolPressureTimeoutError();
+      }
     }
+  }
+
+  #waitForPressureRelease(timeoutMs: number): Promise<boolean> {
+    return new Promise<boolean>((resolve) => {
+      let timer: ReturnType<typeof setTimeout>;
+      const onRelease = () => {
+        clearTimeout(timer);
+        resolve(true);
+      };
+      timer = setTimeout(() => {
+        this.#pressureWaiters.delete(onRelease);
+        resolve(false);
+      }, timeoutMs);
+      this.#pressureWaiters.add(onRelease);
+    });
   }
 
   #evictIdlePressureCandidates(targetModel: string, reason: PressureReliefReason): boolean {
@@ -253,8 +328,8 @@ export class ModelPoolPressureController {
     return true;
   }
 
-  #abortPressureCandidates(excludeLeases: ReadonlySet<ActiveRequestLease> | undefined): string[] {
-    const abortedRequestIds: string[] = [];
+  #abortPressureCandidate(excludeLeases: ReadonlySet<ActiveRequestLease> | undefined): string[] {
+    const candidates: ActiveRequestLease[] = [];
     for (const state of this.#states.values()) {
       if (state.kind !== "loaded" || state.entry.pinned === true) {
         continue;
@@ -267,11 +342,36 @@ export class ModelPoolPressureController {
         ) {
           continue;
         }
-        lease.pressureAborted = true;
-        lease.controller.abort(MODEL_POOL_MEMORY_PRESSURE);
-        abortedRequestIds.push(lease.id);
+        candidates.push(lease);
       }
     }
-    return abortedRequestIds;
+    candidates.sort((left, right) => left.sequence - right.sequence);
+    const candidate = candidates[0];
+    if (candidate === undefined) {
+      return [];
+    }
+    candidate.pressureAborted = true;
+    candidate.controller.abort(MODEL_POOL_MEMORY_PRESSURE);
+    return [candidate.id];
   }
+}
+
+function resolvePressureReleaseTimeoutMs(value: number | undefined): number {
+  if (value === undefined) {
+    return DEFAULT_PRESSURE_RELEASE_TIMEOUT_MS;
+  }
+  if (!Number.isInteger(value) || value <= 0) {
+    throw new Error("pressureReleaseTimeoutMs must be a positive integer.");
+  }
+  return value;
+}
+
+function modelPoolPressureTimeoutError(): ServeError {
+  return new ServeError(
+    "Timed out waiting for pressure-cancelled requests to release model memory.",
+    {
+      code: MODEL_POOL_PRESSURE_TIMEOUT,
+      status: 503,
+    },
+  );
 }

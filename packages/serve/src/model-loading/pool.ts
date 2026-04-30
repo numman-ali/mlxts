@@ -1,8 +1,3 @@
-/**
- * Lazy source-backed model pool for multi-model serving.
- * @module
- */
-
 import { ServeError } from "../errors";
 import type {
   GenerationEngine,
@@ -36,6 +31,8 @@ export type {
   SourceModelPoolGenerationEngineOptions,
 } from "./pool-types";
 
+type Stream = AsyncIterable<GenerationStreamEvent>;
+type StreamFactory = () => Stream | Promise<Stream>;
 function requireEntries(
   entries: readonly SourceModelPoolEntry[],
 ): Map<string, SourceModelPoolEntry> {
@@ -164,6 +161,7 @@ export function createSourceModelPoolGenerationEngine(
     onEvent: options.onEvent,
     disposeLoadedState,
     requireOpen,
+    releaseTimeoutMs: options.pressureReleaseTimeoutMs,
   });
 
   async function loadSequentially(
@@ -193,21 +191,72 @@ export function createSourceModelPoolGenerationEngine(
   async function loadWithMemoryPressureRelief(
     entry: SourceModelPoolEntry,
   ): Promise<LoadedSourceModelPoolEntry> {
-    try {
-      return await loadSequentially(entry);
-    } catch (error) {
-      if (!isServeErrorCode(error, "model_load_memory_exceeded")) {
-        throw error;
+    while (true) {
+      try {
+        return await loadSequentially(entry);
+      } catch (error) {
+        if (!isServeErrorCode(error, "model_load_memory_exceeded")) {
+          throw error;
+        }
+        const relieved = await pressure.relieveMemoryPressure({
+          targetModel: entry.modelId,
+          reason: "model_load_memory_exceeded",
+        });
+        if (!relieved) {
+          throw error;
+        }
+        requireOpen();
       }
-      const relieved = await pressure.relieveMemoryPressure({
-        targetModel: entry.modelId,
-        reason: "model_load_memory_exceeded",
-      });
-      if (!relieved) {
-        throw error;
+    }
+  }
+
+  async function retryMemoryBudgetAfterRelief(
+    error: unknown,
+    modelLease: ModelLease,
+    eligible: boolean,
+  ): Promise<void> {
+    const mapped = mapPressureAbortError(error, modelLease.leases);
+    if (mapped !== error) {
+      throw mapped;
+    }
+    const retry = await pressure.retryMemoryBudgetAfterRelief(error, modelLease, eligible);
+    if (!retry) {
+      throw error;
+    }
+  }
+
+  async function startPressureAwareStream(
+    modelLease: ModelLease,
+    createStream: StreamFactory,
+  ): Promise<Stream> {
+    while (true) {
+      try {
+        const stream = await createStream();
+        return streamWithGenerationPressureRetry(modelLease, stream, createStream);
+      } catch (error) {
+        try {
+          await retryMemoryBudgetAfterRelief(error, modelLease, true);
+        } catch (retryError) {
+          release(modelLease);
+          throw retryError;
+        }
       }
-      requireOpen();
-      return await loadSequentially(entry);
+    }
+  }
+
+  async function retryStreamAfterRelief(
+    error: unknown,
+    modelLease: ModelLease,
+    createRetryStream: StreamFactory,
+  ): Promise<Stream> {
+    let pendingError = error;
+    while (true) {
+      await retryMemoryBudgetAfterRelief(pendingError, modelLease, true);
+      try {
+        return await createRetryStream();
+      } catch (retryError) {
+        pendingError = mapPressureAbortError(retryError, modelLease.leases);
+      }
     }
   }
 
@@ -296,47 +345,11 @@ export function createSourceModelPoolGenerationEngine(
     modelLease: ModelLease,
     work: () => Promise<T>,
   ): Promise<T> {
-    try {
-      return await work();
-    } catch (error) {
-      const mapped = mapPressureAbortError(error, modelLease.leases);
-      if (mapped !== error) {
-        throw mapped;
-      }
-      const retry = await pressure.retryMemoryBudgetAfterRelief(error, modelLease, true);
-      if (!retry) {
-        throw error;
-      }
-      return await work();
-    }
-  }
-
-  async function createPressureAwareStream(
-    modelLease: ModelLease,
-    createStream: () =>
-      | AsyncIterable<GenerationStreamEvent>
-      | Promise<AsyncIterable<GenerationStreamEvent>>,
-  ): Promise<AsyncIterable<GenerationStreamEvent>> {
-    try {
-      const firstStream = await createStream();
-      return streamWithGenerationPressureRetry(modelLease, firstStream, createStream);
-    } catch (error) {
-      const mapped = mapPressureAbortError(error, modelLease.leases);
-      if (mapped !== error) {
-        release(modelLease);
-        throw mapped;
-      }
-      const retry = await pressure.retryMemoryBudgetAfterRelief(error, modelLease, true);
-      if (!retry) {
-        release(modelLease);
-        throw error;
-      }
+    while (true) {
       try {
-        const retryStream = await createStream();
-        return streamWithGenerationPressureRetry(modelLease, retryStream, createStream);
-      } catch (retryError) {
-        release(modelLease);
-        throw mapPressureAbortError(retryError, modelLease.leases);
+        return await work();
+      } catch (error) {
+        await retryMemoryBudgetAfterRelief(error, modelLease, true);
       }
     }
   }
@@ -344,28 +357,23 @@ export function createSourceModelPoolGenerationEngine(
   async function* streamWithGenerationPressureRetry(
     modelLease: ModelLease,
     firstStream: AsyncIterable<GenerationStreamEvent>,
-    createRetryStream: () =>
-      | AsyncIterable<GenerationStreamEvent>
-      | Promise<AsyncIterable<GenerationStreamEvent>>,
+    createRetryStream: StreamFactory,
   ): AsyncIterable<GenerationStreamEvent> {
     let emitted = false;
+    let stream = firstStream;
     try {
-      try {
-        yield* readMappedPressureStream(modelLease, firstStream, () => {
-          emitted = true;
-        });
-      } catch (error) {
-        const retry = await pressure.retryMemoryBudgetAfterRelief(error, modelLease, !emitted);
-        if (!retry) {
-          throw error;
-        }
-        let retryStream: AsyncIterable<GenerationStreamEvent>;
+      while (true) {
         try {
-          retryStream = await createRetryStream();
-        } catch (retryError) {
-          throw mapPressureAbortError(retryError, modelLease.leases);
+          yield* readMappedPressureStream(modelLease, stream, () => {
+            emitted = true;
+          });
+          return;
+        } catch (error) {
+          if (emitted) {
+            throw error;
+          }
+          stream = await retryStreamAfterRelief(error, modelLease, createRetryStream);
         }
-        yield* readMappedPressureStream(modelLease, retryStream);
       }
     } finally {
       release(modelLease);
@@ -472,7 +480,7 @@ export function createSourceModelPoolGenerationEngine(
           param: "stream",
         });
       }
-      return createPressureAwareStream(modelLease, () => stream(linkedRequest));
+      return startPressureAwareStream(modelLease, () => stream(linkedRequest));
     },
     [Symbol.dispose]() {
       if (disposed) {

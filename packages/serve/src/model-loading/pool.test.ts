@@ -520,6 +520,255 @@ describe("source model pool generation engine", () => {
     });
   });
 
+  test("aborts active leases one at a time while request pressure persists", async () => {
+    const events: ServeEvent[] = [];
+    let shortAttempts = 0;
+    const engine = createSourceModelPoolGenerationEngine({
+      entries: [{ modelId: "alpha" }],
+      pressurePolicy: "shed_non_pinned",
+      onEvent(event) {
+        events.push(event);
+      },
+      async load() {
+        return {
+          engine: {
+            async generate(normalized) {
+              if (normalized.id.startsWith("long")) {
+                await new Promise<void>((_, reject) => {
+                  normalized.abortSignal?.addEventListener(
+                    "abort",
+                    () => {
+                      const error = new Error("aborted");
+                      error.name = "AbortError";
+                      reject(error);
+                    },
+                    { once: true },
+                  );
+                });
+              }
+              shortAttempts += 1;
+              if (shortAttempts <= 2) {
+                throw new ServeError("request exceeds memory budget", {
+                  code: "memory_budget_exceeded",
+                  status: 429,
+                });
+              }
+              return { text: `a:${normalized.id}`, finishReason: "stop" };
+            },
+          },
+          dispose() {},
+        };
+      },
+    });
+
+    const longA = engine.generate(request("long-a", "alpha"));
+    await sleep(0);
+    const longB = engine.generate(request("long-b", "alpha"));
+    await sleep(0);
+    const short = engine.generate(request("short", "alpha"));
+
+    await expectServeErrorCode(longA, "model_pool_memory_pressure");
+    await expectServeErrorCode(longB, "model_pool_memory_pressure");
+    await expect(short).resolves.toMatchObject({ text: "a:short" });
+    expect(shortAttempts).toBe(3);
+    expect(
+      events
+        .filter((event) => event.type === "model_pool_pressure")
+        .map((event) => event.abortedRequestIds),
+    ).toEqual([["long-a"], ["long-b"]]);
+  });
+
+  test("retries concurrent pressure waiters before shedding another active lease", async () => {
+    const events: ServeEvent[] = [];
+    const releaseLong = new Map<string, () => void>();
+    const bothShortsAttempted = deferred<void>();
+    let shortFirstAttempts = 0;
+    const shortAttempts = new Map<string, number>();
+    const engine = createSourceModelPoolGenerationEngine({
+      entries: [{ modelId: "alpha" }],
+      pressurePolicy: "shed_non_pinned",
+      onEvent(event) {
+        events.push(event);
+      },
+      async load() {
+        return {
+          engine: {
+            async generate(normalized) {
+              if (normalized.id.startsWith("long")) {
+                await new Promise<void>((resolve, reject) => {
+                  releaseLong.set(normalized.id, resolve);
+                  normalized.abortSignal?.addEventListener(
+                    "abort",
+                    () => {
+                      const error = new Error("aborted");
+                      error.name = "AbortError";
+                      reject(error);
+                    },
+                    { once: true },
+                  );
+                });
+                return { text: `a:${normalized.id}`, finishReason: "stop" };
+              }
+              const attempts = (shortAttempts.get(normalized.id) ?? 0) + 1;
+              shortAttempts.set(normalized.id, attempts);
+              if (attempts === 1) {
+                shortFirstAttempts += 1;
+                if (shortFirstAttempts === 2) {
+                  bothShortsAttempted.resolve();
+                }
+                await bothShortsAttempted.promise;
+                throw new ServeError("request exceeds memory budget", {
+                  code: "memory_budget_exceeded",
+                  status: 429,
+                });
+              }
+              return { text: `a:${normalized.id}`, finishReason: "stop" };
+            },
+          },
+          dispose() {},
+        };
+      },
+    });
+
+    const longA = engine.generate(request("long-a", "alpha"));
+    await sleep(0);
+    const longB = engine.generate(request("long-b", "alpha"));
+    await sleep(0);
+    const shortA = engine.generate(request("short-a", "alpha"));
+    const shortB = engine.generate(request("short-b", "alpha"));
+
+    await expectServeErrorCode(longA, "model_pool_memory_pressure");
+    await expect(shortA).resolves.toMatchObject({ text: "a:short-a" });
+    await expect(shortB).resolves.toMatchObject({ text: "a:short-b" });
+    releaseLong.get("long-b")?.();
+    await expect(longB).resolves.toMatchObject({ text: "a:long-b" });
+    expect(
+      events
+        .filter((event) => event.type === "model_pool_pressure")
+        .map((event) => event.abortedRequestIds),
+    ).toEqual([["long-a"]]);
+  });
+
+  test("times out when pressure-aborted active leases do not release", async () => {
+    const releaseLong = deferred<void>();
+    const engine = createSourceModelPoolGenerationEngine({
+      entries: [{ modelId: "alpha" }],
+      pressurePolicy: "shed_non_pinned",
+      pressureReleaseTimeoutMs: 5,
+      async load() {
+        return {
+          engine: {
+            async generate(normalized) {
+              if (normalized.id === "long") {
+                await releaseLong.promise;
+                return { text: "", finishReason: "cancelled" };
+              }
+              throw new ServeError("request exceeds memory budget", {
+                code: "memory_budget_exceeded",
+                status: 429,
+              });
+            },
+          },
+          dispose() {},
+        };
+      },
+    });
+
+    const long = engine.generate(request("long", "alpha"));
+    await sleep(0);
+    await expectServeErrorCode(
+      engine.generate(request("short", "alpha")),
+      "model_pool_pressure_timeout",
+    );
+    releaseLong.resolve();
+    await expectServeErrorCode(long, "model_pool_memory_pressure");
+  });
+
+  test("retries stream factory pressure before emitting bytes", async () => {
+    const events: ServeEvent[] = [];
+    let streamAttempts = 0;
+    const engine = createSourceModelPoolGenerationEngine({
+      entries: [{ modelId: "alpha" }],
+      pressurePolicy: "shed_non_pinned",
+      onEvent(event) {
+        events.push(event);
+      },
+      async load() {
+        return {
+          engine: {
+            async generate(normalized) {
+              if (normalized.id.startsWith("long")) {
+                await new Promise<void>((_, reject) => {
+                  normalized.abortSignal?.addEventListener(
+                    "abort",
+                    () => {
+                      const error = new Error("aborted");
+                      error.name = "AbortError";
+                      reject(error);
+                    },
+                    { once: true },
+                  );
+                });
+              }
+              return { text: `a:${normalized.id}`, finishReason: "stop" };
+            },
+            stream() {
+              streamAttempts += 1;
+              const attempt = streamAttempts;
+              if (attempt === 2) {
+                throw new ServeError("request exceeds memory budget", {
+                  code: "memory_budget_exceeded",
+                  status: 429,
+                });
+              }
+              return (async function* () {
+                if (attempt === 1) {
+                  throw new ServeError("request exceeds memory budget", {
+                    code: "memory_budget_exceeded",
+                    status: 429,
+                  });
+                }
+                yield { type: "text", text: "ok" } satisfies GenerationStreamEvent;
+                yield { type: "done", finishReason: "stop" } satisfies GenerationStreamEvent;
+              })();
+            },
+          },
+          dispose() {},
+        };
+      },
+    });
+
+    const longA = engine.generate(request("long-a", "alpha"));
+    const longAResult = expectServeErrorCode(longA, "model_pool_memory_pressure");
+    await sleep(0);
+    const longB = engine.generate(request("long-b", "alpha"));
+    const longBResult = expectServeErrorCode(longB, "model_pool_memory_pressure");
+    await sleep(0);
+    const stream = await engine.stream?.(request("short", "alpha"));
+    if (stream === undefined) {
+      throw new Error("expected stream");
+    }
+    const iterator = stream[Symbol.asyncIterator]();
+
+    await expect(iterator.next()).resolves.toEqual({
+      done: false,
+      value: { type: "text", text: "ok" },
+    });
+    await expect(iterator.next()).resolves.toEqual({
+      done: false,
+      value: { type: "done", finishReason: "stop" },
+    });
+    await expect(iterator.next()).resolves.toMatchObject({ done: true });
+    await longAResult;
+    await longBResult;
+    expect(streamAttempts).toBe(3);
+    expect(
+      events
+        .filter((event) => event.type === "model_pool_pressure")
+        .map((event) => event.abortedRequestIds),
+    ).toEqual([["long-a"], ["long-b"]]);
+  });
+
   test("holds active stream leases until the stream closes", async () => {
     let disposeCount = 0;
     const engine = createSourceModelPoolGenerationEngine({

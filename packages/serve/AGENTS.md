@@ -29,8 +29,9 @@ when the model config is not understood. Continuous routes also reserve
 estimated request memory against a model-level scheduler budget when config
 geometry and MLX memory telemetry are available.
 Lazy model-pool pressure relief is operator-explicit. The default policy rejects
-the blocked request; `shed_non_pinned` evicts idle non-pinned models before
-aborting active non-pinned request scopes. Pinned models are not pressure-shed.
+the blocked request. `shed_non_pinned` evicts idle non-pinned models before
+aborting the oldest eligible active non-pinned request scope, waiting a bounded
+time for normal release, and retrying. Pinned models are not pressure-shed.
 
 `src/` is organized into role-based folders: `http/`, `streaming/`, `engine/`,
 `protocols/`, `admission/`, `runtime/`, `observability/`, `model-loading/`,
