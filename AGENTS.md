@@ -9,6 +9,7 @@ centers on:
 
 - `**@mlxts/core` / `@mlxts/nn` / `@mlxts/optimizers` / `@mlxts/train` / `@mlxts/data` / `@mlxts/tokenizers**`: the extracted reusable ML stack
 - `**@mlxts/transformers**`: Pretrained autoregressive and multimodal model architectures — LLaMA, Mistral, Gemma, and Qwen families with KV cache, generation, auto-dispatch, chat templates, and Qwen image preparation
+- `**@mlxts/diffusion**`: Diffusion/flow generation primitives, starting with scheduler infrastructure for Phase 10 media-generation pipelines
 - `**@mlxts/serve**`: OpenAI-compatible local serving, streaming, admission controls, serving benchmarks, and Qwen/Gemma regression profiles
 - `**@mlxts/agent**`: local tool-loop primitives and CLI behavior on top of the serve/chat surfaces
 - `**Official Hugging Face JS packages**`: `@huggingface/hub` for snapshot download/cache and `@huggingface/jinja` for chat-template rendering inside the transformers loading surface

@@ -82,6 +82,7 @@ function isRuntimeSensitiveFile(path: string): boolean {
     path.startsWith("packages/optimizers/src/") ||
     path.startsWith("packages/train/src/") ||
     path.startsWith("packages/data/src/") ||
+    path.startsWith("packages/diffusion/src/") ||
     path.startsWith("packages/tokenizers/src/") ||
     path.startsWith("packages/transformers/src/") ||
     path.startsWith("packages/serve/src/") ||

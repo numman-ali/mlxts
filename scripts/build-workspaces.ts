@@ -11,6 +11,7 @@ const WORKSPACE_ORDER = [
   { label: "tokenizers", path: ["packages", "tokenizers"] },
   { label: "data", path: ["packages", "data"] },
   { label: "nn", path: ["packages", "nn"] },
+  { label: "diffusion", path: ["packages", "diffusion"] },
   { label: "quantize", path: ["packages", "quantize"] },
   { label: "optimizers", path: ["packages", "optimizers"] },
   { label: "train", path: ["packages", "train"] },

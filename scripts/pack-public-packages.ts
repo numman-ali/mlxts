@@ -11,6 +11,7 @@ const PUBLIC_PACKAGES = [
   "optimizers",
   "train",
   "data",
+  "diffusion",
   "quantize",
   "lora",
   "align",

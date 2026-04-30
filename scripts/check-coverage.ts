@@ -82,6 +82,13 @@ const PACKAGES: PackageConfig[] = [
     thresholds: DEFAULT_THRESHOLDS,
   },
   {
+    label: "@mlxts/diffusion",
+    sourceDir: "diffusion",
+    cwd: join(PROJECT_ROOT, "packages", "diffusion"),
+    coverageDir: join(PROJECT_ROOT, "coverage", "diffusion"),
+    thresholds: DEFAULT_THRESHOLDS,
+  },
+  {
     label: "@mlxts/quantize",
     sourceDir: "quantize",
     cwd: join(PROJECT_ROOT, "packages", "quantize"),

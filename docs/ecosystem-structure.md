@@ -202,7 +202,7 @@ under `families/<family>/`. The `CausalLM` contract is the right boundary for
 all autoregressive models — MoE is a block-level swap, multimodal understanding
 is a composition layer. See [design-reasoning.md § Contract Boundaries](../docs/design-reasoning.md#contract-boundaries).
 
-#### `@mlxts/diffusion` (Phase 10 — future)
+#### `@mlxts/diffusion` (Phase 10)
 
 All diffusion and flow-based generation across modalities: image, video, and audio. This is the generative media package — the counterpart to `@mlxts/transformers` for the diffusion/flow generation paradigm.
 
@@ -215,7 +215,11 @@ All diffusion and flow-based generation across modalities: image, video, and aud
 | Sampling | Classifier-free guidance, negative prompts |
 | Fine-tuning support | DreamBooth, textual inversion (LoRA via `@mlxts/lora` works on any Linear) |
 
-**Dependencies:** `@mlxts/core`, `@mlxts/nn`, `@huggingface/hub`
+**Dependencies:** `@mlxts/core`, `@mlxts/nn`
+
+**Current state:** Initial scheduler infrastructure exists. Stable Diffusion,
+Flux, VAE/backbone loading, conditioning, Hugging Face Hub-backed checkpoint
+loading, and image output remain follow-on Phase 10 tranches.
 
 **Architecture pattern:** Mirrors `@mlxts/transformers` — explicit family
 registry, config-driven model construction, and official Hugging Face JS-backed snapshot loading.
@@ -533,6 +537,7 @@ mlxts/                                # Monorepo root
 @mlxts/tokenizers -> none
 @mlxts/nn -> @mlxts/core
 @mlxts/data -> @mlxts/core
+@mlxts/diffusion -> @mlxts/core, @mlxts/nn
 @mlxts/optimizers -> @mlxts/core, @mlxts/nn
 @mlxts/train -> @mlxts/core, @mlxts/nn, @mlxts/optimizers
 @mlxts/lora -> @mlxts/core, @mlxts/nn
@@ -597,7 +602,10 @@ work is deferred unless a row says otherwise.
 - **Phase 8 surfaces now exist:** `lora`, `align`, and their proof/example surfaces are in-repo while the real-world evidence and CI gates continue to harden.
 - **Phase 9 surfaces now exist:** `quantize`, `serve`, and `agent` are in-repo; serving, cache, scheduler, protocol, and model-pool work continue through package-owned surfaces.
 - **Phase 9.5 hardens:** agent-operated CLI contracts. Package-owned binaries adopt AXI-shaped finite output before any umbrella CLI centralizes names.
-- **Phase 10 creates:** `diffusion`. Vision/audio encoders extend `transformers`, not a separate package. Generative media (image/video/audio) uses diffusion/flow → `@mlxts/diffusion`.
+- **Phase 10 creates:** `diffusion`. Initial scheduler infrastructure is in
+  place. Vision/audio encoders extend `transformers`, not a separate package.
+  Generative media (image/video/audio) uses diffusion/flow →
+  `@mlxts/diffusion`.
 - **Phase 12 creates:** `eval`. This appears when benchmark evaluation lands.
 - **`cli` grows incrementally** — subcommands arrive as their backing packages ship, after finite command contracts are already AXI-shaped at the package-owned boundary.
 
