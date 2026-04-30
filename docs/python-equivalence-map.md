@@ -49,7 +49,7 @@ The goal is not to replicate Python's entire ML ecosystem line-for-line. It is t
 | **HuggingFace Transformers** | 200k+ pre-trained models and a unified architecture API | @mlxts/transformers | 7 | Exists | The current surface covers text decoders plus the first Qwen image-preparation path. Later autoregressive understanding families remain in the same package. |
 | **mlx-lm** | LLM loading, generation, fine-tuning for MLX | @mlxts/transformers + @mlxts/lora + @mlxts/align | 7-8 | Exists / Hardening | Dense text loading and generation exist now. LoRA/QLoRA/SFT/DPO proof surfaces exist and continue to harden against official checkpoints. |
 | **mlx-vlm** | Vision-language models for MLX | @mlxts/transformers | 10 | Partial / Future | The first Qwen image-preparation and serving path exists. Broader VLM families remain Phase 10 work in the transformers package, not a separate modality package. |
-| **diffusers** | Stable Diffusion, image generation pipelines | @mlxts/diffusion | 10 | Future | Phase 10 scope. Requires UNet, VAE, CLIP text encoder, scheduler infrastructure. |
+| **diffusers** | Stable Diffusion, image generation pipelines | @mlxts/diffusion | 10 | Partial / Hardening | Stable Diffusion / SDXL package surfaces exist: scheduler/config loading, local Diffusers manifest inspection, VAE/UNet construction and loading, sampling, pipeline loading, and an example proof command. Real checkpoint image evidence and additional families remain Phase 10 work. |
 
 ### 2d. Training Infrastructure
 
@@ -124,7 +124,7 @@ The goal is not to replicate Python's entire ML ecosystem line-for-line. It is t
 | **LlamaIndex** | Data indexing and RAG framework | Not a mlxts concern | -- | Not planned | Same rationale as LangChain. LlamaIndex has a TypeScript version. mlxts provides the model serving layer. |
 | **Gradio** | Quick ML demo UI builder | Not a mlxts concern | -- | Not planned | The GUI surface (Phase post-6) serves a similar demo/exploration purpose, but it is part of the product surface design, not a generic UI builder. |
 | **OpenAI API** (compatibility) | Standard API format for LLM serving | @mlxts/serve | 9 | Exists | @mlxts/serve exposes OpenAI-compatible completions, chat completions, and text Responses slices. This is the interop surface for existing tools (LangChain, ChatGPT-compatible clients, etc.). |
-| **Anthropic Messages API** (compatibility) | Standard Anthropic chat/message API shape | @mlxts/serve | 9 | Partial | @mlxts/serve exposes a bounded text-only Messages slice with Anthropic response and SSE framing; tools, images, and broader content blocks remain future work. |
+| **Anthropic Messages API** (compatibility) | Standard Anthropic chat/message API shape | @mlxts/serve | 9 | Partial | @mlxts/serve exposes bounded Messages text, user image blocks, client tool-use formatting, and SSE framing; richer documents/audio, server tools, and broader content blocks remain future work. |
 
 ### 2l. llama.cpp Ecosystem
 
@@ -442,7 +442,7 @@ The goal is that steps 1-2 (understanding what exists and what's novel) take min
 | @mlxts/protocols | 9 | Exists | shared zero-dependency wire helpers for serve and agent |
 | @mlxts/serve | 9 | Exists / Hardening | @mlxts/transformers, @mlxts/protocols, @mlxts/quantize |
 | @mlxts/agent | 9 | Exists / Hardening | @mlxts/protocols |
-| @mlxts/diffusion | 10 | Future | @mlxts/nn, @mlxts/transformers |
+| @mlxts/diffusion | 10 | Exists / Hardening | @mlxts/core, @mlxts/nn |
 | @mlxts/webgpu | Future | Future | @mlxts/core (WebGPU backend) |
 | @mlxts/eval | 12 | Planned | @mlxts/transformers, @mlxts/tokenizers |
 | @mlxts/telemetry | 7+ | Future | (standalone) |

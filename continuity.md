@@ -113,8 +113,12 @@ major product-agent focus on package-owned CLIs and future PI-agent integration.
   tensor conditioning while preserving package dependencies. It also has a
   finite AXI-shaped image proof command that loads a local Diffusers snapshot,
   acquires the runtime lock, samples one image, and writes an uncompressed BMP
-  artifact from the returned NHWC image tensor. Real checkpoint quality/parity
-  evidence remains separate from the command surface.
+  artifact from the returned NHWC image tensor. The image-generation support
+  ladder is now explicit: Stable Diffusion / SDXL baseline first, then FLUX.1,
+  then Qwen-Image, then Z-Image-Turbo, with Stable Diffusion 3 / 3.5 and
+  distilled variants following when they reuse the base flow/DiT
+  infrastructure. Real checkpoint quality/parity evidence remains separate from
+  the command surface.
 - **Phase 10 CLIP conditioning**: `@mlxts/transformers` now owns a
   `families/clip/` text encoder surface with CLIP text config parsing, causal
   text attention, quick GELU, EOS pooling, projected text features, and retained

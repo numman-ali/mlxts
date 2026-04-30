@@ -233,6 +233,15 @@ prompt-conditioning composition and finite BMP image proof command over package
 surfaces. Flux, Hugging Face Hub-backed Diffusers root loading, and broader
 image output formats remain follow-on Phase 10 tranches.
 
+**Image-generation support order:** Stable Diffusion / SDXL is the baseline
+pipeline family. FLUX.1 is the next flow-matching target. Qwen-Image is the
+Qwen text-to-image generation family and stays separate from Qwen 3.5 / Qwen
+3.6 image understanding in `@mlxts/transformers`. Z-Image-Turbo is a later
+local-speed target once FLUX/Qwen-style flow primitives have reference-backed
+package seams. Stable Diffusion 3 / 3.5 and distilled or turbo variants follow
+only when they reuse the base family infrastructure or come with a documented
+architecture delta.
+
 **Architecture pattern:** Mirrors `@mlxts/transformers` — explicit family
 registry, config-driven model construction, and official Hugging Face JS-backed snapshot loading.
 Conditioning embeddings are produced by text/image encoders from
@@ -614,9 +623,11 @@ work is deferred unless a row says otherwise.
 - **Phase 8 surfaces now exist:** `lora`, `align`, and their proof/example surfaces are in-repo while the real-world evidence and CI gates continue to harden.
 - **Phase 9 surfaces now exist:** `quantize`, `serve`, and `agent` are in-repo; serving, cache, scheduler, protocol, and model-pool work continue through package-owned surfaces.
 - **Phase 9.5 hardens:** agent-operated CLI contracts. Package-owned binaries adopt AXI-shaped finite output before any umbrella CLI centralizes names.
-- **Phase 10 creates:** `diffusion`. Initial scheduler infrastructure is in
-  place. Vision/audio encoders extend `transformers`, not a separate package.
-  Generative media (image/video/audio) uses diffusion/flow →
+- **Phase 10 creates:** `diffusion`. Scheduler infrastructure, Stable
+  Diffusion / SDXL package surfaces, and an example proof command are in place;
+  real checkpoint image evidence and additional diffusion/flow families remain
+  Phase 10 work. Vision/audio encoders extend `transformers`, not a separate
+  package. Generative media (image/video/audio) uses diffusion/flow →
   `@mlxts/diffusion`.
 - **Phase 12 creates:** `eval`. This appears when benchmark evaluation lands.
 - **`cli` grows incrementally** — subcommands arrive as their backing packages ship, after finite command contracts are already AXI-shaped at the package-owned boundary.

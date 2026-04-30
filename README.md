@@ -19,6 +19,7 @@ The repo is package-first now. The canonical product surface is the extracted
 - `@mlxts/protocols`
 - `@mlxts/serve`
 - `@mlxts/agent`
+- `@mlxts/diffusion`
 
 `examples/nanogpt` is the committed in-repo nanoGPT example and regression
 surface. It proves the package stack works end to end, but it is an example,
@@ -57,12 +58,14 @@ packages/
   align/        SFT/DPO data prep and recipe helpers
   serve/        Local OpenAI-compatible serving and scheduling surfaces
   agent/        Local tool-using agent loops over served models
+  diffusion/    Diffusion/flow generation primitives and Stable Diffusion path
 examples/
   nanogpt/      Committed nanoGPT example and regression surface
   chat/         Interactive local chat over transformer checkpoints
   lora-finetune/ Fine-tuning workbook over @mlxts/lora and @mlxts/align
   train-proof/  Training/alignment proof workflow
   qwen3_5-image/ Dedicated Qwen 3.5 / Qwen 3.6 multimodal image example
+  stable-diffusion/ Stable Diffusion / SDXL image-generation proof workbook
   serve-completions/ Serving concurrency/protocol example
 docs/           Architecture, setup, standards, roadmap
 scripts/        Validation, packaging, and repo tooling
@@ -103,6 +106,15 @@ bun run examples/qwen3_5-image/index.ts mlx-community/Qwen3.6-27B-4bit \
   --image ./.reference/transformers/tests/fixtures/tests_samples/COCO/000000039769.png \
   --prompt "Describe this image." \
   --greedy
+```
+
+If you want to sanity-check the current Stable Diffusion proof surface, use a
+local Diffusers snapshot:
+
+```bash
+bun run examples/stable-diffusion/index.ts /models/stable-diffusion \
+  --prompt "a cat sitting on a laptop" \
+  --output .tmp/stable-diffusion/sample.bmp
 ```
 
 If you want to serve a local model and talk to it through the package-owned
@@ -154,7 +166,8 @@ packing checks for the public packages before any real release happens.
 - hosted API docs
 - production deployment ergonomics beyond the current local serving/runtime
   surfaces
-- diffusion and broader generative-media families beyond the first multimodal transformer tranche
+- real Stable Diffusion checkpoint image evidence and broader diffusion/flow
+  families beyond the first Stable Diffusion / SDXL package surfaces
 - advanced serving backends such as paged KV, TurboQuant-style KV compression,
   speculative decoding, and full multimodal serving until the cache/scheduler
   seams are proven

@@ -982,13 +982,17 @@ in [`.agents/skills/axi/SKILL.md`](./.agents/skills/axi/SKILL.md).
 **Research basis:** Phase 10 should be grounded in MLX-native reference work from
 `.reference/mlx-examples` plus diffusion pipeline and checkpoint-structure
 reference work from Hugging Face Diffusers. Refresh and audit
-`.reference/diffusers` before Phase 10 diffusion implementation begins.
+`.reference/diffusers` before each new Phase 10 family or modality tranche.
 
 **Current status:** The first Qwen image-conditioned path is already real:
 `@mlxts/transformers` owns Qwen media prompt preparation, `@mlxts/serve` owns
 protocol media transport and scheduling, and `examples/qwen3_5-image` is the
-direct workbook. Broader VLM families, audio encoder/decoder families, and
-diffusion/flow generation remain Phase 10 work.
+direct workbook. `@mlxts/diffusion` now owns Stable Diffusion / SDXL package
+surfaces through local Diffusers snapshot inspection, scheduler/config loading,
+VAE/UNet construction and loading, sampling, pipeline loading, and an
+AXI-shaped example proof command; real checkpoint image evidence is still
+pending. Broader VLM families, audio encoder/decoder families, and additional
+diffusion/flow families remain Phase 10 work.
 
 **What this phase covers**:
 
@@ -1014,8 +1018,32 @@ All diffusion and flow-based generation across modalities: image, video, and aud
 - Schedulers: DDPM, DDIM, DPM-Solver, Euler, Flow Matching
 - Conditioning: cross-attention from text/image embeddings (produced by encoders from `@mlxts/transformers`)
 - Sampling: classifier-free guidance, negative prompts
-- Target families (informed by mlxr proving workloads): Stable Diffusion, Flux, LTX-Video
+- Target families (informed by mlxr proving workloads): Stable Diffusion/SDXL, FLUX.1, Qwen-Image, Z-Image-Turbo, LTX-Video
 - Fine-tuning: `@mlxts/lora` and `@mlxts/train` work on diffusion models — LoRA targets attention layers in UNet/DiT the same way it targets attention in text decoders. DreamBooth and textual inversion are diffusion-specific techniques that live in this package.
+
+**Image-generation support ladder:**
+
+1. **Stable Diffusion / SDXL baseline**: this remains first because it proves
+   the reusable package surface end to end: VAE, UNet2D, scheduler, CLIP
+   conditioning, local Diffusers snapshot loading, sampling, and an
+   AXI-shaped proof command. Real checkpoint image evidence is still required
+   before this becomes a product-complete image generation claim.
+2. **FLUX.1 family**: this is the first modern flow-matching target after the
+   Stable Diffusion baseline because it moves `@mlxts/diffusion` from UNet2D
+   pipelines into DiT/flow-style backbones. `FLUX.1-schnell` is the first local
+   proof target; gated or non-commercial variants require explicit operator and
+   license handling before they are advertised.
+3. **Qwen-Image family**: this is the Qwen text-to-image generation track, not
+   the already-landed Qwen 3.5 / Qwen 3.6 image-understanding route. It requires
+   a separate checkpoint/config audit for its text encoder, image transformer,
+   VAE, scheduler, and edit variants before implementation.
+4. **Z-Image-Turbo**: this is an on-device speed target after the FLUX/Qwen
+   primitives are represented cleanly. Its efficient step count makes it
+   attractive for local product loops, but it must not bypass the reference
+   audit or real-checkpoint proof ladder.
+5. **Stable Diffusion 3 / 3.5 and distilled variants**: these become follow-on
+   targets when their MMDiT/flow components can reuse the FLUX/Qwen
+   infrastructure without creating a parallel package shape.
 
 ### 10c. Examples
 
