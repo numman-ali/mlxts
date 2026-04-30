@@ -32,6 +32,28 @@ export {
   type StableDiffusionVaeUpBlockType,
 } from "./families/stable-diffusion/config";
 export {
+  StableDiffusionUNet2DConditionModel,
+  type StableDiffusionUNetForwardOptions,
+  type StableDiffusionUNetTextTimeConditioning,
+} from "./families/stable-diffusion/unet";
+export {
+  type StableDiffusionUNetBlockForwardResult,
+  StableDiffusionUNetDownBlock2d,
+  StableDiffusionUNetMidBlock2d,
+  StableDiffusionUNetResnetBlock2d,
+  StableDiffusionUNetUpBlock2d,
+} from "./families/stable-diffusion/unet-blocks";
+export {
+  StableDiffusionSinusoidalTimesteps,
+  StableDiffusionTimestepEmbedding,
+} from "./families/stable-diffusion/unet-embeddings";
+export {
+  StableDiffusionUNetAttention,
+  StableDiffusionUNetFeedForward,
+  StableDiffusionUNetTransformer2d,
+  StableDiffusionUNetTransformerBlock,
+} from "./families/stable-diffusion/unet-transformer";
+export {
   loadStableDiffusionAutoencoderFromSnapshot,
   loadStableDiffusionAutoencoderWeights,
   type StableDiffusionAutoencoderWeightLoadOptions,

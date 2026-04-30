@@ -183,6 +183,8 @@ function rejectUnsupportedUNetSemantics(record: Record<string, unknown>, context
   rejectUnsupportedBoolean(record, "class_embeddings_concat", context, false);
   rejectUnsupportedBoolean(record, "resnet_skip_time_act", context, false);
   rejectUnsupportedString(record, "time_embedding_type", context, "positional");
+  rejectUnsupportedString(record, "act_fn", context, "silu");
+  rejectUnsupportedString(record, "attention_type", context, "default");
   rejectUnsupportedString(record, "resnet_time_scale_shift", context, "default");
   rejectUnsupportedString(record, "mid_block_type", context, "UNetMidBlock2DCrossAttn");
   rejectNonNull(record, "class_embed_type", context);
@@ -196,6 +198,22 @@ function rejectUnsupportedUNetSemantics(record: Record<string, unknown>, context
   if (outScale !== 1) {
     throw new DiffusionConfigError(
       `${fieldName(context, "resnet_out_scale_factor")} is not supported yet.`,
+    );
+  }
+  const dropout = optionalFiniteNumber(record, "dropout", context, 0);
+  if (dropout !== 0) {
+    throw new DiffusionConfigError(`${fieldName(context, "dropout")} is not supported yet.`);
+  }
+  const downsamplePadding = optionalPositiveInteger(record, "downsample_padding", context, 1);
+  if (downsamplePadding !== 1) {
+    throw new DiffusionConfigError(
+      `${fieldName(context, "downsample_padding")} is not supported yet.`,
+    );
+  }
+  const midBlockScaleFactor = optionalFiniteNumber(record, "mid_block_scale_factor", context, 1);
+  if (midBlockScaleFactor !== 1) {
+    throw new DiffusionConfigError(
+      `${fieldName(context, "mid_block_scale_factor")} is not supported yet.`,
     );
   }
 }

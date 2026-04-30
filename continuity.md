@@ -94,12 +94,15 @@ major product-agent focus on package-owned CLIs and future PI-agent integration.
   image paths under those roots and do not create a general files API.
 - **Phase 10 diffusion**: `@mlxts/diffusion` now parses local Diffusers
   snapshot manifests, scheduler configs, Stable Diffusion VAE/UNet configs, and
-  constructs the Stable Diffusion AutoencoderKL VAE. VAE safetensor loading is
-  package-owned: Diffusers names map into the camelCase module tree, Conv2d
-  weights transpose from PyTorch kernel layout to MLX channel-last layout, and
-  single-shard plus index-sharded VAE weights are covered by synthetic
-  safetensor tests. UNet construction/loading and full pipeline parity remain
-  the next diffusion tranches.
+  constructs the Stable Diffusion AutoencoderKL VAE and conditional UNet. VAE
+  safetensor loading is package-owned: Diffusers names map into the camelCase
+  module tree, Conv2d weights transpose from PyTorch kernel layout to MLX
+  channel-last layout, and single-shard plus index-sharded VAE weights are
+  covered by synthetic safetensor tests. UNet construction now covers NHWC
+  latent flow, timestep embeddings, residual stack ordering, spatial
+  self/cross-attention, SDXL `text_time`, and `use_linear_projection` projection
+  shapes. UNet loading and full pipeline parity remain the next diffusion
+  tranches.
 - **Qwen conditional serving**: top-level Qwen 3.5 / 3.6 conditional
   checkpoints expose the Qwen text batch-cache surface for text-only continuous
   serving. Media/content requests still route as `media_input` and stay off

@@ -250,6 +250,30 @@ describe("Stable Diffusion component config parsing", () => {
         mid_block_type: "UNetMidBlock2DSimpleCrossAttn",
       }),
     ).toThrow("mid_block_type");
+    expect(() =>
+      parseStableDiffusionUNetConfig({
+        ...unetConfig(),
+        attention_type: "gated",
+      }),
+    ).toThrow("attention_type");
+    expect(() =>
+      parseStableDiffusionUNetConfig({
+        ...unetConfig(),
+        dropout: 0.1,
+      }),
+    ).toThrow("dropout");
+    expect(() =>
+      parseStableDiffusionUNetConfig({
+        ...unetConfig(),
+        downsample_padding: 0,
+      }),
+    ).toThrow("downsample_padding");
+    expect(() =>
+      parseStableDiffusionUNetConfig({
+        ...unetConfig(),
+        mid_block_scale_factor: 0.5,
+      }),
+    ).toThrow("mid_block_scale_factor");
   });
 
   test("rejects malformed scalar and repeated config fields", () => {
