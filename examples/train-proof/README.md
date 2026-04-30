@@ -69,6 +69,10 @@ For a broader local family sweep, run the matrix wrapper:
 bun run examples/train-proof/matrix.ts --dataset-source tiny --train-limit 8 --eval-limit 4 --steps 2
 ```
 
+The matrix wrapper is also finite and agent-facing. It writes child proof
+progress to stderr and emits one structured matrix summary on stdout. Matrix
+usage errors exit `2`; child proof failures exit `1`.
+
 The default matrix covers:
 
 - `meta-llama/Llama-3.2-1B-Instruct`
