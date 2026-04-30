@@ -31,6 +31,8 @@ type CliOptions = {
   overrides: Pick<GenerationOptions, "temperature" | "topK" | "topP">;
 };
 
+type CliCommand = { kind: "help" } | { kind: "run"; options: CliOptions };
+
 type QwenImageExampleResult = {
   source: string;
   sourceMode: "cached-local-only" | "downloads-allowed";
@@ -45,17 +47,63 @@ type QwenImageExampleResult = {
   elapsedMs: number;
 };
 
-function usageText(): string {
-  return "Usage: bun run examples/qwen3_5-image/index.ts <model-path-or-repo-id> --image <path> [--prompt <text>] [--temperature <n>] [--top-k <n>] [--top-p <n>] [--max-tokens <n>] [--system-prompt <text>] [--greedy] [--enable-thinking|--disable-thinking|--template-default-thinking] [--allow-download] [--json]";
+type RuntimeLock = {
+  [Symbol.dispose](): void;
+};
+
+type QwenImageExampleRuntime = {
+  stdout?: (text: string) => void;
+  stderr?: (text: string) => void;
+  acquireLock?: () => RuntimeLock;
+  runExample?: (
+    cli: CliOptions,
+    progress: (line: string) => void,
+  ) => Promise<QwenImageExampleResult>;
+};
+
+class QwenImageExampleUsageError extends Error {}
+
+function quoteScalar(value: string | number | boolean | null): string {
+  return typeof value === "string" ? JSON.stringify(value) : String(value);
+}
+
+export function formatUsage(): string {
+  return [
+    "description: Run one-shot Qwen 3.5/3.6 local image-conditioned generation",
+    "usage[2]:",
+    "  bun run examples/qwen3_5-image/index.ts <model-path-or-repo-id> --image <path>",
+    "  bun run examples/qwen3_5-image/index.ts mlx-community/Qwen3.6-27B-4bit --image ./photo.jpg --greedy",
+    "arguments[1]{name,description}:",
+    '  "model-path-or-repo-id","Local snapshot path or Hugging Face repo id"',
+    "options[14]{flag,description}:",
+    '  "--image <path>","Required local image path"',
+    '  "--prompt <text>","User prompt; default Describe this image."',
+    '  "--system-prompt <text>","Optional system message for chat checkpoints"',
+    '  "--max-tokens <n>","Maximum generated tokens; default 128"',
+    '  "--temperature <n>","Sampling temperature"',
+    '  "--top-k <n>","Top-k sampling limit"',
+    '  "--top-p <n>","Top-p sampling threshold"',
+    '  "--greedy","Set temperature to 0"',
+    '  "--enable-thinking","Force Qwen thinking on"',
+    '  "--disable-thinking","Force Qwen thinking off; default"',
+    '  "--template-default-thinking","Use checkpoint chat-template default thinking behavior"',
+    '  "--allow-download","Allow Hub downloads; default cached/local only"',
+    '  "--json","Emit the final result as JSON"',
+    '  "--help","Show this help"',
+    "exit_codes[3]{code,meaning}:",
+    '  0,"generation passed or help"',
+    '  1,"runtime or generation failure"',
+    '  2,"usage error"',
+  ].join("\n");
 }
 
 function readNumberFlag(flag: string, value: string | undefined): number {
   if (value === undefined) {
-    throw new Error(`Missing value for ${flag}.`);
+    throw new QwenImageExampleUsageError(`Missing value for ${flag}.`);
   }
   const parsed = Number(value);
   if (!Number.isFinite(parsed)) {
-    throw new Error(`Expected ${flag} to be a finite number, got "${value}".`);
+    throw new QwenImageExampleUsageError(`Expected ${flag} to be a finite number, got "${value}".`);
   }
   return parsed;
 }
@@ -63,22 +111,28 @@ function readNumberFlag(flag: string, value: string | undefined): number {
 function readPositiveIntegerFlag(flag: string, value: string | undefined): number {
   const parsed = readNumberFlag(flag, value);
   if (!Number.isInteger(parsed) || parsed <= 0) {
-    throw new Error(`Expected ${flag} to be a positive integer, got "${value}".`);
+    throw new QwenImageExampleUsageError(
+      `Expected ${flag} to be a positive integer, got "${value}".`,
+    );
   }
   return parsed;
 }
 
 function readStringFlag(flag: string, value: string | undefined): string {
-  if (value === undefined || value.trim() === "") {
-    throw new Error(`Missing value for ${flag}.`);
+  if (value === undefined || value.trim() === "" || value.startsWith("--")) {
+    throw new QwenImageExampleUsageError(`Missing value for ${flag}.`);
   }
   return value;
 }
 
-export function parseArgs(argv: readonly string[]): CliOptions {
+export function parseCommand(argv: readonly string[]): CliCommand {
+  if (argv.some((arg) => arg === "--help" || arg === "-h")) {
+    return { kind: "help" };
+  }
+
   const source = argv[0];
   if (source === undefined || source.trim() === "") {
-    throw new Error(`Missing model source.\n${usageText()}`);
+    throw new QwenImageExampleUsageError("Missing model source.");
   }
 
   const overrides: Pick<GenerationOptions, "temperature" | "topK" | "topP"> = {};
@@ -140,25 +194,38 @@ export function parseArgs(argv: readonly string[]): CliOptions {
         json = true;
         break;
       default:
-        throw new Error(`Unknown argument: ${arg}`);
+        throw new QwenImageExampleUsageError(
+          arg === undefined ? "Missing argument." : `Unknown argument: ${arg}`,
+        );
     }
   }
 
   if (imagePath === undefined) {
-    throw new Error("Missing required --image <path>.");
+    throw new QwenImageExampleUsageError("Missing required --image <path>.");
   }
 
   return {
-    source,
-    imagePath,
-    prompt,
-    maxTokens,
-    systemPrompt,
-    localFilesOnly,
-    thinking,
-    json,
-    overrides,
+    kind: "run",
+    options: {
+      source,
+      imagePath,
+      prompt,
+      maxTokens,
+      systemPrompt,
+      localFilesOnly,
+      thinking,
+      json,
+      overrides,
+    },
   };
+}
+
+export function parseArgs(argv: readonly string[]): CliOptions {
+  const command = parseCommand(argv);
+  if (command.kind === "help") {
+    throw new QwenImageExampleUsageError("Help is not a generation command.");
+  }
+  return command.options;
 }
 
 function printRunIntro(cli: CliOptions, writeLine: (line: string) => void): void {
@@ -185,14 +252,14 @@ function enableThinkingOption(mode: ThinkingMode): boolean | undefined {
   return mode === "enabled";
 }
 
-async function main(): Promise<void> {
-  const cli = parseArgs(process.argv.slice(2));
-  using _runtimeLock = acquireRuntimeCommandLock("example:qwen3_5-image");
+export async function runQwenImageExample(
+  cli: CliOptions,
+  progress: (line: string) => void,
+): Promise<QwenImageExampleResult> {
   const startedAt = performance.now();
-  const writeStatusLine = cli.json ? (line: string) => console.error(line) : console.log;
-  printRunIntro(cli, writeStatusLine);
+  printRunIntro(cli, progress);
 
-  const reportProgress = createProgressReporter(writeStatusLine);
+  const reportProgress = createProgressReporter(progress);
   const loadOptions = {
     localFilesOnly: cli.localFilesOnly,
     onProgress: reportProgress,
@@ -212,7 +279,7 @@ async function main(): Promise<void> {
     preprocessor,
   );
   const image = await decodeResizedImage(cli.imagePath, resizedSize);
-  writeStatusLine(
+  progress(
     `Image resize: ${originalSize.width}x${originalSize.height} -> ${image.width}x${image.height}`,
   );
 
@@ -265,16 +332,7 @@ async function main(): Promise<void> {
         text,
         elapsedMs: Math.round((performance.now() - startedAt) * 100) / 100,
       };
-      if (cli.json) {
-        console.log(JSON.stringify(report, null, 2));
-      } else {
-        console.log("");
-        console.log("Response:");
-        console.log(text === "" ? "[empty response]" : text);
-        console.log("");
-        console.log(`Finish reason: ${result.finishReason}`);
-        console.log(`Generated tokens: ${result.tokenIds.length}`);
-      }
+      return report;
     } finally {
       preparedPrompt.inputEmbeddings?.free();
       preparedPrompt.positionIds?.free();
@@ -285,9 +343,83 @@ async function main(): Promise<void> {
   }
 }
 
+function formatBlockField(name: string, value: string): string[] {
+  const lines = value.split(/\r?\n/);
+  return [`${name}: |`, ...lines.map((line) => `  ${line}`)];
+}
+
+export function formatSuccess(report: QwenImageExampleResult): string {
+  return [
+    "qwen_image_example:",
+    "  status: passed",
+    `  source: ${quoteScalar(report.source)}`,
+    `  source_mode: ${quoteScalar(report.sourceMode)}`,
+    `  image_path: ${quoteScalar(report.imagePath)}`,
+    `  prompt: ${quoteScalar(report.prompt)}`,
+    `  thinking: ${quoteScalar(report.thinking)}`,
+    `  original_size: ${quoteScalar(`${report.originalSize.width}x${report.originalSize.height}`)}`,
+    `  resized_size: ${quoteScalar(`${report.resizedSize.width}x${report.resizedSize.height}`)}`,
+    `  finish_reason: ${quoteScalar(report.finishReason)}`,
+    `  generated_tokens: ${report.generatedTokens}`,
+    `  elapsed_ms: ${report.elapsedMs}`,
+    ...formatBlockField("response", report.text === "" ? "[empty response]" : report.text),
+  ].join("\n");
+}
+
+function formatError(message: string, code: "usage" | "runtime"): string {
+  return [
+    "error:",
+    `  code: ${quoteScalar(code)}`,
+    `  message: ${quoteScalar(message)}`,
+    "help[1]:",
+    '  "Run `bun run examples/qwen3_5-image/index.ts --help` for options"',
+  ].join("\n");
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+export async function runQwenImageExampleCommand(
+  argv: readonly string[],
+  runtime: QwenImageExampleRuntime = {},
+): Promise<number> {
+  const stdout = runtime.stdout ?? console.log;
+  const stderr = runtime.stderr ?? console.error;
+  let command: CliCommand;
+  try {
+    command = parseCommand(argv);
+  } catch (error) {
+    stdout(formatError(errorMessage(error), "usage"));
+    return error instanceof QwenImageExampleUsageError ? 2 : 1;
+  }
+
+  if (command.kind === "help") {
+    stdout(formatUsage());
+    return 0;
+  }
+
+  const acquireLock =
+    runtime.acquireLock ?? (() => acquireRuntimeCommandLock("example:qwen3_5-image"));
+  const runExample = runtime.runExample ?? runQwenImageExample;
+  let lock: RuntimeLock | undefined;
+  try {
+    lock = acquireLock();
+    const report = await runExample(command.options, stderr);
+    stdout(command.options.json ? JSON.stringify(report, null, 2) : formatSuccess(report));
+    return 0;
+  } catch (error) {
+    stdout(formatError(errorMessage(error), "runtime"));
+    if (error instanceof Error && error.stack !== undefined) {
+      stderr(error.stack);
+    }
+    return 1;
+  } finally {
+    lock?.[Symbol.dispose]();
+  }
+}
+
 if (import.meta.main) {
-  main().catch((error) => {
-    console.error(error instanceof Error ? error.message : String(error));
-    process.exit(1);
-  });
+  const exitCode = await runQwenImageExampleCommand(Bun.argv.slice(2));
+  process.exit(exitCode);
 }

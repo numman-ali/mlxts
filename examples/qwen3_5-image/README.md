@@ -43,8 +43,11 @@ Thinking is disabled by default for short visual descriptions. Use
 `--enable-thinking` or `--template-default-thinking` when testing model-native
 reasoning behavior.
 
-`--json` writes status/progress to stderr and emits the final structured result
-on stdout.
+The default finite command output is compact structured stdout. Model loading,
+image resize status, and other progress lines go to stderr. Usage errors emit
+structured stdout and exit `2`; runtime failures emit structured stdout and exit
+`1`. `--json` preserves JSON result stdout compatibility while keeping progress
+on stderr.
 
 `sips` is required because this repo targets Apple Silicon and keeps local
 image decode out of the package core.
