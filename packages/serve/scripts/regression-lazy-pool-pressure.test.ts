@@ -184,6 +184,16 @@ describe("lazy pool pressure regression", () => {
     expect(() =>
       assertLazyPoolPressureReport(
         report({
+          requests: {
+            ...report().requests,
+            active: { ...report().requests.active, done: false, error: "stream failed" },
+          },
+        }),
+      ),
+    ).toThrow("active stream did not close cleanly after pressure abort");
+    expect(() =>
+      assertLazyPoolPressureReport(
+        report({
           pressure: {
             ...report().pressure,
             actions: [

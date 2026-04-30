@@ -1685,6 +1685,100 @@ describe("serve fetch handler", () => {
     });
   });
 
+  test("closes pressure-cancelled streaming bodies after recording server errors", async () => {
+    const events: ServeEvent[] = [];
+    const fetch = createFetchHandler({
+      engine: {
+        generate() {
+          throw new Error("generate should not be used");
+        },
+        async *stream() {
+          yield { type: "text", text: "Hello" };
+          throw new ServeError("Generation was cancelled to relieve model-pool memory pressure.", {
+            code: "model_pool_memory_pressure",
+            status: 503,
+          });
+        },
+      },
+      idGenerator: () => "pressure-stream",
+      onEvent: (event) => events.push(event),
+    });
+
+    const response = await fetch(
+      request("/v1/chat/completions", {
+        model: "tiny",
+        messages: [{ role: "user", content: "Hello" }],
+        stream: true,
+      }),
+    );
+    const reader = response.body?.getReader();
+    expect(reader).toBeDefined();
+    if (reader === undefined) {
+      throw new Error("expected a response body reader");
+    }
+
+    const firstChunk = await reader.read();
+    expect(firstChunk.done).toBe(false);
+    const terminal = await reader.read();
+    expect(terminal.done).toBe(true);
+
+    expect(events.find((event) => event.type === "generation_error")).toMatchObject({
+      id: "pressure-stream",
+      code: "model_pool_memory_pressure",
+    });
+    expect(events.find((event) => event.type === "request_error")).toMatchObject({
+      code: "model_pool_memory_pressure",
+      status: 503,
+    });
+    expect(events.find((event) => event.type === "request_complete")).toBeUndefined();
+  });
+
+  test("keeps unexpected streaming failures as body errors", async () => {
+    const events: ServeEvent[] = [];
+    const fetch = createFetchHandler({
+      engine: {
+        generate() {
+          throw new Error("generate should not be used");
+        },
+        async *stream() {
+          yield { type: "text", text: "Hello" };
+          throw new ServeError("stream failed after first chunk", {
+            code: "stream_failed",
+            status: 503,
+          });
+        },
+      },
+      idGenerator: () => "failed-stream",
+      onEvent: (event) => events.push(event),
+    });
+
+    const response = await fetch(
+      request("/v1/chat/completions", {
+        model: "tiny",
+        messages: [{ role: "user", content: "Hello" }],
+        stream: true,
+      }),
+    );
+    const reader = response.body?.getReader();
+    expect(reader).toBeDefined();
+    if (reader === undefined) {
+      throw new Error("expected a response body reader");
+    }
+
+    const firstChunk = await reader.read();
+    expect(firstChunk.done).toBe(false);
+    await expect(reader.read()).rejects.toThrow("stream failed after first chunk");
+
+    expect(events.find((event) => event.type === "generation_error")).toMatchObject({
+      id: "failed-stream",
+      code: "stream_failed",
+    });
+    expect(events.find((event) => event.type === "request_error")).toMatchObject({
+      code: "stream_failed",
+      status: 503,
+    });
+  });
+
   test("returns OpenAI-shaped server errors for malformed batch engine results", async () => {
     const events: ServeEvent[] = [];
     const fetch = createFetchHandler({

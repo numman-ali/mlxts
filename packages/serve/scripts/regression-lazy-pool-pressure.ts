@@ -497,6 +497,11 @@ export function assertLazyPoolPressureReport(report: LazyPoolPressureReport): vo
   ) {
     throw new Error("lazy-pool-pressure: pressure abort did not target the active stream id.");
   }
+  if (!report.requests.active.done || report.requests.active.error !== undefined) {
+    throw new Error(
+      "lazy-pool-pressure: active stream did not close cleanly after pressure abort.",
+    );
+  }
   const abortAction = report.pressure.actions.find((action) => action.action === "abort_active");
   if (
     abortAction === undefined ||

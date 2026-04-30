@@ -3,6 +3,7 @@
  * @module
  */
 
+import { streamErrorClosesBody } from "../errors";
 import {
   emitGenerationComplete,
   emitGenerationError,
@@ -82,7 +83,12 @@ export function failGenerationStream(context: StreamLifecycleContext, error: unk
     serveErrorDetails(error),
     context.requestStartedAt,
   );
-  if (!context.isCancelled()) {
-    context.controller.error(error);
+  if (context.isCancelled()) {
+    return;
   }
+  if (streamErrorClosesBody(error)) {
+    context.controller.close();
+    return;
+  }
+  context.controller.error(error);
 }

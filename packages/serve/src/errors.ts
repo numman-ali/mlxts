@@ -52,6 +52,11 @@ export function toServeError(error: unknown): ServeError {
   });
 }
 
+/** Pressure-shed streams close the body instead of becoming transport faults. */
+export function streamErrorClosesBody(error: unknown): boolean {
+  return toServeError(error).code === "model_pool_memory_pressure";
+}
+
 export function openAIErrorResponse(error: unknown): Response {
   const serveError = toServeError(error);
 
