@@ -1,5 +1,7 @@
+import { getPeakMemoryBytes, resetPeakMemory, treeFlatten } from "@mlxts/core";
 import type { ChatMessage } from "@mlxts/data";
-import { applyLoRAToModule, mergeLoRAInModule } from "@mlxts/lora";
+import { applyLoRAToModule, assertQuantizedBasePreserved, mergeLoRAInModule } from "@mlxts/lora";
+import type { Module } from "@mlxts/nn";
 import {
   expectTrainableModule,
   loadCausalLM,
@@ -20,6 +22,7 @@ import {
   runTrainingSteps,
   sampleText,
 } from "./runtime";
+import { assertFinetuneReport } from "./verification";
 
 function printRunSummary(args: FinetuneArgs, writeLine: (line: string) => void): void {
   writeLine(`LoRA finetune source: ${args.source}`);
@@ -45,7 +48,10 @@ function resolveLoadSource(args: FinetuneArgs): Promise<string> | string {
 function buildReport(
   args: FinetuneArgs,
   adapterDirectory: string,
-  targetCount: number,
+  targetPaths: readonly string[],
+  parameterCounts: FinetuneReport["parameterCounts"],
+  dataStats: FinetuneReport["dataStats"],
+  adapterCheck: FinetuneReport["adapterCheck"],
   evalLossBefore: number,
   evalLossAfter: number,
   averageTrainingLoss: number,
@@ -71,8 +77,15 @@ function buildReport(
       evalLossBefore,
       evalLossAfter,
       averageTrainingLoss,
-      targetCount,
+      targetCount: targetPaths.length,
     },
+    targetPaths,
+    parameterCounts,
+    memory: {
+      peakBytes: getPeakMemoryBytes(),
+    },
+    dataStats,
+    adapterCheck,
     samplePrompt,
     sampleText: {
       trained: trainedSample,
@@ -88,16 +101,51 @@ async function runReloadAndMergeChecks(
   args: FinetuneArgs,
   assets: Awaited<ReturnType<typeof loadAssets>>,
   samplePrompt: readonly ChatMessage[],
-): Promise<{ reloadedSample: string; mergedSample: string }> {
+  trainedSample: string,
+  targetPaths: readonly string[],
+): Promise<{
+  reloadedSample: string;
+  mergedSample: string;
+  adapterCheck: FinetuneReport["adapterCheck"];
+}> {
   using reloadedModel = await loadCausalLM(loadSource);
   await loadCausalLMAdapters(reloadedModel, adapterDirectory, {
     format: args.adapterFormat,
   });
   const reloadedSample = sampleText(reloadedModel, assets.tokenizer, assets.profile, samplePrompt);
 
-  mergeLoRAInModule(expectTrainableModule(reloadedModel));
+  const trainableModule = expectTrainableModule(reloadedModel);
+  mergeLoRAInModule(trainableModule);
+  const qloraQuantizedBasePreserved =
+    args.mode === "qlora" ? assertQLoRABasesPreserved(trainableModule, targetPaths) : null;
   const mergedSample = sampleText(reloadedModel, assets.tokenizer, assets.profile, samplePrompt);
-  return { reloadedSample, mergedSample };
+  return {
+    reloadedSample,
+    mergedSample,
+    adapterCheck: {
+      reloadedMatchesTrained: trainedSample === reloadedSample,
+      qloraQuantizedBasePreserved,
+    },
+  };
+}
+
+function assertQLoRABasesPreserved(module: Module, targetPaths: readonly string[]): boolean {
+  for (const targetPath of targetPaths) {
+    assertQuantizedBasePreserved(module, targetPath);
+  }
+  return true;
+}
+
+function countParameterElements(module: Module): FinetuneReport["parameterCounts"] {
+  const total = treeFlatten(module.parameters()).reduce(
+    (sum, [, parameter]) => sum + parameter.size,
+    0,
+  );
+  const trainable = treeFlatten(module.trainableParameters()).reduce(
+    (sum, [, parameter]) => sum + parameter.size,
+    0,
+  );
+  return { total, trainable };
 }
 
 function printCompletion(
@@ -125,26 +173,29 @@ export async function runLoRAFinetune(
   args: FinetuneArgs,
   progress: (line: string) => void = console.error,
 ): Promise<FinetuneReport> {
+  resetPeakMemory();
   mkdirSync(args.outputDir, { recursive: true });
   printRunSummary(args, progress);
 
   const loadSource = await resolveLoadSource(args);
   const assets = await loadAssets(args.source);
   const rawMessages = await loadRawMessages(args);
-  const trainExamples = prepareSupervisionExamples(
+  const trainPrepared = prepareSupervisionExamples(
     rawMessages.trainMessages,
     assets.tokenizer,
     assets.profile,
     args.trainLimit,
     args.maxSequenceLength,
   );
-  const evalExamples = prepareSupervisionExamples(
+  const evalPrepared = prepareSupervisionExamples(
     rawMessages.evalMessages,
     assets.tokenizer,
     assets.profile,
     args.evalLimit,
     args.maxSequenceLength,
   );
+  const trainExamples = trainPrepared.examples;
+  const evalExamples = evalPrepared.examples;
 
   const adapterDirectory = join(args.outputDir, "adapter");
 
@@ -159,6 +210,7 @@ export async function runLoRAFinetune(
     alpha: 16,
     dropout: 0,
   });
+  const parameterCounts = countParameterElements(expectTrainableModule(trainedModel));
 
   const padTokenId = readPadTokenId(assets.tokenizer);
   const evalLossBefore = evaluateDatasetLoss(
@@ -189,18 +241,26 @@ export async function runLoRAFinetune(
     baseModelNameOrPath: args.source,
   });
 
-  const { reloadedSample, mergedSample } = await runReloadAndMergeChecks(
+  const { reloadedSample, mergedSample, adapterCheck } = await runReloadAndMergeChecks(
     loadSource,
     adapterDirectory,
     args,
     assets,
     rawMessages.samplePrompt,
+    trainedSample,
+    resolvedTargets.paths,
   );
 
   const report = buildReport(
     args,
     adapterDirectory,
-    resolvedTargets.paths.length,
+    resolvedTargets.paths,
+    parameterCounts,
+    {
+      train: trainPrepared.stats,
+      eval: evalPrepared.stats,
+    },
+    adapterCheck,
     evalLossBefore,
     evalLossAfter,
     averageTrainingLoss,
@@ -209,8 +269,10 @@ export async function runLoRAFinetune(
     reloadedSample,
     mergedSample,
   );
+  const verification = assertFinetuneReport(report);
 
   await Bun.write(args.reportPath, `${JSON.stringify(report, null, 2)}\n`);
+  progress(`Report verification passed (${verification.checks.length} checks).`);
   printCompletion(
     evalLossBefore,
     evalLossAfter,

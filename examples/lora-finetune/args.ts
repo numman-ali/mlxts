@@ -58,6 +58,30 @@ export type FinetuneReport = {
     averageTrainingLoss: number;
     targetCount: number;
   };
+  targetPaths: readonly string[];
+  parameterCounts: {
+    total: number;
+    trainable: number;
+  };
+  memory: {
+    peakBytes: number;
+  };
+  dataStats: {
+    train: {
+      kept: number;
+      skippedMalformed: number;
+      skippedLong: number;
+    };
+    eval: {
+      kept: number;
+      skippedMalformed: number;
+      skippedLong: number;
+    };
+  };
+  adapterCheck: {
+    reloadedMatchesTrained: boolean;
+    qloraQuantizedBasePreserved: boolean | null;
+  };
   samplePrompt: readonly { role: "system" | "user" | "assistant"; content: string }[];
   sampleText: {
     trained: string;

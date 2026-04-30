@@ -35,6 +35,12 @@ Fast local smoke with the built-in tiny corpus:
 bun run examples/lora-finetune/index.ts --source google/gemma-3-1b-it --dataset-source tiny --train-limit 8 --eval-limit 4 --batch-size 2 --steps 2
 ```
 
+Verify an existing report without rerunning training:
+
+```bash
+bun run examples/lora-finetune/verify-report.ts .tmp/lora-finetune/google-gemma-3-1b-it-report.json
+```
+
 ## Important options
 
 - `--mode lora|qlora`
@@ -62,9 +68,17 @@ The report JSON records:
 
 - the selected source, mode, preset, and adapter format
 - held-out loss before and after training
-- target count for the resolved preset
+- target count and selected target paths for the resolved preset
+- trainable/total parameter counts and peak MLX memory
+- train/eval data preparation stats
 - the saved adapter directory
+- adapter reload equality and QLoRA quantized-base preservation evidence
 - deterministic sample text from the trained, reloaded, and merged models
+
+The verifier checks report shape, finite loss metrics, a positive target count,
+parameter/memory evidence, data preparation counts, non-empty sample text,
+exact trained/reloaded deterministic sample equality, and QLoRA base
+preservation when `--mode qlora` produced the report.
 
 When `--adapter-format peft` is used, the example writes first-pass PEFT-compatible causal LM LoRA checkpoints:
 

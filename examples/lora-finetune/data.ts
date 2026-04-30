@@ -1,4 +1,4 @@
-import { prepareChatSupervisionExamples } from "@mlxts/align";
+import { type PreparedExamplesResult, prepareChatSupervisionExamples } from "@mlxts/align";
 import {
   type ChatMessage,
   createTrainingProofCorpus,
@@ -90,10 +90,10 @@ export function prepareSupervisionExamples(
   profile: InteractionProfile,
   limit: number,
   maxSequenceLength: number,
-): TokenSupervisionExample[] {
+): PreparedExamplesResult<TokenSupervisionExample> {
   const template = requireChatTemplate(profile);
   return prepareChatSupervisionExamples(tokenizer, template, rawMessages, {
     limit,
     maxSequenceLength,
-  }).examples;
+  });
 }

@@ -22,10 +22,39 @@ function finetuneReport(): FinetuneReport {
       averageTrainingLoss: 2.4,
       targetCount: 4,
     },
+    targetPaths: [
+      "model.layers.0.self_attn.q_proj",
+      "model.layers.0.self_attn.k_proj",
+      "model.layers.0.self_attn.v_proj",
+      "model.layers.0.self_attn.o_proj",
+    ],
+    parameterCounts: {
+      total: 32,
+      trainable: 8,
+    },
+    memory: {
+      peakBytes: 1024,
+    },
+    dataStats: {
+      train: {
+        kept: 2,
+        skippedMalformed: 0,
+        skippedLong: 0,
+      },
+      eval: {
+        kept: 1,
+        skippedMalformed: 0,
+        skippedLong: 0,
+      },
+    },
+    adapterCheck: {
+      reloadedMatchesTrained: true,
+      qloraQuantizedBasePreserved: null,
+    },
     samplePrompt: [{ role: "user", content: "Say hi" }],
     sampleText: {
       trained: "hi from trained",
-      reloaded: "hi from reloaded",
+      reloaded: "hi from trained",
       merged: "hi from merged",
     },
   };
