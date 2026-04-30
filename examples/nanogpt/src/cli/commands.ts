@@ -16,10 +16,11 @@ import {
 import {
   applyRuntimeLimits,
   emitJson,
+  formatNanogptCliError,
   getFlag,
   getNumberFlag,
-  SYSTEM_ERROR_EXIT_CODE,
-  USER_ERROR_EXIT_CODE,
+  RUNTIME_ERROR_EXIT_CODE,
+  USAGE_ERROR_EXIT_CODE,
   UserError,
 } from "./shared";
 import {
@@ -191,13 +192,16 @@ export async function runExport(flags: Map<string, string>): Promise<void> {
 
 export function handleError(error: unknown): never {
   if (error instanceof UserError) {
-    process.stderr.write(`${error.message}\n`);
-    process.exit(USER_ERROR_EXIT_CODE);
+    process.stdout.write(`${formatNanogptCliError(error.message, "usage", "nanogpt --help")}\n`);
+    process.exit(USAGE_ERROR_EXIT_CODE);
   }
 
-  const message = error instanceof Error ? (error.stack ?? error.message) : String(error);
-  process.stderr.write(`${message}\n`);
-  process.exit(SYSTEM_ERROR_EXIT_CODE);
+  const message = error instanceof Error ? error.message : String(error);
+  process.stdout.write(`${formatNanogptCliError(message, "runtime", "nanogpt --help")}\n`);
+  if (error instanceof Error && error.stack !== undefined && error.stack !== error.message) {
+    process.stderr.write(`${error.stack}\n`);
+  }
+  process.exit(RUNTIME_ERROR_EXIT_CODE);
 }
 
 export { printExportHelp, printGenerateHelp, printTrainHelp };

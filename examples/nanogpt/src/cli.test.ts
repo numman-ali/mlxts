@@ -131,8 +131,9 @@ describe("nanogpt CLI", () => {
   test("prints help", () => {
     const result = runCli(["help"]);
     expect(result.status).toBe(0);
-    expect(result.stdout).toContain("nanogpt");
-    expect(result.stdout).toContain("--json");
+    expect(result.stdout).toContain("description:");
+    expect(result.stdout).toContain("commands[3]");
+    expect(result.stdout).toContain("exit_codes[3]");
   });
 
   test("train --help shows training-specific flags", () => {
@@ -154,15 +155,29 @@ describe("nanogpt CLI", () => {
 
   test("train rejects unknown flags", () => {
     const result = runCli(["train", "--mystery"]);
-    expect(result.status).toBe(1);
-    expect(result.stderr).toContain("unknown flag");
+    expect(result.status).toBe(2);
+    expect(result.stdout).toContain("error:");
+    expect(result.stdout).toContain('"usage"');
+    expect(result.stdout).toContain("unknown flag");
+    expect(result.stderr).not.toContain("unknown flag");
   });
 
   test("generate rejects unknown flags", () => {
-    const checkpoint = createCheckpointForCli();
-    const result = runCli(["generate", "--checkpoint", checkpoint, "--mystery"]);
-    expect(result.status).toBe(1);
-    expect(result.stderr).toContain("unknown flag");
+    const result = runCli(["generate", "--mystery"]);
+    expect(result.status).toBe(2);
+    expect(result.stdout).toContain("error:");
+    expect(result.stdout).toContain('"usage"');
+    expect(result.stdout).toContain("unknown flag");
+    expect(result.stderr).not.toContain("unknown flag");
+  });
+
+  test("rejects unknown commands as usage errors", () => {
+    const result = runCli(["nonsense"]);
+    expect(result.status).toBe(2);
+    expect(result.stdout).toContain("error:");
+    expect(result.stdout).toContain('"usage"');
+    expect(result.stdout).toContain("Unknown command");
+    expect(result.stderr).not.toContain("Unknown command");
   });
 
   test("generate --json returns structured output", () => {
@@ -188,8 +203,35 @@ describe("nanogpt CLI", () => {
 
   test("generate without a checkpoint exits with user error", () => {
     const result = runCli(["generate"]);
+    expect(result.status).toBe(2);
+    expect(result.stdout).toContain("error:");
+    expect(result.stdout).toContain("--checkpoint");
+    expect(result.stderr).not.toContain("--checkpoint");
+  });
+
+  test("missing flag values fail before runtime work", () => {
+    const generateResult = runCli(["generate", "--checkpoint"]);
+    expect(generateResult.status).toBe(2);
+    expect(generateResult.stdout).toContain("flag --checkpoint requires a value");
+    expect(generateResult.stderr).not.toContain("flag --checkpoint");
+
+    const trainResult = runCli(["train", "--data"]);
+    expect(trainResult.status).toBe(2);
+    expect(trainResult.stdout).toContain("flag --data requires a value");
+    expect(trainResult.stderr).not.toContain("flag --data");
+
+    const exportResult = runCli(["export", "--checkpoint", "/tmp/missing"]);
+    expect(exportResult.status).toBe(2);
+    expect(exportResult.stdout).toContain("Flag --output is required");
+    expect(exportResult.stderr).not.toContain("Flag --output");
+  });
+
+  test("runtime errors use structured stdout without stack dumps", () => {
+    const result = runCli(["generate", "--checkpoint", "/tmp/nanogpt-missing-checkpoint"]);
     expect(result.status).toBe(1);
-    expect(result.stderr).toContain("--checkpoint");
+    expect(result.stdout).toContain("error:");
+    expect(result.stdout).toContain('"runtime"');
+    expect(result.stdout).not.toContain(" at ");
   });
 
   test("export writes model weights as safetensors", async () => {

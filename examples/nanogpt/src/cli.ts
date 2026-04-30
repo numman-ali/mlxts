@@ -22,19 +22,28 @@ import {
 import { printHelp } from "./cli/help";
 import {
   EXPORT_FLAG_ALLOWLIST,
+  EXPORT_VALUE_FLAGS,
   GENERATE_FLAG_ALLOWLIST,
+  GENERATE_VALUE_FLAGS,
   parseArgs,
   TRAIN_FLAG_ALLOWLIST,
+  TRAIN_VALUE_FLAGS,
+  UserError,
+  validateFlagValues,
   validateKnownFlags,
 } from "./cli/shared";
 
 async function main(): Promise<void> {
-  const { command, flags } = parseArgs(process.argv);
+  const { command, flags, valuedFlags } = parseArgs(process.argv);
 
   try {
     switch (command) {
+      case "help":
+        printHelp();
+        return;
       case "train":
         validateKnownFlags(flags, TRAIN_FLAG_ALLOWLIST, "train");
+        validateFlagValues(flags, valuedFlags, TRAIN_VALUE_FLAGS, "train");
         if (flags.has("help")) {
           printTrainHelp();
           return;
@@ -43,6 +52,7 @@ async function main(): Promise<void> {
         return;
       case "generate":
         validateKnownFlags(flags, GENERATE_FLAG_ALLOWLIST, "generate");
+        validateFlagValues(flags, valuedFlags, GENERATE_VALUE_FLAGS, "generate");
         if (flags.has("help")) {
           printGenerateHelp();
           return;
@@ -51,6 +61,7 @@ async function main(): Promise<void> {
         return;
       case "export":
         validateKnownFlags(flags, EXPORT_FLAG_ALLOWLIST, "export");
+        validateFlagValues(flags, valuedFlags, EXPORT_VALUE_FLAGS, "export");
         if (flags.has("help")) {
           printExportHelp();
           return;
@@ -58,7 +69,7 @@ async function main(): Promise<void> {
         await runExport(flags);
         return;
       default:
-        printHelp();
+        throw new UserError(`Unknown command "${command}"`);
     }
   } catch (error) {
     handleError(error);
