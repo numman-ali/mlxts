@@ -20,6 +20,27 @@ type CliOptions = {
   gemma4MaxActiveGb: number;
 };
 
+type TransformersModelRegressionCommand = { kind: "help" } | { kind: "run"; options: CliOptions };
+
+type RuntimeLock = {
+  [Symbol.dispose](): void;
+};
+
+type TransformersModelRegressionRuntime = {
+  stdout?: (text: string) => void;
+  stderr?: (text: string) => void;
+  acquireLock?: () => RuntimeLock;
+  runRegression?: (
+    options: CliOptions,
+    progress: (text: string) => void,
+  ) => Promise<TransformersModelRegressionResult>;
+};
+
+type RegressionStage = {
+  label: string;
+  status: "passed";
+};
+
 type LoadedMemoryReport = {
   model: string;
   modelType: string;
@@ -45,38 +66,58 @@ type DecodeSmokeBudget = {
   maxExplicitEvalCountPerToken: number;
 };
 
-function usage(): string {
+type DecodeSmokeReport = {
+  model: string;
+  metrics: DecodeSmokeMetrics;
+};
+
+type TransformersModelRegressionResult = {
+  focusedChecks: "passed";
+  realModels: boolean;
+  decodeSmoke: boolean;
+  stages: RegressionStage[];
+  memoryReports: LoadedMemoryReport[];
+  decodeReports: DecodeSmokeReport[];
+};
+
+export const TRANSFORMERS_MODEL_REGRESSION_FOCUSED_TESTS = [
+  "packages/nn/src/quantized/quantized-embedding.test.ts",
+  "packages/quantize/src/quantize-module.test.ts",
+  "packages/quantize/src/setup-quantized-module.test.ts",
+  "packages/transformers/scripts/regression-model-matrix.test.ts",
+  "packages/transformers/src/families/qwen3_5/model.test.ts",
+  "packages/transformers/src/families/qwen3_5/weights.test.ts",
+  "packages/transformers/src/families/gemma4/model.test.ts",
+  "packages/transformers/src/families/gemma4/weights.test.ts",
+  "packages/transformers/src/load.test.ts",
+] as const;
+
+class TransformersModelRegressionUsageError extends Error {}
+
+export function formatTransformersModelRegressionUsage(): string {
   return [
-    "Usage: bun run packages/transformers/scripts/regression-model-matrix.ts [options]",
-    "",
-    "Options:",
-    "  --real-models                 Load real cached Qwen and Gemma 4 checkpoints.",
-    "  --decode-smoke                Also run a short local decode benchmark for real models.",
-    "  --qwen-model <id>             Qwen model id/path.",
-    "  --gemma4-model <id>           Gemma 4 model id/path.",
-    "  --qwen-max-active-gb <n>      Fail if Qwen load active memory exceeds this.",
-    "  --gemma4-max-active-gb <n>    Fail if Gemma 4 load active memory exceeds this.",
+    "description: Run the @mlxts/transformers Qwen/Gemma regression matrix",
+    "usage[3]:",
+    "  bun run --filter '@mlxts/transformers' regression:models",
+    "  bun run packages/transformers/scripts/regression-model-matrix.ts --real-models",
+    "  bun run packages/transformers/scripts/regression-model-matrix.ts --decode-smoke",
+    "options[7]{flag,description}:",
+    '  "--real-models","Load cached Qwen and Gemma 4 checkpoints"',
+    '  "--decode-smoke","Run short local decode benchmarks; implies --real-models"',
+    '  "--qwen-model <id>","Qwen model id/path"',
+    '  "--gemma4-model <id>","Gemma 4 model id/path"',
+    '  "--qwen-max-active-gb <n>","Fail if Qwen load active memory exceeds this; default 16.5"',
+    '  "--gemma4-max-active-gb <n>","Fail if Gemma 4 load active memory exceeds this; default 10.5"',
+    '  "--help","Show this help"',
+    "exit_codes[3]{code,meaning}:",
+    '  0,"regression passed"',
+    '  1,"runtime or regression failure"',
+    '  2,"usage error"',
   ].join("\n");
 }
 
-function readStringFlag(args: string[], index: number, flag: string): string {
-  const value = args[index + 1];
-  if (value === undefined || value.startsWith("--")) {
-    throw new Error(`${flag} requires a value.\n\n${usage()}`);
-  }
-  return value;
-}
-
-function readNumberFlag(args: string[], index: number, flag: string): number {
-  const value = Number(readStringFlag(args, index, flag));
-  if (!Number.isFinite(value) || value <= 0) {
-    throw new Error(`${flag} must be a positive number.`);
-  }
-  return value;
-}
-
-function parseArgs(argv: string[]): CliOptions {
-  const options: CliOptions = {
+function defaultOptions(): CliOptions {
+  return {
     realModels: false,
     decodeSmoke: false,
     qwenModel: "mlx-community/Qwen3.6-27B-4bit",
@@ -84,15 +125,45 @@ function parseArgs(argv: string[]): CliOptions {
     qwenMaxActiveGb: 16.5,
     gemma4MaxActiveGb: 10.5,
   };
+}
+
+function readStringFlag(args: readonly string[], index: number, flag: string): string {
+  const value = args[index + 1];
+  if (value === undefined || value.trim() === "" || value.startsWith("-")) {
+    throw new TransformersModelRegressionUsageError(`${flag} requires a value.`);
+  }
+  return value;
+}
+
+function readNumberFlag(args: readonly string[], index: number, flag: string): number {
+  const rawValue = args[index + 1]?.trim();
+  if (rawValue === undefined || rawValue === "" || rawValue.startsWith("--")) {
+    throw new TransformersModelRegressionUsageError(`${flag} requires a value.`);
+  }
+  const value = Number(rawValue);
+  if (!Number.isFinite(value) || value <= 0) {
+    throw new TransformersModelRegressionUsageError(`${flag} must be a positive number.`);
+  }
+  return value;
+}
+
+export function parseTransformersModelRegressionArgs(
+  argv: readonly string[],
+): TransformersModelRegressionCommand {
+  if (argv.length === 1 && (argv[0] === "--help" || argv[0] === "-h")) {
+    return { kind: "help" };
+  }
+  const options = defaultOptions();
 
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
+    if (arg === undefined) {
+      throw new TransformersModelRegressionUsageError("argument parsing reached an empty slot.");
+    }
     switch (arg) {
       case "--help":
       case "-h":
-        console.log(usage());
-        Bun.exit(0);
-        return options;
+        return { kind: "help" };
       case "--real-models":
         options.realModels = true;
         break;
@@ -117,11 +188,13 @@ function parseArgs(argv: string[]): CliOptions {
         index += 1;
         break;
       default:
-        throw new Error(`Unknown option: ${arg}\n\n${usage()}`);
+        throw new TransformersModelRegressionUsageError(
+          arg.startsWith("-") ? `unknown option "${arg}".` : `unexpected argument "${arg}".`,
+        );
     }
   }
 
-  return options;
+  return { kind: "run", options };
 }
 
 function inheritedStringEnv(): Record<string, string> {
@@ -133,58 +206,88 @@ function inheritedStringEnv(): Record<string, string> {
   );
 }
 
-async function runCommand(label: string, args: readonly string[]): Promise<void> {
-  console.log(`[regression] ${label}: ${args.join(" ")}`);
-  const child = Bun.spawn(args, {
-    cwd: new URL("../../..", import.meta.url).pathname,
-    env: inheritedStringEnv(),
-    stdout: "inherit",
-    stderr: "inherit",
-  });
-  const exitCode = await child.exited;
-  if (exitCode !== 0) {
-    throw new Error(`[regression] ${label} failed with exit code ${exitCode}.`);
+async function pipeReadableToProgress(
+  stream: ReadableStream<Uint8Array> | null,
+  progress: (text: string) => void,
+  capture: string[],
+): Promise<void> {
+  if (stream === null) {
+    return;
+  }
+  const decoder = new TextDecoder();
+  let pending = "";
+  for await (const chunk of stream) {
+    pending += decoder.decode(chunk, { stream: true });
+    let newline = pending.indexOf("\n");
+    while (newline !== -1) {
+      const line = pending.slice(0, newline);
+      if (line !== "") {
+        progress(line);
+        capture.push(line);
+      }
+      pending = pending.slice(newline + 1);
+      newline = pending.indexOf("\n");
+    }
+  }
+  pending += decoder.decode();
+  if (pending !== "") {
+    progress(pending);
+    capture.push(pending);
   }
 }
 
-async function runCapturedCommand(label: string, args: readonly string[]): Promise<string> {
-  console.log(`[regression] ${label}: ${args.join(" ")}`);
+async function runCommand(
+  label: string,
+  args: readonly string[],
+  progress: (text: string) => void,
+): Promise<RegressionStage> {
+  progress(`[regression] ${label}: ${args.join(" ")}`);
   const child = Bun.spawn(args, {
     cwd: new URL("../../..", import.meta.url).pathname,
     env: inheritedStringEnv(),
     stdout: "pipe",
     stderr: "pipe",
   });
-  const [stdout, stderr, exitCode] = await Promise.all([
-    new Response(child.stdout).text(),
-    new Response(child.stderr).text(),
-    child.exited,
-  ]);
-  if (stdout.length > 0) {
-    console.log(stdout.trimEnd());
-  }
-  if (stderr.length > 0) {
-    console.error(stderr.trimEnd());
-  }
+  const captured: string[] = [];
+  const stdout = pipeReadableToProgress(child.stdout, progress, captured);
+  const stderr = pipeReadableToProgress(child.stderr, progress, captured);
+  const exitCode = await child.exited;
+  await Promise.all([stdout, stderr]);
   if (exitCode !== 0) {
     throw new Error(`[regression] ${label} failed with exit code ${exitCode}.`);
   }
-  return `${stdout}\n${stderr}`;
+  return { label, status: "passed" };
 }
 
-async function runFocusedUnitChecks(): Promise<void> {
-  await runCommand("focused unit checks", [
-    "bun",
-    "test",
-    "packages/nn/src/quantized/quantized-embedding.test.ts",
-    "packages/quantize/src/quantize-module.test.ts",
-    "packages/quantize/src/setup-quantized-module.test.ts",
-    "packages/transformers/src/families/qwen3_5/model.test.ts",
-    "packages/transformers/src/families/qwen3_5/weights.test.ts",
-    "packages/transformers/src/families/gemma4/model.test.ts",
-    "packages/transformers/src/families/gemma4/weights.test.ts",
-    "packages/transformers/src/load.test.ts",
-  ]);
+async function runCapturedCommand(
+  label: string,
+  args: readonly string[],
+  progress: (text: string) => void,
+): Promise<string> {
+  progress(`[regression] ${label}: ${args.join(" ")}`);
+  const child = Bun.spawn(args, {
+    cwd: new URL("../../..", import.meta.url).pathname,
+    env: inheritedStringEnv(),
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+  const captured: string[] = [];
+  const stdout = pipeReadableToProgress(child.stdout, progress, captured);
+  const stderr = pipeReadableToProgress(child.stderr, progress, captured);
+  const exitCode = await child.exited;
+  await Promise.all([stdout, stderr]);
+  if (exitCode !== 0) {
+    throw new Error(`[regression] ${label} failed with exit code ${exitCode}.`);
+  }
+  return captured.join("\n");
+}
+
+async function runFocusedUnitChecks(progress: (text: string) => void): Promise<RegressionStage> {
+  return await runCommand(
+    "focused unit checks",
+    ["bun", "test", ...TRANSFORMERS_MODEL_REGRESSION_FOCUSED_TESTS],
+    progress,
+  );
 }
 
 function extractMetric(line: string, key: string): number {
@@ -196,7 +299,7 @@ function extractMetric(line: string, key: string): number {
   return Number(value);
 }
 
-function parseDecodeSmokeMetrics(output: string, label: string): DecodeSmokeMetrics {
+export function parseDecodeSmokeMetrics(output: string, label: string): DecodeSmokeMetrics {
   const averagesLine = output
     .split(/\r?\n/)
     .findLast((line) => line.trimStart().startsWith("Averages:"));
@@ -289,8 +392,12 @@ async function loadMemoryReport(modelSource: string): Promise<LoadedMemoryReport
   };
 }
 
-function assertMemoryBudget(report: LoadedMemoryReport, maxActiveGb: number): void {
-  console.log(
+function assertMemoryBudget(
+  report: LoadedMemoryReport,
+  maxActiveGb: number,
+  progress: (text: string) => void,
+): void {
+  progress(
     `[regression] ${report.model} model_type=${report.modelType} active=${report.activeGb.toFixed(
       3,
     )}GB cache=${report.cacheGb.toFixed(3)}GB peak=${report.peakGb.toFixed(3)}GB params=${
@@ -306,56 +413,203 @@ function assertMemoryBudget(report: LoadedMemoryReport, maxActiveGb: number): vo
   }
 }
 
-async function runRealModelLoads(options: CliOptions): Promise<void> {
-  assertMemoryBudget(await loadMemoryReport(options.qwenModel), options.qwenMaxActiveGb);
-  assertMemoryBudget(await loadMemoryReport(options.gemma4Model), options.gemma4MaxActiveGb);
+async function runRealModelLoads(
+  options: CliOptions,
+  progress: (text: string) => void,
+): Promise<LoadedMemoryReport[]> {
+  const reports = [
+    await loadMemoryReport(options.qwenModel),
+    await loadMemoryReport(options.gemma4Model),
+  ] as const;
+  const [qwenReport, gemma4Report] = reports;
+  assertMemoryBudget(qwenReport, options.qwenMaxActiveGb, progress);
+  assertMemoryBudget(gemma4Report, options.gemma4MaxActiveGb, progress);
+  return [...reports];
 }
 
-async function runDecodeSmoke(options: CliOptions): Promise<void> {
+async function runDecodeSmoke(
+  options: CliOptions,
+  progress: (text: string) => void,
+): Promise<DecodeSmokeReport[]> {
+  const reports: DecodeSmokeReport[] = [];
   for (const model of [options.qwenModel, options.gemma4Model]) {
-    const output = await runCapturedCommand(`decode smoke ${model}`, [
-      "bun",
-      "run",
-      "bench:generation:parity",
-      "--model",
-      model,
-      "--prompt-tokens",
-      "1024",
-      "--generation-tokens",
-      "128",
-      "--trials",
-      "1",
-      "--memory-sample-interval",
-      "16",
-      "--skip-mlx-lm-reference",
-    ]);
-    assertDecodeSmokeBudget(
-      model,
-      parseDecodeSmokeMetrics(output, `decode smoke ${model}`),
-      decodeBudgetForModel(model, options),
+    const output = await runCapturedCommand(
+      `decode smoke ${model}`,
+      [
+        "bun",
+        "run",
+        "bench:generation:parity",
+        "--model",
+        model,
+        "--prompt-tokens",
+        "1024",
+        "--generation-tokens",
+        "128",
+        "--trials",
+        "1",
+        "--memory-sample-interval",
+        "16",
+        "--skip-mlx-lm-reference",
+      ],
+      progress,
+    );
+    const metrics = parseDecodeSmokeMetrics(output, `decode smoke ${model}`);
+    assertDecodeSmokeBudget(model, metrics, decodeBudgetForModel(model, options));
+    reports.push({ model, metrics });
+  }
+  return reports;
+}
+
+export async function runTransformersModelRegression(
+  options: CliOptions,
+  progress: (text: string) => void = console.error,
+): Promise<TransformersModelRegressionResult> {
+  const stages = [await runFocusedUnitChecks(progress)];
+  const memoryReports = options.realModels ? await runRealModelLoads(options, progress) : [];
+  const decodeReports = options.decodeSmoke ? await runDecodeSmoke(options, progress) : [];
+  return {
+    focusedChecks: "passed",
+    realModels: options.realModels,
+    decodeSmoke: options.decodeSmoke,
+    stages,
+    memoryReports,
+    decodeReports,
+  };
+}
+
+function toon(value: string | number | boolean | null): string {
+  return typeof value === "string" ? JSON.stringify(value) : String(value);
+}
+
+function formatMultilineField(name: string, value: string): string[] {
+  const lines = value.split(/\r?\n/);
+  if (lines.length === 1) {
+    return [`  ${name}: ${toon(value)}`];
+  }
+  return [`  ${name}: |`, ...lines.map((line) => `    ${line}`)];
+}
+
+export function formatTransformersModelRegressionSuccess(
+  result: TransformersModelRegressionResult,
+): string {
+  const lines = [
+    "transformers_model_regression:",
+    "  status: passed",
+    `  real_models: ${toon(result.realModels)}`,
+    `  decode_smoke: ${toon(result.decodeSmoke)}`,
+    `  stages: ${result.stages.length}`,
+    `  memory_reports: ${result.memoryReports.length}`,
+    `  decode_reports: ${result.decodeReports.length}`,
+    `stages[${result.stages.length}]{label,status}:`,
+    ...result.stages.map((stage) => `  ${toon(stage.label)},${toon(stage.status)}`),
+  ];
+  if (result.memoryReports.length > 0) {
+    lines.push(
+      `memory_reports[${result.memoryReports.length}]{model,model_type,active_gb,cache_gb,peak_gb,parameter_count}:`,
+      ...result.memoryReports.map((report) =>
+        [
+          toon(report.model),
+          toon(report.modelType),
+          report.activeGb.toFixed(3),
+          report.cacheGb.toFixed(3),
+          report.peakGb.toFixed(3),
+          String(report.parameterCount),
+        ].join(","),
+      ),
     );
   }
+  if (result.decodeReports.length > 0) {
+    lines.push(
+      `decode_reports[${result.decodeReports.length}]{model,prompt_tps,generation_tps,peak_memory_gb,active_slope_mb_per_token,evals_per_token}:`,
+      ...result.decodeReports.map((report) =>
+        [
+          toon(report.model),
+          report.metrics.promptTps.toFixed(3),
+          report.metrics.generationTps.toFixed(3),
+          report.metrics.peakMemoryGb.toFixed(3),
+          report.metrics.activeSlopeMbPerToken.toFixed(3),
+          report.metrics.explicitEvalCountPerToken.toFixed(3),
+        ].join(","),
+      ),
+    );
+  }
+  return lines.join("\n");
 }
 
-async function main(): Promise<void> {
-  const options = parseArgs(Bun.argv.slice(2));
-  if (options.realModels || options.decodeSmoke) {
-    using _runtimeLock = acquireRuntimeCommandLock("regression:models");
-    await runRegression(options);
-    return;
-  }
-
-  await runRegression(options);
+export function formatTransformersModelRegressionError(message: string, help: string): string {
+  return ["error:", ...formatMultilineField("message", message), `help: ${toon(help)}`].join("\n");
 }
 
-async function runRegression(options: CliOptions): Promise<void> {
-  await runFocusedUnitChecks();
-  if (options.realModels) {
-    await runRealModelLoads(options);
-  }
-  if (options.decodeSmoke) {
-    await runDecodeSmoke(options);
+async function runWithOptionalRuntimeLock(
+  options: CliOptions,
+  progress: (text: string) => void,
+  acquireLock: () => RuntimeLock,
+  runRegression: (
+    options: CliOptions,
+    progress: (text: string) => void,
+  ) => Promise<TransformersModelRegressionResult>,
+): Promise<TransformersModelRegressionResult> {
+  let lock: RuntimeLock | undefined;
+  try {
+    if (options.realModels || options.decodeSmoke) {
+      lock = acquireLock();
+    }
+    return await runRegression(options, progress);
+  } finally {
+    lock?.[Symbol.dispose]();
   }
 }
 
-await main();
+export async function runTransformersModelRegressionCommand(
+  argv: readonly string[],
+  runtime: TransformersModelRegressionRuntime = {},
+): Promise<number> {
+  const stdout = runtime.stdout ?? console.log;
+  const stderr = runtime.stderr ?? console.error;
+  const acquireLock = runtime.acquireLock ?? (() => acquireRuntimeCommandLock("regression:models"));
+  const runRegression = runtime.runRegression ?? runTransformersModelRegression;
+  let command: TransformersModelRegressionCommand;
+
+  try {
+    command = parseTransformersModelRegressionArgs(argv);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    stdout(
+      formatTransformersModelRegressionError(
+        message,
+        "bun run packages/transformers/scripts/regression-model-matrix.ts --help",
+      ),
+    );
+    return error instanceof TransformersModelRegressionUsageError ? 2 : 1;
+  }
+
+  if (command.kind === "help") {
+    stdout(formatTransformersModelRegressionUsage());
+    return 0;
+  }
+
+  try {
+    const result = await runWithOptionalRuntimeLock(
+      command.options,
+      stderr,
+      acquireLock,
+      runRegression,
+    );
+    stdout(formatTransformersModelRegressionSuccess(result));
+    return 0;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    stdout(
+      formatTransformersModelRegressionError(
+        message,
+        "review stderr and rerun the transformers model regression after fixing the failure",
+      ),
+    );
+    return 1;
+  }
+}
+
+if (import.meta.main) {
+  const exitCode = await runTransformersModelRegressionCommand(Bun.argv.slice(2));
+  process.exit(exitCode);
+}

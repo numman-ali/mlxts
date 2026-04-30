@@ -179,6 +179,11 @@ Full evidence ladder lives in
   benchmark progress on stderr, emits compact structured stdout pass/error
   summaries, and preserves JSON reports under `--report-dir` for real-model
   smoke rungs.
+- The package-local transformers model matrix is now AXI-shaped:
+  `bun run --filter '@mlxts/transformers' regression:models` keeps focused test
+  and decode benchmark progress on stderr, emits compact structured stdout
+  pass/error summaries, preserves cached/local-only real loads, and still
+  locks real/decode paths.
 - The root Qwen/Gemma gate is now AXI-shaped:
   `bun run regression:qwen-gemma` keeps child transformer/serve/context command
   output on stderr and reserves stdout for structured help, pass summaries, and
