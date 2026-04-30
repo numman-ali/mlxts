@@ -4,10 +4,12 @@ export {
   DiffusionWeightMismatchError,
 } from "./errors";
 export {
+  type FluxAutoencoderConfig,
   type FluxComponentConfigs,
   type FluxRopeAxes,
   type FluxTransformerConfig,
   loadFluxComponentConfigs,
+  parseFluxAutoencoderConfig,
   parseFluxTransformerConfig,
 } from "./families/flux/config";
 export {
@@ -16,6 +18,23 @@ export {
   packFluxLatents,
   unpackFluxLatents,
 } from "./families/flux/latents";
+export {
+  createFluxInitialLatents,
+  createFluxTextIds,
+  decodeFluxLatents,
+  denoiseFluxLatents,
+  type FluxConditioning,
+  type FluxDenoiseOptions,
+  type FluxDenoiser,
+  type FluxDenoiserInput,
+  type FluxDenoisingStepEvent,
+  type FluxImageGenerationOptions,
+  type FluxInitialLatentOptions,
+  type FluxLatentDecoder,
+  type FluxScheduler,
+  fluxLatentShape,
+  generateFluxImage,
+} from "./families/flux/pipeline";
 export {
   StableDiffusionAutoencoderKL,
   StableDiffusionVaeDecoder,

@@ -6,7 +6,11 @@ import { join } from "path";
 import { DiffusionConfigError } from "../../errors";
 import { loadDiffusionSnapshotManifest } from "../../pretrained/snapshot-manifest";
 
-import { loadFluxComponentConfigs, parseFluxTransformerConfig } from "./config";
+import {
+  loadFluxComponentConfigs,
+  parseFluxAutoencoderConfig,
+  parseFluxTransformerConfig,
+} from "./config";
 
 async function withTempDirectory<T>(
   prefix: string,
@@ -58,7 +62,27 @@ function fluxTransformerConfig(): Record<string, unknown> {
   };
 }
 
-function writeFluxSnapshot(snapshot: string, transformerConfig: Record<string, unknown>): void {
+function fluxVaeConfig(): Record<string, unknown> {
+  return {
+    _class_name: "AutoencoderKL",
+    _diffusers_version: "0.34.0.dev0",
+    block_out_channels: [128, 256, 512, 512],
+    force_upcast: false,
+    in_channels: 3,
+    latent_channels: 16,
+    layers_per_block: 2,
+    norm_num_groups: 32,
+    out_channels: 3,
+    scaling_factor: 0.3611,
+    shift_factor: 0.1159,
+  };
+}
+
+function writeFluxSnapshot(
+  snapshot: string,
+  transformerConfig: Record<string, unknown>,
+  vaeConfig: Record<string, unknown> = fluxVaeConfig(),
+): void {
   writeJson(join(snapshot, "model_index.json"), {
     _class_name: "FluxPipeline",
     transformer: ["diffusers", "FluxTransformer2DModel"],
@@ -77,6 +101,7 @@ function writeFluxSnapshot(snapshot: string, transformerConfig: Record<string, u
   );
   writeJson(join(snapshot, "transformer", "config.json"), transformerConfig);
   writeComponentFiles(snapshot, "vae", ["config.json"], ["diffusion_pytorch_model.safetensors"]);
+  writeJson(join(snapshot, "vae", "config.json"), vaeConfig);
   writeComponentFiles(snapshot, "scheduler", ["scheduler_config.json"]);
   writeJson(join(snapshot, "scheduler", "scheduler_config.json"), {
     _class_name: "FlowMatchEulerDiscreteScheduler",
@@ -90,6 +115,39 @@ function writeFluxSnapshot(snapshot: string, transformerConfig: Record<string, u
 }
 
 describe("Flux component config parsing", () => {
+  test("parses minimal FLUX.1 configs through explicit defaults", () => {
+    const vae = parseFluxAutoencoderConfig({
+      block_out_channels: [128, 256, 512, 512],
+      norm_num_groups: 32,
+    });
+    const transformer = parseFluxTransformerConfig({});
+
+    expect(vae.latentChannels).toBe(16);
+    expect(vae.layersPerBlock).toBe(2);
+    expect(vae.scalingFactor).toBe(0.3611);
+    expect(vae.shiftFactor).toBe(0.1159);
+    expect(vae.forceUpcast).toBe(false);
+    expect(transformer.inChannels).toBe(64);
+    expect(transformer.guidanceEmbeds).toBe(false);
+    expect(transformer.axesDimsRope).toEqual([16, 56, 56]);
+  });
+
+  test("parses FLUX.1 VAE config with shift-aware latent normalization", () => {
+    const parsed = parseFluxAutoencoderConfig(fluxVaeConfig());
+
+    expect(parsed.inChannels).toBe(3);
+    expect(parsed.outChannels).toBe(3);
+    expect(parsed.latentChannels).toBe(16);
+    expect(parsed.latentChannelsOut).toBe(32);
+    expect(parsed.blockOutChannels).toEqual([128, 256, 512, 512]);
+    expect(parsed.layersPerBlock).toBe(2);
+    expect(parsed.normNumGroups).toBe(32);
+    expect(parsed.scalingFactor).toBe(0.3611);
+    expect(parsed.shiftFactor).toBe(0.1159);
+    expect(parsed.vaeScaleFactor).toBe(8);
+    expect(parsed.forceUpcast).toBe(false);
+  });
+
   test("parses FLUX.1 transformer config into package-owned shape", () => {
     const parsed = parseFluxTransformerConfig(fluxTransformerConfig());
 
@@ -119,12 +177,85 @@ describe("Flux component config parsing", () => {
       const configs = await loadFluxComponentConfigs(manifest);
 
       expect(configs.pipelineKind).toBe("flux");
+      expect(configs.vae.scalingFactor).toBe(0.3611);
+      expect(configs.vae.shiftFactor).toBe(0.1159);
       expect(configs.transformer.hiddenSize).toBe(3072);
       expect(configs.transformer.guidanceEmbeds).toBe(true);
     });
   });
 
+  test("rejects unsupported Flux VAE config shapes", () => {
+    expect(() => parseFluxAutoencoderConfig([])).toThrow("JSON object");
+    expect(() =>
+      parseFluxAutoencoderConfig({
+        ...fluxVaeConfig(),
+        _class_name: "AutoencoderKLFlux2",
+      }),
+    ).toThrow(DiffusionConfigError);
+    expect(() =>
+      parseFluxAutoencoderConfig({
+        ...fluxVaeConfig(),
+        patch_size: [2, 2],
+      }),
+    ).toThrow("patch_size");
+    expect(() =>
+      parseFluxAutoencoderConfig({
+        ...fluxVaeConfig(),
+        latents_mean: [0],
+      }),
+    ).toThrow("latents_mean");
+    expect(() =>
+      parseFluxAutoencoderConfig({
+        ...fluxVaeConfig(),
+        force_upcast: "false",
+      }),
+    ).toThrow("force_upcast");
+    expect(() =>
+      parseFluxAutoencoderConfig({
+        ...fluxVaeConfig(),
+        latent_channels: 32,
+      }),
+    ).toThrow("latent_channels");
+    expect(() =>
+      parseFluxAutoencoderConfig({
+        ...fluxVaeConfig(),
+        latent_channels: "16",
+      }),
+    ).toThrow("latent_channels");
+    expect(() =>
+      parseFluxAutoencoderConfig({
+        ...fluxVaeConfig(),
+        scaling_factor: "0.3611",
+      }),
+    ).toThrow("scaling_factor");
+    expect(() =>
+      parseFluxAutoencoderConfig({
+        ...fluxVaeConfig(),
+        shift_factor: 0,
+      }),
+    ).toThrow("shift_factor");
+    expect(() =>
+      parseFluxAutoencoderConfig({
+        ...fluxVaeConfig(),
+        block_out_channels: [128, 256, 512],
+      }),
+    ).toThrow("block_out_channels");
+    expect(() =>
+      parseFluxAutoencoderConfig({
+        ...fluxVaeConfig(),
+        block_out_channels: [128, "256", 512, 512],
+      }),
+    ).toThrow("block_out_channels");
+    expect(() =>
+      parseFluxAutoencoderConfig({
+        ...fluxVaeConfig(),
+        norm_num_groups: 0,
+      }),
+    ).toThrow("norm_num_groups");
+  });
+
   test("rejects unsupported Flux transformer config shapes", () => {
+    expect(() => parseFluxTransformerConfig(null)).toThrow("JSON object");
     expect(() =>
       parseFluxTransformerConfig({
         ...fluxTransformerConfig(),
@@ -159,6 +290,12 @@ describe("Flux component config parsing", () => {
       parseFluxTransformerConfig({
         ...fluxTransformerConfig(),
         out_channels: 32,
+      }),
+    ).toThrow("out_channels");
+    expect(() =>
+      parseFluxTransformerConfig({
+        ...fluxTransformerConfig(),
+        out_channels: "64",
       }),
     ).toThrow("out_channels");
     expect(() =>

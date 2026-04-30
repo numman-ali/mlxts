@@ -26,9 +26,26 @@ export type FluxTransformerConfig = {
   rawConfig: Record<string, unknown>;
 };
 
+/** Package-native config for the FLUX.1 AutoencoderKL component. */
+export type FluxAutoencoderConfig = {
+  inChannels: number;
+  outChannels: number;
+  latentChannels: number;
+  latentChannelsOut: number;
+  blockOutChannels: readonly number[];
+  layersPerBlock: number;
+  normNumGroups: number;
+  scalingFactor: number;
+  shiftFactor: number;
+  vaeScaleFactor: number;
+  forceUpcast: boolean;
+  rawConfig: Record<string, unknown>;
+};
+
 /** Configs required before FLUX.1 model construction can begin. */
 export type FluxComponentConfigs = {
   pipelineKind: "flux";
+  vae: FluxAutoencoderConfig;
   transformer: FluxTransformerConfig;
 };
 
@@ -161,6 +178,69 @@ function optionalBoolean(
   return value;
 }
 
+function optionalExactFiniteNumber(
+  record: Record<string, unknown>,
+  key: string,
+  context: string,
+  expected: number,
+): number {
+  const value = record[key];
+  if (value === undefined || value === null) {
+    return expected;
+  }
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    throw new DiffusionConfigError(
+      `${fieldName(context, key)} must be a finite number, got ${describeConfigValue(value)}.`,
+    );
+  }
+  if (value !== expected) {
+    throw new DiffusionConfigError(
+      `${fieldName(context, key)}=${value} is not supported; expected ${expected}.`,
+    );
+  }
+  return value;
+}
+
+function requiredPositiveInteger(
+  record: Record<string, unknown>,
+  key: string,
+  context: string,
+): number {
+  const value = record[key];
+  if (typeof value !== "number" || !Number.isInteger(value) || value <= 0) {
+    throw new DiffusionConfigError(
+      `${fieldName(context, key)} must be a positive integer, got ${describeConfigValue(value)}.`,
+    );
+  }
+  return value;
+}
+
+function requiredPositiveIntegerList(
+  record: Record<string, unknown>,
+  key: string,
+  context: string,
+): number[] {
+  const value = record[key];
+  if (!Array.isArray(value) || value.length === 0) {
+    throw new DiffusionConfigError(`${fieldName(context, key)} must be a non-empty integer array.`);
+  }
+  return value.map((entry, index) => {
+    if (typeof entry !== "number" || !Number.isInteger(entry) || entry <= 0) {
+      throw new DiffusionConfigError(
+        `${fieldName(context, `${key}[${index}]`)} must be a positive integer.`,
+      );
+    }
+    return entry;
+  });
+}
+
+function rejectNonNull(record: Record<string, unknown>, key: string, context: string): void {
+  const value = record[key];
+  if (value !== undefined && value !== null) {
+    throw new DiffusionConfigError(`${fieldName(context, key)} is not supported yet.`);
+  }
+}
+
 function optionalRopeAxes(
   record: Record<string, unknown>,
   key: string,
@@ -193,7 +273,7 @@ function optionalRopeAxes(
 
 function componentConfigPath(
   manifest: DiffusionSnapshotManifest,
-  componentName: "transformer",
+  componentName: "transformer" | "vae",
 ): string {
   const component = manifest.components.find(
     (candidate) => candidate.name === componentName && candidate.enabled,
@@ -216,6 +296,39 @@ async function readComponentJson(path: string, context: string): Promise<Record<
     throw new DiffusionConfigError(`${context} must contain valid JSON: ${path}.`);
   }
   return expectRecord(rawConfig, context);
+}
+
+/** Parse a Diffusers FLUX.1 AutoencoderKL `config.json` into package-owned terms. */
+export function parseFluxAutoencoderConfig(rawConfig: unknown): FluxAutoencoderConfig {
+  const context = "vae/config.json";
+  const record = expectRecord(rawConfig, context);
+  optionalClassName(record, "AutoencoderKL", context);
+  rejectNonNull(record, "latents_mean", context);
+  rejectNonNull(record, "latents_std", context);
+  rejectNonNull(record, "patch_size", context);
+
+  const blockOutChannels = requiredPositiveIntegerList(record, "block_out_channels", context);
+  const vaeScaleFactor = 2 ** (blockOutChannels.length - 1);
+  if (vaeScaleFactor !== 8) {
+    throw new DiffusionConfigError(
+      `${fieldName(context, "block_out_channels")} must imply 8x VAE scale.`,
+    );
+  }
+  const latentChannels = optionalExactPositiveInteger(record, "latent_channels", context, 16);
+  return {
+    inChannels: optionalExactPositiveInteger(record, "in_channels", context, 3),
+    outChannels: optionalExactPositiveInteger(record, "out_channels", context, 3),
+    latentChannels,
+    latentChannelsOut: 2 * latentChannels,
+    blockOutChannels,
+    layersPerBlock: optionalExactPositiveInteger(record, "layers_per_block", context, 2),
+    normNumGroups: requiredPositiveInteger(record, "norm_num_groups", context),
+    scalingFactor: optionalExactFiniteNumber(record, "scaling_factor", context, 0.3611),
+    shiftFactor: optionalExactFiniteNumber(record, "shift_factor", context, 0.1159),
+    vaeScaleFactor,
+    forceUpcast: optionalBoolean(record, "force_upcast", context, false),
+    rawConfig: record,
+  };
 }
 
 /** Parse a Diffusers FLUX.1 transformer `config.json` into package-owned terms. */
@@ -268,7 +381,7 @@ export function parseFluxTransformerConfig(rawConfig: unknown): FluxTransformerC
   };
 }
 
-/** Load FLUX.1 transformer configs from an inspected local snapshot manifest. */
+/** Load FLUX.1 component configs from an inspected local snapshot manifest. */
 export async function loadFluxComponentConfigs(
   manifest: DiffusionSnapshotManifest,
 ): Promise<FluxComponentConfigs> {
@@ -279,6 +392,9 @@ export async function loadFluxComponentConfigs(
   }
   return {
     pipelineKind: "flux",
+    vae: parseFluxAutoencoderConfig(
+      await readComponentJson(componentConfigPath(manifest, "vae"), "vae/config.json"),
+    ),
     transformer: parseFluxTransformerConfig(
       await readComponentJson(
         componentConfigPath(manifest, "transformer"),
