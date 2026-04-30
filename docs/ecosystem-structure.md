@@ -224,9 +224,11 @@ VAE/UNet config translation exist. Stable Diffusion VAE and conditional UNet
 module construction exists, with VAE and UNet safetensor loading in place. Stable
 Diffusion pipeline assembly over supplied conditioning tensors owns NHWC latent
 shape, DDIM/Euler denoising, classifier-free guidance, VAE unscale, and
-postprocessing. Flux, conditioning-source composition, Hugging Face Hub-backed
-checkpoint loading, finite CLI proof, and host image output remain follow-on
-Phase 10 tranches.
+postprocessing. Local snapshots now load into a disposable Stable Diffusion
+runtime bundle with VAE, UNet, scheduler, parsed manifest/configs, and thin
+sampling methods. Flux, conditioning-source composition, Hugging Face
+Hub-backed checkpoint loading, finite CLI proof, and host image output remain
+follow-on Phase 10 tranches.
 
 **Architecture pattern:** Mirrors `@mlxts/transformers` — explicit family
 registry, config-driven model construction, and official Hugging Face JS-backed snapshot loading.

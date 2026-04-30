@@ -104,7 +104,10 @@ major product-agent focus on package-owned CLIs and future PI-agent integration.
   module tree without reversing up-block indices. Pipeline assembly over
   supplied conditioning tensors is now package-owned too: NHWC latent shape,
   initial noise, DDIM/Euler denoising, negative-first classifier-free guidance,
-  VAE unscale, and 0..1 postprocessing live in `@mlxts/diffusion`. Real
+  VAE unscale, and 0..1 postprocessing live in `@mlxts/diffusion`. A local
+  snapshot now loads into one disposable Stable Diffusion runtime bundle with
+  VAE, UNet, scheduler, parsed manifest/configs, thin sampling methods, and
+  explicit rejection for required/enabled safety-checker semantics. Real
   checkpoint image proof remains the next diffusion tranche once a conditioning
   source and finite AXI proof command are in place.
 - **Qwen conditional serving**: top-level Qwen 3.5 / 3.6 conditional

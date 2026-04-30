@@ -137,6 +137,13 @@ function assertConditioningBatch(
       )}.`,
     );
   }
+  if (
+    conditioning.textTime !== undefined &&
+    (conditioning.textTime.textEmbeds.shape[0] !== batchSize ||
+      conditioning.textTime.timeIds.shape[0] !== batchSize)
+  ) {
+    throw new Error(`${owner}: textTime batch must match encoderHiddenStates batch.`);
+  }
 }
 
 function assertMatchingConditioning(
@@ -153,6 +160,33 @@ function assertMatchingConditioning(
   }
   if ((positive.textTime === undefined) !== (negative.textTime === undefined)) {
     throw new Error("negativeConditioning textTime must match conditioning textTime.");
+  }
+  if (positive.textTime !== undefined && negative.textTime !== undefined) {
+    assertMatchingTensorShapeExceptBatch(
+      positive.textTime.textEmbeds,
+      negative.textTime.textEmbeds,
+      "negativeConditioning textEmbeds",
+    );
+    assertMatchingTensorShapeExceptBatch(
+      positive.textTime.timeIds,
+      negative.textTime.timeIds,
+      "negativeConditioning timeIds",
+    );
+  }
+}
+
+function assertMatchingTensorShapeExceptBatch(
+  positive: MxArray,
+  negative: MxArray,
+  owner: string,
+): void {
+  if (positive.shape.length !== negative.shape.length) {
+    throw new Error(`${owner} rank must match conditioning.`);
+  }
+  for (let index = 1; index < positive.shape.length; index += 1) {
+    if (positive.shape[index] !== negative.shape[index]) {
+      throw new Error(`${owner} shape must match conditioning.`);
+    }
   }
 }
 
@@ -175,10 +209,16 @@ function concatenateTextTime(
   if (negative === undefined || positive === undefined) {
     return undefined;
   }
-  return {
-    textEmbeds: concatenate([negative.textEmbeds, positive.textEmbeds], 0),
-    timeIds: concatenate([negative.timeIds, positive.timeIds], 0),
-  };
+  const textEmbeds = concatenate([negative.textEmbeds, positive.textEmbeds], 0);
+  try {
+    return {
+      textEmbeds,
+      timeIds: concatenate([negative.timeIds, positive.timeIds], 0),
+    };
+  } catch (error) {
+    textEmbeds.free();
+    throw error;
+  }
 }
 
 function makeGuidedConditioning(

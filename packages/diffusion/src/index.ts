@@ -48,6 +48,11 @@ export {
   stableDiffusionLatentShape,
 } from "./families/stable-diffusion/pipeline";
 export {
+  loadStableDiffusionPipelineFromSnapshot,
+  type StableDiffusionPipelineBundle,
+  type StableDiffusionPipelineLoadOptions,
+} from "./families/stable-diffusion/pipeline-loading";
+export {
   StableDiffusionUNet2DConditionModel,
   type StableDiffusionUNetForwardOptions,
   type StableDiffusionUNetTextTimeConditioning,

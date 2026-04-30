@@ -174,6 +174,41 @@ describe("Stable Diffusion pipeline assembly", () => {
     ).toThrow("negativeConditioning");
   });
 
+  test("denoising rejects mismatched text-time conditioning before guided batching", () => {
+    const scheduler = new DDIMScheduler({
+      betaSchedule: "linear",
+      betaStart: 0.1,
+      betaEnd: 0.2,
+      numTrainTimesteps: 2,
+    });
+    const unet = new RecordingDenoiser();
+    using initialLatents = zeros([1, 1, 1, 1]);
+    using positiveStates = array([[[3]]], "float32");
+    using negativeStates = array([[[1]]], "float32");
+    using positiveTextEmbeds = zeros([1, 2]);
+    using negativeTextEmbeds = zeros([1, 3]);
+    using positiveTimeIds = zeros([1, 2]);
+    using negativeTimeIds = zeros([1, 2]);
+
+    expect(() =>
+      denoiseStableDiffusionLatents({
+        unet,
+        scheduler,
+        initialLatents,
+        conditioning: {
+          encoderHiddenStates: positiveStates,
+          textTime: { textEmbeds: positiveTextEmbeds, timeIds: positiveTimeIds },
+        },
+        negativeConditioning: {
+          encoderHiddenStates: negativeStates,
+          textTime: { textEmbeds: negativeTextEmbeds, timeIds: negativeTimeIds },
+        },
+        guidanceScale: 2,
+        numInferenceSteps: 1,
+      }),
+    ).toThrow("textEmbeds shape");
+  });
+
   test("decodes latents through VAE scaling and 0..1 image normalization", () => {
     const vae = new TestLatentDecoder();
     using latents = array([[[[2, -4]]]], "float32");
