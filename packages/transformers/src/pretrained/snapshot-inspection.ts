@@ -83,6 +83,14 @@ function collectTokenizerArtifacts(snapshot: ResolvedSnapshot): TokenizerArtifac
   if (specialTokensMapPath !== undefined) {
     artifacts.specialTokensMapPath = specialTokensMapPath;
   }
+  const vocabJsonPath = findSnapshotFile(snapshot, "vocab.json");
+  if (vocabJsonPath !== undefined) {
+    artifacts.vocabJsonPath = vocabJsonPath;
+  }
+  const mergesTextPath = findSnapshotFile(snapshot, "merges.txt");
+  if (mergesTextPath !== undefined) {
+    artifacts.mergesTextPath = mergesTextPath;
+  }
   return artifacts;
 }
 

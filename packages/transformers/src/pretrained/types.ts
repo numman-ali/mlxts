@@ -87,6 +87,8 @@ export type TokenizerArtifacts = {
   tokenizerModelPath?: string;
   tokenizerConfigPath?: string;
   specialTokensMapPath?: string;
+  vocabJsonPath?: string;
+  mergesTextPath?: string;
 };
 
 /** Parsed model/tokenizer sidecars and file paths for a resolved snapshot. */

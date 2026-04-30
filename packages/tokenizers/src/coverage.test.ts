@@ -160,7 +160,7 @@ describe("tokenizer coverage", () => {
     expect(() => loadTokenizerJson(directory)).toThrow("tokenizer.json was not found");
     expect(() => loadSentencePiece(directory)).toThrow("tokenizer.model was not found");
     expect(() => loadTokenizer(directory)).toThrow(
-      "could not find a supported tokenizer.json, tekken.json, or tokenizer.model",
+      "could not find a supported tokenizer.json, vocab.json + merges.txt, tekken.json, or tokenizer.model",
     );
   });
 
@@ -250,7 +250,7 @@ describe("tokenizer coverage", () => {
 
     const unresolvedSource = join(directory, "remote-like-repo");
     expect(() => loadTokenizer(unresolvedSource)).toThrow(
-      "could not find a supported tokenizer.json, tekken.json, or tokenizer.model",
+      "could not find a supported tokenizer.json, vocab.json + merges.txt, tekken.json, or tokenizer.model",
     );
 
     const brokenDirectory = createTempDir("mlxts-tokenizers-broken-json-");

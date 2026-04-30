@@ -4,8 +4,9 @@
  */
 
 import { existsSync, readFileSync, statSync } from "fs";
-import { join } from "path";
+import { basename, dirname, join } from "path";
 import { type BPETokenizer, loadBPEFromTokenizerJson } from "./bpe/bpe";
+import { type CLIPTokenizer, loadCLIPTokenizer } from "./bpe/clip";
 import { CharTokenizer } from "./char";
 import { UnsupportedTokenizerError } from "./errors";
 import { SentencePieceTokenizer } from "./sentencepiece";
@@ -15,6 +16,7 @@ import type { Tokenizer } from "./tokenizer";
 export type TokenizerFormat =
   | "auto"
   | "tokenizer-json"
+  | "clip-vocab-merges"
   | "tekken-json"
   | "sentencepiece-model"
   | "char";
@@ -32,6 +34,8 @@ export type TokenizerFileSet = {
   specialTokensMapPath?: string;
   tokenizerConfigData?: Record<string, unknown>;
   specialTokensMapData?: Record<string, unknown>;
+  vocabJsonPath?: string;
+  mergesTextPath?: string;
   vocabTextPath?: string;
 };
 
@@ -79,6 +83,26 @@ function resolveFileSet(source: string | TokenizerFileSet): TokenizerFileSet {
       tokenizerModelPath: join(source, "tokenizer.model"),
       tokenizerConfigPath: join(source, "tokenizer_config.json"),
       specialTokensMapPath: join(source, "special_tokens_map.json"),
+      vocabJsonPath: join(source, "vocab.json"),
+      mergesTextPath: join(source, "merges.txt"),
+    };
+  }
+
+  const name = basename(source);
+  if (name === "vocab.json") {
+    return {
+      vocabJsonPath: source,
+      mergesTextPath: join(dirname(source), "merges.txt"),
+      tokenizerConfigPath: join(dirname(source), "tokenizer_config.json"),
+      specialTokensMapPath: join(dirname(source), "special_tokens_map.json"),
+    };
+  }
+  if (name === "merges.txt") {
+    return {
+      mergesTextPath: source,
+      vocabJsonPath: join(dirname(source), "vocab.json"),
+      tokenizerConfigPath: join(dirname(source), "tokenizer_config.json"),
+      specialTokensMapPath: join(dirname(source), "special_tokens_map.json"),
     };
   }
 
@@ -101,11 +125,30 @@ function resolveFileSet(source: string | TokenizerFileSet): TokenizerFileSet {
     tokenizerModelPath: join(source, "tokenizer.model"),
     tokenizerConfigPath: join(source, "tokenizer_config.json"),
     specialTokensMapPath: join(source, "special_tokens_map.json"),
+    vocabJsonPath: join(source, "vocab.json"),
+    mergesTextPath: join(source, "merges.txt"),
   };
 }
 
 function existingPath(path: string | undefined): string | undefined {
   return path !== undefined && existsSync(path) ? path : undefined;
+}
+
+function hasCLIPTokenizerFiles(fileSet: TokenizerFileSet): boolean {
+  return (
+    existingPath(fileSet.vocabJsonPath) !== undefined &&
+    existingPath(fileSet.mergesTextPath) !== undefined
+  );
+}
+
+function isConfiguredCLIPTokenizer(fileSet: TokenizerFileSet): boolean {
+  const tokenizerConfig = readMergedJsonFile(
+    fileSet.tokenizerConfigPath,
+    fileSet.tokenizerConfigData,
+    "tokenizer_config.json",
+  );
+  const tokenizerClass = tokenizerConfig.tokenizer_class;
+  return tokenizerClass === "CLIPTokenizer" || tokenizerClass === "CLIPTokenizerFast";
 }
 
 function loadCharTokenizer(fileSet: TokenizerFileSet): CharTokenizer {
@@ -117,6 +160,10 @@ function loadCharTokenizer(fileSet: TokenizerFileSet): CharTokenizer {
 }
 
 function loadAutoTokenizer(fileSet: TokenizerFileSet): Tokenizer {
+  if (hasCLIPTokenizerFiles(fileSet) && isConfiguredCLIPTokenizer(fileSet)) {
+    return loadCLIP(fileSet);
+  }
+
   const tokenizerJsonPath = existingPath(fileSet.tokenizerJsonPath);
   if (tokenizerJsonPath !== undefined) {
     try {
@@ -127,11 +174,16 @@ function loadAutoTokenizer(fileSet: TokenizerFileSet): Tokenizer {
       }
       if (
         existingPath(fileSet.tekkenJsonPath) === undefined &&
-        existingPath(fileSet.tokenizerModelPath) === undefined
+        existingPath(fileSet.tokenizerModelPath) === undefined &&
+        !hasCLIPTokenizerFiles(fileSet)
       ) {
         throw error;
       }
     }
+  }
+
+  if (hasCLIPTokenizerFiles(fileSet)) {
+    return loadCLIP(fileSet);
   }
 
   if (existingPath(fileSet.tekkenJsonPath) !== undefined) {
@@ -143,7 +195,7 @@ function loadAutoTokenizer(fileSet: TokenizerFileSet): Tokenizer {
   }
 
   throw new Error(
-    "loadTokenizer: could not find a supported tokenizer.json, tekken.json, or tokenizer.model",
+    "loadTokenizer: could not find a supported tokenizer.json, vocab.json + merges.txt, tekken.json, or tokenizer.model",
   );
 }
 
@@ -158,6 +210,8 @@ export function loadTokenizer(
       return loadCharTokenizer(fileSet);
     case "tokenizer-json":
       return loadTokenizerJson(fileSet);
+    case "clip-vocab-merges":
+      return loadCLIP(fileSet);
     case "tekken-json":
       return loadTekken(fileSet);
     case "sentencepiece-model":
@@ -165,6 +219,40 @@ export function loadTokenizer(
     case "auto":
       return loadAutoTokenizer(fileSet);
   }
+}
+
+/** Load a CLIP vocab/merges tokenizer. */
+export function loadCLIP(source: string | TokenizerFileSet): CLIPTokenizer {
+  const fileSet = resolveFileSet(source);
+  const vocabJsonPath = fileSet.vocabJsonPath;
+  const mergesTextPath = fileSet.mergesTextPath;
+  if (
+    vocabJsonPath === undefined ||
+    mergesTextPath === undefined ||
+    !existsSync(vocabJsonPath) ||
+    !existsSync(mergesTextPath)
+  ) {
+    throw new Error("loadCLIP: vocab.json and merges.txt were not found");
+  }
+
+  const tokenizerConfig = readMergedJsonFile(
+    fileSet.tokenizerConfigPath,
+    fileSet.tokenizerConfigData,
+    "tokenizer_config.json",
+  );
+  const specialTokensMap = readMergedJsonFile(
+    fileSet.specialTokensMapPath,
+    fileSet.specialTokensMapData,
+    "special_tokens_map.json",
+  );
+  return loadCLIPTokenizer(
+    readJsonFile(vocabJsonPath, "vocab.json"),
+    readFileSync(mergesTextPath, "utf8"),
+    {
+      tokenizerConfig,
+      specialTokensMap,
+    },
+  );
 }
 
 /** Load a supported tokenizer.json tokenizer. */

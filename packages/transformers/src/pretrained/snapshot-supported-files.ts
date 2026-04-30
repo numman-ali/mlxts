@@ -12,6 +12,8 @@ const REMOTE_SUPPORTED_FILE_NAMES = new Set([
   "chat_template.jinja",
   "model.safetensors.index.json",
   "tokenizer.json",
+  "vocab.json",
+  "merges.txt",
   "tokenizer.model",
   "tekken.json",
   "tokenizer_config.json",

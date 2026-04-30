@@ -1638,6 +1638,56 @@ describe("pretrained loading", () => {
     model[Symbol.dispose]();
   });
 
+  test("loadPretrainedTokenizer reads root CLIP vocab and merges artifacts", async () => {
+    const directory = createTempDir("mlxts-transformers-clip-tokenizer-");
+    await Bun.write(
+      join(directory, "vocab.json"),
+      `${JSON.stringify(
+        {
+          "<|startoftext|>": 0,
+          "<|endoftext|>": 1,
+          h: 2,
+          "i</w>": 3,
+          H: 10,
+          i: 11,
+        },
+        null,
+        2,
+      )}\n`,
+    );
+    await Bun.write(join(directory, "merges.txt"), "#version: 0.2\n");
+    await Bun.write(
+      join(directory, "tokenizer_config.json"),
+      `${JSON.stringify({ tokenizer_class: "CLIPTokenizer", model_max_length: 4 }, null, 2)}\n`,
+    );
+    await Bun.write(
+      join(directory, "tokenizer.json"),
+      `${JSON.stringify(
+        {
+          model: {
+            type: "BPE",
+            vocab: { H: 10, i: 11, "<|endoftext|>": 1 },
+            merges: [],
+            unk_token: "<|endoftext|>",
+          },
+          pre_tokenizer: {
+            type: "ByteLevel",
+            add_prefix_space: false,
+            trim_offsets: true,
+            use_regex: true,
+          },
+          decoder: { type: "ByteLevel" },
+        },
+        null,
+        2,
+      )}\n`,
+    );
+
+    const tokenizer = await loadPretrainedTokenizer(directory);
+
+    expect(tokenizer.encode("Hi")).toEqual([0, 2, 3, 1]);
+  });
+
   test("AutoModel loads the same snapshot contract as loadCausalLM", async () => {
     const { directory, model } = await createTinySnapshot("llama");
     using loadedModel = await AutoModel.fromPretrained(directory);
@@ -2225,7 +2275,7 @@ describe("pretrained loading", () => {
     rmSync(join(directory, "special_tokens_map.json"));
 
     await expect(loadPretrainedTokenizer(directory)).rejects.toThrow(
-      "snapshot does not include tokenizer.json, tekken.json, or tokenizer.model",
+      "snapshot does not include tokenizer.json, vocab.json + merges.txt, tekken.json, or tokenizer.model",
     );
     model[Symbol.dispose]();
   });

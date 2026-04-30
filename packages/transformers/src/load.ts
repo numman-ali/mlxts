@@ -116,6 +116,12 @@ function tokenizerFileSet(
   if (inspection.tokenizer.specialTokensMapPath !== undefined) {
     fileSet.specialTokensMapPath = inspection.tokenizer.specialTokensMapPath;
   }
+  if (inspection.tokenizer.vocabJsonPath !== undefined) {
+    fileSet.vocabJsonPath = inspection.tokenizer.vocabJsonPath;
+  }
+  if (inspection.tokenizer.mergesTextPath !== undefined) {
+    fileSet.mergesTextPath = inspection.tokenizer.mergesTextPath;
+  }
   fileSet.tokenizerConfigData = {
     ...inspection.generationConfig,
     ...inspection.tokenizerConfig,
@@ -419,10 +425,12 @@ export async function loadPretrainedTokenizer(
   if (
     inspection.tokenizer.tokenizerJsonPath === undefined &&
     inspection.tokenizer.tekkenJsonPath === undefined &&
-    inspection.tokenizer.tokenizerModelPath === undefined
+    inspection.tokenizer.tokenizerModelPath === undefined &&
+    (inspection.tokenizer.vocabJsonPath === undefined ||
+      inspection.tokenizer.mergesTextPath === undefined)
   ) {
     throw new Error(
-      "loadPretrainedTokenizer: snapshot does not include tokenizer.json, tekken.json, or tokenizer.model.",
+      "loadPretrainedTokenizer: snapshot does not include tokenizer.json, vocab.json + merges.txt, tekken.json, or tokenizer.model.",
     );
   }
 

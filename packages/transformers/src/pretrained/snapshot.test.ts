@@ -95,6 +95,8 @@ describe("inspectSnapshot", () => {
       JSON.stringify({ temporal_patch_size: 2 }),
     );
     writeFileSync(join(directory, "tokenizer.json"), JSON.stringify({ version: "1.0" }));
+    writeFileSync(join(directory, "vocab.json"), JSON.stringify({ "<|endoftext|>": 0 }));
+    writeFileSync(join(directory, "merges.txt"), "#version: 0.2\n");
     writeFileSync(join(directory, "tokenizer_config.json"), JSON.stringify({ bos_token: "<s>" }));
     writeFileSync(
       join(directory, "special_tokens_map.json"),
@@ -120,6 +122,8 @@ describe("inspectSnapshot", () => {
     );
     expect(inspection.model.chatTemplatePath).toBe(join(directory, "chat_template.jinja"));
     expect(inspection.tokenizer.tokenizerJsonPath).toBe(join(directory, "tokenizer.json"));
+    expect(inspection.tokenizer.vocabJsonPath).toBe(join(directory, "vocab.json"));
+    expect(inspection.tokenizer.mergesTextPath).toBe(join(directory, "merges.txt"));
     expect(inspection.tokenizer.tokenizerConfigPath).toBe(join(directory, "tokenizer_config.json"));
     expect(inspection.config.model_type).toBe("llama");
     expect(inspection.generationConfig.temperature).toBe(0.7);
