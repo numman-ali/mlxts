@@ -229,9 +229,9 @@ shape, DDIM/Euler denoising, classifier-free guidance, VAE unscale, and
 postprocessing. Local snapshots now load into a disposable Stable Diffusion
 runtime bundle with VAE, UNet, scheduler, parsed manifest/configs, and thin
 sampling methods. `examples/stable-diffusion` owns the application-layer CLIP
-prompt-conditioning composition over package surfaces. Flux, Hugging Face
-Hub-backed Diffusers root loading, finite CLI proof, and host image output
-remain follow-on Phase 10 tranches.
+prompt-conditioning composition and finite BMP image proof command over package
+surfaces. Flux, Hugging Face Hub-backed Diffusers root loading, and broader
+image output formats remain follow-on Phase 10 tranches.
 
 **Architecture pattern:** Mirrors `@mlxts/transformers` — explicit family
 registry, config-driven model construction, and official Hugging Face JS-backed snapshot loading.

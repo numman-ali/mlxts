@@ -9,10 +9,11 @@ image tensor decoding.
 
 `@mlxts/tokenizers` owns CLIP vocab/merges tokenization.
 
-This example owns cross-package prompt-conditioning composition, local artifact
-I/O, and finite proof commands.
+This example owns cross-package prompt-conditioning composition, local BMP
+artifact I/O, and finite AXI-shaped proof commands.
 
 Heavy model runs acquire the shared runtime command lock.
 
-Example changes prove behavior with fast conditioning tests and a real cached
-Stable Diffusion run when checkpoint files are available.
+Example changes prove behavior with fast conditioning, BMP output, and command
+tests. Real checkpoint proof runs use a cached local Stable Diffusion snapshot
+when checkpoint files are available.

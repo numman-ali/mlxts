@@ -71,8 +71,7 @@ package imports application-layer only.
 
 ## Remaining Risks / Follow-ups
 
-- The finite AXI-shaped image-generation command is still the next Stable
-  Diffusion tranche. It should load the diffusion bundle and prompt conditioner,
-  acquire the runtime lock, sample an image, and write an artifact.
+- The finite AXI-shaped image-generation command landed in the follow-up proof
+  CLI tranche.
 - Real checkpoint image parity still needs a cached local Diffusers snapshot and
   reference prompt evidence before making quality claims.

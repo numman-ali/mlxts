@@ -21,6 +21,14 @@ The first supported conditioning paths are:
   hidden axis, projected text embeddings from `text_encoder_2`, and six-value
   time ids for original size, crop, and target size.
 
-The finite image-generation command lands after this conditioning surface, so
-real checkpoint proof can load one local Diffusers snapshot, create conditioning,
-sample an image, and write an artifact.
+Run the finite local proof command against a Diffusers-format snapshot:
+
+```bash
+bun run examples/stable-diffusion/index.ts /models/stable-diffusion \
+  --prompt "a small ceramic teapot on a wooden table" \
+  --output .tmp/stable-diffusion/sample.bmp
+```
+
+The command acquires the shared runtime lock, creates prompt conditioning,
+samples one image through `@mlxts/diffusion`, and writes an uncompressed BMP
+artifact. Progress goes to stderr; stdout is AXI-shaped structured output.

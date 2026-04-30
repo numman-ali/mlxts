@@ -110,9 +110,11 @@ major product-agent focus on package-owned CLIs and future PI-agent integration.
   explicit rejection for required/enabled safety-checker semantics.
   `examples/stable-diffusion` now owns the application-layer prompt
   conditioner that composes CLIP tokenizers, CLIP text encoders, and diffusion
-  tensor conditioning while preserving package dependencies. Real checkpoint
-  image proof remains the next diffusion tranche once a finite AXI proof command
-  can sample and write an image artifact.
+  tensor conditioning while preserving package dependencies. It also has a
+  finite AXI-shaped image proof command that loads a local Diffusers snapshot,
+  acquires the runtime lock, samples one image, and writes an uncompressed BMP
+  artifact from the returned NHWC image tensor. Real checkpoint quality/parity
+  evidence remains separate from the command surface.
 - **Phase 10 CLIP conditioning**: `@mlxts/transformers` now owns a
   `families/clip/` text encoder surface with CLIP text config parsing, causal
   text attention, quick GELU, EOS pooling, projected text features, and retained
