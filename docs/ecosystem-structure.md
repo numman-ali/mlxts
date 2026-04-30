@@ -217,9 +217,10 @@ All diffusion and flow-based generation across modalities: image, video, and aud
 
 **Dependencies:** `@mlxts/core`, `@mlxts/nn`
 
-**Current state:** Initial scheduler infrastructure exists. Stable Diffusion,
-Flux, VAE/backbone loading, conditioning, Hugging Face Hub-backed checkpoint
-loading, and image output remain follow-on Phase 10 tranches.
+**Current state:** Initial scheduler infrastructure and local scheduler-config
+loading exist. Stable Diffusion, Flux, VAE/backbone loading, conditioning,
+Hugging Face Hub-backed checkpoint loading, and image output remain follow-on
+Phase 10 tranches.
 
 **Architecture pattern:** Mirrors `@mlxts/transformers` — explicit family
 registry, config-driven model construction, and official Hugging Face JS-backed snapshot loading.
