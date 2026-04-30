@@ -18,9 +18,11 @@ bun run examples/qwen3_5-image/index.ts mlx-community/Qwen3.6-27B-4bit \
 ```
 
 You can also point it at a local snapshot directory or another compatible Qwen
-3.5 multimodal conversion. The example will:
+3.5 multimodal conversion. Hub sources use cached files by default; pass
+`--allow-download` when the snapshot is not already present locally. The example
+will:
 
-- resolve or download the snapshot through the official Hugging Face JS client
+- resolve the snapshot through the official Hugging Face JS client
 - load the model, tokenizer, chat template, and `preprocessor_config.json`
 - resize the image with the checkpoint's smart-resize policy
 - decode and resize the local image with macOS `sips`
@@ -32,8 +34,17 @@ Arguments:
 ```bash
 bun run examples/qwen3_5-image/index.ts <model-path-or-repo-id> --image <path> \
   [--prompt <text>] [--system-prompt <text>] [--max-tokens <n>] \
-  [--temperature <n>] [--top-k <n>] [--top-p <n>] [--greedy]
+  [--temperature <n>] [--top-k <n>] [--top-p <n>] [--greedy] \
+  [--enable-thinking|--disable-thinking|--template-default-thinking] \
+  [--allow-download] [--json]
 ```
+
+Thinking is disabled by default for short visual descriptions. Use
+`--enable-thinking` or `--template-default-thinking` when testing model-native
+reasoning behavior.
+
+`--json` writes status/progress to stderr and emits the final structured result
+on stdout.
 
 `sips` is required because this repo targets Apple Silicon and keeps local
 image decode out of the package core.

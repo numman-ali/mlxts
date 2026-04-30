@@ -131,6 +131,13 @@ Full evidence ladder lives in
   a generated 2x2 red/green/blue/yellow grid, routed every request as
   `single:media_input`, kept continuous scheduler phases at `0`, and read `92`
   cached prompt tokens on exact repeats.
+- Qwen image direct example proof passed against cached
+  `mlx-community/Qwen3.6-27B-4bit` using
+  `examples/qwen3_5-image/index.ts --json --greedy --max-tokens 64`. The
+  example now defaults to cached/local-only source resolution and disabled
+  thinking for short visual descriptions; the proof resized a generated `96x96`
+  quadrant BMP to `256x256`, finished with `eos`, generated `34` tokens, and
+  named all four quadrants correctly.
 - Gemma 4 A4B MoE proof passed against the cached
   `mlx-community/gemma-4-26b-a4b-it-4bit` snapshot. Transformer decode at
   `128x128` reported `generation_tps=108.604`, `evals_per_token=1.00`, and
