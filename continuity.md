@@ -108,6 +108,13 @@ Full evidence ladder lives in
   `bun run regression:qwen-gemma -- --profile quick`. Default retention remains
   one snapshot, so existing real-regression prompt-cache requirements stay
   unchanged.
+- Gemma 4 A4B MoE proof passed against the cached
+  `mlx-community/gemma-4-26b-a4b-it-4bit` snapshot. Transformer decode at
+  `128x128` reported `generation_tps=108.604`, `evals_per_token=1.00`, and
+  flat active memory (`14.527 GB` start/end). Serve streamed `128x32@1` through
+  `continuous:eligible` with `32` chunks, `active_delta=0.000 GB`, and
+  `mean_post_ttft_completion_tps=95.470`. The chat example loaded the same
+  15.6 GB snapshot and produced a coherent greedy answer.
 
 ## Next Work
 
@@ -144,3 +151,7 @@ Full evidence ladder lives in
   changes should keep `bun run check:per-package-agents` and
   `bun run check:cross-package-imports` green instead of relying on manual
   package-boundary review.
+- Phase 7f next proof target is split-quantized Qwen A3B. Start with direct
+  text `loadCausalLM()` generation for
+  `unsloth/Qwen3.6-35B-A3B-UD-MLX-4bit`; conditional serving should first close
+  the top-level `qwen3_5_moe` wrapper parser gap.

@@ -623,7 +623,17 @@ MoE (Mixture of Experts) models use the same `CausalLM` contract as dense models
 - Weight loading pipeline — same `iterateSafetensorWeights` → `sanitizeWeight` → `assignWeightPath` flow
 - LoRA and quantization — work the same way; LoRA targets `SwitchLinear` via type dispatch, quantization uses `SwitchLinear.toQuantized()`
 
-**Exit criteria**: Mixtral loads and generates coherent text. Forward parity with Python mlx-lm Mixtral.
+**Current proof state:** Gemma 4 A4B MoE loads and generates from the cached
+`mlx-community/gemma-4-26b-a4b-it-4bit` checkpoint, including mixed-quant expert
+loading, continuous serving, and coherent chat-template generation. Qwen A3B
+split-quantized proof is the next target; Mixtral remains future family
+registration work.
+
+**Exit criteria**: Real MoE checkpoints load through the unchanged `CausalLM`
+contract, generate coherent text, and pass family-appropriate forward/decode
+parity evidence against upstream MLX references before publishable parity
+claims. Gemma 4 A4B is the first proven target; Qwen A3B and Mixtral remain
+separate target-family proofs.
 
 ### 7g. Performance observability (follows Phase 7 performance optimization)
 
