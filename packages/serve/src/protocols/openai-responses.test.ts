@@ -198,6 +198,180 @@ describe("OpenAI Responses adapter", () => {
     });
   });
 
+  test("normalizes function tools into chat-template input", () => {
+    const response = normalizeOpenAIResponseRequest(
+      {
+        model: "tiny",
+        input: "Read the README.",
+        tools: [
+          {
+            type: "function",
+            name: "read_file",
+            description: "Read a local file.",
+            parameters: {
+              type: "object",
+              properties: { path: { type: "string" } },
+              required: ["path"],
+            },
+            strict: true,
+          },
+        ],
+      },
+      { id: "resp-tools" },
+    );
+
+    expect(response.tools).toEqual([
+      {
+        type: "function",
+        name: "read_file",
+        description: "Read a local file.",
+        parameters: {
+          type: "object",
+          properties: { path: { type: "string" } },
+          required: ["path"],
+        },
+        strict: true,
+      },
+    ]);
+    expect(response.request.input).toMatchObject({
+      kind: "messages",
+      messages: [{ role: "user", content: "Read the README." }],
+      tools: [
+        {
+          type: "function",
+          function: {
+            name: "read_file",
+            description: "Read a local file.",
+            parameters: {
+              type: "object",
+              properties: { path: { type: "string" } },
+              required: ["path"],
+            },
+          },
+        },
+      ],
+    });
+  });
+
+  test("suppresses active tools when tool_choice is none", () => {
+    const response = normalizeOpenAIResponseRequest(
+      {
+        model: "tiny",
+        input: "Answer directly.",
+        stream: true,
+        tool_choice: "none",
+        tools: [{ type: "function", name: "read_file" }],
+      },
+      { id: "resp-tools-none" },
+    );
+
+    expect(response.stream).toBe(true);
+    expect(response.tools).toEqual([{ type: "function", name: "read_file" }]);
+    expect(response.request.input).toEqual({
+      kind: "messages",
+      messages: [{ role: "user", content: "Answer directly." }],
+    });
+  });
+
+  test("normalizes function-call history into assistant and tool turns", () => {
+    const response = normalizeOpenAIResponseRequest(
+      {
+        model: "tiny",
+        input: [
+          { role: "user", content: "Read README.md" },
+          {
+            type: "function_call",
+            call_id: "call_1",
+            name: "read_file",
+            arguments: '{"path":"README.md"}',
+          },
+          {
+            type: "function_call_output",
+            call_id: "call_1",
+            output: "hello",
+          },
+          { role: "user", content: "Summarize it." },
+        ],
+        tools: [{ type: "function", name: "read_file" }],
+      },
+      { id: "resp-tool-history" },
+    );
+
+    expect(response.request.input).toMatchObject({
+      kind: "messages",
+      messages: [
+        { role: "user", content: "Read README.md" },
+        {
+          role: "assistant",
+          content: "",
+          tool_calls: [
+            {
+              id: "call_1",
+              type: "function",
+              function: { name: "read_file", arguments: '{"path":"README.md"}' },
+            },
+          ],
+        },
+        { role: "tool", content: "hello", tool_call_id: "call_1" },
+        { role: "user", content: "Summarize it." },
+      ],
+      tools: [{ type: "function", function: { name: "read_file" } }],
+    });
+  });
+
+  test("round-trips reasoning plus function-call output items", () => {
+    const firstResponse = normalizeOpenAIResponseRequest(
+      {
+        model: "tiny",
+        input: "Read README.md",
+        tools: [{ type: "function", name: "read_file" }],
+      },
+      { id: "resp-tool-roundtrip" },
+    );
+    const firstBody = formatOpenAIResponse(
+      firstResponse,
+      {
+        text: '<tool_call>{"name":"read_file","arguments":{"path":"README.md"}}</tool_call>',
+        reasoningContent: "Need the file.",
+        finishReason: "stop",
+      },
+      { id: "resp-tool-roundtrip", created: 123 },
+    );
+
+    const nextResponse = normalizeOpenAIResponseRequest(
+      {
+        model: "tiny",
+        input: [
+          { role: "user", content: "Read README.md" },
+          ...firstBody.output,
+          { type: "function_call_output", call_id: "call_1", output: "hello" },
+        ],
+        tools: [{ type: "function", name: "read_file" }],
+      },
+      { id: "resp-tool-roundtrip-next" },
+    );
+
+    expect(nextResponse.request.input).toMatchObject({
+      kind: "messages",
+      messages: [
+        { role: "user", content: "Read README.md" },
+        {
+          role: "assistant",
+          content: "",
+          reasoning_content: "Need the file.",
+          tool_calls: [
+            {
+              id: "call_1",
+              type: "function",
+              function: { name: "read_file", arguments: '{"path":"README.md"}' },
+            },
+          ],
+        },
+        { role: "tool", content: "hello", tool_call_id: "call_1" },
+      ],
+    });
+  });
+
   test("rejects unsupported response shapes explicitly", () => {
     const invalidBodies: Record<string, unknown>[] = [
       { input: [] },
@@ -221,10 +395,95 @@ describe("OpenAI Responses adapter", () => {
       },
       { input: [{ role: "user", content: { text: "Hello" } }] },
       { input: [{ type: "function_call_output", call_id: "call", output: "ok" }] },
+      {
+        input: [
+          {
+            type: "function_call",
+            call_id: "call",
+            name: "tool",
+            arguments: "{}",
+          },
+        ],
+      },
+      {
+        input: [
+          {
+            type: "function_call",
+            call_id: "call",
+            name: "tool",
+            arguments: "{}",
+          },
+          { role: "user", content: "missing output" },
+        ],
+      },
+      {
+        input: [
+          {
+            type: "function_call",
+            call_id: "call_1",
+            name: "tool",
+            arguments: "{}",
+          },
+          {
+            type: "function_call",
+            call_id: "call_2",
+            name: "tool",
+            arguments: "{}",
+          },
+          { type: "function_call_output", call_id: "call_1", output: "ok" },
+        ],
+      },
+      {
+        input: [
+          {
+            type: "function_call",
+            call_id: "call_1",
+            name: "tool",
+            arguments: "{}",
+          },
+          { type: "function_call_output", call_id: "call_1", output: "one" },
+          { type: "function_call_output", call_id: "call_1", output: "two" },
+        ],
+      },
+      {
+        input: [
+          {
+            type: "function_call",
+            call_id: "call_1",
+            name: "tool",
+            arguments: "{}",
+          },
+          { type: "function_call_output", call_id: "call_1", output: { text: "ok" } },
+        ],
+      },
+      {
+        input: [
+          {
+            type: "function_call",
+            call_id: "call_1",
+            name: "tool",
+            arguments: "{}",
+          },
+          {
+            type: "function_call_output",
+            call_id: "call_1",
+            output: [{ type: "output_text", text: "ok" }],
+          },
+        ],
+      },
       { input: [{ type: "reasoning", content: [] }] },
       { input: [{ type: "function_call", name: "tool", arguments: "{}" }] },
       { tools: [{ type: "web_search_preview" }] },
       { tools: "bad" },
+      { tools: [{ type: "function" }] },
+      { tools: [{ type: "function", name: "read_file", description: 42 }] },
+      { tools: [{ type: "function", name: "read_file", parameters: "bad" }] },
+      { tools: [{ type: "function", name: "read_file", strict: "yes" }] },
+      { stream: true, tools: [{ type: "function", name: "read_file" }] },
+      {
+        parallel_tool_calls: false,
+        tools: [{ type: "function", name: "read_file" }],
+      },
       { store: true },
       { background: true },
       { previous_response_id: "resp-old" },
@@ -345,6 +604,75 @@ describe("OpenAI Responses adapter", () => {
         status: "completed",
         role: "assistant",
         content: [{ type: "output_text", text: "Hi there.", annotations: [] }],
+      },
+    ]);
+  });
+
+  test("formats generated function calls as response output items", () => {
+    const response = normalizeOpenAIResponseRequest(
+      {
+        model: "tiny",
+        input: "Read README.md",
+        tools: [{ type: "function", name: "read_file" }],
+      },
+      { id: "resp-tool-format" },
+    );
+
+    const body = formatOpenAIResponse(
+      response,
+      {
+        text: '<tool_call>{"name":"read_file","arguments":{"path":"README.md"}}</tool_call>',
+        finishReason: "stop",
+      },
+      { id: "resp-tool-format", created: 123 },
+    );
+
+    expect(body.output_text).toBe("");
+    expect(body.tools).toEqual([{ type: "function", name: "read_file" }]);
+    expect(body.output).toEqual([
+      {
+        id: "resp-tool-format-fc-1",
+        type: "function_call",
+        status: "completed",
+        call_id: "call_1",
+        name: "read_file",
+        arguments: '{"path":"README.md"}',
+      },
+    ]);
+  });
+
+  test("leaves generated tool-call-looking text alone when tools are inactive", () => {
+    const response = normalizeOpenAIResponseRequest(
+      {
+        model: "tiny",
+        input: "Echo the payload.",
+      },
+      { id: "resp-no-tool-format" },
+    );
+
+    const body = formatOpenAIResponse(
+      response,
+      {
+        text: '<tool_call>{"name":"read_file","arguments":{"path":"README.md"}}</tool_call>',
+        finishReason: "stop",
+      },
+      { id: "resp-no-tool-format", created: 123 },
+    );
+
+    expect(body.output_text).toContain("<tool_call>");
+    expect(body.output).toEqual([
+      {
+        id: "resp-no-tool-format-msg",
+        type: "message",
+        status: "completed",
+        role: "assistant",
+        content: [
+          {
+            type: "output_text",
+            text: '<tool_call>{"name":"read_file","arguments":{"path":"README.md"}}</tool_call>',
+            annotations: [],
+          },
+        ],
       },
     ]);
   });

@@ -8,9 +8,9 @@ should survive context compaction lives here.
 
 Qwen 3.6 27B serving/inference quality is the active critical path. The goal is
 staged parity evidence against `mlx-lm`, long-output stability, and long-context
-capability — not a single short benchmark. The OpenResponses text slice and
-Anthropic Messages adapter are part of the same serving-quality push: usable
-text endpoints while benchmark and scheduler work continues.
+capability — not a single short benchmark. The OpenResponses and Anthropic
+Messages adapters are part of the same serving-quality push: usable text,
+image, and bounded tool endpoints while benchmark and scheduler work continues.
 
 ## Current State
 
@@ -145,6 +145,14 @@ Full evidence ladder lives in
   `stop_reason="tool_use"`, and rejects incomplete tool-result transcripts,
   streaming tool use, tool-result errors, and rich tool-result media until those
   semantics are implemented explicitly.
+- OpenResponses function-tool adapter support passed focused protocol and HTTP
+  route tests (`56 pass`) and full `bun run validate`. `/v1/responses` now
+  accepts flat function tools, normalizes `function_call` /
+  `function_call_output` history plus adjacent reasoning items into internal
+  assistant/tool turns, formats generated tool-call envelopes as
+  `function_call` output items, and rejects streaming tools,
+  `parallel_tool_calls=false` with active tools, built-in/custom tools, and
+  rich function outputs until those semantics are implemented explicitly.
 - Gemma 4 A4B MoE proof passed against the cached
   `mlx-community/gemma-4-26b-a4b-it-4bit` snapshot. Transformer decode at
   `128x128` reported `generation_tps=108.604`, `evals_per_token=1.00`, and

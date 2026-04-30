@@ -13,6 +13,10 @@ import {
   mediaSourceFromUrl,
   textContentPart,
 } from "./media-content";
+import {
+  type OpenAIResponseParsedInputItem,
+  parseOpenAIResponseInputItems,
+} from "./openai-responses-turns";
 
 type ResponseInputRole = "assistant" | "developer" | "system" | "user";
 
@@ -34,12 +38,6 @@ function responseInputRole(value: unknown): ResponseInputRole {
 type ParsedResponseContent = {
   text: string;
   parts: readonly GenerationContentPart[];
-  hasMedia: boolean;
-};
-
-type ParsedResponseMessage = {
-  chat: ChatMessage;
-  content: GenerationContentMessage;
   hasMedia: boolean;
 };
 
@@ -182,25 +180,13 @@ function inputContent(value: unknown): ParsedResponseContent {
   );
 }
 
-function inputMessage(value: unknown): ParsedResponseMessage {
+function inputMessage(value: unknown): OpenAIResponseParsedInputItem {
   if (!isRecord(value)) {
     throw new ServeError("OpenAI responses: input array entries must be objects.", {
       param: "input",
     });
   }
   if (value.type !== undefined && value.type !== null && value.type !== "message") {
-    if (value.type === "function_call_output") {
-      throw new ServeError(
-        "OpenAI responses: function-call output input is not supported until tools are implemented.",
-        { param: "input" },
-      );
-    }
-    if (value.type === "reasoning") {
-      throw new ServeError(
-        "OpenAI responses: reasoning input items are not supported by this endpoint yet.",
-        { param: "input" },
-      );
-    }
     throw new ServeError("OpenAI responses: only text message input items are supported today.", {
       param: "input",
     });
@@ -211,22 +197,28 @@ function inputMessage(value: unknown): ParsedResponseMessage {
   switch (role) {
     case "assistant":
       return {
-        chat: { role: "assistant", content: content.text },
-        content: { role: "assistant", content: content.parts },
+        chat: [{ role: "assistant", content: content.text }],
+        content: [{ role: "assistant", content: content.parts }],
         hasMedia: content.hasMedia,
+        toolUseIds: [],
+        toolResultIds: [],
       };
     case "developer":
     case "system":
       return {
-        chat: { role: "system", content: content.text },
-        content: { role: "system", content: content.parts },
+        chat: [{ role: "system", content: content.text }],
+        content: [{ role: "system", content: content.parts }],
         hasMedia: content.hasMedia,
+        toolUseIds: [],
+        toolResultIds: [],
       };
     case "user":
       return {
-        chat: { role: "user", content: content.text },
-        content: { role: "user", content: content.parts },
+        chat: [{ role: "user", content: content.text }],
+        content: [{ role: "user", content: content.parts }],
         hasMedia: content.hasMedia,
+        toolUseIds: [],
+        toolResultIds: [],
       };
   }
 }
@@ -264,9 +256,9 @@ export function parseOpenAIResponseInput(
     );
   }
 
-  const parsedMessages = input.map(inputMessage);
-  messages.push(...parsedMessages.map((message) => message.chat));
-  contentMessages.push(...parsedMessages.map((message) => message.content));
+  const parsedMessages = parseOpenAIResponseInputItems(inputMessage, input);
+  messages.push(...parsedMessages.flatMap((message) => message.chat));
+  contentMessages.push(...parsedMessages.flatMap((message) => message.content));
   if (!parsedMessages.some((message) => message.hasMedia)) {
     return {
       kind: "messages",

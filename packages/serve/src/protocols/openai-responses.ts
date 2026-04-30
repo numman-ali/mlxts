@@ -3,9 +3,14 @@
  * @module
  */
 
+import type { ChatTool } from "@mlxts/transformers";
 import { isRecord, ServeError } from "../errors";
 import type { GenerationInput, NormalizedGenerationRequest } from "../types";
 import { parseOpenAIResponseInput } from "./openai-responses-input";
+import {
+  type OpenAIResponseFunctionTool,
+  parseOpenAIResponseTools,
+} from "./openai-responses-tools";
 import { parseOpenAIStopSequences } from "./openai-stop";
 
 export {
@@ -15,13 +20,9 @@ export {
 
 export type OpenAIResponseUsage = {
   input_tokens: number;
-  input_tokens_details: {
-    cached_tokens: number;
-  };
+  input_tokens_details: { cached_tokens: number };
   output_tokens: number;
-  output_tokens_details: {
-    reasoning_tokens: number;
-  };
+  output_tokens_details: { reasoning_tokens: number };
   total_tokens: number;
 };
 
@@ -44,13 +45,24 @@ export type OpenAIResponseReasoningItem = {
   type: "reasoning";
   status: "completed";
   summary: unknown[];
-  content: {
-    type: "reasoning_text";
-    text: string;
-  }[];
+  content: { type: "reasoning_text"; text: string }[];
 };
 
-export type OpenAIResponseOutputItem = OpenAIResponseReasoningItem | OpenAIResponseMessageItem;
+export type OpenAIResponseFunctionCallItem = {
+  id: string;
+  type: "function_call";
+  status: "completed";
+  call_id: string;
+  name: string;
+  arguments: string;
+};
+
+export type OpenAIResponseTool = OpenAIResponseFunctionTool;
+
+export type OpenAIResponseOutputItem =
+  | OpenAIResponseReasoningItem
+  | OpenAIResponseMessageItem
+  | OpenAIResponseFunctionCallItem;
 
 export type OpenAIResponseObject = {
   id: string;
@@ -67,19 +79,12 @@ export type OpenAIResponseObject = {
   output_text: string;
   parallel_tool_calls: boolean;
   previous_response_id: null;
-  reasoning: {
-    effort: null;
-    summary: null;
-  };
+  reasoning: { effort: null; summary: null };
   store: boolean;
   temperature: number | null;
-  text: {
-    format: {
-      type: "text";
-    };
-  };
+  text: { format: { type: "text" } };
   tool_choice: "auto" | "none";
-  tools: [];
+  tools: OpenAIResponseTool[];
   top_p: number | null;
   truncation: "disabled";
   usage: OpenAIResponseUsage | null;
@@ -90,14 +95,13 @@ export type OpenAIResponseObject = {
 export type NormalizedOpenAIResponse = {
   model: string;
   stream: boolean;
-  streamOptions: {
-    includeObfuscation: boolean;
-  };
+  streamOptions: { includeObfuscation: boolean };
   instructions: string | null;
   maxOutputTokens: number | null;
   temperature: number | null;
   topP: number | null;
   toolChoice: "auto" | "none";
+  tools: readonly OpenAIResponseTool[];
   parallelToolCalls: boolean;
   metadata: Record<string, string>;
   user: string | null;
@@ -209,24 +213,6 @@ function parseMaxOutputTokens(record: Record<string, unknown>): {
     maxTokens: maxOutputTokens ?? DEFAULT_RESPONSE_MAX_OUTPUT_TOKENS,
     maxOutputTokens: maxOutputTokens ?? null,
   };
-}
-
-function parseTools(record: Record<string, unknown>): [] {
-  const tools = record.tools;
-  if (tools === undefined || tools === null) {
-    return [];
-  }
-  if (!Array.isArray(tools)) {
-    throw new ServeError('OpenAI responses: "tools" must be an array or null.', {
-      param: "tools",
-    });
-  }
-  if (tools.length > 0) {
-    throw new ServeError("OpenAI responses: tools are not supported by this endpoint yet.", {
-      param: "tools",
-    });
-  }
-  return [];
 }
 
 function parseToolChoice(record: Record<string, unknown>): "auto" | "none" {
@@ -348,7 +334,6 @@ function validateUnsupportedState(record: Record<string, unknown>): void {
 }
 
 function validateNoOpFields(record: Record<string, unknown>): void {
-  parseTools(record);
   parseToolChoice(record);
   validateStorage(record);
   validateUnsupportedState(record);
@@ -396,20 +381,51 @@ function chatTemplateOptions(record: Record<string, unknown>) {
   };
 }
 
-function responseInputWithTemplate(
+function responseInputWithOptions(
   input: GenerationInput,
+  tools: readonly ChatTool[] | undefined,
   templateOptions: { enableThinking?: boolean; preserveThinking?: boolean },
 ): GenerationInput {
-  if (Object.keys(templateOptions).length === 0) {
-    return input;
-  }
+  const chatTemplate = Object.keys(templateOptions).length === 0 ? undefined : templateOptions;
   if (input.kind === "messages") {
-    return { ...input, chatTemplate: templateOptions };
+    return {
+      ...input,
+      ...(tools === undefined ? {} : { tools }),
+      ...(chatTemplate === undefined ? {} : { chatTemplate }),
+    };
   }
   if (input.kind === "content") {
-    return { ...input, chatTemplate: templateOptions };
+    return {
+      ...input,
+      ...(tools === undefined ? {} : { tools }),
+      ...(chatTemplate === undefined ? {} : { chatTemplate }),
+    };
   }
   return input;
+}
+
+function responseToolsForRequest(
+  record: Record<string, unknown>,
+  options: { parallelToolCalls: boolean; stream: boolean; toolChoice: "auto" | "none" },
+): {
+  responseTools: readonly OpenAIResponseFunctionTool[];
+  selectedTools: readonly ChatTool[] | undefined;
+} {
+  const parsedTools = parseOpenAIResponseTools(record);
+  const selectedTools = options.toolChoice === "none" ? undefined : parsedTools.chatTools;
+  if (options.stream && selectedTools !== undefined && selectedTools.length > 0) {
+    throw new ServeError(
+      "OpenAI responses: streaming function tools are not supported until Responses tool SSE events are implemented.",
+      { param: "stream" },
+    );
+  }
+  if (!options.parallelToolCalls && selectedTools !== undefined && selectedTools.length > 0) {
+    throw new ServeError(
+      'OpenAI responses: "parallel_tool_calls": false is not supported with active function tools yet.',
+      { param: "parallel_tool_calls" },
+    );
+  }
+  return { responseTools: parsedTools.responseTools, selectedTools };
 }
 
 /** Normalize an OpenAI Responses JSON body into one generation request. */
@@ -424,6 +440,9 @@ export function normalizeOpenAIResponseRequest(
   validateNoOpFields(body);
   const model = stringField(body, "model");
   const stream = optionalBoolean(body, "stream") ?? false;
+  const toolChoice = parseToolChoice(body);
+  const parallelToolCalls = optionalBoolean(body, "parallel_tool_calls") ?? true;
+  const tools = responseToolsForRequest(body, { parallelToolCalls, stream, toolChoice });
   const streamOptions = parseStreamOptions(body, stream);
   const instructions = parseInstructions(body);
   const input = parseOpenAIResponseInput(body, instructions);
@@ -441,8 +460,6 @@ export function normalizeOpenAIResponseRequest(
   const metadata = parseMetadata(body);
   const user = optionalString(body, "user") ?? optionalString(body, "safety_identifier") ?? null;
   const promptCacheKey = optionalString(body, "prompt_cache_key");
-  const toolChoice = parseToolChoice(body);
-  const parallelToolCalls = optionalBoolean(body, "parallel_tool_calls") ?? true;
   const templateOptions = chatTemplateOptions(body);
   return {
     model,
@@ -453,13 +470,14 @@ export function normalizeOpenAIResponseRequest(
     temperature: temperature ?? null,
     topP: topP ?? null,
     toolChoice,
+    tools: tools.responseTools,
     parallelToolCalls,
     metadata,
     user,
     request: {
       id: options.id,
       model,
-      input: responseInputWithTemplate(input, templateOptions),
+      input: responseInputWithOptions(input, tools.selectedTools, templateOptions),
       sampling: {
         maxTokens: maxTokens.maxTokens,
         ...(temperature === undefined ? {} : { temperature }),

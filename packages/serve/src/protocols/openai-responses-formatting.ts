@@ -3,9 +3,13 @@
  * @module
  */
 
+import type { ChatToolCall } from "@mlxts/transformers";
 import type { GenerationUsage, NormalizedFinishReason, NormalizedGenerationResult } from "../types";
+import { stripGeneratedChatControlTokens } from "./openai-chat-completions";
+import { extractOpenAIChatToolCalls } from "./openai-chat-tool-calls";
 import type {
   NormalizedOpenAIResponse,
+  OpenAIResponseFunctionCallItem,
   OpenAIResponseObject,
   OpenAIResponseOutputItem,
   OpenAIResponseReasoningItem,
@@ -56,10 +60,40 @@ function pendingStatus(): Pick<
   };
 }
 
+type ParsedResponseOutput = {
+  items: OpenAIResponseOutputItem[];
+  outputText: string;
+};
+
+function hasToolOutputEnabled(response: NormalizedOpenAIResponse): boolean {
+  return (
+    (response.request.input.kind === "messages" || response.request.input.kind === "content") &&
+    response.request.input.tools !== undefined &&
+    response.request.input.tools.length > 0
+  );
+}
+
+function functionCallItem(
+  toolCall: ChatToolCall,
+  index: number,
+  options: { id: string },
+): OpenAIResponseFunctionCallItem {
+  const callId = toolCall.id ?? `call_${index + 1}`;
+  return {
+    id: `${options.id}-fc-${index + 1}`,
+    type: "function_call",
+    status: "completed",
+    call_id: callId,
+    name: toolCall.function.name,
+    arguments: toolCall.function.arguments,
+  };
+}
+
 function outputItems(
+  response: NormalizedOpenAIResponse,
   result: NormalizedGenerationResult,
   options: { id: string },
-): OpenAIResponseOutputItem[] {
+): ParsedResponseOutput {
   const reasoning: OpenAIResponseReasoningItem[] = [];
   if (result.reasoningContent !== undefined && result.reasoningContent.trim() !== "") {
     reasoning.push({
@@ -70,16 +104,30 @@ function outputItems(
       content: [{ type: "reasoning_text", text: result.reasoningContent }],
     });
   }
-  return [
-    ...reasoning,
-    {
-      id: `${options.id}-msg`,
-      type: "message",
-      status: "completed",
-      role: "assistant",
-      content: [{ type: "output_text", text: result.text, annotations: [] }],
-    },
-  ];
+  const extractedToolCalls = hasToolOutputEnabled(response)
+    ? extractOpenAIChatToolCalls(result.text)
+    : null;
+  const outputText = stripGeneratedChatControlTokens(extractedToolCalls?.content ?? result.text);
+  const messageItems: OpenAIResponseOutputItem[] =
+    outputText !== "" || (reasoning.length === 0 && extractedToolCalls === null)
+      ? [
+          {
+            id: `${options.id}-msg`,
+            type: "message",
+            status: "completed",
+            role: "assistant",
+            content: [{ type: "output_text", text: outputText, annotations: [] }],
+          },
+        ]
+      : [];
+  const toolItems =
+    extractedToolCalls?.toolCalls.map((toolCall, index) =>
+      functionCallItem(toolCall, index, options),
+    ) ?? [];
+  return {
+    outputText,
+    items: [...reasoning, ...messageItems, ...toolItems],
+  };
 }
 
 /** Format a generation result as an OpenAI Responses object. */
@@ -89,6 +137,7 @@ export function formatOpenAIResponse(
   options: { id: string; created: number },
 ): OpenAIResponseObject {
   const status = responseStatus(result.finishReason);
+  const output = outputItems(response, result, { id: options.id });
   return {
     id: options.id,
     object: "response",
@@ -100,8 +149,8 @@ export function formatOpenAIResponse(
     instructions: response.instructions,
     max_output_tokens: response.maxOutputTokens,
     model: response.model,
-    output: outputItems(result, { id: options.id }),
-    output_text: result.text,
+    output: output.items,
+    output_text: output.outputText,
     parallel_tool_calls: response.parallelToolCalls,
     previous_response_id: null,
     reasoning: { effort: null, summary: null },
@@ -109,7 +158,7 @@ export function formatOpenAIResponse(
     temperature: response.temperature,
     text: { format: { type: "text" } },
     tool_choice: response.toolChoice,
-    tools: [],
+    tools: [...response.tools],
     top_p: response.topP,
     truncation: "disabled",
     usage: responseUsage(result.usage),
@@ -144,7 +193,7 @@ export function formatOpenAIResponsePending(
     temperature: response.temperature,
     text: { format: { type: "text" } },
     tool_choice: response.toolChoice,
-    tools: [],
+    tools: [...response.tools],
     top_p: response.topP,
     truncation: "disabled",
     usage: null,

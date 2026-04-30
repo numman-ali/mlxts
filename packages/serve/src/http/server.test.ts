@@ -604,6 +604,120 @@ describe("serve fetch handler", () => {
     });
   });
 
+  test("routes OpenAI responses tools and returns function-call output items", async () => {
+    const seen: NormalizedGenerationRequest[] = [];
+    const engine: GenerationEngine = {
+      generate(normalized) {
+        seen.push(normalized);
+        return {
+          text: '<tool_call>{"name":"read_file","arguments":{"path":"README.md"}}</tool_call>',
+          finishReason: "stop",
+        };
+      },
+    };
+    const fetch = createFetchHandler({
+      engine,
+      idGenerator: () => "resp-tool",
+      now: () => new Date(123_000),
+    });
+
+    const response = await fetch(
+      request("/v1/responses", {
+        model: "tiny",
+        input: "Read README.md",
+        tools: [
+          {
+            type: "function",
+            name: "read_file",
+            parameters: {
+              type: "object",
+              properties: { path: { type: "string" } },
+              required: ["path"],
+            },
+          },
+        ],
+      }),
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(seen[0]).toMatchObject({
+      id: "resp-tool",
+      model: "tiny",
+      input: {
+        kind: "messages",
+        messages: [{ role: "user", content: "Read README.md" }],
+        tools: [
+          {
+            type: "function",
+            function: {
+              name: "read_file",
+              parameters: {
+                type: "object",
+                properties: { path: { type: "string" } },
+                required: ["path"],
+              },
+            },
+          },
+        ],
+      },
+      protocol: "openai.responses",
+    });
+    expect(body.output_text).toBe("");
+    expect(body.tools).toEqual([
+      {
+        type: "function",
+        name: "read_file",
+        parameters: {
+          type: "object",
+          properties: { path: { type: "string" } },
+          required: ["path"],
+        },
+      },
+    ]);
+    expect(body.output).toEqual([
+      {
+        id: "resp-tool-fc-1",
+        type: "function_call",
+        status: "completed",
+        call_id: "call_1",
+        name: "read_file",
+        arguments: '{"path":"README.md"}',
+      },
+    ]);
+  });
+
+  test("rejects OpenAI responses streaming tools before generation", async () => {
+    let invoked = false;
+    const fetch = createFetchHandler({
+      engine: {
+        generate() {
+          invoked = true;
+          return { text: "", finishReason: "stop" };
+        },
+        async *stream() {
+          invoked = true;
+          yield { type: "text", text: "" };
+        },
+      },
+    });
+
+    const response = await fetch(
+      request("/v1/responses", {
+        model: "tiny",
+        input: "Read README.md",
+        stream: true,
+        tools: [{ type: "function", name: "read_file" }],
+      }),
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(400);
+    expect(invoked).toBe(false);
+    expect(body.error.message).toContain("streaming function tools");
+    expect(body.error.param).toBe("stream");
+  });
+
   test("routes Anthropic messages through message input", async () => {
     const events: ServeEvent[] = [];
     const seen: NormalizedGenerationRequest[] = [];
