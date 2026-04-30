@@ -3,9 +3,14 @@ import { describe, expect, test } from "bun:test";
 import type { GenerationMemoryUsage } from "../src/types";
 import {
   assertLazyPoolPressureReport,
+  formatLazyPoolPressureError,
+  formatLazyPoolPressureSuccess,
+  formatLazyPoolPressureUsage,
+  type LazyPoolPressureOptions,
   type LazyPoolPressureReport,
   parseLazyPoolPressureArgs,
   pressureGpuMemoryUtilization,
+  runLazyPoolPressureRegressionCommand,
 } from "./regression-lazy-pool-pressure";
 
 const memory: GenerationMemoryUsage = {
@@ -14,6 +19,14 @@ const memory: GenerationMemoryUsage = {
   peakBytes: 0,
   limitBytes: 64 * 1024 * 1024 * 1024,
 };
+
+function parsedOptions(argv: readonly string[]): LazyPoolPressureOptions {
+  const command = parseLazyPoolPressureArgs(argv);
+  if (command.kind !== "run") {
+    throw new Error("expected run command");
+  }
+  return command.options;
+}
 
 function report(overrides: Partial<LazyPoolPressureReport> = {}): LazyPoolPressureReport {
   return {
@@ -80,19 +93,22 @@ function report(overrides: Partial<LazyPoolPressureReport> = {}): LazyPoolPressu
 describe("lazy pool pressure regression", () => {
   test("parses defaults and explicit smoke options", () => {
     expect(parseLazyPoolPressureArgs([])).toMatchObject({
-      qwenModel: "mlx-community/Qwen3.6-27B-4bit",
-      gemma4Model: "google/gemma-4-E2B-it",
-      reportDir: ".tmp/lazy-pool-pressure",
-      requestTimeoutMs: 3_600_000,
-      activeMaxTokens: 2048,
-      blockedMaxTokens: 8,
-      pressureReleaseTimeoutMs: 120_000,
-      budgetMultiplier: 1.05,
-      allowDownload: false,
+      kind: "run",
+      options: {
+        qwenModel: "mlx-community/Qwen3.6-27B-4bit",
+        gemma4Model: "google/gemma-4-E2B-it",
+        reportDir: ".tmp/lazy-pool-pressure",
+        requestTimeoutMs: 3_600_000,
+        activeMaxTokens: 2048,
+        blockedMaxTokens: 8,
+        pressureReleaseTimeoutMs: 120_000,
+        budgetMultiplier: 1.05,
+        allowDownload: false,
+      },
     });
 
     expect(
-      parseLazyPoolPressureArgs([
+      parsedOptions([
         "--qwen-model",
         "qwen",
         "--gemma4-model",
@@ -124,6 +140,11 @@ describe("lazy pool pressure regression", () => {
     });
   });
 
+  test("parses help without exiting", () => {
+    expect(parseLazyPoolPressureArgs(["--help"])).toEqual({ kind: "help" });
+    expect(parseLazyPoolPressureArgs(["-h"])).toEqual({ kind: "help" });
+  });
+
   test("rejects invalid option values", () => {
     expect(() => parseLazyPoolPressureArgs(["--request-timeout-ms", "0"])).toThrow(
       "--request-timeout-ms must be a positive integer",
@@ -137,6 +158,17 @@ describe("lazy pool pressure regression", () => {
     expect(() => parseLazyPoolPressureArgs(["--budget-multiplier", "1.1x"])).toThrow(
       "--budget-multiplier must be a positive number",
     );
+    expect(() => parseLazyPoolPressureArgs(["--qwen-model", "--gemma4-model"])).toThrow(
+      "--qwen-model requires a value",
+    );
+    expect(() => parseLazyPoolPressureArgs(["--qwen-model", ""])).toThrow(
+      "--qwen-model requires a value",
+    );
+    expect(() => parseLazyPoolPressureArgs(["--report-dir", ""])).toThrow(
+      "--report-dir requires a value",
+    );
+    expect(() => parseLazyPoolPressureArgs(["--unknown"])).toThrow('unknown option "--unknown"');
+    expect(() => parseLazyPoolPressureArgs(["extra"])).toThrow('unexpected argument "extra"');
   });
 
   test("computes a constrained memory fraction from model estimates", () => {
@@ -228,5 +260,98 @@ describe("lazy pool pressure regression", () => {
         }),
       ),
     ).toThrow("report missing memory snapshot after_pressure_event");
+  });
+
+  test("formats compact AXI success and error output", () => {
+    expect(formatLazyPoolPressureSuccess(".tmp/report.json", report())).toBe(
+      [
+        "lazy_pool_pressure:",
+        "  status: passed",
+        '  report_json: ".tmp/report.json"',
+        '  active_model: "gemma"',
+        '  blocked_model: "qwen"',
+        "  gpu_memory_utilization: 0.4",
+        "  pressure_events: 1",
+        "  aborted_requests: 1",
+        "  blocked_output_chars: 12",
+        "  metrics_lines: 1",
+      ].join("\n"),
+    );
+    expect(formatLazyPoolPressureError("bad flag", "rerun")).toBe(
+      ["error:", '  message: "bad flag"', 'help: "rerun"'].join("\n"),
+    );
+    expect(formatLazyPoolPressureError("bad\nflag", "rerun")).toContain("  message: |");
+  });
+
+  test("runs help, success, usage error, and runtime error paths with AXI stdout", async () => {
+    const helpStdout: string[] = [];
+    expect(
+      await runLazyPoolPressureRegressionCommand(["--help"], {
+        stdout: (text) => helpStdout.push(text),
+      }),
+    ).toBe(0);
+    expect(helpStdout.join("\n")).toBe(formatLazyPoolPressureUsage());
+
+    const stdout: string[] = [];
+    const stderr: string[] = [];
+    let lockDepth = 0;
+    expect(
+      await runLazyPoolPressureRegressionCommand(["--report-dir", ".tmp/custom"], {
+        stdout: (text) => stdout.push(text),
+        stderr: (text) => stderr.push(text),
+        acquireLock: () => {
+          lockDepth += 1;
+          return {
+            [Symbol.dispose]: () => {
+              lockDepth -= 1;
+            },
+          };
+        },
+        runRegression: async (options, progress) => {
+          expect(options.reportDir).toBe(".tmp/custom");
+          expect(lockDepth).toBe(1);
+          progress("lazy-pool-pressure: probe");
+          return { path: ".tmp/custom/lazy-pool-pressure.json", report: report() };
+        },
+      }),
+    ).toBe(0);
+    expect(lockDepth).toBe(0);
+    expect(stderr).toEqual(["lazy-pool-pressure: probe"]);
+    expect(stdout.join("\n")).toContain("lazy_pool_pressure:");
+
+    const usageStdout: string[] = [];
+    let usageLockCalls = 0;
+    expect(
+      await runLazyPoolPressureRegressionCommand(["--request-timeout-ms", "0"], {
+        stdout: (text) => usageStdout.push(text),
+        acquireLock: () => {
+          usageLockCalls += 1;
+          return { [Symbol.dispose]: () => undefined };
+        },
+      }),
+    ).toBe(2);
+    expect(usageLockCalls).toBe(0);
+    expect(usageStdout.join("\n")).toContain("--request-timeout-ms must be a positive integer");
+
+    const runtimeStdout: string[] = [];
+    let runtimeLockDepth = 0;
+    expect(
+      await runLazyPoolPressureRegressionCommand([], {
+        stdout: (text) => runtimeStdout.push(text),
+        acquireLock: () => {
+          runtimeLockDepth += 1;
+          return {
+            [Symbol.dispose]: () => {
+              runtimeLockDepth -= 1;
+            },
+          };
+        },
+        runRegression: async () => {
+          throw new Error("lazy pool failed");
+        },
+      }),
+    ).toBe(1);
+    expect(runtimeLockDepth).toBe(0);
+    expect(runtimeStdout.join("\n")).toContain("lazy pool failed");
   });
 });

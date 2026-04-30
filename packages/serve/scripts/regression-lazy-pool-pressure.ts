@@ -10,7 +10,7 @@ import { serveModels } from "../src/model-loading/sources";
 import { readGenerationMemoryUsage } from "../src/runtime/memory";
 import type { GenerationMemoryUsage, ServeEvent } from "../src/types";
 
-type CliOptions = {
+export type LazyPoolPressureOptions = {
   qwenModel: string;
   gemma4Model: string;
   reportDir: string;
@@ -20,6 +20,22 @@ type CliOptions = {
   pressureReleaseTimeoutMs: number;
   budgetMultiplier: number;
   allowDownload: boolean;
+};
+
+type LazyPoolPressureCommand = { kind: "help" } | { kind: "run"; options: LazyPoolPressureOptions };
+
+type RuntimeLock = {
+  [Symbol.dispose](): void;
+};
+
+type LazyPoolPressureRuntime = {
+  stdout?: (text: string) => void;
+  stderr?: (text: string) => void;
+  acquireLock?: () => RuntimeLock;
+  runRegression?: (
+    options: LazyPoolPressureOptions,
+    progress: (text: string) => void,
+  ) => Promise<{ path: string; report: LazyPoolPressureReport }>;
 };
 
 type RecordedServeEvent = ServeEvent & { observedAtMs: number };
@@ -119,24 +135,33 @@ const ACTIVE_MODEL_ID = "gemma-pressure-active";
 const BLOCKED_MODEL_ID = "qwen-pressure-blocked";
 const MIN_BUDGET_MARGIN_BYTES = 512 * 1024 * 1024;
 
-function usage(): string {
+class LazyPoolPressureUsageError extends Error {}
+
+export function formatLazyPoolPressureUsage(): string {
   return [
-    "Usage: bun run regression:lazy-pool-pressure -- [options]",
-    "",
-    "Options:",
-    "  --qwen-model <id>                    Qwen model id/path used as the blocked load.",
-    "  --gemma4-model <id>                  Gemma model id/path used as the active request.",
-    "  --report-dir <path>                  Directory for JSON evidence.",
-    "  --request-timeout-ms <n>             Timeout for endpoint requests.",
-    "  --active-max-tokens <n>              Tokens for the active streaming request.",
-    "  --blocked-max-tokens <n>             Tokens for the blocked retry request.",
-    "  --pressure-release-timeout-ms <n>    Lazy-pool release wait.",
-    "  --budget-multiplier <n>              Multiplier over the larger model-load estimate.",
-    "  --allow-download                     Allow Hub downloads; default is cached/local only.",
+    "description: Run the @mlxts/serve lazy model-pool pressure regression",
+    "usage[2]:",
+    "  bun run regression:lazy-pool-pressure",
+    "  bun run regression:lazy-pool-pressure -- --report-dir .tmp/lazy-pool-pressure-real",
+    "options[10]{flag,description}:",
+    '  "--qwen-model <id>","Qwen model id/path used as the blocked load"',
+    '  "--gemma4-model <id>","Gemma model id/path used as the active request"',
+    '  "--report-dir <path>","Directory for JSON evidence; default .tmp/lazy-pool-pressure"',
+    '  "--request-timeout-ms <n>","Timeout for endpoint requests; default 3600000"',
+    '  "--active-max-tokens <n>","Tokens for the active streaming request; default 2048"',
+    '  "--blocked-max-tokens <n>","Tokens for the blocked retry request; default 8"',
+    '  "--pressure-release-timeout-ms <n>","Lazy-pool release wait; default 120000"',
+    '  "--budget-multiplier <n>","Multiplier over the larger model-load estimate; default 1.05"',
+    '  "--allow-download","Allow Hub downloads; default is cached/local only"',
+    '  "--help","Show this help"',
+    "exit_codes[3]{code,meaning}:",
+    '  0,"regression passed"',
+    '  1,"runtime or regression failure"',
+    '  2,"usage error"',
   ].join("\n");
 }
 
-function defaultOptions(): CliOptions {
+function defaultOptions(): LazyPoolPressureOptions {
   return {
     qwenModel: "mlx-community/Qwen3.6-27B-4bit",
     gemma4Model: "google/gemma-4-E2B-it",
@@ -152,8 +177,8 @@ function defaultOptions(): CliOptions {
 
 function readStringFlag(args: readonly string[], index: number, flag: string): string {
   const value = args[index + 1];
-  if (value === undefined || value.startsWith("--")) {
-    throw new Error(`${flag} requires a value.\n\n${usage()}`);
+  if (value === undefined || value.trim() === "" || value.startsWith("-")) {
+    throw new LazyPoolPressureUsageError(`${flag} requires a value.`);
   }
   return value;
 }
@@ -161,7 +186,7 @@ function readStringFlag(args: readonly string[], index: number, flag: string): s
 function readPositiveIntegerFlag(args: readonly string[], index: number, flag: string): number {
   const raw = readStringFlag(args, index, flag);
   if (!/^[1-9]\d*$/.test(raw)) {
-    throw new Error(`${flag} must be a positive integer.`);
+    throw new LazyPoolPressureUsageError(`${flag} must be a positive integer.`);
   }
   return Number.parseInt(raw, 10);
 }
@@ -169,26 +194,30 @@ function readPositiveIntegerFlag(args: readonly string[], index: number, flag: s
 function readPositiveNumberFlag(args: readonly string[], index: number, flag: string): number {
   const raw = readStringFlag(args, index, flag);
   if (!/^(?:[1-9]\d*|0?\.\d+|[1-9]\d*\.\d+)$/.test(raw)) {
-    throw new Error(`${flag} must be a positive number.`);
+    throw new LazyPoolPressureUsageError(`${flag} must be a positive number.`);
   }
   const value = Number.parseFloat(raw);
   if (!Number.isFinite(value) || value <= 0) {
-    throw new Error(`${flag} must be a positive number.`);
+    throw new LazyPoolPressureUsageError(`${flag} must be a positive number.`);
   }
   return value;
 }
 
-export function parseLazyPoolPressureArgs(argv: readonly string[]): CliOptions {
+export function parseLazyPoolPressureArgs(argv: readonly string[]): LazyPoolPressureCommand {
+  if (argv.length === 1 && (argv[0] === "--help" || argv[0] === "-h")) {
+    return { kind: "help" };
+  }
   const options = defaultOptions();
 
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
+    if (arg === undefined) {
+      throw new LazyPoolPressureUsageError("argument parsing reached an empty slot.");
+    }
     switch (arg) {
       case "--help":
       case "-h":
-        console.log(usage());
-        process.exit(0);
-        return options;
+        return { kind: "help" };
       case "--qwen-model":
         options.qwenModel = readStringFlag(argv, index, arg);
         index += 1;
@@ -225,11 +254,13 @@ export function parseLazyPoolPressureArgs(argv: readonly string[]): CliOptions {
         options.allowDownload = true;
         break;
       default:
-        throw new Error(`Unknown option: ${arg}\n\n${usage()}`);
+        throw new LazyPoolPressureUsageError(
+          arg.startsWith("-") ? `unknown option "${arg}".` : `unexpected argument "${arg}".`,
+        );
     }
   }
 
-  return options;
+  return { kind: "run", options };
 }
 
 export function pressureGpuMemoryUtilization(options: {
@@ -589,12 +620,28 @@ async function writeReport(reportDir: string, report: LazyPoolPressureReport): P
   return path;
 }
 
-function formatSuccess(reportPath: string, report: LazyPoolPressureReport): string {
+function toon(value: string | number | boolean | null): string {
+  return typeof value === "string" ? JSON.stringify(value) : String(value);
+}
+
+function formatMultilineField(name: string, value: string): string[] {
+  const lines = value.split(/\r?\n/);
+  if (lines.length === 1) {
+    return [`  ${name}: ${toon(value)}`];
+  }
+  return [`  ${name}: |`, ...lines.map((line) => `    ${line}`)];
+}
+
+export function formatLazyPoolPressureSuccess(
+  reportPath: string,
+  report: LazyPoolPressureReport,
+): string {
   return [
     "lazy_pool_pressure:",
-    `  report: ${reportPath}`,
-    `  active_model: ${report.activeModel}`,
-    `  blocked_model: ${report.blockedModel}`,
+    "  status: passed",
+    `  report_json: ${toon(reportPath)}`,
+    `  active_model: ${toon(report.activeModel)}`,
+    `  blocked_model: ${toon(report.blockedModel)}`,
     `  gpu_memory_utilization: ${report.gpuMemoryUtilization}`,
     `  pressure_events: ${report.pressure.events}`,
     `  aborted_requests: ${report.pressure.abortedRequestIds.length}`,
@@ -603,9 +650,8 @@ function formatSuccess(reportPath: string, report: LazyPoolPressureReport): stri
   ].join("\n");
 }
 
-function formatError(error: unknown): string {
-  const message = error instanceof Error ? error.message : String(error);
-  return [`error: ${message}`, "help: bun run regression:lazy-pool-pressure -- --help"].join("\n");
+export function formatLazyPoolPressureError(message: string, help: string): string {
+  return ["error:", ...formatMultilineField("message", message), `help: ${toon(help)}`].join("\n");
 }
 
 export function readLazyPoolPressureReport(path: string): LazyPoolPressureReport {
@@ -613,7 +659,8 @@ export function readLazyPoolPressureReport(path: string): LazyPoolPressureReport
 }
 
 export async function runLazyPoolPressureRegression(
-  options: CliOptions,
+  options: LazyPoolPressureOptions,
+  progress: (text: string) => void = console.error,
 ): Promise<{ path: string; report: LazyPoolPressureReport }> {
   clearMemoryCache();
   resetPeakMemory();
@@ -670,7 +717,7 @@ export async function runLazyPoolPressureRegression(
   }
 
   try {
-    console.error("lazy-pool-pressure: starting active Gemma stream");
+    progress("lazy-pool-pressure: starting active Gemma stream");
     const active = await startStreamingProbe(
       server.endpoint,
       ACTIVE_MODEL_ID,
@@ -679,7 +726,7 @@ export async function runLazyPoolPressureRegression(
     );
     await active.firstChunk;
     memorySnapshots.push(requireMemorySnapshot("after_active_first_chunk", startedAt));
-    console.error("lazy-pool-pressure: triggering blocked Qwen load");
+    progress("lazy-pool-pressure: triggering blocked Qwen load");
     const blocked = await runChatProbe(
       server.endpoint,
       BLOCKED_MODEL_ID,
@@ -719,17 +766,51 @@ export async function runLazyPoolPressureRegression(
   }
 }
 
-async function runLockedLazyPoolPressureRegression(argv: readonly string[]) {
-  const options = parseLazyPoolPressureArgs(argv);
-  using _runtimeLock = acquireRuntimeCommandLock("regression:lazy-pool-pressure");
-  return runLazyPoolPressureRegression(options);
+export async function runLazyPoolPressureRegressionCommand(
+  argv: readonly string[],
+  runtime: LazyPoolPressureRuntime = {},
+): Promise<number> {
+  const stdout = runtime.stdout ?? console.log;
+  const stderr = runtime.stderr ?? console.error;
+  const acquireLock =
+    runtime.acquireLock ?? (() => acquireRuntimeCommandLock("regression:lazy-pool-pressure"));
+  const runRegression = runtime.runRegression ?? runLazyPoolPressureRegression;
+  let command: LazyPoolPressureCommand;
+
+  try {
+    command = parseLazyPoolPressureArgs(argv);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    stdout(formatLazyPoolPressureError(message, "bun run regression:lazy-pool-pressure -- --help"));
+    return error instanceof LazyPoolPressureUsageError ? 2 : 1;
+  }
+
+  if (command.kind === "help") {
+    stdout(formatLazyPoolPressureUsage());
+    return 0;
+  }
+
+  let lock: RuntimeLock | undefined;
+  try {
+    lock = acquireLock();
+    const { path, report } = await runRegression(command.options, stderr);
+    stdout(formatLazyPoolPressureSuccess(path, report));
+    return 0;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    stdout(
+      formatLazyPoolPressureError(
+        message,
+        "inspect .tmp/lazy-pool-pressure/lazy-pool-pressure.json or rerun with a smaller --active-max-tokens value",
+      ),
+    );
+    return 1;
+  } finally {
+    lock?.[Symbol.dispose]();
+  }
 }
 
 if (import.meta.main) {
-  runLockedLazyPoolPressureRegression(Bun.argv.slice(2))
-    .then(({ path, report }) => console.log(formatSuccess(path, report)))
-    .catch((error) => {
-      console.log(formatError(error));
-      process.exit(1);
-    });
+  const exitCode = await runLazyPoolPressureRegressionCommand(Bun.argv.slice(2));
+  process.exit(exitCode);
 }
