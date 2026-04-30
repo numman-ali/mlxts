@@ -35,6 +35,7 @@ export {
   fluxLatentShape,
   generateFluxImage,
 } from "./families/flux/pipeline";
+export { FluxTransformer2DModel } from "./families/flux/transformer";
 export {
   StableDiffusionAutoencoderKL,
   StableDiffusionVaeDecoder,

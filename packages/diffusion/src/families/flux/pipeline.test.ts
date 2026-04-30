@@ -157,8 +157,8 @@ describe("Flux tensor pipeline contract", () => {
     expect(denoiser.calls[0]?.pooledShape).toEqual([1, 7]);
     expect(denoiser.calls[0]?.timestepShape).toEqual([1]);
     expect(denoiser.calls[0]?.guidanceShape).toEqual([1]);
-    expectTensorClose(denoiser.calls[0]?.timestepValues ?? [], [expectedSteps[0]?.timestep ?? -1]);
-    expectTensorClose(denoiser.calls[1]?.timestepValues ?? [], [expectedSteps[1]?.timestep ?? -1]);
+    expectTensorClose(denoiser.calls[0]?.timestepValues ?? [], [expectedSteps[0]?.sigma ?? -1]);
+    expectTensorClose(denoiser.calls[1]?.timestepValues ?? [], [expectedSteps[1]?.sigma ?? -1]);
   });
 
   test("denoising rejects cache-shape mismatches before calling the denoiser", () => {

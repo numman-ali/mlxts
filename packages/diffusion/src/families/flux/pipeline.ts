@@ -249,7 +249,7 @@ function predictVelocity(
   batchSize: number,
 ): MxArray {
   using scaledLatents = options.scheduler.scaleModelInput(latents);
-  using timestep = full([batchSize], step.timestep, scaledLatents.dtype);
+  using timestep = full([batchSize], step.sigma, scaledLatents.dtype);
   return options.denoiser.forward(
     makeDenoiserInput(options, scaledLatents, imageIds, textIds, timestep),
   );
