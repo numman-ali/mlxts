@@ -74,7 +74,7 @@ type ResolvedServeModelsOptions = Omit<
 type ResolvedServeModelsRuntimeOptions = Omit<ResolvedServeModelsOptions, "models">;
 type PromptPrefixCacheRetentionOption = Pick<
   ResolvedServeModelsRuntimeOptions,
-  "promptPrefixCacheMaxEntries"
+  "promptPrefixCacheMaxEntries" | "promptPrefixCacheMaxBytes"
 >;
 
 function requireNonEmpty(name: string, value: string): string {
@@ -145,9 +145,16 @@ function resolveSourceEntry(
 }
 
 function promptPrefixCacheRetentionOption(
-  value: number | undefined,
+  options: ServeModelsOptions,
 ): PromptPrefixCacheRetentionOption {
-  return value === undefined ? {} : { promptPrefixCacheMaxEntries: value };
+  return {
+    ...(options.promptPrefixCacheMaxEntries === undefined
+      ? {}
+      : { promptPrefixCacheMaxEntries: options.promptPrefixCacheMaxEntries }),
+    ...(options.promptPrefixCacheMaxBytes === undefined
+      ? {}
+      : { promptPrefixCacheMaxBytes: options.promptPrefixCacheMaxBytes }),
+  };
 }
 
 function resolveServeModelsRuntimeOptions(
@@ -176,7 +183,7 @@ function resolveServeModelsRuntimeOptions(
     ...(options.maxConcurrentRequests === undefined
       ? {}
       : { maxConcurrentRequests: options.maxConcurrentRequests }),
-    ...promptPrefixCacheRetentionOption(options.promptPrefixCacheMaxEntries),
+    ...promptPrefixCacheRetentionOption(options),
     ...(options.gpuMemoryUtilization === undefined
       ? {}
       : { gpuMemoryUtilization: options.gpuMemoryUtilization }),

@@ -35,9 +35,10 @@ text endpoints while benchmark and scheduler work continues.
   tokens.
 - **Prompt-prefix cache retention**: serve keeps the default at one retained
   prompt-boundary snapshot per served model, but `promptPrefixCacheMaxEntries`
-  and `--prompt-prefix-cache-max-entries` now let operators retain multiple
-  divergent repeated-turn prefixes without changing family-owned snapshot/fork
-  cache semantics.
+  / `--prompt-prefix-cache-max-entries` and `promptPrefixCacheMaxBytes` /
+  `--prompt-prefix-cache-max-bytes` now bound retained snapshots by count and
+  estimated tensor bytes without changing family-owned snapshot/fork cache
+  semantics.
 - **Continuous memory admission**: continuous serving uses the existing
   model-level reservation controller for prompt, completion, aggregate total,
   and estimated memory pressure. Memory estimation remains serve-owned and
@@ -108,6 +109,12 @@ Full evidence ladder lives in
   `bun run regression:qwen-gemma -- --profile quick`. Default retention remains
   one snapshot, so existing real-regression prompt-cache requirements stay
   unchanged.
+- Prompt-prefix cache byte-budget retention passed focused serve/transformer
+  cache tests (`113 pass`), `bun run typecheck`, and
+  `bun run regression:qwen-gemma -- --profile quick` (`84` transformer focused
+  tests and `205` serve focused tests). `estimatedByteSize` is now exposed on
+  cache snapshots, and serve can dispose over-budget prompt-boundary snapshots
+  instead of retaining them.
 - Gemma 4 A4B MoE proof passed against the cached
   `mlx-community/gemma-4-26b-a4b-it-4bit` snapshot. Transformer decode at
   `128x128` reported `generation_tps=108.604`, `evals_per_token=1.00`, and
@@ -136,9 +143,9 @@ Full evidence ladder lives in
   trimmability metadata. Serve retains prompt-token block chains with
   ref-counted deduplication and uses a block-hash index to narrow lookup
   candidates before the existing LCP and family-owned `canFork()` gate. The
-  served retention limit is now an explicit runtime/CLI knob. Paged attention,
-  byte-budgeted eviction, and cache-tensor block deduplication remain later
-  cache-backend work.
+  served retention limits are explicit runtime/CLI knobs by entry count and
+  estimated retained snapshot bytes. Paged attention and cache-tensor block
+  deduplication remain later cache-backend work.
 - Next memory work is multi-model pool management: model-load estimates, idle
   eviction, pinned models, and active-request abort policy when one loaded model
   needs to shed KV pressure.

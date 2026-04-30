@@ -200,6 +200,7 @@ describe("Transformer caches", () => {
 
     using snapshot = cache.snapshot();
     expect(snapshot.offset).toBe(3);
+    expect(snapshot.estimatedByteSize).toBe(24);
     expect(snapshot.trimmable).toBe(true);
     expect(snapshot.canFork({ offset: 2 })).toBe(true);
 
@@ -248,6 +249,7 @@ describe("Transformer caches", () => {
 
     using snapshot = cache.snapshot();
     expect(snapshot.offset).toBe(3);
+    expect(snapshot.estimatedByteSize).toBe(16);
     expect(snapshot.trimmable).toBe(false);
     expect(snapshot.canFork()).toBe(true);
     expect(snapshot.canFork({ offset: 2 })).toBe(false);
@@ -282,6 +284,7 @@ describe("Transformer caches", () => {
 
     expect(cache.isTrimmable()).toBe(false);
     using snapshot = cache.snapshot();
+    expect(snapshot.estimatedByteSize).toBe(40);
     expect(snapshot.trimmable).toBe(false);
     expect(snapshot.canFork()).toBe(true);
     expect(snapshot.canFork({ offset: 2 })).toBe(false);

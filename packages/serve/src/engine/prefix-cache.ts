@@ -4,7 +4,6 @@
  */
 
 import type {
-  CacheLayerKind,
   GenerationOptions,
   PromptCacheSnapshotEvent,
   TransformerCache,
@@ -13,30 +12,29 @@ import type {
 import {
   type PromptPrefixTokenBlockHandle,
   type PromptPrefixTokenBlockHasher,
-  type PromptPrefixTokenBlockMetadata,
   type PromptPrefixTokenBlockStats,
   PromptPrefixTokenBlockStore,
 } from "./prefix-cache-blocks";
+import {
+  clonePromptPrefixCacheIdentity,
+  commonPrefixLength,
+  disposePromptPrefixCacheEntry,
+  type PromptPrefixCacheEntry,
+  type PromptPrefixCacheEntryMetadata,
+  type PromptPrefixCacheIdentity,
+  type PromptPrefixCacheMatchType,
+  promptPrefixCacheEntryMetadata,
+  promptPrefixCacheIdentitiesCompatible,
+  promptPrefixCacheMatchTypeFor,
+  shouldEvictPromptPrefixCacheEntry,
+} from "./prefix-cache-entry";
 import { PromptPrefixCacheBlockIndex } from "./prefix-cache-index";
 
-/** Cache-match shape used by serving policy and future block-prefix stores. */
-export type PromptPrefixCacheMatchType = "exact" | "prefix" | "supersequence" | "lcp";
-
-/** Source snapshot metadata for a prompt-prefix cache hit. */
-export type PromptPrefixCacheEntryMetadata = {
-  /** Stored reusable prompt-token count for the source snapshot. */
-  tokenLength: number;
-  /** Logical cache offset represented by the source snapshot. */
-  snapshotOffset: number;
-  /** Per-layer cache kinds exposed by the source snapshot. */
-  layerKinds: readonly CacheLayerKind[];
-  /** Whether the source snapshot can restore offsets before its full length. */
-  trimmable: boolean;
-  /** Non-token prompt identity attached to the source snapshot. */
-  identity?: PromptPrefixCacheIdentity;
-  /** Token-block chain retained for this source snapshot. */
-  tokenBlocks: PromptPrefixTokenBlockMetadata;
-};
+export type {
+  PromptPrefixCacheEntryMetadata,
+  PromptPrefixCacheIdentity,
+  PromptPrefixCacheMatchType,
+} from "./prefix-cache-entry";
 
 export type PromptPrefixCacheHit = {
   /** Forked cache owned by the caller. Dispose it when generation finishes. */
@@ -58,6 +56,8 @@ export type PromptPrefixCacheUsage = {
 export type PromptPrefixCacheStats = {
   /** Retained prompt-boundary snapshots. */
   entries: number;
+  /** Estimated retained tensor bytes across all prompt-boundary snapshots. */
+  retainedSnapshotBytes: number;
   /** Indexed block hashes that currently point at retained entries. */
   indexedBlockHashes: number;
   /** Shared token-block retention counters. */
@@ -68,16 +68,12 @@ export type PromptPrefixCacheStats = {
 export type PromptPrefixCacheOptions = {
   /** Maximum retained prompt-boundary snapshots. */
   maxEntries?: number;
+  /** Maximum estimated retained tensor bytes across retained snapshots. */
+  maxBytes?: number;
   /** Token count per retained prompt-token block. */
   blockSize?: number;
   /** Custom token-block hash seam for deterministic cache-index tests. */
   hashBlock?: PromptPrefixTokenBlockHasher;
-};
-
-/** Non-token prompt identity required for safe multimodal prefix-cache reuse. */
-export type PromptPrefixCacheIdentity = {
-  /** Ordered non-token prompt inputs that affect the cached decoder state. */
-  contentKeys: readonly string[];
 };
 
 type PromptPrefixCacheSessionOptions = {
@@ -102,101 +98,7 @@ export type PromptPrefixCacheSession = Disposable & {
   usage(): PromptPrefixCacheUsage;
 };
 
-type PromptPrefixCacheEntry = {
-  tokenIds: number[];
-  identity?: PromptPrefixCacheIdentity;
-  snapshot: TransformerCacheSnapshot;
-  tokenBlocks: PromptPrefixTokenBlockHandle;
-  lastUsed: number;
-};
-
 const DEFAULT_MAX_ENTRIES = 1;
-
-function commonPrefixLength(left: readonly number[], right: readonly number[]): number {
-  const limit = Math.min(left.length, right.length);
-  let index = 0;
-  while (index < limit && left[index] === right[index]) {
-    index += 1;
-  }
-  return index;
-}
-
-function cloneIdentity(identity: PromptPrefixCacheIdentity): PromptPrefixCacheIdentity {
-  return { contentKeys: [...identity.contentKeys] };
-}
-
-function contentKeysMatchPrefix(
-  entryKeys: readonly string[],
-  requestedKeys: readonly string[],
-): boolean {
-  if (entryKeys.length > requestedKeys.length) {
-    return false;
-  }
-  for (let index = 0; index < entryKeys.length; index += 1) {
-    if (entryKeys[index] !== requestedKeys[index]) {
-      return false;
-    }
-  }
-  return true;
-}
-
-function identitiesCompatible(
-  entry: PromptPrefixCacheEntry,
-  requestedIdentity: PromptPrefixCacheIdentity | undefined,
-  sharedTokens: number,
-): boolean {
-  if (entry.identity === undefined || requestedIdentity === undefined) {
-    return entry.identity === undefined && requestedIdentity === undefined;
-  }
-
-  return (
-    sharedTokens === entry.tokenIds.length &&
-    contentKeysMatchPrefix(entry.identity.contentKeys, requestedIdentity.contentKeys)
-  );
-}
-
-function disposeEntry(entry: PromptPrefixCacheEntry): void {
-  try {
-    entry.snapshot[Symbol.dispose]();
-  } finally {
-    entry.tokenBlocks[Symbol.dispose]();
-  }
-}
-
-function shouldEvict(candidate: PromptPrefixCacheEntry, current: PromptPrefixCacheEntry): boolean {
-  if (candidate.tokenIds.length !== current.tokenIds.length) {
-    return candidate.tokenIds.length < current.tokenIds.length;
-  }
-  return candidate.lastUsed < current.lastUsed;
-}
-
-function matchTypeFor(
-  entryTokenLength: number,
-  maxReusableTokens: number,
-  sharedTokens: number,
-): PromptPrefixCacheMatchType {
-  if (sharedTokens === entryTokenLength && sharedTokens === maxReusableTokens) {
-    return "exact";
-  }
-  if (sharedTokens === entryTokenLength) {
-    return "prefix";
-  }
-  if (sharedTokens === maxReusableTokens) {
-    return "supersequence";
-  }
-  return "lcp";
-}
-
-function entryMetadata(entry: PromptPrefixCacheEntry): PromptPrefixCacheEntryMetadata {
-  return {
-    tokenLength: entry.tokenIds.length,
-    snapshotOffset: entry.snapshot.offset,
-    layerKinds: [...entry.snapshot.layerKinds],
-    trimmable: entry.snapshot.trimmable,
-    ...(entry.identity === undefined ? {} : { identity: cloneIdentity(entry.identity) }),
-    tokenBlocks: entry.tokenBlocks.metadata(),
-  };
-}
 
 function maxEntriesFromOptions(options: number | PromptPrefixCacheOptions): number {
   return typeof options === "number" ? options : (options.maxEntries ?? DEFAULT_MAX_ENTRIES);
@@ -206,12 +108,18 @@ function blockSizeFromOptions(options: number | PromptPrefixCacheOptions): numbe
   return typeof options === "number" ? 64 : (options.blockSize ?? 64);
 }
 
+function maxBytesFromOptions(options: number | PromptPrefixCacheOptions): number | undefined {
+  return typeof options === "number" ? undefined : options.maxBytes;
+}
+
 /** Small prompt-boundary snapshot store for repeated local chat turns. */
 export class PromptPrefixCache implements Disposable {
   readonly #maxEntries: number;
+  readonly #maxBytes: number | undefined;
   readonly #blockStore: PromptPrefixTokenBlockStore;
   readonly #blockIndex: PromptPrefixCacheBlockIndex<PromptPrefixCacheEntry>;
   #entries: PromptPrefixCacheEntry[] = [];
+  #retainedSnapshotBytes = 0;
   #clock = 0;
 
   constructor(options: number | PromptPrefixCacheOptions = DEFAULT_MAX_ENTRIES) {
@@ -222,6 +130,13 @@ export class PromptPrefixCache implements Disposable {
       );
     }
     this.#maxEntries = maxEntries;
+    const maxBytes = maxBytesFromOptions(options);
+    if (maxBytes !== undefined && (!Number.isInteger(maxBytes) || maxBytes < 0)) {
+      throw new Error(
+        `PromptPrefixCache: maxBytes must be a non-negative integer when provided, got ${maxBytes}.`,
+      );
+    }
+    this.#maxBytes = maxBytes;
     const blockSize = blockSizeFromOptions(options);
     this.#blockStore =
       typeof options === "number" || options.hashBlock === undefined
@@ -273,8 +188,12 @@ export class PromptPrefixCache implements Disposable {
     return {
       cache,
       readTokens: bestHit.readTokens,
-      matchType: matchTypeFor(bestHit.entry.tokenIds.length, maxReusableTokens, bestHit.readTokens),
-      source: entryMetadata(bestHit.entry),
+      matchType: promptPrefixCacheMatchTypeFor(
+        bestHit.entry.tokenIds.length,
+        maxReusableTokens,
+        bestHit.readTokens,
+      ),
+      source: promptPrefixCacheEntryMetadata(bestHit.entry),
     };
   }
 
@@ -294,7 +213,7 @@ export class PromptPrefixCache implements Disposable {
       );
       if (
         sharedTokens <= bestReadTokens ||
-        !identitiesCompatible(entry, identity, sharedTokens) ||
+        !promptPrefixCacheIdentitiesCompatible(entry, identity, sharedTokens) ||
         !entry.snapshot.canFork({ offset: sharedTokens })
       ) {
         continue;
@@ -326,6 +245,10 @@ export class PromptPrefixCache implements Disposable {
         `PromptPrefixCache.store: snapshot offset ${snapshot.offset} exceeds reusable prompt boundary ${tokenIds.length - 1}.`,
       );
     }
+    if (this.#maxBytes !== undefined && snapshot.estimatedByteSize > this.#maxBytes) {
+      snapshot[Symbol.dispose]();
+      return 0;
+    }
 
     const entryTokenIds = tokenIds.slice(0, snapshot.offset);
     let tokenBlocks: PromptPrefixTokenBlockHandle;
@@ -337,12 +260,14 @@ export class PromptPrefixCache implements Disposable {
     }
     const entry: PromptPrefixCacheEntry = {
       tokenIds: entryTokenIds,
-      ...(identity === undefined ? {} : { identity: cloneIdentity(identity) }),
+      estimatedByteSize: snapshot.estimatedByteSize,
+      ...(identity === undefined ? {} : { identity: clonePromptPrefixCacheIdentity(identity) }),
       snapshot,
       tokenBlocks,
       lastUsed: ++this.#clock,
     };
     this.#entries.push(entry);
+    this.#retainedSnapshotBytes += entry.estimatedByteSize;
     this.#blockIndex.add(entry);
     this.#evictOverflow();
     return entry.tokenIds.length;
@@ -353,6 +278,7 @@ export class PromptPrefixCache implements Disposable {
       this.#disposeEntry(entry);
     }
     this.#entries = [];
+    this.#retainedSnapshotBytes = 0;
     this.#blockIndex.clear();
   }
 
@@ -360,6 +286,7 @@ export class PromptPrefixCache implements Disposable {
   stats(): PromptPrefixCacheStats {
     return {
       entries: this.#entries.length,
+      retainedSnapshotBytes: this.#retainedSnapshotBytes,
       indexedBlockHashes: this.#blockIndex.size,
       tokenBlocks: this.#blockStore.stats(),
     };
@@ -367,16 +294,27 @@ export class PromptPrefixCache implements Disposable {
 
   #disposeEntry(entry: PromptPrefixCacheEntry): void {
     this.#blockIndex.delete(entry);
-    disposeEntry(entry);
+    this.#retainedSnapshotBytes = Math.max(
+      0,
+      this.#retainedSnapshotBytes - entry.estimatedByteSize,
+    );
+    disposePromptPrefixCacheEntry(entry);
   }
 
   #evictOverflow(): void {
-    while (this.#entries.length > this.#maxEntries) {
+    while (
+      this.#entries.length > this.#maxEntries ||
+      (this.#maxBytes !== undefined && this.#retainedSnapshotBytes > this.#maxBytes)
+    ) {
       let evictionIndex = 0;
       for (let index = 1; index < this.#entries.length; index += 1) {
         const candidate = this.#entries[index];
         const current = this.#entries[evictionIndex];
-        if (candidate !== undefined && current !== undefined && shouldEvict(candidate, current)) {
+        if (
+          candidate !== undefined &&
+          current !== undefined &&
+          shouldEvictPromptPrefixCacheEntry(candidate, current)
+        ) {
           evictionIndex = index;
         }
       }
@@ -435,7 +373,8 @@ class ActivePromptPrefixCacheSession implements PromptPrefixCacheSession {
     }
     this.#promptCache = options.promptCache;
     this.#tokenIds = options.tokenIds;
-    this.#identity = options.identity === undefined ? undefined : cloneIdentity(options.identity);
+    this.#identity =
+      options.identity === undefined ? undefined : clonePromptPrefixCacheIdentity(options.identity);
     this.#cache = hit?.cache ?? null;
     this.#readTokens = hit?.readTokens ?? 0;
     this.#onEvent = options.onEvent;

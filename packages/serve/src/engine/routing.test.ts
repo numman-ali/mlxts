@@ -49,6 +49,7 @@ class RoutingTokenizer implements Tokenizer {
 
 class RoutingCacheSnapshot implements TransformerCacheSnapshot {
   readonly offset: number;
+  readonly estimatedByteSize = 0;
   readonly layerKinds: readonly CacheLayerKind[];
   readonly trimmable = true;
 

@@ -130,6 +130,8 @@ export type TransformerCacheForkOptions = {
 export interface TransformerCacheSnapshot extends Disposable {
   /** Logical token offset represented by this snapshot. */
   readonly offset: number;
+  /** Estimated retained tensor bytes owned by this snapshot. */
+  readonly estimatedByteSize: number;
   /** Per-decoder-layer semantic cache state kind. */
   readonly layerKinds: readonly CacheLayerKind[];
   /** Whether this snapshot can fork at earlier offsets as well as its full offset. */

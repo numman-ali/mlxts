@@ -51,10 +51,12 @@ type FakeSnapshotOptions = {
   exactForkOnly?: boolean;
   layerKinds?: readonly CacheLayerKind[];
   trimmable?: boolean;
+  estimatedByteSize?: number;
 };
 
 class FakeSnapshot implements TransformerCacheSnapshot {
   readonly offset: number;
+  readonly estimatedByteSize: number;
   readonly layerKinds: readonly CacheLayerKind[];
   readonly trimmable: boolean;
   readonly maxForkOffset: number;
@@ -69,6 +71,7 @@ class FakeSnapshot implements TransformerCacheSnapshot {
       this.exactForkOnly = false;
       this.layerKinds = [];
       this.trimmable = true;
+      this.estimatedByteSize = offset * 4;
       return;
     }
 
@@ -76,6 +79,7 @@ class FakeSnapshot implements TransformerCacheSnapshot {
     this.exactForkOnly = maxForkOffsetOrOptions.exactForkOnly ?? false;
     this.layerKinds = maxForkOffsetOrOptions.layerKinds ?? [];
     this.trimmable = maxForkOffsetOrOptions.trimmable ?? true;
+    this.estimatedByteSize = maxForkOffsetOrOptions.estimatedByteSize ?? offset * 4;
   }
 
   canFork(options: TransformerCacheForkOptions = {}): boolean {
@@ -212,6 +216,7 @@ describe("PromptPrefixCache", () => {
     using cache = new PromptPrefixCache({ maxEntries: 2, blockSize: 2 });
     expect(cache.stats()).toEqual({
       entries: 0,
+      retainedSnapshotBytes: 0,
       indexedBlockHashes: 0,
       tokenBlocks: {
         blockSize: 2,
@@ -229,6 +234,7 @@ describe("PromptPrefixCache", () => {
     expect(cache.store([1, 2, 3, 9, 10], second)).toBe(4);
     expect(cache.stats()).toEqual({
       entries: 2,
+      retainedSnapshotBytes: 32,
       indexedBlockHashes: 3,
       tokenBlocks: {
         blockSize: 2,
@@ -245,6 +251,7 @@ describe("PromptPrefixCache", () => {
     expect(third.disposeCount).toBe(0);
     expect(cache.stats()).toEqual({
       entries: 2,
+      retainedSnapshotBytes: 32,
       indexedBlockHashes: 3,
       tokenBlocks: {
         blockSize: 2,
@@ -261,6 +268,29 @@ describe("PromptPrefixCache", () => {
       blockCount: 2,
       blockAlignedTokenLength: 4,
     });
+    hit?.cache[Symbol.dispose]();
+  });
+
+  test("evicts retained snapshots by estimated byte budget", () => {
+    using cache = new PromptPrefixCache({ maxEntries: 3, maxBytes: 12, blockSize: 2 });
+    const first = new FakeSnapshot(2, { estimatedByteSize: 8 });
+    const second = new FakeSnapshot(2, { estimatedByteSize: 8 });
+    const third = new FakeSnapshot(1, { estimatedByteSize: 4 });
+    const oversized = new FakeSnapshot(3, { estimatedByteSize: 13 });
+
+    expect(cache.store([1, 2, 3], first)).toBe(2);
+    expect(cache.store([4, 5, 6], second)).toBe(2);
+    expect(first.disposeCount).toBe(1);
+    expect(second.disposeCount).toBe(0);
+    expect(cache.store([7, 8], third)).toBe(1);
+    expect(cache.store([9, 10, 11, 12], oversized)).toBe(0);
+    expect(oversized.disposeCount).toBe(1);
+    expect(cache.stats().retainedSnapshotBytes).toBe(12);
+    expect(cache.lookup([1, 2, 3])).toBeNull();
+
+    const hit = cache.lookup([4, 5, 6]);
+    expect(hit?.readTokens).toBe(2);
+    expect(hit?.source.estimatedByteSize).toBe(8);
     hit?.cache[Symbol.dispose]();
   });
 
@@ -329,6 +359,7 @@ describe("PromptPrefixCache", () => {
     expect(rejected.disposeCount).toBe(1);
     expect(cache.stats()).toEqual({
       entries: 1,
+      retainedSnapshotBytes: 16,
       indexedBlockHashes: 2,
       tokenBlocks: {
         blockSize: 2,
@@ -381,6 +412,13 @@ describe("PromptPrefixCache", () => {
       "snapshot offset 5 exceeds reusable prompt boundary 1",
     );
     expect(invalid.disposeCount).toBe(1);
+
+    using byteBounded = new PromptPrefixCache({ maxEntries: 1, maxBytes: 1 });
+    const invalidOversized = new FakeSnapshot(5, { estimatedByteSize: 100 });
+    expect(() => byteBounded.store([1, 2], invalidOversized)).toThrow(
+      "snapshot offset 5 exceeds reusable prompt boundary 1",
+    );
+    expect(invalidOversized.disposeCount).toBe(1);
   });
 
   test("disposes retained snapshots when the cache is disposed", () => {

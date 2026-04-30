@@ -7,6 +7,7 @@ import {
 import {
   DEFAULT_SERVE_PREFILL_STEP_SIZE,
   DEFAULT_SERVE_PROMPT_PREFIX_CACHE_MAX_ENTRIES,
+  formatServeRuntimeStrategyInfo,
   resolveServeRuntimeStrategy,
   TRANSFORMERS_ENGINE_RUNTIME_DEFAULTS,
 } from "./strategy";
@@ -34,5 +35,16 @@ describe("serve runtime strategy defaults", () => {
       resolveServeRuntimeStrategy({}, TRANSFORMERS_ENGINE_RUNTIME_DEFAULTS).cache
         .promptPrefixMaxEntries,
     ).toBe(DEFAULT_SERVE_PROMPT_PREFIX_CACHE_MAX_ENTRIES);
+    expect(
+      formatServeRuntimeStrategyInfo(
+        resolveServeRuntimeStrategy({}, TRANSFORMERS_ENGINE_RUNTIME_DEFAULTS),
+      ).cache.prompt_prefix_max_bytes,
+    ).toBeNull();
+    expect(
+      resolveServeRuntimeStrategy(
+        { promptPrefixCacheMaxBytes: 1_048_576 },
+        TRANSFORMERS_ENGINE_RUNTIME_DEFAULTS,
+      ).cache.promptPrefixMaxBytes,
+    ).toBe(1_048_576);
   });
 });

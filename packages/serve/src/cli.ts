@@ -97,6 +97,11 @@ export function formatServeReady(endpoint: string, options: ServeCliOptions): st
     `Streaming decode interval: ${options.streamDecodeInterval} token(s)`,
     `Model execution lanes: max_in_flight=${options.maxConcurrentRequests}`,
     `Prompt-prefix cache entries: ${options.promptPrefixCacheMaxEntries}`,
+    `Prompt-prefix cache bytes: ${
+      options.promptPrefixCacheMaxBytes === undefined
+        ? "unbounded"
+        : formatBytes(options.promptPrefixCacheMaxBytes)
+    }`,
     "",
     "Try:",
     [
@@ -272,6 +277,9 @@ function toServeModelOptions(options: ServeCliOptions): ServeModelOptions {
     streamDecodeInterval: options.streamDecodeInterval,
     maxConcurrentRequests: options.maxConcurrentRequests,
     promptPrefixCacheMaxEntries: options.promptPrefixCacheMaxEntries,
+    ...(options.promptPrefixCacheMaxBytes === undefined
+      ? {}
+      : { promptPrefixCacheMaxBytes: options.promptPrefixCacheMaxBytes }),
     gpuMemoryUtilization: options.gpuMemoryUtilization,
     ...(options.revision === undefined ? {} : { revision: options.revision }),
     ...(options.accessToken === undefined ? {} : { accessToken: options.accessToken }),
@@ -300,6 +308,9 @@ function toServeModelsOptions(options: ServeCliOptions): ServeModelsOptions {
     streamDecodeInterval: options.streamDecodeInterval,
     maxConcurrentRequests: options.maxConcurrentRequests,
     promptPrefixCacheMaxEntries: options.promptPrefixCacheMaxEntries,
+    ...(options.promptPrefixCacheMaxBytes === undefined
+      ? {}
+      : { promptPrefixCacheMaxBytes: options.promptPrefixCacheMaxBytes }),
     gpuMemoryUtilization: options.gpuMemoryUtilization,
     ...(options.revision === undefined ? {} : { revision: options.revision }),
     ...(options.accessToken === undefined ? {} : { accessToken: options.accessToken }),

@@ -88,6 +88,7 @@ describe("Qwen3_5TextCache", () => {
 
     using snapshot = cache.snapshot();
     expect(snapshot.offset).toBe(2);
+    expect(snapshot.estimatedByteSize).toBe(28);
     expect(snapshot.layerKinds).toEqual(["linear-recurrent", "full"]);
     expect(snapshot.trimmable).toBe(false);
     expect(snapshot.canFork()).toBe(true);
@@ -181,6 +182,7 @@ describe("Qwen3_5TextCache", () => {
     using snapshot = cache.snapshot();
     expect(cache.layerKinds).toEqual(["full"]);
     expect(snapshot.layerKinds).toEqual(["full"]);
+    expect(snapshot.estimatedByteSize).toBe(24);
     expect(snapshot.trimmable).toBe(true);
     expect(snapshot.canFork({ offset: 2 })).toBe(true);
 

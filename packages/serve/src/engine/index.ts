@@ -50,6 +50,7 @@ export type TransformersGenerationEngineOptions = {
   streamDecodeInterval?: number;
   maxConcurrentRequests?: number;
   promptPrefixCacheMaxEntries?: number;
+  promptPrefixCacheMaxBytes?: number;
   gpuMemoryUtilization?: number;
   contentAdapter?: TransformersContentAdapter;
   onEvent?: (event: ServeEvent) => void;
@@ -271,6 +272,9 @@ export function createTransformersGenerationEngine(
   const lane = new ModelExecutionLane(strategy.scheduler.maxConcurrentRequests);
   const promptPrefixCache = new PromptPrefixCache({
     maxEntries: strategy.cache.promptPrefixMaxEntries,
+    ...(strategy.cache.promptPrefixMaxBytes === undefined
+      ? {}
+      : { maxBytes: strategy.cache.promptPrefixMaxBytes }),
   });
   const staticGeneration = createStaticTransformersGeneration(options, lane);
   const continuous = createContinuousTransformersGeneration(options, lane, promptPrefixCache);

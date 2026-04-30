@@ -89,6 +89,9 @@ work on long-output throughput runs.
 snapshots per served model. The default keeps one snapshot; raise it
 deliberately for divergent repeated-turn agents that should reuse more than the
 most recent compatible prompt prefix.
+`--prompt-prefix-cache-max-bytes <n>` bounds the estimated retained tensor bytes
+for those snapshots per served model. Oversized snapshots are disposed instead
+of being retained.
 `--prefill-step-size <n>` controls the cold prompt-prefill chunk size used
 before first-token decode. The default is `512`, which is fairness-biased for
 shared serving; larger values such as `2048` or `4096` can improve single-user

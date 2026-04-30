@@ -51,6 +51,7 @@ export type ModelServerRuntimeOptions = {
   streamDecodeInterval?: number;
   maxConcurrentRequests?: number;
   promptPrefixCacheMaxEntries?: number;
+  promptPrefixCacheMaxBytes?: number;
   gpuMemoryUtilization?: number;
   apiKey?: string;
   onEvent?: (event: ServeEvent) => void;
@@ -102,6 +103,7 @@ export type ResolvedRuntimeOptions = {
   streamDecodeInterval: number;
   maxConcurrentRequests: number;
   promptPrefixCacheMaxEntries: number;
+  promptPrefixCacheMaxBytes?: number;
   gpuMemoryUtilization: number;
   apiKey?: string;
   onEvent?: (event: ServeEvent) => void;
@@ -151,6 +153,19 @@ function resolvePromptPrefixCacheMaxEntries(value: number | undefined): number {
     "promptPrefixCacheMaxEntries",
     value ?? DEFAULT_MODEL_SERVER_PROMPT_PREFIX_CACHE_MAX_ENTRIES,
   );
+}
+
+function resolvePromptPrefixCacheMaxBytes(value: number | undefined): number | undefined {
+  return value === undefined
+    ? undefined
+    : requirePositiveInteger("promptPrefixCacheMaxBytes", value);
+}
+
+function promptPrefixCacheMaxBytesOption(
+  value: number | undefined,
+): Partial<Pick<ResolvedRuntimeOptions, "promptPrefixCacheMaxBytes">> {
+  const resolved = resolvePromptPrefixCacheMaxBytes(value);
+  return resolved === undefined ? {} : { promptPrefixCacheMaxBytes: resolved };
 }
 
 export function resolveRuntimeOptions(options: ModelServerRuntimeOptions): ResolvedRuntimeOptions {
@@ -213,6 +228,7 @@ export function resolveRuntimeOptions(options: ModelServerRuntimeOptions): Resol
     streamDecodeInterval,
     maxConcurrentRequests,
     promptPrefixCacheMaxEntries,
+    ...promptPrefixCacheMaxBytesOption(options.promptPrefixCacheMaxBytes),
     gpuMemoryUtilization,
     ...(options.apiKey === undefined ? {} : { apiKey: options.apiKey }),
     ...(options.onEvent === undefined ? {} : { onEvent: options.onEvent }),
@@ -314,6 +330,9 @@ export function runtimeServeOptions(options: ResolvedRuntimeOptions): ModelServe
     streamDecodeInterval: options.streamDecodeInterval,
     maxConcurrentRequests: options.maxConcurrentRequests,
     promptPrefixCacheMaxEntries: options.promptPrefixCacheMaxEntries,
+    ...(options.promptPrefixCacheMaxBytes === undefined
+      ? {}
+      : { promptPrefixCacheMaxBytes: options.promptPrefixCacheMaxBytes }),
     gpuMemoryUtilization: options.gpuMemoryUtilization,
     ...(options.apiKey === undefined ? {} : { apiKey: options.apiKey }),
     ...(options.onEvent === undefined ? {} : { onEvent: options.onEvent }),

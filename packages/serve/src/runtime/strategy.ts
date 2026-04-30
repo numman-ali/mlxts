@@ -12,6 +12,7 @@ export type ServeRuntimeKnobs = {
   streamDecodeInterval?: number;
   maxConcurrentRequests?: number;
   promptPrefixCacheMaxEntries?: number;
+  promptPrefixCacheMaxBytes?: number;
   gpuMemoryUtilization?: number;
 };
 
@@ -24,6 +25,7 @@ export type ServeRuntimeDefaults = {
   streamDecodeInterval: number;
   maxConcurrentRequests: number;
   promptPrefixCacheMaxEntries: number;
+  promptPrefixCacheMaxBytes?: number;
   gpuMemoryUtilization?: number;
 };
 
@@ -41,6 +43,7 @@ export type ServeCacheStrategy = {
   backend: "managed";
   precision: "model";
   promptPrefixMaxEntries: number;
+  promptPrefixMaxBytes?: number;
 };
 
 export type ServeAttentionStrategy = {
@@ -87,6 +90,7 @@ export type ServeRuntimeStrategyInfo = {
     backend: "managed";
     precision: "model";
     prompt_prefix_max_entries: number;
+    prompt_prefix_max_bytes: number | null;
   };
   attention: {
     backend: "auto";
@@ -214,6 +218,8 @@ export function resolveServeRuntimeStrategy(
       "streamDecodeInterval",
     ),
   };
+  const promptPrefixMaxBytes =
+    options.promptPrefixCacheMaxBytes ?? defaults.promptPrefixCacheMaxBytes;
   return {
     scheduler,
     cache: {
@@ -225,6 +231,14 @@ export function resolveServeRuntimeStrategy(
         requirePositiveInteger,
         "promptPrefixCacheMaxEntries",
       ),
+      ...(promptPrefixMaxBytes === undefined
+        ? {}
+        : {
+            promptPrefixMaxBytes: requirePositiveInteger(
+              "promptPrefixCacheMaxBytes",
+              promptPrefixMaxBytes,
+            ),
+          }),
     },
     attention: {
       backend: "auto",
@@ -260,6 +274,7 @@ export function formatServeRuntimeStrategyInfo(
       backend: strategy.cache.backend,
       precision: strategy.cache.precision,
       prompt_prefix_max_entries: strategy.cache.promptPrefixMaxEntries,
+      prompt_prefix_max_bytes: strategy.cache.promptPrefixMaxBytes ?? null,
     },
     attention: {
       backend: strategy.attention.backend,

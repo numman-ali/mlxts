@@ -225,12 +225,14 @@ class PreparedPromptModel extends TinyModel {
 
 class CountingCacheSnapshot implements TransformerCacheSnapshot {
   readonly offset: number;
+  readonly estimatedByteSize: number;
   readonly layerKinds: readonly CacheLayerKind[];
   readonly trimmable: boolean;
   disposeCount = 0;
 
   constructor(offset: number, trimmable = true, layerKinds: readonly CacheLayerKind[] = ["full"]) {
     this.offset = offset;
+    this.estimatedByteSize = offset * 4;
     this.trimmable = trimmable;
     this.layerKinds = [...layerKinds];
   }

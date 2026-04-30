@@ -104,6 +104,9 @@ function createLoadedModelEngine(
     streamDecodeInterval: options.streamDecodeInterval,
     maxConcurrentRequests: options.maxConcurrentRequests,
     promptPrefixCacheMaxEntries: options.promptPrefixCacheMaxEntries,
+    ...(options.promptPrefixCacheMaxBytes === undefined
+      ? {}
+      : { promptPrefixCacheMaxBytes: options.promptPrefixCacheMaxBytes }),
     gpuMemoryUtilization: options.gpuMemoryUtilization,
     ...(model.interactionProfile === undefined
       ? {}
@@ -204,6 +207,9 @@ export function serveLoadedModels(options: ServeLoadedModelsOptions): RunningMod
       streamDecodeInterval: resolved.streamDecodeInterval,
       maxConcurrentRequests: resolved.maxConcurrentRequests,
       promptPrefixCacheMaxEntries: resolved.promptPrefixCacheMaxEntries,
+      ...(resolved.promptPrefixCacheMaxBytes === undefined
+        ? {}
+        : { promptPrefixCacheMaxBytes: resolved.promptPrefixCacheMaxBytes }),
       gpuMemoryUtilization: resolved.gpuMemoryUtilization,
     },
     abortSignal: abortController.signal,

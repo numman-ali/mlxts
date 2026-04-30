@@ -161,6 +161,13 @@ function disposeLayerCacheSnapshots(snapshots: readonly LayerCacheSnapshot[]): v
   }
 }
 
+function layerCacheSnapshotByteSize(snapshot: LayerCacheSnapshot): number {
+  if (snapshot.type === "full_attention") {
+    return (snapshot.keys?.nbytes ?? 0) + (snapshot.values?.nbytes ?? 0);
+  }
+  return (snapshot.convState?.nbytes ?? 0) + (snapshot.recurrentState?.nbytes ?? 0);
+}
+
 function isValidSnapshotOffset(offset: number, snapshotOffset: number): boolean {
   return Number.isInteger(offset) && offset >= 0 && offset <= snapshotOffset;
 }
@@ -181,6 +188,7 @@ function sliceFullAttentionSnapshotArray(value: MxArray, length: number): MxArra
 
 class Qwen3_5TextCacheSnapshot implements TransformerCacheSnapshot {
   readonly offset: number;
+  readonly estimatedByteSize: number;
   readonly layerKinds: readonly CacheLayerKind[];
   readonly trimmable: boolean;
   readonly #layerTypes: Qwen3_5LayerType[];
@@ -203,6 +211,10 @@ class Qwen3_5TextCacheSnapshot implements TransformerCacheSnapshot {
     this.#layers = options.layers;
     this.#ropeDeltas = cloneRopeDeltas(options.ropeDeltas);
     this.trimmable = options.layerTypes.every((layerType) => layerType === "full_attention");
+    this.estimatedByteSize = options.layers.reduce(
+      (total, layer) => total + layerCacheSnapshotByteSize(layer),
+      0,
+    );
   }
 
   canFork(options: TransformerCacheForkOptions = {}): boolean {

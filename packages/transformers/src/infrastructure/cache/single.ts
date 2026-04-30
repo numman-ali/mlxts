@@ -27,6 +27,7 @@ import {
   disposeLayerStateSnapshot,
   type LayerState,
   type LayerStateSnapshot,
+  layerStateSnapshotByteSize,
   materializeOwnedAppendResult,
   retainedLayerStateArrays,
 } from "./runtime";
@@ -55,6 +56,7 @@ function sliceSnapshotArray(value: MxArray, length: number): MxArray {
 
 class CacheSnapshot implements TransformerCacheSnapshot {
   readonly offset: number;
+  readonly estimatedByteSize: number;
   readonly layerKinds: readonly CacheLayerKind[];
   readonly trimmable: boolean;
   readonly #layers: LayerStateSnapshot[];
@@ -71,6 +73,10 @@ class CacheSnapshot implements TransformerCacheSnapshot {
   }) {
     this.offset = options.offset;
     this.layerKinds = [...options.layerKinds];
+    this.estimatedByteSize = options.layers.reduce(
+      (total, layer) => total + layerStateSnapshotByteSize(layer),
+      0,
+    );
     this.trimmable = options.trimPolicy === "prefix";
     this.#layers = options.layers;
     this.#createCache = options.createCache;
