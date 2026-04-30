@@ -367,11 +367,6 @@ export function parseQwen3_5VisionConfig(rawConfig: Record<string, unknown>): Qw
 export function parseQwen3_5Config(rawConfig: Record<string, unknown>): Qwen3_5Config {
   const config = expectConfigRecord(rawConfig, "Qwen 3.5 config");
   const modelType = parseQwen3_5ModelType(config, "Qwen 3.5 config");
-  if (modelType !== "qwen3_5") {
-    throw new ConfigParseError(
-      `Qwen 3.5 config.model_type must be "qwen3_5" for the conditional image wrapper, got "${modelType}".`,
-    );
-  }
 
   const textConfig = parseQwen3_5TextConfigInternal(
     expectConfigRecord(config.text_config, "Qwen 3.5 config.text_config"),
@@ -386,7 +381,7 @@ export function parseQwen3_5Config(rawConfig: Record<string, unknown>): Qwen3_5C
 
   return {
     family: "qwen",
-    modelType: "qwen3_5",
+    modelType,
     rawConfig: config,
     vocabSize: textConfig.vocabSize,
     hiddenSize: textConfig.hiddenSize,

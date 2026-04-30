@@ -162,6 +162,23 @@ describe("Qwen 3.5 config parsing", () => {
         shared_expert_intermediate_size: 1024,
       }),
     });
+    const conditionalConfig = parseQwen3_5Config(
+      qwen3_5Raw({
+        architectures: ["Qwen3_5MoeForConditionalGeneration"],
+        model_type: "qwen3_5_moe",
+        text_config: qwen3_5TextRaw({
+          model_type: "qwen3_5_moe_text",
+          full_attention_interval: 1,
+          layer_types: ["full_attention", "full_attention"],
+          moe_intermediate_size: 768,
+          num_experts: 4,
+          num_experts_per_tok: 2,
+          num_hidden_layers: 2,
+          router_aux_loss_coef: 0.01,
+          shared_expert_intermediate_size: 1024,
+        }),
+      }),
+    );
 
     expect(textConfig.feedForwardKind).toBe("moe");
     expect(textConfig.intermediateSize).toBe(512);
@@ -177,6 +194,9 @@ describe("Qwen 3.5 config parsing", () => {
     expect(wrapperConfig.numExperts).toBe(4);
     expect(wrapperConfig.numExpertsPerToken).toBe(2);
     expect(wrapperConfig.routerAuxLossCoef).toBe(0.01);
+    expect(conditionalConfig.modelType).toBe("qwen3_5_moe");
+    expect(conditionalConfig.textConfig.modelType).toBe("qwen3_5_moe_text");
+    expect(conditionalConfig.textConfig.feedForwardKind).toBe("moe");
   });
 
   test("validates Qwen MoE routing cardinality", () => {

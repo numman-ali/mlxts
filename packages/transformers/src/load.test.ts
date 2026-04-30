@@ -600,6 +600,15 @@ function rawConfigForQwen3_5Wrapper(): Record<string, unknown> {
   };
 }
 
+function rawConfigForQwen3_5MoeWrapper(): Record<string, unknown> {
+  return {
+    ...rawConfigForQwen3_5Wrapper(),
+    architectures: ["Qwen3_5MoeForConditionalGeneration"],
+    model_type: "qwen3_5_moe",
+    text_config: rawConfigForQwen3_5MoeText(),
+  };
+}
+
 function rawConfigForMistral3TextWrapper(): Record<string, unknown> {
   return {
     model_type: "mistral3",
@@ -1310,12 +1319,13 @@ async function createTinyQwen3_5Snapshot(): Promise<{
   return { directory, model };
 }
 
-async function createTinyQwen3_5ConditionalSnapshot(): Promise<{
+async function createTinyQwen3_5ConditionalSnapshot(
+  rawConfig: Record<string, unknown> = rawConfigForQwen3_5Wrapper(),
+): Promise<{
   directory: string;
   model: Qwen3_5ForConditionalGeneration;
 }> {
   const directory = createTempDir("mlxts-transformers-qwen3_5-conditional-");
-  const rawConfig = rawConfigForQwen3_5Wrapper();
   const parsedConfig = qwen3_5ConditionalFamily.parseConfig(rawConfig);
   const model = new Qwen3_5ForConditionalGeneration(parsedConfig);
   const tensors = checkpointTensorsForQwen3_5Conditional(model);
@@ -1343,6 +1353,13 @@ async function createTinyQwen3_5ConditionalSnapshot(): Promise<{
   }
 
   return { directory, model };
+}
+
+async function createTinyQwen3_5MoeConditionalSnapshot(): Promise<{
+  directory: string;
+  model: Qwen3_5ForConditionalGeneration;
+}> {
+  return createTinyQwen3_5ConditionalSnapshot(rawConfigForQwen3_5MoeWrapper());
 }
 
 async function rewriteCheckpoint(
@@ -1540,6 +1557,23 @@ describe("pretrained loading", () => {
       loadedModel.model.visual.patchEmbed.bias.toList(),
       originalModel.model.visual.patchEmbed.bias.toList(),
     );
+
+    originalModel[Symbol.dispose]();
+  });
+
+  test("loadQwen3_5ForConditionalGeneration loads Qwen MoE conditional wrappers", async () => {
+    const { directory, model: originalModel } = await createTinyQwen3_5MoeConditionalSnapshot();
+    using loadedModel = await loadQwen3_5ForConditionalGeneration(directory);
+    using inputIds = array([[0, 1, 2]], "int32");
+    using expectedLogits = originalModel.forward(inputIds);
+    using actualLogits = loadedModel.forward(inputIds);
+
+    mxEval(expectedLogits, actualLogits);
+
+    expect(loadedModel).toBeInstanceOf(Qwen3_5ForConditionalGeneration);
+    expect(loadedModel.config.modelType).toBe("qwen3_5_moe");
+    expect(loadedModel.config.textConfig.modelType).toBe("qwen3_5_moe_text");
+    expectCloseLists(actualLogits.toList(), expectedLogits.toList());
 
     originalModel[Symbol.dispose]();
   });
@@ -1824,6 +1858,58 @@ describe("pretrained loading", () => {
     expect(experts).toBeInstanceOf(SwitchGLUExperts);
     if (!(experts instanceof SwitchGLUExperts)) {
       throw new Error("Expected split Qwen MoE experts after quantized preparation.");
+    }
+    expect(experts.gateProjection.weight.dtype).toBe("uint32");
+
+    using inputIds = array([[0, 1, 2]], "int32");
+    using logits = loadedModel.forward(inputIds);
+    expect(logits.shape).toEqual([1, 3, 7]);
+  });
+
+  test("loadCausalLM supports top-level Qwen MoE wrappers with split quantized language model experts", async () => {
+    const directory = createTempDir("mlxts-transformers-qwen-moe-wrapper-split-");
+    const quantizedTargets = [
+      "language_model.model.layers.0.mlp.switch_mlp.gate_proj",
+      "language_model.model.layers.0.mlp.switch_mlp.up_proj",
+      "language_model.model.layers.0.mlp.switch_mlp.down_proj",
+    ] as const;
+    const rawConfig = {
+      ...rawConfigForQwen3_5MoeWrapper(),
+      quantization: {
+        group_size: 64,
+        bits: 4,
+        mode: "affine",
+        [quantizedTargets[0]]: true,
+        [quantizedTargets[1]]: true,
+        [quantizedTargets[2]]: true,
+      },
+    };
+    const registration = resolveFamily("qwen3_5_moe");
+    using model = registration.createModel(registration.parseConfig(rawConfig));
+    if (!(model instanceof Qwen3_5TextCausalLM)) {
+      throw new Error("Expected top-level Qwen MoE wrappers to load through the text CausalLM.");
+    }
+
+    const baseTensors = checkpointTensorsForQwen3_5Text(model);
+    const wrapperTensors = wrapperLanguageModelTensors(baseTensors);
+    const splitTensors = qwenSplitMoeCheckpointTensors(wrapperTensors);
+    const quantizedTensors = quantizeCheckpointTensors(splitTensors, quantizedTargets);
+    try {
+      await Bun.write(join(directory, "config.json"), `${JSON.stringify(rawConfig, null, 2)}\n`);
+      await writeTokenizerFixture(directory);
+      await saveSafetensors(quantizedTensors, join(directory, "model.safetensors"));
+    } finally {
+      freeTensorRecords(baseTensors, wrapperTensors, splitTensors, quantizedTensors);
+    }
+
+    using loadedModel = await loadCausalLM(directory);
+    if (!(loadedModel instanceof Qwen3_5TextCausalLM)) {
+      throw new Error("Expected loadCausalLM to return a Qwen3_5TextCausalLM.");
+    }
+    const experts = firstQwenMoeLayer(loadedModel).experts;
+    expect(experts).toBeInstanceOf(SwitchGLUExperts);
+    if (!(experts instanceof SwitchGLUExperts)) {
+      throw new Error("Expected split Qwen MoE wrapper experts after quantized preparation.");
     }
     expect(experts.gateProjection.weight.dtype).toBe("uint32");
 

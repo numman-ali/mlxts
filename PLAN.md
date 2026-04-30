@@ -626,14 +626,18 @@ MoE (Mixture of Experts) models use the same `CausalLM` contract as dense models
 **Current proof state:** Gemma 4 A4B MoE loads and generates from the cached
 `mlx-community/gemma-4-26b-a4b-it-4bit` checkpoint, including mixed-quant expert
 loading, continuous serving, and coherent chat-template generation. Qwen A3B
-split-quantized proof is the next target; Mixtral remains future family
-registration work.
+split-quantized MoE also loads from the cached
+`unsloth/Qwen3.6-35B-A3B-UD-MLX-4bit` checkpoint: direct `128x128` decode
+reported `generation_tps=89.954`, `evals_per_token=1.00`, and flat active
+memory (`20.816 GB` start/end); serve streamed `128x32@1` through
+`continuous:eligible` with `mean_post_ttft_completion_tps=79.300` and
+`active_delta=0.004 GB`. Mixtral remains future family registration work.
 
 **Exit criteria**: Real MoE checkpoints load through the unchanged `CausalLM`
 contract, generate coherent text, and pass family-appropriate forward/decode
 parity evidence against upstream MLX references before publishable parity
-claims. Gemma 4 A4B is the first proven target; Qwen A3B and Mixtral remain
-separate target-family proofs.
+claims. Gemma 4 A4B and Qwen A3B are proven loading/decode/serve targets;
+Mixtral remains a separate target-family proof.
 
 ### 7g. Performance observability (follows Phase 7 performance optimization)
 

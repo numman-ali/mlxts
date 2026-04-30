@@ -115,6 +115,12 @@ Full evidence ladder lives in
   `continuous:eligible` with `32` chunks, `active_delta=0.000 GB`, and
   `mean_post_ttft_completion_tps=95.470`. The chat example loaded the same
   15.6 GB snapshot and produced a coherent greedy answer.
+- Qwen A3B split-quantized MoE proof passed against the cached
+  `unsloth/Qwen3.6-35B-A3B-UD-MLX-4bit` snapshot. Direct `128x128` decode
+  reported `generation_tps=89.954`, `evals_per_token=1.00`, and flat active
+  memory (`20.816 GB` start/end). Serve streamed `128x32@1` through
+  `continuous:eligible` with `mean_post_ttft_completion_tps=79.300` and
+  `active_delta=0.004 GB`.
 
 ## Next Work
 
@@ -151,7 +157,8 @@ Full evidence ladder lives in
   changes should keep `bun run check:per-package-agents` and
   `bun run check:cross-package-imports` green instead of relying on manual
   package-boundary review.
-- Phase 7f next proof target is split-quantized Qwen A3B. Start with direct
-  text `loadCausalLM()` generation for
-  `unsloth/Qwen3.6-35B-A3B-UD-MLX-4bit`; conditional serving should first close
-  the top-level `qwen3_5_moe` wrapper parser gap.
+- Phase 7f has Gemma A4B and Qwen A3B real checkpoint proofs. Choose the next
+  model-family proof deliberately, with Mixtral only when there is a clear
+  user-facing need. Otherwise the next high-value product areas are Phase 9
+  cache backend work, Qwen image product proof, and Phase 8 training proof
+  hardening.
