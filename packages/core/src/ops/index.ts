@@ -36,7 +36,9 @@ export {
   where,
 } from "./comparison";
 export type { GatherMmOptions } from "./linalg";
-export { conv1d, gatherMm, matmul } from "./linalg";
+export { conv1d, conv2d, gatherMm, matmul } from "./linalg";
+export type { PadMode } from "./padding";
+export { pad } from "./padding";
 export type { SoftmaxOptions } from "./reduction";
 export {
   argmax,

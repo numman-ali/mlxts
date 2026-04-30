@@ -6,8 +6,11 @@
 export { gelu, relu, silu, swiglu } from "./activations";
 export { checkpoint } from "./checkpoint";
 export { Conv1d } from "./layers/conv1d";
+export type { Conv2dSpatialPair } from "./layers/conv2d";
+export { Conv2d } from "./layers/conv2d";
 export { Dropout } from "./layers/dropout";
 export { Embedding } from "./layers/embedding";
+export { GroupNorm } from "./layers/group-norm";
 export { GroupedQueryAttention } from "./layers/grouped-query-attention";
 export { LayerNorm } from "./layers/layer-norm";
 export { Linear } from "./layers/linear";

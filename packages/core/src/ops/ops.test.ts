@@ -15,6 +15,7 @@ import {
   concatenate,
   contiguous,
   conv1d,
+  conv2d,
   cos,
   cumsum,
   divide,
@@ -40,6 +41,7 @@ import {
   multiply,
   negative,
   notEqual,
+  pad,
   power,
   putAlongAxis,
   reciprocal,
@@ -290,6 +292,39 @@ describe("Arithmetic ops", () => {
 
     expect(output.shape).toEqual([1, 3, 1]);
     expect(output.toList()).toEqual([[[5], [8], [11]]]);
+
+    input.free();
+    weight.free();
+    output.free();
+  });
+
+  test("conv2d performs channel-last image convolution", () => {
+    const input = MxArray.fromData([1, 2, 3, 4], [1, 2, 2, 1]);
+    const weight = MxArray.fromData([1, 2, 3, 4], [1, 2, 2, 1]);
+    const output = conv2d(input, weight);
+    mxEval(output);
+
+    expect(output.shape).toEqual([1, 1, 1, 1]);
+    expect(output.toList()).toEqual([[[[30]]]]);
+
+    input.free();
+    weight.free();
+    output.free();
+  });
+
+  test("conv2d supports spatial stride and padding pairs", () => {
+    const input = MxArray.fromData([1, 2, 3, 4, 5, 6, 7, 8, 9], [1, 3, 3, 1]);
+    const weight = ones([1, 2, 2, 1]);
+    const output = conv2d(input, weight, [2, 2], [1, 1]);
+    mxEval(output);
+
+    expect(output.shape).toEqual([1, 2, 2, 1]);
+    expect(output.toList()).toEqual([
+      [
+        [[1], [5]],
+        [[11], [28]],
+      ],
+    ]);
 
     input.free();
     weight.free();
@@ -729,6 +764,29 @@ describe("Shape ops", () => {
       [1, 2],
       [3, 4],
     ]);
+    a.free();
+    b.free();
+  });
+
+  test("pad applies constant padding along explicit axes", () => {
+    const a = MxArray.fromData([1, 2, 3, 4], [1, 2, 2, 1]);
+    const b = pad(a, [
+      [0, 0],
+      [1, 0],
+      [0, 1],
+      [0, 0],
+    ]);
+    b.eval();
+
+    expect(b.shape).toEqual([1, 3, 3, 1]);
+    expect(b.toList()).toEqual([
+      [
+        [[0], [0], [0]],
+        [[1], [2], [0]],
+        [[3], [4], [0]],
+      ],
+    ]);
+
     a.free();
     b.free();
   });

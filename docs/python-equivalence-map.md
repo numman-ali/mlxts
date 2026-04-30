@@ -37,7 +37,7 @@ The goal is not to replicate Python's entire ML ecosystem line-for-line. It is t
 
 | Python Package | What It Does | mlxts Equivalent | Phase | Status | Notes |
 |---|---|---|---|---|---|
-| **torch.nn** | Module system, layers, activations | @mlxts/nn | 4 (exists) | Exists | Module base class with parameter scanning, freeze/unfreeze, train/eval. Linear, Embedding, LayerNorm, Dropout, GELU, ReLU, SiLU, crossEntropy, MSE. |
+| **torch.nn** | Module system, layers, activations | @mlxts/nn | 4 (exists) | Exists | Module base class with parameter scanning, freeze/unfreeze, train/eval. Linear, Embedding, LayerNorm, GroupNorm, Conv1d, Conv2d, Dropout, GELU, ReLU, SiLU, crossEntropy, MSE. |
 | **torch.optim** | SGD, Adam, AdamW, LR schedulers | @mlxts/optimizers | 4 (exists) | Exists | SGD (with momentum, weight decay), Adam, AdamW. LR schedulers (cosine with warmup) arrive in Phase 4. |
 | **mlx.nn** | MLX's own nn module system | @mlxts/nn | 4 (exists) | Exists | Our nn layer is a TypeScript rewrite inspired by MLX's own nn design, not a binding to it. Same Module pattern, same parameter tree semantics. |
 | **timm** | Pre-trained vision model zoo (ViT, ResNet, EfficientNet) | @mlxts/transformers | 10+ | Future | Vision encoders belong in the transformers package because packages are organized by generation paradigm, not modality. |

@@ -81,7 +81,7 @@ export {
   setWiredLimitBytes,
 } from "./memory";
 export { isMetalAvailable, startMetalCapture, stopMetalCapture } from "./metal";
-export type { GatherMmOptions, Operand, SoftmaxOptions } from "./ops";
+export type { GatherMmOptions, Operand, PadMode, SoftmaxOptions } from "./ops";
 export {
   abs,
   add,
@@ -95,6 +95,7 @@ export {
   concatenate,
   contiguous,
   conv1d,
+  conv2d,
   cos,
   cumsum,
   divide,
@@ -121,6 +122,7 @@ export {
   multiply,
   negative,
   notEqual,
+  pad,
   power,
   putAlongAxis,
   reciprocal,

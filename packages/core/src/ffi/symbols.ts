@@ -201,6 +201,7 @@ export const ARITHMETIC_SYMBOLS = {
 
 export const MLXTS_NATIVE_SYMBOLS = {
   mlxts_gelu_approx: { args: [P, P, P], returns: I32 },
+  mlxts_conv2d: { args: [P, P, P, P, U64_FAST, P], returns: I32 },
   mlxts_qwen_gated_delta_update: { args: [P, P, P, P, P, P, P, P, P], returns: I32 },
   mlxts_qwen_gated_delta_update_masked: {
     args: [P, P, P, P, P, P, P, P, P, P],
@@ -281,6 +282,7 @@ export const SHAPE_SYMBOLS = {
   mlx_repeat_axis: { args: [P, P, I32, I32, P], returns: I32 },
   mlx_repeat: { args: [P, P, I32, P], returns: I32 },
   mlx_tile: { args: [P, P, P, U64_FAST, P], returns: I32 },
+  mlx_pad: { args: [P, P, P, U64_FAST, P, U64_FAST, P, U64_FAST, P, CSTRING, P], returns: I32 },
   // int mlx_tril(res, x, k, stream)
   mlx_tril: { args: [P, P, I32, P], returns: I32 },
   // int mlx_triu(res, x, k, stream)

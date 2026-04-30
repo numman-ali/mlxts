@@ -3,6 +3,7 @@
 #include <array>
 #include <iomanip>
 #include <sstream>
+#include <stdexcept>
 #include <string_view>
 #include <vector>
 
@@ -49,6 +50,35 @@ mlxts_gelu_approx(mlx_array* res, const mlx_array a, const mlx_stream s) {
     return 1;
   }
   return 0;
+}
+
+extern "C" int mlxts_conv2d(
+    mlx_array* res,
+    const mlx_array input,
+    const mlx_array weight,
+    const int* params,
+    size_t params_num,
+    const mlx_stream s) {
+  try {
+    if (params_num != 7) {
+      throw std::runtime_error("mlxts_conv2d: expected 7 convolution params.");
+    }
+    return mlx_conv2d(
+        res,
+        input,
+        weight,
+        params[0],
+        params[1],
+        params[2],
+        params[3],
+        params[4],
+        params[5],
+        params[6],
+        s);
+  } catch (std::exception& e) {
+    mlx_error(e.what());
+    return 1;
+  }
 }
 
 extern "C" int mlxts_slice_update_inplace(

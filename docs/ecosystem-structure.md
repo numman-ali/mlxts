@@ -72,7 +72,8 @@ Neural network layers, Module system, activations, losses.
 |---------|-----------------|
 | Module base | `Module` class with property scanning, freeze/unfreeze, train/eval |
 | Linear layers | `Linear` |
-| Normalization | `LayerNorm`, `RMSNorm` |
+| Convolution layers | `Conv1d`, `Conv2d` |
+| Normalization | `LayerNorm`, `RMSNorm`, `GroupNorm` |
 | Embeddings | `Embedding` with `asLinear()` for weight tying |
 | Regularization | `Dropout` |
 | Activations | `gelu`, `relu`, `silu`, `swiglu` (free functions) |
