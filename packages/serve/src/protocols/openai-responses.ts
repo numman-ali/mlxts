@@ -406,19 +406,13 @@ function responseInputWithOptions(
 
 function responseToolsForRequest(
   record: Record<string, unknown>,
-  options: { parallelToolCalls: boolean; stream: boolean; toolChoice: "auto" | "none" },
+  options: { parallelToolCalls: boolean; toolChoice: "auto" | "none" },
 ): {
   responseTools: readonly OpenAIResponseFunctionTool[];
   selectedTools: readonly ChatTool[] | undefined;
 } {
   const parsedTools = parseOpenAIResponseTools(record);
   const selectedTools = options.toolChoice === "none" ? undefined : parsedTools.chatTools;
-  if (options.stream && selectedTools !== undefined && selectedTools.length > 0) {
-    throw new ServeError(
-      "OpenAI responses: streaming function tools are not supported until Responses tool SSE events are implemented.",
-      { param: "stream" },
-    );
-  }
   if (!options.parallelToolCalls && selectedTools !== undefined && selectedTools.length > 0) {
     throw new ServeError(
       'OpenAI responses: "parallel_tool_calls": false is not supported with active function tools yet.',
@@ -442,7 +436,7 @@ export function normalizeOpenAIResponseRequest(
   const stream = optionalBoolean(body, "stream") ?? false;
   const toolChoice = parseToolChoice(body);
   const parallelToolCalls = optionalBoolean(body, "parallel_tool_calls") ?? true;
-  const tools = responseToolsForRequest(body, { parallelToolCalls, stream, toolChoice });
+  const tools = responseToolsForRequest(body, { parallelToolCalls, toolChoice });
   const streamOptions = parseStreamOptions(body, stream);
   const instructions = parseInstructions(body);
   const input = parseOpenAIResponseInput(body, instructions);

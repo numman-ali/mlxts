@@ -273,6 +273,25 @@ describe("OpenAI Responses adapter", () => {
     });
   });
 
+  test("normalizes active function tools on streams", () => {
+    const response = normalizeOpenAIResponseRequest(
+      {
+        model: "tiny",
+        input: "Read the README.",
+        stream: true,
+        tools: [{ type: "function", name: "read_file" }],
+      },
+      { id: "resp-tool-stream" },
+    );
+
+    expect(response.stream).toBe(true);
+    expect(response.request.input).toMatchObject({
+      kind: "messages",
+      messages: [{ role: "user", content: "Read the README." }],
+      tools: [{ type: "function", function: { name: "read_file" } }],
+    });
+  });
+
   test("normalizes function-call history into assistant and tool turns", () => {
     const response = normalizeOpenAIResponseRequest(
       {
@@ -479,7 +498,6 @@ describe("OpenAI Responses adapter", () => {
       { tools: [{ type: "function", name: "read_file", description: 42 }] },
       { tools: [{ type: "function", name: "read_file", parameters: "bad" }] },
       { tools: [{ type: "function", name: "read_file", strict: "yes" }] },
-      { stream: true, tools: [{ type: "function", name: "read_file" }] },
       {
         parallel_tool_calls: false,
         tools: [{ type: "function", name: "read_file" }],

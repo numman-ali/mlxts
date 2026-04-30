@@ -687,19 +687,27 @@ describe("serve fetch handler", () => {
     ]);
   });
 
-  test("rejects OpenAI responses streaming tools before generation", async () => {
-    let invoked = false;
+  test("streams OpenAI responses function-call events", async () => {
+    const seen: NormalizedGenerationRequest[] = [];
     const fetch = createFetchHandler({
       engine: {
         generate() {
-          invoked = true;
-          return { text: "", finishReason: "stop" };
+          throw new Error("generate should not be used");
         },
-        async *stream() {
-          invoked = true;
-          yield { type: "text", text: "" };
+        async *stream(normalized) {
+          seen.push(normalized);
+          yield {
+            type: "text",
+            text: '<tool_call>{"name":"read_file","arguments":{"path":"README.md"}}</tool_call>',
+          };
+          yield {
+            type: "done",
+            finishReason: "stop",
+            usage: { promptTokens: 4, completionTokens: 6, totalTokens: 10 },
+          };
         },
       },
+      idGenerator: () => "resp-tool-stream",
     });
 
     const response = await fetch(
@@ -710,12 +718,27 @@ describe("serve fetch handler", () => {
         tools: [{ type: "function", name: "read_file" }],
       }),
     );
-    const body = await response.json();
+    const text = await response.text();
 
-    expect(response.status).toBe(400);
-    expect(invoked).toBe(false);
-    expect(body.error.message).toContain("streaming function tools");
-    expect(body.error.param).toBe("stream");
+    expect(response.status).toBe(200);
+    expect(seen[0]).toMatchObject({
+      id: "resp-tool-stream",
+      input: {
+        kind: "messages",
+        messages: [{ role: "user", content: "Read README.md" }],
+        tools: [{ type: "function", function: { name: "read_file" } }],
+      },
+      stream: true,
+      protocol: "openai.responses",
+    });
+    expect(text).toContain("event: response.output_item.added");
+    expect(text).toContain("event: response.function_call_arguments.delta");
+    expect(text).toContain("event: response.function_call_arguments.done");
+    expect(text).toContain('"type":"function_call"');
+    expect(text).toContain('"arguments":"{\\"path\\":\\"README.md\\"}"');
+    expect(text).toContain("event: response.completed");
+    expect(text).toContain("data: [DONE]");
+    expect(text).not.toContain("<tool_call>");
   });
 
   test("routes Anthropic messages through message input", async () => {

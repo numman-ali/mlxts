@@ -3,7 +3,12 @@
  * @module
  */
 
-import { createOpenAIChatCompletionReasoningStream } from "../protocols/openai-chat-completions";
+import type { OpenAIChatCompletionStreamToolCall } from "../protocols/openai-chat-completion-streaming";
+import {
+  createOpenAIChatCompletionReasoningStream,
+  createOpenAIChatCompletionToolCallStream,
+  stripGeneratedChatControlTokens,
+} from "../protocols/openai-chat-completions";
 import {
   formatOpenAIResponse,
   formatOpenAIResponsePending,
@@ -26,24 +31,28 @@ import {
 } from "./runtime";
 import { createStopSequenceFilter } from "./stop-filter";
 import { runSseGenerationStream } from "./writer-base";
-
-type OutputState = {
-  id: string;
-  outputIndex: number;
-};
+import {
+  emitOpenAIResponseFunctionCall,
+  finalOpenAIResponseOutputItems,
+  hasOpenAIResponseStreamingToolOutput,
+  type OpenAIResponseFunctionCallState,
+  type OpenAIResponseOutputState,
+} from "./writer-openai-responses-tools";
 
 type ResponseStreamState = {
   reasoningParser: ReturnType<typeof createOpenAIChatCompletionReasoningStream>;
+  toolCallParser: ReturnType<typeof createOpenAIChatCompletionToolCallStream>;
   stopFilter: ReturnType<typeof createStopSequenceFilter>;
   sequenceNumber: number;
   outputCount: number;
   visibleText: string;
   reasoningText: string;
+  functionCalls: OpenAIResponseFunctionCallState[];
   finalUsage: GenerationUsage | undefined;
   finalFinishReason: NormalizedFinishReason;
   stoppedByStopSequence: boolean;
-  messageItem?: OutputState;
-  reasoningItem?: OutputState;
+  messageItem?: OpenAIResponseOutputState;
+  reasoningItem?: OpenAIResponseOutputState;
   observer?: StreamObserver;
 };
 
@@ -82,7 +91,7 @@ function ensureReasoningItem(
   controller: ReadableStreamDefaultController<Uint8Array>,
   state: ResponseStreamState,
   options: { id: string },
-): OutputState {
+): OpenAIResponseOutputState {
   if (state.reasoningItem !== undefined) {
     return state.reasoningItem;
   }
@@ -106,7 +115,7 @@ function ensureMessageItem(
   controller: ReadableStreamDefaultController<Uint8Array>,
   state: ResponseStreamState,
   options: { id: string },
-): OutputState {
+): OpenAIResponseOutputState {
   if (state.messageItem !== undefined) {
     return state.messageItem;
   }
@@ -182,6 +191,41 @@ function emitTextDelta(
   );
 }
 
+function processParsedContentDelta(
+  controller: ReadableStreamDefaultController<Uint8Array>,
+  state: ResponseStreamState,
+  options: { id: string },
+  text: string,
+): void {
+  const filtered = state.stopFilter.push(stripGeneratedChatControlTokens(text));
+  emitTextDelta(controller, state, options, filtered.text);
+  if (filtered.stopped) {
+    state.finalFinishReason = "stop";
+    state.stoppedByStopSequence = true;
+  }
+}
+
+function processParsedToolDelta(
+  controller: ReadableStreamDefaultController<Uint8Array>,
+  state: ResponseStreamState,
+  options: { id: string },
+  delta: { content?: string; toolCalls?: OpenAIChatCompletionStreamToolCall[] },
+): void {
+  if (delta.toolCalls !== undefined) {
+    for (const toolCall of delta.toolCalls) {
+      emitOpenAIResponseFunctionCall(
+        state,
+        (event, payload, kind) =>
+          emitResponseEvent(controller, state, event, payload, kind ?? "protocol"),
+        options,
+        toolCall,
+      );
+    }
+    return;
+  }
+  processParsedContentDelta(controller, state, options, delta.content ?? "");
+}
+
 function processDelta(
   controller: ReadableStreamDefaultController<Uint8Array>,
   state: ResponseStreamState,
@@ -193,11 +237,11 @@ function processDelta(
     return;
   }
 
-  const filtered = state.stopFilter.push(delta.content ?? "");
-  emitTextDelta(controller, state, options, filtered.text);
-  if (filtered.stopped) {
-    state.finalFinishReason = "stop";
-    state.stoppedByStopSequence = true;
+  for (const parsed of state.toolCallParser.push(delta.content ?? "")) {
+    processParsedToolDelta(controller, state, options, parsed);
+    if (state.stoppedByStopSequence) {
+      return;
+    }
   }
 }
 
@@ -223,6 +267,13 @@ function flushTail(
 ): void {
   for (const delta of state.reasoningParser.finish()) {
     processDelta(controller, state, options, delta);
+    if (state.stoppedByStopSequence) {
+      return;
+    }
+  }
+
+  for (const delta of state.toolCallParser.finish()) {
+    processParsedToolDelta(controller, state, options, delta);
     if (state.stoppedByStopSequence) {
       return;
     }
@@ -293,6 +344,10 @@ function emitMessageDone(
   });
 }
 
+function shouldEmitMessageDone(state: ResponseStreamState): boolean {
+  return state.visibleText !== "" || state.functionCalls.length === 0;
+}
+
 function markCancelled(
   finishReason: NormalizedFinishReason,
   signal: AbortSignal | undefined,
@@ -315,6 +370,19 @@ function terminalEventType(
   return finishReason === "length" ? "response.incomplete" : "response.completed";
 }
 
+function finalResponseObject(
+  state: ResponseStreamState,
+  response: NormalizedOpenAIResponse,
+  options: { id: string; created: number },
+) {
+  const formatted = formatOpenAIResponse(response, finalResult(state), options);
+  return {
+    ...formatted,
+    output: finalOpenAIResponseOutputItems(state),
+    output_text: state.visibleText,
+  };
+}
+
 function finalizeResponseStream(
   controller: ReadableStreamDefaultController<Uint8Array>,
   state: ResponseStreamState,
@@ -329,10 +397,12 @@ function finalizeResponseStream(
     flushTail(controller, state, options);
   }
   emitReasoningDone(controller, state);
-  emitMessageDone(controller, state, options);
+  if (shouldEmitMessageDone(state)) {
+    emitMessageDone(controller, state, options);
+  }
   const terminalType = terminalEventType(state.finalFinishReason);
   emitResponseEvent(controller, state, terminalType, {
-    response: formatOpenAIResponse(response, finalResult(state), options),
+    response: finalResponseObject(state, response, options),
   });
   enqueueObservedSse(controller, "data: [DONE]\n\n", observerOptions(state), "protocol");
   return streamSummary(state.finalFinishReason, state.finalUsage);
@@ -362,11 +432,15 @@ export async function writeOpenAIResponseStreamEvents(
 ): Promise<StreamSummary> {
   const state: ResponseStreamState = {
     reasoningParser: createOpenAIChatCompletionReasoningStream(),
+    toolCallParser: createOpenAIChatCompletionToolCallStream(
+      hasOpenAIResponseStreamingToolOutput(response),
+    ),
     stopFilter: createStopSequenceFilter(response.request.sampling.stop),
     sequenceNumber: 0,
     outputCount: 0,
     visibleText: "",
     reasoningText: "",
+    functionCalls: [],
     finalUsage: undefined,
     finalFinishReason: "stop",
     stoppedByStopSequence: false,

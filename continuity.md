@@ -150,9 +150,17 @@ Full evidence ladder lives in
   accepts flat function tools, normalizes `function_call` /
   `function_call_output` history plus adjacent reasoning items into internal
   assistant/tool turns, formats generated tool-call envelopes as
-  `function_call` output items, and rejects streaming tools,
-  `parallel_tool_calls=false` with active tools, built-in/custom tools, and
-  rich function outputs until those semantics are implemented explicitly.
+  `function_call` output items, and rejects `parallel_tool_calls=false` with
+  active tools, built-in/custom tools, and rich function outputs until those
+  semantics are implemented explicitly.
+- OpenResponses streaming function-tool output passed focused protocol, stream
+  writer, and HTTP route tests (`59 pass`), `bun run check:coverage`, and full
+  `bun run validate`. `/v1/responses stream=true` now accepts active function
+  tools and emits Responses-shaped `response.output_item.added`,
+  `response.function_call_arguments.delta`,
+  `response.function_call_arguments.done`, and `response.output_item.done`
+  events while keeping malformed/tool-looking text visible when tools are
+  inactive.
 - Gemma 4 A4B MoE proof passed against the cached
   `mlx-community/gemma-4-26b-a4b-it-4bit` snapshot. Transformer decode at
   `128x128` reported `generation_tps=108.604`, `evals_per_token=1.00`, and
