@@ -65,6 +65,10 @@ export type ParsedBenchmarkArgs = {
   reference: ReferenceBenchmarkOptions;
 };
 
+export type BenchmarkCommand = { kind: "help" } | { kind: "run"; parsed: ParsedBenchmarkArgs };
+
+export type BenchmarkProgress = (text: string) => void;
+
 export type ReferenceBenchmarkOptions = {
   captureMlxLmReference: boolean;
   enforceMlxLmDecodeBar: boolean;
@@ -106,6 +110,21 @@ export type DecodeMemoryTracker = {
   finish: (generationTokens: number) => DecodeMemoryMetrics;
 };
 
+export type BenchmarkCommandReport = {
+  name: string;
+  model: string;
+  snapshotPath: string;
+  promptTokens: number;
+  generationTokens: number;
+  prefillStepSize: number;
+  trials: number;
+  decodeSchedule: BenchmarkDecodeSchedule;
+  materializeCacheEachToken: boolean;
+  metrics: TrialMetrics;
+  mlxLmReference?: MlxLmReference;
+  warnings: string[];
+};
+
 type MutableBenchmarkOptions = {
   model?: string;
   promptTokens: number;
@@ -122,6 +141,8 @@ type MutableBenchmarkOptions = {
   allowMlxLmExtraWeights: boolean;
   mlxLmPython?: string;
 };
+
+export class BenchmarkUsageError extends Error {}
 
 function defaultOptions(): MutableBenchmarkOptions {
   return {
@@ -149,29 +170,45 @@ function emptyBaselines(): BenchmarkBaselines {
   };
 }
 
+function readRequiredValue(flag: string, value: string | undefined): string {
+  if (value === undefined || value.trim() === "" || value.startsWith("--")) {
+    throw new BenchmarkUsageError(`benchmark-generation: ${flag} requires a value.`);
+  }
+  return value;
+}
+
 function parseRequiredNumber(value: string | undefined, flag: string): number {
-  const parsed = Number.parseInt(value ?? "", 10);
+  const raw = readRequiredValue(flag, value);
+  const parsed = /^\d+$/.test(raw) ? Number(raw) : Number.NaN;
   if (!Number.isInteger(parsed)) {
-    throw new Error(`benchmark-generation: ${flag} expects an integer value.`);
+    throw new BenchmarkUsageError(`benchmark-generation: ${flag} expects an integer value.`);
   }
   return parsed;
 }
 
 function validateOptions(options: BenchmarkOptions): void {
   if (!Number.isInteger(options.promptTokens) || options.promptTokens <= 1) {
-    throw new Error("benchmark-generation: promptTokens must be an integer greater than 1.");
+    throw new BenchmarkUsageError(
+      "benchmark-generation: promptTokens must be an integer greater than 1.",
+    );
   }
   if (!Number.isInteger(options.generationTokens) || options.generationTokens <= 0) {
-    throw new Error("benchmark-generation: generationTokens must be a positive integer.");
+    throw new BenchmarkUsageError(
+      "benchmark-generation: generationTokens must be a positive integer.",
+    );
   }
   if (!Number.isInteger(options.trials) || options.trials <= 0) {
-    throw new Error("benchmark-generation: trials must be a positive integer.");
+    throw new BenchmarkUsageError("benchmark-generation: trials must be a positive integer.");
   }
   if (!Number.isInteger(options.prefillStepSize) || options.prefillStepSize <= 0) {
-    throw new Error("benchmark-generation: prefillStepSize must be a positive integer.");
+    throw new BenchmarkUsageError(
+      "benchmark-generation: prefillStepSize must be a positive integer.",
+    );
   }
   if (!Number.isInteger(options.memorySampleInterval) || options.memorySampleInterval <= 0) {
-    throw new Error("benchmark-generation: memorySampleInterval must be a positive integer.");
+    throw new BenchmarkUsageError(
+      "benchmark-generation: memorySampleInterval must be a positive integer.",
+    );
   }
 }
 
@@ -314,10 +351,10 @@ function applyStringFlag(
 ): boolean {
   switch (flag) {
     case "--model":
-      mutable.model = value;
+      mutable.model = readRequiredValue(flag, value);
       return true;
     case "--mlx-lm-python":
-      mutable.mlxLmPython = value;
+      mutable.mlxLmPython = readRequiredValue(flag, value);
       return true;
     default:
       return false;
@@ -330,7 +367,7 @@ function handlePositionalModel(mutable: MutableBenchmarkOptions, arg: string): v
     return;
   }
 
-  throw new Error(`benchmark-generation: unexpected positional argument "${arg}".`);
+  throw new BenchmarkUsageError(`benchmark-generation: unexpected positional argument "${arg}".`);
 }
 
 export function parseBenchmarkArgs(argv: readonly string[]): ParsedBenchmarkArgs {
@@ -357,7 +394,11 @@ export function parseBenchmarkArgs(argv: readonly string[]): ParsedBenchmarkArgs
     }
 
     if (arg.startsWith("--")) {
-      throw new Error(`benchmark-generation: unknown flag "${arg}".`);
+      throw new BenchmarkUsageError(`benchmark-generation: unknown flag "${arg}".`);
+    }
+
+    if (arg.startsWith("-")) {
+      throw new BenchmarkUsageError(`benchmark-generation: unknown argument "${arg}".`);
     }
 
     handlePositionalModel(mutable, arg);
@@ -375,7 +416,7 @@ export function parseBenchmarkArgs(argv: readonly string[]): ParsedBenchmarkArgs
   };
   validateOptions(options);
   if (mutable.requireMlxLmReference && !mutable.captureMlxLmReference) {
-    throw new Error(
+    throw new BenchmarkUsageError(
       "benchmark-generation: --require-mlx-lm-reference cannot be combined with --skip-mlx-lm-reference.",
     );
   }
@@ -390,6 +431,135 @@ export function parseBenchmarkArgs(argv: readonly string[]): ParsedBenchmarkArgs
       mlxLmPython: mutable.mlxLmPython,
     },
   };
+}
+
+export function parseBenchmarkCommand(argv: readonly string[]): BenchmarkCommand {
+  if (argv.some((arg) => arg === "--help" || arg === "-h")) {
+    return { kind: "help" };
+  }
+  return { kind: "run", parsed: parseBenchmarkArgs(argv) };
+}
+
+export type BenchmarkCommandMode = "synthetic" | "parity";
+
+function toon(value: string | number | boolean | null): string {
+  if (typeof value === "number") {
+    return Number.isFinite(value) ? value.toString() : "null";
+  }
+  if (typeof value === "boolean") {
+    return value ? "true" : "false";
+  }
+  if (value === null) {
+    return "null";
+  }
+  return JSON.stringify(value);
+}
+
+function formatMultilineField(name: string, value: string): string[] {
+  if (!value.includes("\n")) {
+    return [`  ${name}: ${toon(value)}`];
+  }
+  return [`  ${name}: |`, ...value.split("\n").map((line) => `    ${line}`)];
+}
+
+function nullableMetric(value: number | undefined, fractionDigits: number): string {
+  return value === undefined ? "null" : value.toFixed(fractionDigits);
+}
+
+function commandName(mode: BenchmarkCommandMode): string {
+  return mode === "synthetic" ? "bench:generation" : "bench:generation:parity";
+}
+
+function modeDescription(mode: BenchmarkCommandMode): string {
+  return mode === "synthetic"
+    ? "Benchmark @mlxts/transformers synthetic generation throughput"
+    : "Benchmark @mlxts/transformers generation parity against MLX-LM";
+}
+
+export function formatBenchmarkUsage(mode: BenchmarkCommandMode): string {
+  const command = commandName(mode);
+  const referenceOptions =
+    mode === "parity"
+      ? [
+          '  "--skip-mlx-lm-reference","Use stored baseline references only"',
+          '  "--capture-mlx-lm-reference","Run the MLX-LM helper before mlxts; default true"',
+          '  "--require-mlx-lm-reference","Fail when no live or stored MLX-LM reference exists"',
+          '  "--enforce-mlx-lm-decode-bar","Fail when decode throughput trails MLX-LM beyond tolerance"',
+          '  "--mlx-lm-allow-extra-weights","Pass allow-extra-weights to the MLX-LM helper"',
+          '  "--mlx-lm-python <path>","Python executable for the MLX-LM helper"',
+        ]
+      : [];
+  return [
+    `description: ${modeDescription(mode)}`,
+    "usage[3]:",
+    `  bun run ${command} -- --model <repo-or-path>`,
+    `  bun run ${command} -- --model <repo-or-path> --prompt-tokens 1024 --generation-tokens 128 --trials 3`,
+    `  bun run ${command} -- <repo-or-path> --sync-decode`,
+    `options[${10 + referenceOptions.length}]{flag,description}:`,
+    '  "--model <repo-or-path>","Model id/path; may also be the first positional argument"',
+    '  "--prompt-tokens <n>","Synthetic prompt token count; default 1024"',
+    '  "--generation-tokens <n>","Decode token count; default 128"',
+    '  "--trials <n>","Measured trial count after warmup; default 3"',
+    '  "--prefill-step-size <n>","Prompt prefill chunk size; default 2048"',
+    '  "--memory-sample-interval <n>","Decode memory sample cadence; default 64"',
+    '  "--sync-decode","Use scalar-synchronized decode instead of async scheduled decode"',
+    '  "--materialize-cache-each-token","Force cache materialization after each decode token"',
+    '  "--metal-trace","Capture a Metal trace under benchmarks/traces"',
+    ...referenceOptions,
+    '  "--help","Show this help"',
+    "exit_codes[3]{code,meaning}:",
+    '  0,"benchmark completed"',
+    '  1,"runtime or benchmark failure"',
+    '  2,"usage error"',
+  ].join("\n");
+}
+
+export function formatBenchmarkError(message: string, help: string): string {
+  return ["error:", ...formatMultilineField("message", message), `help: ${toon(help)}`].join("\n");
+}
+
+export function formatBenchmarkSuccess(
+  mode: BenchmarkCommandMode,
+  reports: readonly BenchmarkCommandReport[],
+): string {
+  const rows = reports.map((report) =>
+    [
+      toon(report.name),
+      toon(report.model),
+      toon(report.snapshotPath),
+      report.promptTokens.toString(),
+      report.generationTokens.toString(),
+      report.prefillStepSize.toString(),
+      report.trials.toString(),
+      toon(report.decodeSchedule),
+      toon(report.materializeCacheEachToken),
+      report.metrics.promptTps.toFixed(3),
+      report.metrics.generationTps.toFixed(3),
+      report.metrics.peakMemoryGb.toFixed(3),
+      report.metrics.explicitEvalCountPerToken.toFixed(2),
+      report.metrics.totalTimeSeconds.toFixed(3),
+      nullableMetric(report.mlxLmReference?.generationTps, 3),
+      report.warnings.length.toString(),
+    ].join(","),
+  );
+  const warningRows = reports.flatMap((report) =>
+    report.warnings.map((warning) => [toon(report.name), toon(warning)].join(",")),
+  );
+
+  return [
+    "generation_benchmark:",
+    "  status: passed",
+    `  mode: ${toon(mode)}`,
+    `  targets: ${reports.length}`,
+    `targets[${rows.length}]{name,model,snapshot_path,prompt_tokens,generation_tokens,prefill_step_size,trials,decode_schedule,materialize_cache_each_token,prompt_tps,generation_tps,peak_memory_gb,evals_per_token,total_time_s,mlx_lm_generation_tps,warning_count}:`,
+    ...rows.map((row) => `  ${row}`),
+    ...(warningRows.length === 0
+      ? []
+      : [
+          `warnings[${warningRows.length}]{target,message}:`,
+          ...warningRows.map((row) => `  ${row}`),
+        ]),
+  ].join("\n");
 }
 
 export async function loadBaselines(): Promise<BenchmarkBaselines> {
@@ -445,7 +615,7 @@ export function selectTargets(
   }
 
   if (baselineTargets.length === 0) {
-    throw new Error(
+    throw new BenchmarkUsageError(
       `benchmark-generation: no --model was provided and ${BASELINE_PATH}.${mode}.targets is empty.`,
     );
   }
@@ -522,8 +692,12 @@ export function mean(values: readonly number[]): number {
   return values.reduce((total, value) => total + value, 0) / Math.max(values.length, 1);
 }
 
-export function printTrial(prefix: string, metrics: TrialMetrics): void {
-  console.log(
+export function printTrial(
+  prefix: string,
+  metrics: TrialMetrics,
+  progress: BenchmarkProgress = console.log,
+): void {
+  progress(
     `${prefix}prompt_tps=${metrics.promptTps.toFixed(3)}, generation_tps=${metrics.generationTps.toFixed(3)}, peak_memory=${metrics.peakMemoryGb.toFixed(3)}, active_start=${metrics.activeMemoryStartGb.toFixed(3)}, active_end=${metrics.activeMemoryEndGb.toFixed(3)}, active_delta=${metrics.activeMemoryDeltaGb.toFixed(3)}, active_max=${metrics.activeMemoryMaxGb.toFixed(3)}, active_slope_mb_per_token=${metrics.activeMemorySlopeMbPerToken.toFixed(2)}, evals_per_token=${metrics.explicitEvalCountPerToken.toFixed(2)}, total_time=${metrics.totalTimeSeconds.toFixed(3)}`,
   );
 }
@@ -783,10 +957,11 @@ export function withBenchmarkRuntimeScope<T>(
   targetName: string,
   metalTrace: boolean,
   fn: () => T,
+  progress: BenchmarkProgress = console.log,
 ): T {
   const tracePath = metalTrace ? createTracePath(targetName) : null;
   if (tracePath !== null) {
-    console.log(`Metal trace: ${tracePath}`);
+    progress(`Metal trace: ${tracePath}`);
     startMetalCapture(tracePath);
   }
 

@@ -21,14 +21,21 @@ import {
 } from "../src/infrastructure/runtime-profile";
 import { loadCausalLM } from "../src/load";
 import {
+  type BenchmarkCommandReport,
   type BenchmarkOptions,
+  type BenchmarkProgress,
   type BenchmarkTarget,
+  BenchmarkUsageError,
   compareAgainstBaseline,
   createDecodeMemoryTracker,
   createPromptTokenIds,
+  formatBenchmarkError,
+  formatBenchmarkSuccess,
+  formatBenchmarkUsage,
   loadBaselines,
   mean,
-  parseBenchmarkArgs,
+  type ParsedBenchmarkArgs,
+  parseBenchmarkCommand,
   printTrial,
   resolveCachedSnapshotPath,
   selectTargets,
@@ -38,6 +45,20 @@ import {
 import { type BenchmarkModel, predictGreedyToken, prefillBenchmarkCache } from "./benchmark-model";
 
 const PERIODIC_CACHE_CLEAR_INTERVAL = 256;
+
+type RuntimeLock = {
+  [Symbol.dispose](): void;
+};
+
+type GenerationBenchmarkRuntime = {
+  stdout?: (text: string) => void;
+  stderr?: (text: string) => void;
+  acquireLock?: () => RuntimeLock;
+  runBenchmarks?: (
+    parsed: ParsedBenchmarkArgs,
+    progress: BenchmarkProgress,
+  ) => Promise<BenchmarkCommandReport[]>;
+};
 
 function formatNsPerToken(totalNs: number, generatedTokens: number, trials: number): string {
   const tokenCount = Math.max(generatedTokens * trials, 1);
@@ -49,16 +70,20 @@ function resetRuntimeProfiles(): void {
   resetTransformerRuntimeProfile();
 }
 
-function printRuntimeProfile(generationTokens: number, trials: number): void {
+function printRuntimeProfile(
+  generationTokens: number,
+  trials: number,
+  progress: BenchmarkProgress,
+): void {
   if (!isCoreRuntimeProfilingEnabled() && !isTransformerRuntimeProfilingEnabled()) {
     return;
   }
 
   const core = snapshotCoreRuntimeProfile();
   const transformer = snapshotTransformerRuntimeProfile();
-  console.log("Runtime profile (steady-state decode):");
+  progress("Runtime profile (steady-state decode):");
   if (core.enabled) {
-    console.log(
+    progress(
       `  core: out_slot_ms_per_token=${formatNsPerToken(core.outSlot.totalNs, generationTokens, trials)} ffi_ms_per_token=${formatNsPerToken(core.ffiInvoke.totalNs, generationTokens, trials)} wrapper_ms_per_token=${formatNsPerToken(core.wrapperConstruct.totalNs, generationTokens, trials)} free_ms_per_token=${formatNsPerToken(core.explicitFree.totalNs, generationTokens, trials)}`,
     );
     const topLabels = Object.entries(core.ffiLabels)
@@ -68,7 +93,7 @@ function printRuntimeProfile(generationTokens: number, trials: number): void {
         ([label, metric]) =>
           `${label}:${(metric.count / Math.max(trials, 1)).toFixed(1)}/trial@${formatNsPerToken(metric.totalNs, generationTokens, trials)}ms`,
       );
-    console.log(`  core labels: ${topLabels.join(", ")}`);
+    progress(`  core labels: ${topLabels.join(", ")}`);
   }
   if (transformer.enabled) {
     const activeCounters = Object.entries(transformer.counters).filter(([, count]) => count > 0);
@@ -76,7 +101,7 @@ function printRuntimeProfile(generationTokens: number, trials: number): void {
       ([name, count]) =>
         `${name}:${(count / Math.max(generationTokens * trials, 1)).toFixed(3)}/token`,
     );
-    console.log(`  transformer: ${formattedCounters.join(", ")}`);
+    progress(`  transformer: ${formattedCounters.join(", ")}`);
   }
 }
 
@@ -239,31 +264,43 @@ function runSyntheticBenchmarks(
   promptTokenIds: readonly number[],
   target: BenchmarkTarget,
   options: BenchmarkOptions,
-): void {
-  withBenchmarkRuntimeScope(target.name, options.metalTrace, () => {
-    runSyntheticTrial(model, promptTokenIds, options);
-    clearMemoryCache();
-    resetRuntimeProfiles();
-
-    const trials: TrialMetrics[] = [];
-    for (let index = 0; index < options.trials; index += 1) {
-      const metrics = runSyntheticTrial(model, promptTokenIds, options);
-      trials.push(metrics);
-      printTrial(`Trial ${index + 1}:  `, metrics);
+  progress: BenchmarkProgress,
+): { metrics: TrialMetrics; warnings: string[] } {
+  return withBenchmarkRuntimeScope(
+    target.name,
+    options.metalTrace,
+    () => {
+      runSyntheticTrial(model, promptTokenIds, options);
       clearMemoryCache();
-    }
+      resetRuntimeProfiles();
 
-    const averages = averageTrialMetrics(trials);
-    printTrial("Averages: ", averages);
-    printRuntimeProfile(options.generationTokens, options.trials);
+      const trials: TrialMetrics[] = [];
+      for (let index = 0; index < options.trials; index += 1) {
+        const metrics = runSyntheticTrial(model, promptTokenIds, options);
+        trials.push(metrics);
+        printTrial(`Trial ${index + 1}:  `, metrics, progress);
+        clearMemoryCache();
+      }
 
-    for (const warning of compareAgainstBaseline(target, averages)) {
-      console.warn(`Warning: ${warning}`);
-    }
-  });
+      const averages = averageTrialMetrics(trials);
+      printTrial("Averages: ", averages, progress);
+      printRuntimeProfile(options.generationTokens, options.trials, progress);
+
+      const warnings = compareAgainstBaseline(target, averages);
+      for (const warning of warnings) {
+        progress(`Warning: ${warning}`);
+      }
+      return { metrics: averages, warnings };
+    },
+    progress,
+  );
 }
 
-async function benchmarkTarget(target: BenchmarkTarget, options: BenchmarkOptions): Promise<void> {
+async function benchmarkTarget(
+  target: BenchmarkTarget,
+  options: BenchmarkOptions,
+  progress: BenchmarkProgress,
+): Promise<BenchmarkCommandReport> {
   const resolvedModelSource = await resolveCachedSnapshotPath(target.model);
   const targetOptions: BenchmarkOptions = {
     ...options,
@@ -275,30 +312,111 @@ async function benchmarkTarget(target: BenchmarkTarget, options: BenchmarkOption
     materializeCacheEachToken: options.materializeCacheEachToken,
   };
 
-  console.log(
+  progress(
     `Benchmarking ${target.name} (${resolvedModelSource}) with prompt_tokens=${targetOptions.promptTokens}, generation_tokens=${targetOptions.generationTokens}, trials=${targetOptions.trials}, decode_schedule=${targetOptions.decodeSchedule}, materialize_cache_each_token=${targetOptions.materializeCacheEachToken}.`,
   );
 
   using model = await loadCausalLM(resolvedModelSource, { localFilesOnly: true });
   const promptTokenIds = createPromptTokenIds(targetOptions.promptTokens, model.config.vocabSize);
-  runSyntheticBenchmarks(model, promptTokenIds, target, targetOptions);
+  const summary = runSyntheticBenchmarks(model, promptTokenIds, target, targetOptions, progress);
+  return {
+    name: target.name,
+    model: target.model,
+    snapshotPath: resolvedModelSource,
+    promptTokens: targetOptions.promptTokens,
+    generationTokens: targetOptions.generationTokens,
+    prefillStepSize: targetOptions.prefillStepSize,
+    trials: targetOptions.trials,
+    decodeSchedule: targetOptions.decodeSchedule,
+    materializeCacheEachToken: targetOptions.materializeCacheEachToken,
+    metrics: summary.metrics,
+    warnings: summary.warnings,
+  };
 }
 
-async function main(): Promise<void> {
-  using _runtimeLock = acquireRuntimeCommandLock("bench:generation");
-  const parsed = parseBenchmarkArgs(Bun.argv.slice(2));
+async function runGenerationBenchmarks(
+  parsed: ParsedBenchmarkArgs,
+  progress: BenchmarkProgress,
+): Promise<BenchmarkCommandReport[]> {
   const baselines = await loadBaselines();
   const targets = selectTargets("synthetic", baselines, parsed);
+  const reports: BenchmarkCommandReport[] = [];
 
   for (const [index, target] of targets.entries()) {
-    await benchmarkTarget(target, parsed.options);
+    reports.push(await benchmarkTarget(target, parsed.options, progress));
     if (index + 1 < targets.length) {
-      console.log("");
+      progress("");
     }
+  }
+  return reports;
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function parseGenerationBenchmarkCliCommand(
+  argv: readonly string[],
+  stdout: (text: string) => void,
+): ReturnType<typeof parseBenchmarkCommand> | number {
+  try {
+    return parseBenchmarkCommand(argv);
+  } catch (error) {
+    stdout(
+      formatBenchmarkError(
+        errorMessage(error),
+        "bun run bench:generation -- --model <repo-or-path>",
+      ),
+    );
+    return error instanceof BenchmarkUsageError ? 2 : 1;
   }
 }
 
-main().catch((error) => {
-  console.error(error instanceof Error ? error.message : String(error));
-  process.exit(1);
-});
+async function runGenerationBenchmarkWithLock(
+  parsed: ParsedBenchmarkArgs,
+  runtime: GenerationBenchmarkRuntime,
+  stdout: (text: string) => void,
+  stderr: (text: string) => void,
+): Promise<number> {
+  const acquireLock = runtime.acquireLock ?? (() => acquireRuntimeCommandLock("bench:generation"));
+  const runBenchmarks = runtime.runBenchmarks ?? runGenerationBenchmarks;
+  let lock: RuntimeLock | undefined;
+  try {
+    lock = acquireLock();
+    const reports = await runBenchmarks(parsed, stderr);
+    stdout(formatBenchmarkSuccess("synthetic", reports));
+    return 0;
+  } catch (error) {
+    stdout(
+      formatBenchmarkError(
+        errorMessage(error),
+        "rerun with --model <repo-or-path> and smaller prompt/generation rungs",
+      ),
+    );
+    return 1;
+  } finally {
+    lock?.[Symbol.dispose]();
+  }
+}
+
+export async function runGenerationBenchmarkCommand(
+  argv: readonly string[],
+  runtime: GenerationBenchmarkRuntime = {},
+): Promise<number> {
+  const stdout = runtime.stdout ?? console.log;
+  const stderr = runtime.stderr ?? console.error;
+  const command = parseGenerationBenchmarkCliCommand(argv, stdout);
+  if (typeof command === "number") {
+    return command;
+  }
+  if (command.kind === "help") {
+    stdout(formatBenchmarkUsage("synthetic"));
+    return 0;
+  }
+  return runGenerationBenchmarkWithLock(command.parsed, runtime, stdout, stderr);
+}
+
+if (import.meta.main) {
+  const exitCode = await runGenerationBenchmarkCommand(Bun.argv.slice(2));
+  process.exit(exitCode);
+}

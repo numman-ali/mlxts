@@ -15,19 +15,26 @@ import {
 } from "../src/infrastructure/runtime-profile";
 import { loadCausalLM } from "../src/load";
 import {
+  type BenchmarkCommandReport,
   type BenchmarkOptions,
+  type BenchmarkProgress,
   type BenchmarkTarget,
+  BenchmarkUsageError,
   captureMlxLmReference,
   compareAgainstBaseline,
   compareAgainstMlxLmReference,
   createDecodeMemoryTracker,
   createPromptTokenIds,
   enforceMlxLmDecodeBar,
+  formatBenchmarkError,
+  formatBenchmarkSuccess,
+  formatBenchmarkUsage,
   formatMlxLmReference,
   loadBaselines,
   type MlxLmReference,
   mean,
-  parseBenchmarkArgs,
+  type ParsedBenchmarkArgs,
+  parseBenchmarkCommand,
   printTrial,
   type ReferenceBenchmarkOptions,
   readBenchmarkVocabSize,
@@ -47,6 +54,20 @@ const PERIODIC_CACHE_CLEAR_INTERVAL = 256;
 
 type BenchmarkCache = ReturnType<BenchmarkModel["createCache"]>;
 
+type RuntimeLock = {
+  [Symbol.dispose](): void;
+};
+
+type GenerationParityBenchmarkRuntime = {
+  stdout?: (text: string) => void;
+  stderr?: (text: string) => void;
+  acquireLock?: () => RuntimeLock;
+  runBenchmarks?: (
+    parsed: ParsedBenchmarkArgs,
+    progress: BenchmarkProgress,
+  ) => Promise<BenchmarkCommandReport[]>;
+};
+
 type DecodeTiming = {
   promptSeconds: number;
   decodeSeconds: number;
@@ -63,16 +84,20 @@ function resetRuntimeProfiles(): void {
   resetTransformerRuntimeProfile();
 }
 
-function printRuntimeProfile(generationTokens: number, trials: number): void {
+function printRuntimeProfile(
+  generationTokens: number,
+  trials: number,
+  progress: BenchmarkProgress,
+): void {
   if (!isCoreRuntimeProfilingEnabled() && !isTransformerRuntimeProfilingEnabled()) {
     return;
   }
 
   const core = snapshotCoreRuntimeProfile();
   const transformer = snapshotTransformerRuntimeProfile();
-  console.log("Runtime profile (steady-state decode):");
+  progress("Runtime profile (steady-state decode):");
   if (core.enabled) {
-    console.log(
+    progress(
       `  core: out_slot_ms_per_token=${formatNsPerToken(core.outSlot.totalNs, generationTokens, trials)} ffi_ms_per_token=${formatNsPerToken(core.ffiInvoke.totalNs, generationTokens, trials)} wrapper_ms_per_token=${formatNsPerToken(core.wrapperConstruct.totalNs, generationTokens, trials)} free_ms_per_token=${formatNsPerToken(core.explicitFree.totalNs, generationTokens, trials)}`,
     );
     const topLabels = Object.entries(core.ffiLabels)
@@ -82,7 +107,7 @@ function printRuntimeProfile(generationTokens: number, trials: number): void {
         ([label, metric]) =>
           `${label}:${(metric.count / Math.max(trials, 1)).toFixed(1)}/trial@${formatNsPerToken(metric.totalNs, generationTokens, trials)}ms`,
       );
-    console.log(`  core labels: ${topLabels.join(", ")}`);
+    progress(`  core labels: ${topLabels.join(", ")}`);
   }
   if (transformer.enabled) {
     const activeCounters = Object.entries(transformer.counters).filter(([, count]) => count > 0);
@@ -90,7 +115,7 @@ function printRuntimeProfile(generationTokens: number, trials: number): void {
       ([name, count]) =>
         `${name}:${(count / Math.max(generationTokens * trials, 1)).toFixed(3)}/token`,
     );
-    console.log(`  transformer: ${formattedCounters.join(", ")}`);
+    progress(`  transformer: ${formattedCounters.join(", ")}`);
   }
 }
 
@@ -277,30 +302,37 @@ function runParityBenchmarks(
   promptTokenIds: readonly number[],
   target: BenchmarkTarget,
   options: BenchmarkOptions,
-): TrialMetrics {
-  return withBenchmarkRuntimeScope(target.name, options.metalTrace, () => {
-    runParityTrial(model, promptTokenIds, options);
-    clearMemoryCache();
-    resetRuntimeProfiles();
-
-    const trials: TrialMetrics[] = [];
-    for (let index = 0; index < options.trials; index += 1) {
-      const metrics = runParityTrial(model, promptTokenIds, options);
-      trials.push(metrics);
-      printTrial(`Trial ${index + 1}:  `, metrics);
+  progress: BenchmarkProgress,
+): { metrics: TrialMetrics; warnings: string[] } {
+  return withBenchmarkRuntimeScope(
+    target.name,
+    options.metalTrace,
+    () => {
+      runParityTrial(model, promptTokenIds, options);
       clearMemoryCache();
-    }
+      resetRuntimeProfiles();
 
-    const averages = averageTrialMetrics(trials);
-    printTrial("Averages: ", averages);
-    printRuntimeProfile(options.generationTokens, options.trials);
+      const trials: TrialMetrics[] = [];
+      for (let index = 0; index < options.trials; index += 1) {
+        const metrics = runParityTrial(model, promptTokenIds, options);
+        trials.push(metrics);
+        printTrial(`Trial ${index + 1}:  `, metrics, progress);
+        clearMemoryCache();
+      }
 
-    for (const warning of compareAgainstBaseline(target, averages)) {
-      console.warn(`Warning: ${warning}`);
-    }
+      const averages = averageTrialMetrics(trials);
+      printTrial("Averages: ", averages, progress);
+      printRuntimeProfile(options.generationTokens, options.trials, progress);
 
-    return averages;
-  });
+      const warnings = compareAgainstBaseline(target, averages);
+      for (const warning of warnings) {
+        progress(`Warning: ${warning}`);
+      }
+
+      return { metrics: averages, warnings };
+    },
+    progress,
+  );
 }
 
 async function resolveMlxLmReference(
@@ -309,6 +341,8 @@ async function resolveMlxLmReference(
   promptTokenIds: readonly number[],
   targetOptions: BenchmarkOptions,
   referenceOptions: ReferenceBenchmarkOptions,
+  progress: BenchmarkProgress,
+  warnings: string[],
 ): Promise<MlxLmReference | null> {
   const liveReference = await captureMlxLmReference(
     resolvedModelSource,
@@ -331,9 +365,9 @@ async function resolveMlxLmReference(
       `benchmark-generation: MLX-LM reference is required for ${target.name} but unavailable.`,
     );
   }
-  console.warn(
-    `Warning: MLX-LM reference unavailable for ${target.name}; falling back to no external comparison.`,
-  );
+  const warning = `MLX-LM reference unavailable for ${target.name}; falling back to no external comparison.`;
+  warnings.push(warning);
+  progress(`Warning: ${warning}`);
   return null;
 }
 
@@ -343,6 +377,8 @@ async function captureTargetReference(
   promptTokenIds: readonly number[],
   targetOptions: BenchmarkOptions,
   referenceOptions: ReferenceBenchmarkOptions,
+  progress: BenchmarkProgress,
+  warnings: string[],
 ): Promise<MlxLmReference | null> {
   try {
     return await resolveMlxLmReference(
@@ -351,13 +387,17 @@ async function captureTargetReference(
       promptTokenIds,
       targetOptions,
       referenceOptions,
+      progress,
+      warnings,
     );
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     if (referenceOptions.requireMlxLmReference) {
       throw new Error(`benchmark-generation: required mlx-lm reference failed: ${message}`);
     }
-    console.warn(`Warning: unable to run mlx-lm reference for ${target.name}: ${message}`);
+    const warning = `unable to run mlx-lm reference for ${target.name}: ${message}`;
+    warnings.push(warning);
+    progress(`Warning: ${warning}`);
     return target.mlxLmReference ?? null;
   }
 }
@@ -366,7 +406,8 @@ async function benchmarkTarget(
   target: BenchmarkTarget,
   options: BenchmarkOptions,
   referenceOptions: ReferenceBenchmarkOptions,
-): Promise<void> {
+  progress: BenchmarkProgress,
+): Promise<BenchmarkCommandReport> {
   const resolvedModelSource = await resolveCachedSnapshotPath(target.model);
   const targetOptions: BenchmarkOptions = {
     ...options,
@@ -377,8 +418,9 @@ async function benchmarkTarget(
     decodeSchedule: options.decodeSchedule,
     materializeCacheEachToken: options.materializeCacheEachToken,
   };
+  const warnings: string[] = [];
 
-  console.log(
+  progress(
     `Benchmarking ${target.name} parity (${resolvedModelSource}) with prompt_tokens=${targetOptions.promptTokens}, generation_tokens=${targetOptions.generationTokens}, trials=${targetOptions.trials}, decode_schedule=${targetOptions.decodeSchedule}, materialize_cache_each_token=${targetOptions.materializeCacheEachToken}.`,
   );
   const vocabSize = await readBenchmarkVocabSize(resolvedModelSource);
@@ -389,15 +431,18 @@ async function benchmarkTarget(
     promptTokenIds,
     targetOptions,
     referenceOptions,
+    progress,
+    warnings,
   );
 
   if (mlxLmReference !== null) {
-    console.log(
-      formatMlxLmReference({
-        ...target,
-        mlxLmReference,
-      }),
-    );
+    const formattedReference = formatMlxLmReference({
+      ...target,
+      mlxLmReference,
+    });
+    if (formattedReference !== null) {
+      progress(formattedReference);
+    }
   }
 
   using model = await loadCausalLM(resolvedModelSource, { localFilesOnly: true });
@@ -407,38 +452,124 @@ async function benchmarkTarget(
     );
   }
 
-  const averages = runParityBenchmarks(
+  const summary = runParityBenchmarks(
     model,
     promptTokenIds,
     mlxLmReference === null ? target : { ...target, mlxLmReference },
     targetOptions,
+    progress,
   );
+  warnings.push(...summary.warnings);
 
   if (mlxLmReference !== null) {
-    const comparisonWarnings = compareAgainstMlxLmReference(averages, mlxLmReference);
+    const comparisonWarnings = compareAgainstMlxLmReference(summary.metrics, mlxLmReference);
+    warnings.push(...comparisonWarnings);
     for (const warning of comparisonWarnings) {
-      console.warn(`Warning: ${warning}`);
+      progress(`Warning: ${warning}`);
     }
   }
 
-  enforceMlxLmDecodeBar(target.model, averages, mlxLmReference, referenceOptions);
+  enforceMlxLmDecodeBar(target.model, summary.metrics, mlxLmReference, referenceOptions);
+  return {
+    name: target.name,
+    model: target.model,
+    snapshotPath: resolvedModelSource,
+    promptTokens: targetOptions.promptTokens,
+    generationTokens: targetOptions.generationTokens,
+    prefillStepSize: targetOptions.prefillStepSize,
+    trials: targetOptions.trials,
+    decodeSchedule: targetOptions.decodeSchedule,
+    materializeCacheEachToken: targetOptions.materializeCacheEachToken,
+    metrics: summary.metrics,
+    ...(mlxLmReference === null ? {} : { mlxLmReference }),
+    warnings,
+  };
 }
 
-async function main(): Promise<void> {
-  using _runtimeLock = acquireRuntimeCommandLock("bench:generation:parity");
-  const parsed = parseBenchmarkArgs(Bun.argv.slice(2));
+async function runGenerationParityBenchmarks(
+  parsed: ParsedBenchmarkArgs,
+  progress: BenchmarkProgress,
+): Promise<BenchmarkCommandReport[]> {
   const baselines = await loadBaselines();
   const targets = selectTargets("parity", baselines, parsed);
+  const reports: BenchmarkCommandReport[] = [];
 
   for (const [index, target] of targets.entries()) {
-    await benchmarkTarget(target, parsed.options, parsed.reference);
+    reports.push(await benchmarkTarget(target, parsed.options, parsed.reference, progress));
     if (index + 1 < targets.length) {
-      console.log("");
+      progress("");
     }
+  }
+  return reports;
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function parseGenerationParityBenchmarkCliCommand(
+  argv: readonly string[],
+  stdout: (text: string) => void,
+): ReturnType<typeof parseBenchmarkCommand> | number {
+  try {
+    return parseBenchmarkCommand(argv);
+  } catch (error) {
+    stdout(
+      formatBenchmarkError(
+        errorMessage(error),
+        "bun run bench:generation:parity -- --model <repo-or-path>",
+      ),
+    );
+    return error instanceof BenchmarkUsageError ? 2 : 1;
   }
 }
 
-main().catch((error) => {
-  console.error(error instanceof Error ? error.message : String(error));
-  process.exit(1);
-});
+async function runGenerationParityBenchmarkWithLock(
+  parsed: ParsedBenchmarkArgs,
+  runtime: GenerationParityBenchmarkRuntime,
+  stdout: (text: string) => void,
+  stderr: (text: string) => void,
+): Promise<number> {
+  const acquireLock =
+    runtime.acquireLock ?? (() => acquireRuntimeCommandLock("bench:generation:parity"));
+  const runBenchmarks = runtime.runBenchmarks ?? runGenerationParityBenchmarks;
+  let lock: RuntimeLock | undefined;
+  try {
+    lock = acquireLock();
+    const reports = await runBenchmarks(parsed, stderr);
+    stdout(formatBenchmarkSuccess("parity", reports));
+    return 0;
+  } catch (error) {
+    stdout(
+      formatBenchmarkError(
+        errorMessage(error),
+        "rerun with --model <repo-or-path>, --skip-mlx-lm-reference, or smaller rungs",
+      ),
+    );
+    return 1;
+  } finally {
+    lock?.[Symbol.dispose]();
+  }
+}
+
+export async function runGenerationParityBenchmarkCommand(
+  argv: readonly string[],
+  runtime: GenerationParityBenchmarkRuntime = {},
+): Promise<number> {
+  const stdout = runtime.stdout ?? console.log;
+  const stderr = runtime.stderr ?? console.error;
+  const command = parseGenerationParityBenchmarkCliCommand(argv, stdout);
+  if (typeof command === "number") {
+    return command;
+  }
+  if (command.kind === "help") {
+    stdout(formatBenchmarkUsage("parity"));
+    return 0;
+  }
+  return runGenerationParityBenchmarkWithLock(command.parsed, runtime, stdout, stderr);
+}
+
+if (import.meta.main) {
+  const exitCode = await runGenerationParityBenchmarkCommand(Bun.argv.slice(2));
+  process.exit(exitCode);
+}
