@@ -14,6 +14,23 @@ type CliOptions = {
   port: number;
 };
 
+type QwenImageRegressionCommand = { kind: "help" } | { kind: "run"; options: CliOptions };
+
+type RuntimeLock = {
+  [Symbol.dispose](): void;
+};
+
+type QwenImageRegressionRuntime = {
+  stdout?: (text: string) => void;
+  stderr?: (text: string) => void;
+  acquireLock?: () => RuntimeLock;
+  runRegression?: (
+    options: CliOptions,
+    progress: (text: string) => void,
+  ) => Promise<QwenImageRegressionReport>;
+  writeReport?: (reportDir: string, report: QwenImageRegressionReport) => Promise<string>;
+};
+
 type RecordedServeEvent = ServeEvent & {
   observedAtMs: number;
 };
@@ -103,16 +120,30 @@ const PROBE_LABELS = [
   "anthropic-messages-repeat",
 ] as const;
 
-function usage(): string {
+class QwenImageRegressionUsageError extends Error {}
+
+export function formatQwenImageRegressionUsage(): string {
   return [
     "Usage: bun run packages/serve/scripts/regression-qwen-image.ts [options]",
+    "",
+    "Runs the Qwen image serving regression across OpenAI Chat, OpenResponses, and Anthropic Messages.",
     "",
     "Options:",
     `  --qwen-model <id>         Qwen image-capable model id/path. Default: ${DEFAULT_MODEL}`,
     "  --report-dir <path>       Directory for qwen-image-regression.json.",
-    "  --request-timeout-ms <n>  Client timeout per image request.",
+    "  --request-timeout-ms <n>  Client timeout per image request. Default: 600000.",
     "  --port <n>                Server port. Default: 0.",
     "  --allow-download          Allow Hub downloads; default is cached/local only.",
+    "  --help                    Show this help.",
+    "",
+    "Exit codes:",
+    "  0  regression passed",
+    "  1  runtime or regression failure",
+    "  2  usage error",
+    "",
+    "Examples:",
+    "  bun run regression:qwen-image",
+    "  bun run regression:qwen-image -- --qwen-model mlx-community/Qwen3.6-27B-4bit --report-dir .tmp/qwen-image",
   ].join("\n");
 }
 
@@ -128,8 +159,8 @@ function defaultOptions(): CliOptions {
 
 function readStringFlag(args: readonly string[], index: number, flag: string): string {
   const value = args[index + 1];
-  if (value === undefined || value.startsWith("--")) {
-    throw new Error(`${flag} requires a value.\n\n${usage()}`);
+  if (value === undefined || value.trim() === "" || value.startsWith("-")) {
+    throw new QwenImageRegressionUsageError(`${flag} requires a value.`);
   }
   return value;
 }
@@ -141,23 +172,31 @@ function readIntegerFlag(
   predicate: (value: number) => boolean,
   description: string,
 ): number {
-  const value = Number.parseInt(readStringFlag(args, index, flag), 10);
+  const rawValue = args[index + 1]?.trim();
+  if (rawValue === undefined || rawValue === "" || rawValue.startsWith("--")) {
+    throw new QwenImageRegressionUsageError(`${flag} requires a value.`);
+  }
+  const value = /^-?\d+$/.test(rawValue) ? Number(rawValue) : Number.NaN;
   if (!Number.isInteger(value) || !predicate(value)) {
-    throw new Error(`${flag} must be ${description}.`);
+    throw new QwenImageRegressionUsageError(`${flag} must be ${description}.`);
   }
   return value;
 }
 
-export function parseQwenImageRegressionArgs(argv: readonly string[]): CliOptions {
+export function parseQwenImageRegressionArgs(argv: readonly string[]): QwenImageRegressionCommand {
+  if (argv.length === 1 && (argv[0] === "--help" || argv[0] === "-h")) {
+    return { kind: "help" };
+  }
   const options = defaultOptions();
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
+    if (arg === undefined) {
+      throw new QwenImageRegressionUsageError("argument parsing reached an empty slot.");
+    }
     switch (arg) {
       case "--help":
       case "-h":
-        console.log(usage());
-        process.exit(0);
-        return options;
+        return { kind: "help" };
       case "--qwen-model":
         options.qwenModel = readStringFlag(argv, index, arg);
         index += 1;
@@ -190,10 +229,12 @@ export function parseQwenImageRegressionArgs(argv: readonly string[]): CliOption
         options.allowDownload = true;
         break;
       default:
-        throw new Error(`Unknown option: ${arg}\n\n${usage()}`);
+        throw new QwenImageRegressionUsageError(
+          arg.startsWith("-") ? `unknown option "${arg}".` : `unexpected argument "${arg}".`,
+        );
     }
   }
-  return options;
+  return { kind: "run", options };
 }
 
 function uint16le(value: number): number[] {
@@ -676,6 +717,71 @@ export function assertQwenImageRegressionReport(report: QwenImageRegressionRepor
   }
 }
 
+function formatMultilineField(name: string, value: string): string[] {
+  const lines = value.split(/\r?\n/);
+  if (lines.length === 1) {
+    return [`  ${name}: ${toon(value)}`];
+  }
+  return [`  ${name}: |`, ...lines.map((line) => `    ${line}`)];
+}
+
+function toon(value: string | number | boolean | null): string {
+  return typeof value === "string" ? JSON.stringify(value) : String(value);
+}
+
+function routeSummary(probe: QwenImageProbeReport): string {
+  const routes = probe.routeDecisions.map((decision) => `${decision.route}:${decision.reason}`);
+  return routes.length === 0 ? "none" : routes.join("|");
+}
+
+function probeDurationMs(probe: QwenImageProbeReport): number {
+  return Math.round(probe.durationMs);
+}
+
+export function formatQwenImageRegressionSuccess(
+  reportPath: string,
+  report: QwenImageRegressionReport,
+): string {
+  const repeatProbes = report.probes.filter((probe) => probe.label.endsWith("-repeat"));
+  const repeatCacheHits = repeatProbes.filter((probe) => probe.cacheReadTokens > 0).length;
+  const cacheReadTokens = report.probes.reduce((total, probe) => total + probe.cacheReadTokens, 0);
+  const cacheWriteTokens = report.probes.reduce(
+    (total, probe) => total + probe.cacheWriteTokens,
+    0,
+  );
+  const memoryPeaks = report.probes.flatMap((probe) =>
+    probe.memoryPeakBytes === null ? [] : [probe.memoryPeakBytes],
+  );
+  const maxMemoryPeakBytes = memoryPeaks.length === 0 ? "null" : String(Math.max(...memoryPeaks));
+  return [
+    "qwen_image_regression:",
+    "  status: passed",
+    `  report: ${toon(reportPath)}`,
+    `  model: ${toon(report.model)}`,
+    `  probes: ${report.probes.length}`,
+    `  repeat_cache_hits: ${repeatCacheHits}/${repeatProbes.length}`,
+    `  cache_read_tokens: ${cacheReadTokens}`,
+    `  cache_write_tokens: ${cacheWriteTokens}`,
+    `  max_memory_peak_bytes: ${maxMemoryPeakBytes}`,
+    `probes[${report.probes.length}]{label,protocol,route,cache_read_tokens,cache_write_tokens,output_chars,duration_ms}:`,
+    ...report.probes.map((probe) =>
+      [
+        `  ${toon(probe.label)}`,
+        toon(probe.protocol),
+        toon(routeSummary(probe)),
+        probe.cacheReadTokens,
+        probe.cacheWriteTokens,
+        probe.outputText.length,
+        probeDurationMs(probe),
+      ].join(","),
+    ),
+  ].join("\n");
+}
+
+export function formatQwenImageRegressionError(message: string, help: string): string {
+  return ["error:", ...formatMultilineField("message", message), `help: ${toon(help)}`].join("\n");
+}
+
 export async function writeQwenImageRegressionReport(
   reportDir: string,
   report: QwenImageRegressionReport,
@@ -686,10 +792,13 @@ export async function writeQwenImageRegressionReport(
   return path;
 }
 
-async function runQwenImageRegression(options: CliOptions): Promise<QwenImageRegressionReport> {
+export async function runQwenImageRegression(
+  options: CliOptions,
+  progress: (text: string) => void = console.error,
+): Promise<QwenImageRegressionReport> {
   const image = createQwenImageRegressionData();
   const events: RecordedServeEvent[] = [];
-  console.log(
+  progress(
     [
       `qwen_model=${options.qwenModel}`,
       `local_files_only=${String(!options.allowDownload)}`,
@@ -715,12 +824,12 @@ async function runQwenImageRegression(options: CliOptions): Promise<QwenImageReg
   });
 
   try {
-    console.log(`endpoint=${server.endpoint}`);
+    progress(`endpoint=${server.endpoint}`);
     const probes: QwenImageProbeReport[] = [];
     for (const probe of protocolProbes(options.qwenModel, image)) {
       const result = await fetchJsonProbe(server.endpoint, probe, options, events);
       probes.push(result);
-      console.log(
+      progress(
         [
           `probe=${result.label}`,
           `duration_ms=${result.durationMs.toFixed(1)}`,
@@ -743,18 +852,55 @@ async function runQwenImageRegression(options: CliOptions): Promise<QwenImageReg
   }
 }
 
-async function main(): Promise<void> {
-  using _runtimeLock = acquireRuntimeCommandLock("regression:qwen-image");
-  const options = parseQwenImageRegressionArgs(Bun.argv.slice(2));
-  const report = await runQwenImageRegression(options);
-  assertQwenImageRegressionReport(report);
-  const reportPath = await writeQwenImageRegressionReport(options.reportDir, report);
-  console.log(`report_json=${reportPath}`);
+export async function runQwenImageRegressionCommand(
+  argv: readonly string[],
+  runtime: QwenImageRegressionRuntime = {},
+): Promise<number> {
+  const stdout = runtime.stdout ?? console.log;
+  const stderr = runtime.stderr ?? console.error;
+  const runRegression = runtime.runRegression ?? runQwenImageRegression;
+  const writeReport = runtime.writeReport ?? writeQwenImageRegressionReport;
+  let command: QwenImageRegressionCommand;
+
+  try {
+    command = parseQwenImageRegressionArgs(argv);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    stdout(
+      formatQwenImageRegressionError(
+        message,
+        "bun run regression:qwen-image -- --qwen-model <model-id>",
+      ),
+    );
+    return error instanceof QwenImageRegressionUsageError ? 2 : 1;
+  }
+
+  if (command.kind === "help") {
+    stdout(formatQwenImageRegressionUsage());
+    return 0;
+  }
+
+  try {
+    using _runtimeLock =
+      runtime.acquireLock?.() ?? acquireRuntimeCommandLock("regression:qwen-image");
+    const report = await runRegression(command.options, stderr);
+    assertQwenImageRegressionReport(report);
+    const reportPath = await writeReport(command.options.reportDir, report);
+    stdout(formatQwenImageRegressionSuccess(reportPath, report));
+    return 0;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    stdout(
+      formatQwenImageRegressionError(
+        message,
+        "review stderr and rerun `bun run regression:qwen-image` after fixing the serving failure",
+      ),
+    );
+    return 1;
+  }
 }
 
 if (import.meta.main) {
-  main().catch((error) => {
-    console.error(error instanceof Error ? error.message : String(error));
-    process.exit(1);
-  });
+  const exitCode = await runQwenImageRegressionCommand(Bun.argv.slice(2));
+  process.exit(exitCode);
 }

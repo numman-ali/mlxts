@@ -3,9 +3,13 @@ import { describe, expect, test } from "bun:test";
 import {
   assertQwenImageRegressionReport,
   createQwenImageRegressionData,
+  formatQwenImageRegressionError,
+  formatQwenImageRegressionSuccess,
+  formatQwenImageRegressionUsage,
   parseQwenImageRegressionArgs,
   type QwenImageProbeReport,
   type QwenImageRegressionReport,
+  runQwenImageRegressionCommand,
 } from "./regression-qwen-image";
 
 function probeProtocol(label: string): string {
@@ -82,11 +86,14 @@ function healthyReport(overrides: Partial<QwenImageRegressionReport> = {}) {
 describe("qwen image regression harness", () => {
   test("parses default and explicit options", () => {
     expect(parseQwenImageRegressionArgs([])).toEqual({
-      qwenModel: "mlx-community/Qwen3.6-27B-4bit",
-      reportDir: ".tmp/qwen-image-regression",
-      allowDownload: false,
-      requestTimeoutMs: 600_000,
-      port: 0,
+      kind: "run",
+      options: {
+        qwenModel: "mlx-community/Qwen3.6-27B-4bit",
+        reportDir: ".tmp/qwen-image-regression",
+        allowDownload: false,
+        requestTimeoutMs: 600_000,
+        port: 0,
+      },
     });
 
     expect(
@@ -102,12 +109,36 @@ describe("qwen image regression harness", () => {
         "--allow-download",
       ]),
     ).toEqual({
-      qwenModel: "local/qwen",
-      reportDir: ".tmp/custom",
-      allowDownload: true,
-      requestTimeoutMs: 1234,
-      port: 8173,
+      kind: "run",
+      options: {
+        qwenModel: "local/qwen",
+        reportDir: ".tmp/custom",
+        allowDownload: true,
+        requestTimeoutMs: 1234,
+        port: 8173,
+      },
     });
+  });
+
+  test("parses help and rejects usage errors without exiting", () => {
+    expect(parseQwenImageRegressionArgs(["--help"])).toEqual({ kind: "help" });
+    expect(parseQwenImageRegressionArgs(["-h"])).toEqual({ kind: "help" });
+    expect(() => parseQwenImageRegressionArgs(["--qwen-model", ""])).toThrow(
+      "--qwen-model requires a value.",
+    );
+    expect(() => parseQwenImageRegressionArgs(["--request-timeout-ms", "0"])).toThrow(
+      "--request-timeout-ms must be a positive integer.",
+    );
+    expect(() => parseQwenImageRegressionArgs(["--request-timeout-ms", "1.5"])).toThrow(
+      "--request-timeout-ms must be a positive integer.",
+    );
+    expect(() => parseQwenImageRegressionArgs(["--request-timeout-ms", "123abc"])).toThrow(
+      "--request-timeout-ms must be a positive integer.",
+    );
+    expect(() => parseQwenImageRegressionArgs(["--port", "-1"])).toThrow(
+      "--port must be a non-negative integer.",
+    );
+    expect(() => parseQwenImageRegressionArgs(["-x"])).toThrow('unknown option "-x".');
   });
 
   test("creates a deterministic BMP data URL", () => {
@@ -134,5 +165,92 @@ describe("qwen image regression harness", () => {
     });
 
     expect(() => assertQwenImageRegressionReport(report)).toThrow("Qwen image regression failed");
+  });
+
+  test("formats compact AXI success and error output", () => {
+    expect(formatQwenImageRegressionSuccess(".tmp/report.json", healthyReport())).toBe(
+      [
+        "qwen_image_regression:",
+        "  status: passed",
+        '  report: ".tmp/report.json"',
+        '  model: "mlx-community/Qwen3.6-27B-4bit"',
+        "  probes: 6",
+        "  repeat_cache_hits: 3/3",
+        "  cache_read_tokens: 276",
+        "  cache_write_tokens: 276",
+        "  max_memory_peak_bytes: 1000000",
+        "probes[6]{label,protocol,route,cache_read_tokens,cache_write_tokens,output_chars,duration_ms}:",
+        '  "openai-chat-cold","openai.chat_completions","single:media_input",0,92,46,100',
+        '  "openai-chat-repeat","openai.chat_completions","single:media_input",92,0,46,100',
+        '  "openai-responses-cold","openai.responses","single:media_input",0,92,46,100',
+        '  "openai-responses-repeat","openai.responses","single:media_input",92,0,46,100',
+        '  "anthropic-messages-cold","anthropic.messages","single:media_input",0,92,46,100',
+        '  "anthropic-messages-repeat","anthropic.messages","single:media_input",92,0,46,100',
+      ].join("\n"),
+    );
+
+    expect(formatQwenImageRegressionError("bad flag", "bun run regression:qwen-image")).toBe(
+      ["error:", '  message: "bad flag"', 'help: "bun run regression:qwen-image"'].join("\n"),
+    );
+    expect(formatQwenImageRegressionError("bad\nflag", "rerun")).toContain("  message: |");
+  });
+
+  test("runs help, success, usage error, and runtime error paths with AXI stdout", async () => {
+    const noOpLock = { [Symbol.dispose]() {} };
+    let lockCalls = 0;
+    const helpStdout: string[] = [];
+    expect(
+      await runQwenImageRegressionCommand(["--help"], {
+        stdout: (text) => helpStdout.push(text),
+        acquireLock: () => {
+          lockCalls += 1;
+          return noOpLock;
+        },
+      }),
+    ).toBe(0);
+    expect(lockCalls).toBe(0);
+    expect(helpStdout.join("\n")).toBe(formatQwenImageRegressionUsage());
+
+    const stdout: string[] = [];
+    const stderr: string[] = [];
+    expect(
+      await runQwenImageRegressionCommand(["--report-dir", ".tmp/custom"], {
+        stdout: (text) => stdout.push(text),
+        stderr: (text) => stderr.push(text),
+        acquireLock: () => noOpLock,
+        runRegression: async (options, progress) => {
+          expect(options.reportDir).toBe(".tmp/custom");
+          progress("probe=openai-chat-cold duration_ms=100.0");
+          return healthyReport();
+        },
+        writeReport: async (reportDir) => `${reportDir}/qwen-image-regression.json`,
+      }),
+    ).toBe(0);
+    expect(stderr).toEqual(["probe=openai-chat-cold duration_ms=100.0"]);
+    expect(stdout.join("\n")).toContain("qwen_image_regression:");
+    expect(stdout.join("\n")).toContain('  report: ".tmp/custom/qwen-image-regression.json"');
+
+    const usageStdout: string[] = [];
+    expect(
+      await runQwenImageRegressionCommand(["--port", "-1"], {
+        stdout: (text) => usageStdout.push(text),
+        acquireLock: () => noOpLock,
+      }),
+    ).toBe(2);
+    expect(lockCalls).toBe(0);
+    expect(usageStdout.join("\n")).toContain("error:");
+    expect(usageStdout.join("\n")).toContain("--port must be a non-negative integer.");
+
+    const runtimeStdout: string[] = [];
+    expect(
+      await runQwenImageRegressionCommand([], {
+        stdout: (text) => runtimeStdout.push(text),
+        acquireLock: () => noOpLock,
+        runRegression: async () => {
+          throw new Error("server failed");
+        },
+      }),
+    ).toBe(1);
+    expect(runtimeStdout.join("\n")).toContain("server failed");
   });
 });

@@ -190,10 +190,11 @@ Full evidence ladder lives in
 - Qwen image serving product regression passed against cached
   `mlx-community/Qwen3.6-27B-4bit` through OpenAI Chat image content,
   OpenResponses image input, and Anthropic Messages base64 image blocks. The
-  harness command is `bun run regression:qwen-image`; the latest run described
-  a generated 2x2 red/green/blue/yellow grid, routed every request as
-  `single:media_input`, kept continuous scheduler phases at `0`, and read `92`
-  cached prompt tokens on exact repeats.
+  harness command is `bun run regression:qwen-image`; it is AXI-shaped with
+  progress on stderr, compact report/probe/cache stdout, and structured stdout
+  errors. The latest run described a generated 2x2 red/green/blue/yellow grid,
+  routed every request as `single:media_input`, kept continuous scheduler
+  phases at `0`, and read `92` cached prompt tokens on exact repeats.
 - Qwen image prefix short-circuit passed against cached
   `mlx-community/Qwen3.6-27B-4bit` with
   `bun run regression:qwen-image -- --report-dir .tmp/qwen-image-prefix-short-circuit`.
