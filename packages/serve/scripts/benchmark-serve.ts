@@ -15,16 +15,19 @@ import { type RequestMetrics, runCompletionRequest } from "./benchmark-serve-com
 import {
   buildServeBenchmarkRungs,
   formatServeBenchmarkRung,
+  formatServeBenchmarkUsage,
   maxGenerationTokensForRung,
   maxPromptTokensForRung,
   maxTotalTokensForRung,
-  parseServeBenchmarkArgs,
+  parseServeBenchmarkCommand,
   requestLaunchDelayMs,
   requestShapesForRung,
   rungConcurrency,
+  type ServeBenchmarkCommand,
   type ServeBenchmarkOptions,
   type ServeBenchmarkRequestShape,
   type ServeBenchmarkRung,
+  ServeBenchmarkUsageError,
 } from "./benchmark-serve-options";
 import { createBenchmarkPrompt } from "./benchmark-serve-prompts";
 
@@ -205,6 +208,21 @@ export type RecordedServeEvent = ServeEvent & {
 type PreparedBenchmarkRequest = {
   shape: ServeBenchmarkRequestShape;
   prompt: { tokenIds: readonly number[]; text: string };
+};
+
+type RuntimeLock = {
+  [Symbol.dispose](): void;
+};
+
+type ServeBenchmarkRuntime = {
+  stdout?: (text: string) => void;
+  stderr?: (text: string) => void;
+  acquireLock?: () => RuntimeLock;
+  runBenchmark?: (
+    options: ServeBenchmarkOptions,
+    progress: (text: string) => void,
+  ) => Promise<BenchmarkReport>;
+  writeReport?: (path: string, report: BenchmarkReport) => Promise<void>;
 };
 
 function mean(values: readonly number[]): number {
@@ -874,53 +892,51 @@ function formatRouteSummary(summary: readonly RouteDecisionSummary[]): string {
   return summary.map((entry) => `${entry.key}=${entry.count}`).join("|") || "none";
 }
 
-function printMetrics(prefix: string, metrics: TrialMetrics): void {
-  console.log(
-    [
-      `${prefix}wall_ms=${metrics.wallMs.toFixed(1)}`,
-      `request_tps=${metrics.requestTps.toFixed(3)}`,
-      `completion_tps=${metrics.completionTps.toFixed(3)}`,
-      `total_tps=${metrics.totalTps.toFixed(3)}`,
-      `mean_ttft_ms=${formatNullableMs(metrics.meanTtftMs)}`,
-      `mean_prompt_to_first_token_tps=${formatNullableTps(metrics.meanPromptToFirstTokenTps)}`,
-      `mean_server_prefill_ms=${formatNullableMs(metrics.meanServerPrefillMs)}`,
-      `mean_server_prefill_tps=${formatNullableTps(metrics.meanServerPrefillTps)}`,
-      `mean_post_ttft_completion_tps=${formatNullableTps(metrics.meanPostTtftCompletionTps)}`,
-      `mean_stream_chunk_gap_ms=${formatNullableMs(metrics.meanStreamChunkGapMs)}`,
-      `max_stream_chunk_gap_ms=${formatNullableMs(metrics.maxStreamChunkGapMs)}`,
-      `mean_request_ms=${metrics.meanRequestMs.toFixed(1)}`,
-      `p95_request_ms=${metrics.p95RequestMs.toFixed(1)}`,
-      `max_request_ms=${metrics.maxRequestMs.toFixed(1)}`,
-      `prompt_tokens=${metrics.promptTokens.toFixed(0)}`,
-      `completion_tokens=${metrics.completionTokens.toFixed(0)}`,
-      `total_tokens=${metrics.totalTokens.toFixed(0)}`,
-      `cache_read_tokens=${metrics.cacheReadTokens.toFixed(0)}`,
-      `cache_write_tokens=${metrics.cacheWriteTokens.toFixed(0)}`,
-      `peak_memory=${metrics.peakMemoryGb.toFixed(3)}`,
-      `active_memory=${metrics.activeMemoryGb.toFixed(3)}`,
-      `cache_memory=${metrics.cacheMemoryGb.toFixed(3)}`,
-      `active_delta=${metrics.activeDeltaGb.toFixed(3)}`,
-      `admission_batches=${metrics.admissionBatches.toFixed(0)}`,
-      `admission_rows=${metrics.admissionRows.toFixed(0)}`,
-      `max_admission_batch=${metrics.maxAdmissionBatchSize.toFixed(0)}`,
-      `static_batches=${metrics.staticBatches.toFixed(0)}`,
-      `static_batch_rows=${metrics.staticBatchRows.toFixed(0)}`,
-      `continuous_admissions=${metrics.continuousAdmissions.toFixed(0)}`,
-      `continuous_admission_rows=${metrics.continuousAdmissionRows.toFixed(0)}`,
-      `continuous_scheduler_phases=${metrics.continuousSchedulerPhases.toFixed(0)}`,
-      `max_continuous_batch=${metrics.maxContinuousBatchSize.toFixed(0)}`,
-      `max_generation_batch=${metrics.maxGenerationBatchSize.toFixed(0)}`,
-      `prompt_cache_hits=${metrics.promptCacheHits.toFixed(0)}`,
-      `prompt_cache_misses=${metrics.promptCacheMisses.toFixed(0)}`,
-      `prompt_cache_writes=${metrics.promptCacheWrites.toFixed(0)}`,
-      `prompt_cache_read_tokens=${metrics.promptCacheReadTokens.toFixed(0)}`,
-      `prompt_cache_write_tokens=${metrics.promptCacheWriteTokens.toFixed(0)}`,
-      `stream_chunks=${metrics.streamChunks.toFixed(0)}`,
-      `stream_bytes=${metrics.streamBytes.toFixed(0)}`,
-      `finish_reasons=${[...new Set(metrics.finishReasons)].join("|") || "none"}`,
-      `routes=${formatRouteSummary(metrics.routeSummary)}`,
-    ].join(" "),
-  );
+function formatMetricsLine(prefix: string, metrics: TrialMetrics): string {
+  return [
+    `${prefix}wall_ms=${metrics.wallMs.toFixed(1)}`,
+    `request_tps=${metrics.requestTps.toFixed(3)}`,
+    `completion_tps=${metrics.completionTps.toFixed(3)}`,
+    `total_tps=${metrics.totalTps.toFixed(3)}`,
+    `mean_ttft_ms=${formatNullableMs(metrics.meanTtftMs)}`,
+    `mean_prompt_to_first_token_tps=${formatNullableTps(metrics.meanPromptToFirstTokenTps)}`,
+    `mean_server_prefill_ms=${formatNullableMs(metrics.meanServerPrefillMs)}`,
+    `mean_server_prefill_tps=${formatNullableTps(metrics.meanServerPrefillTps)}`,
+    `mean_post_ttft_completion_tps=${formatNullableTps(metrics.meanPostTtftCompletionTps)}`,
+    `mean_stream_chunk_gap_ms=${formatNullableMs(metrics.meanStreamChunkGapMs)}`,
+    `max_stream_chunk_gap_ms=${formatNullableMs(metrics.maxStreamChunkGapMs)}`,
+    `mean_request_ms=${metrics.meanRequestMs.toFixed(1)}`,
+    `p95_request_ms=${metrics.p95RequestMs.toFixed(1)}`,
+    `max_request_ms=${metrics.maxRequestMs.toFixed(1)}`,
+    `prompt_tokens=${metrics.promptTokens.toFixed(0)}`,
+    `completion_tokens=${metrics.completionTokens.toFixed(0)}`,
+    `total_tokens=${metrics.totalTokens.toFixed(0)}`,
+    `cache_read_tokens=${metrics.cacheReadTokens.toFixed(0)}`,
+    `cache_write_tokens=${metrics.cacheWriteTokens.toFixed(0)}`,
+    `peak_memory=${metrics.peakMemoryGb.toFixed(3)}`,
+    `active_memory=${metrics.activeMemoryGb.toFixed(3)}`,
+    `cache_memory=${metrics.cacheMemoryGb.toFixed(3)}`,
+    `active_delta=${metrics.activeDeltaGb.toFixed(3)}`,
+    `admission_batches=${metrics.admissionBatches.toFixed(0)}`,
+    `admission_rows=${metrics.admissionRows.toFixed(0)}`,
+    `max_admission_batch=${metrics.maxAdmissionBatchSize.toFixed(0)}`,
+    `static_batches=${metrics.staticBatches.toFixed(0)}`,
+    `static_batch_rows=${metrics.staticBatchRows.toFixed(0)}`,
+    `continuous_admissions=${metrics.continuousAdmissions.toFixed(0)}`,
+    `continuous_admission_rows=${metrics.continuousAdmissionRows.toFixed(0)}`,
+    `continuous_scheduler_phases=${metrics.continuousSchedulerPhases.toFixed(0)}`,
+    `max_continuous_batch=${metrics.maxContinuousBatchSize.toFixed(0)}`,
+    `max_generation_batch=${metrics.maxGenerationBatchSize.toFixed(0)}`,
+    `prompt_cache_hits=${metrics.promptCacheHits.toFixed(0)}`,
+    `prompt_cache_misses=${metrics.promptCacheMisses.toFixed(0)}`,
+    `prompt_cache_writes=${metrics.promptCacheWrites.toFixed(0)}`,
+    `prompt_cache_read_tokens=${metrics.promptCacheReadTokens.toFixed(0)}`,
+    `prompt_cache_write_tokens=${metrics.promptCacheWriteTokens.toFixed(0)}`,
+    `stream_chunks=${metrics.streamChunks.toFixed(0)}`,
+    `stream_bytes=${metrics.streamBytes.toFixed(0)}`,
+    `finish_reasons=${[...new Set(metrics.finishReasons)].join("|") || "none"}`,
+    `routes=${formatRouteSummary(metrics.routeSummary)}`,
+  ].join(" ");
 }
 
 export async function writeBenchmarkReport(path: string, report: BenchmarkReport): Promise<void> {
@@ -936,6 +952,7 @@ async function benchmarkRung(
   rung: ServeBenchmarkRung,
   options: ServeBenchmarkOptions,
   serveEvents: readonly RecordedServeEvent[],
+  progress: (text: string) => void,
 ): Promise<RungReport> {
   const preparedRequests = requestShapesForRung(rung).map((shape) => ({
     shape,
@@ -946,7 +963,7 @@ async function benchmarkRung(
       options.protocolMode,
     ),
   }));
-  console.log(
+  progress(
     [
       `rung=${formatServeBenchmarkRung(rung)}`,
       `concurrency=${rungConcurrency(rung)}`,
@@ -975,13 +992,12 @@ async function benchmarkRung(
   for (let index = 0; index < options.trials; index += 1) {
     const metrics = await runTrial(endpoint, modelId, preparedRequests, options, serveEvents);
     trials.push(metrics);
-    printMetrics(`Trial ${index + 1}:  `, metrics);
+    progress(formatMetricsLine(`Trial ${index + 1}:  `, metrics));
     clearMemoryCache();
   }
 
   const averages = averageTrialMetrics(trials);
-  printMetrics("Averages: ", averages);
-  console.log("");
+  progress(formatMetricsLine("Averages: ", averages));
   return { rung, arrivalSpanMs: arrivalSpanMs(rung, options), trials, averages };
 }
 
@@ -989,15 +1005,16 @@ function maximum(values: readonly number[]): number {
   return Math.max(...values);
 }
 
-async function main(): Promise<void> {
-  using _runtimeLock = acquireRuntimeCommandLock("bench:serve");
-  const options = parseServeBenchmarkArgs(Bun.argv.slice(2));
+export async function runServeBenchmark(
+  options: ServeBenchmarkOptions,
+  progress: (text: string) => void = console.error,
+): Promise<BenchmarkReport> {
   const rungs = buildServeBenchmarkRungs(options);
   const snapshotPath = options.localFilesOnly
     ? await resolveCachedSnapshotPath(options.model)
     : options.model;
-  console.log(`Benchmarking serve completions for ${snapshotPath}`);
-  console.log(
+  progress(`Benchmarking serve completions for ${snapshotPath}`);
+  progress(
     [
       `rungs=${rungs.map(formatServeBenchmarkRung).join(",")}`,
       `matrix=${options.matrix}`,
@@ -1049,7 +1066,7 @@ async function main(): Promise<void> {
 
   try {
     const reports: RungReport[] = [];
-    console.log(`endpoint=${server.endpoint} model_id=${options.modelId}`);
+    progress(`endpoint=${server.endpoint} model_id=${options.modelId}`);
     for (const rung of rungs) {
       const report = await benchmarkRung(
         server.endpoint,
@@ -1059,40 +1076,156 @@ async function main(): Promise<void> {
         rung,
         options,
         serveEvents,
+        progress,
       );
       reports.push(report);
     }
-    if (options.reportJson !== undefined) {
-      await writeBenchmarkReport(options.reportJson, {
-        createdAt: new Date().toISOString(),
-        model: options.model,
-        modelId: options.modelId,
-        snapshotPath,
-        samplingMode: options.samplingMode,
-        transportMode: options.transportMode,
-        protocolMode: options.protocolMode,
-        ignoreEos: options.ignoreEos,
-        maxBatchSize: options.maxBatchSize,
-        batchWindowMs: options.batchWindowMs,
-        prefillStepSize: options.prefillStepSize,
-        activePrefillStepSize: options.activePrefillStepSize,
-        activeDecodeStepsPerPrefillChunk: options.activeDecodeStepsPerPrefillChunk,
-        streamDecodeInterval: options.streamDecodeInterval,
-        requestStaggerMs: options.requestStaggerMs,
-        maxConcurrentRequests: options.maxConcurrentRequests,
-        gpuMemoryUtilization: options.gpuMemoryUtilization,
-        rungs: reports,
-      });
-      console.log(`report_json=${options.reportJson}`);
-    }
+    return {
+      createdAt: new Date().toISOString(),
+      model: options.model,
+      modelId: options.modelId,
+      snapshotPath,
+      samplingMode: options.samplingMode,
+      transportMode: options.transportMode,
+      protocolMode: options.protocolMode,
+      ignoreEos: options.ignoreEos,
+      maxBatchSize: options.maxBatchSize,
+      batchWindowMs: options.batchWindowMs,
+      prefillStepSize: options.prefillStepSize,
+      activePrefillStepSize: options.activePrefillStepSize,
+      activeDecodeStepsPerPrefillChunk: options.activeDecodeStepsPerPrefillChunk,
+      streamDecodeInterval: options.streamDecodeInterval,
+      requestStaggerMs: options.requestStaggerMs,
+      maxConcurrentRequests: options.maxConcurrentRequests,
+      gpuMemoryUtilization: options.gpuMemoryUtilization,
+      rungs: reports,
+    };
   } finally {
     server.stop(true);
   }
 }
 
-if (import.meta.main) {
-  main().catch((error) => {
-    console.error(error instanceof Error ? error.message : String(error));
-    process.exit(1);
+function toon(value: string | number | boolean | null): string {
+  return typeof value === "string" ? JSON.stringify(value) : String(value);
+}
+
+function formatMultilineField(name: string, value: string): string[] {
+  const lines = value.split(/\r?\n/);
+  if (lines.length === 1) {
+    return [`  ${name}: ${toon(value)}`];
+  }
+  return [`  ${name}: |`, ...lines.map((line) => `    ${line}`)];
+}
+
+function nullableMetric(value: number | null, fractionDigits: number): string {
+  return value === null ? "null" : value.toFixed(fractionDigits);
+}
+
+export function formatServeBenchmarkSuccess(report: BenchmarkReport, reportJson?: string): string {
+  const rows = report.rungs.map((rung) => {
+    const metrics = rung.averages;
+    return [
+      toon(formatServeBenchmarkRung(rung.rung)),
+      String(rung.trials.length),
+      metrics.completionTps.toFixed(3),
+      metrics.totalTps.toFixed(3),
+      nullableMetric(metrics.meanTtftMs, 1),
+      metrics.p95RequestMs.toFixed(1),
+      metrics.promptCacheHits.toFixed(0),
+      metrics.promptCacheReadTokens.toFixed(0),
+      toon(formatRouteSummary(metrics.routeSummary)),
+    ].join(",");
   });
+  return [
+    "serve_benchmark:",
+    "  status: passed",
+    `  model: ${toon(report.model)}`,
+    `  model_id: ${toon(report.modelId)}`,
+    `  snapshot_path: ${toon(report.snapshotPath)}`,
+    `  transport: ${toon(report.transportMode)}`,
+    `  protocol: ${toon(report.protocolMode)}`,
+    `  sampling: ${toon(report.samplingMode)}`,
+    `  rungs: ${report.rungs.length}`,
+    ...(reportJson === undefined ? [] : [`  report_json: ${toon(reportJson)}`]),
+    `rungs[${rows.length}]{rung,trials,completion_tps,total_tps,mean_ttft_ms,p95_request_ms,prompt_cache_hits,prompt_cache_read_tokens,routes}:`,
+    ...rows.map((row) => `  ${row}`),
+  ].join("\n");
+}
+
+export function formatServeBenchmarkError(message: string, help: string): string {
+  return ["error:", ...formatMultilineField("message", message), `help: ${toon(help)}`].join("\n");
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function parseServeBenchmarkCliCommand(
+  argv: readonly string[],
+  stdout: (text: string) => void,
+): ServeBenchmarkCommand | number {
+  try {
+    return parseServeBenchmarkCommand(argv);
+  } catch (error) {
+    stdout(
+      formatServeBenchmarkError(
+        errorMessage(error),
+        "bun run bench:serve -- --model <repo-or-path>",
+      ),
+    );
+    return error instanceof ServeBenchmarkUsageError ? 2 : 1;
+  }
+}
+
+async function runServeBenchmarkWithLock(
+  options: ServeBenchmarkOptions,
+  runtime: ServeBenchmarkRuntime,
+  stdout: (text: string) => void,
+  stderr: (text: string) => void,
+): Promise<number> {
+  const acquireLock = runtime.acquireLock ?? (() => acquireRuntimeCommandLock("bench:serve"));
+  const runBenchmark = runtime.runBenchmark ?? runServeBenchmark;
+  const writeReport = runtime.writeReport ?? writeBenchmarkReport;
+  let lock: RuntimeLock | undefined;
+  try {
+    lock = acquireLock();
+    const report = await runBenchmark(options, stderr);
+    if (options.reportJson !== undefined) {
+      await writeReport(options.reportJson, report);
+    }
+    stdout(formatServeBenchmarkSuccess(report, options.reportJson));
+    return 0;
+  } catch (error) {
+    stdout(
+      formatServeBenchmarkError(
+        errorMessage(error),
+        "rerun with --report-json or a narrower --rungs value",
+      ),
+    );
+    return 1;
+  } finally {
+    lock?.[Symbol.dispose]();
+  }
+}
+
+export async function runServeBenchmarkCommand(
+  argv: readonly string[],
+  runtime: ServeBenchmarkRuntime = {},
+): Promise<number> {
+  const stdout = runtime.stdout ?? console.log;
+  const stderr = runtime.stderr ?? console.error;
+  const command = parseServeBenchmarkCliCommand(argv, stdout);
+  if (typeof command === "number") {
+    return command;
+  }
+  if (command.kind === "help") {
+    stdout(formatServeBenchmarkUsage());
+    return 0;
+  }
+  return runServeBenchmarkWithLock(command.options, runtime, stdout, stderr);
+}
+
+if (import.meta.main) {
+  const exitCode = await runServeBenchmarkCommand(Bun.argv.slice(2));
+  process.exit(exitCode);
 }

@@ -5,11 +5,13 @@ import {
   buildServeBenchmarkRungs,
   expectedCompletionTokensForRung,
   formatServeBenchmarkRung,
+  formatServeBenchmarkUsage,
   maxGenerationTokensForRung,
   maxPromptTokensForRung,
   maxTotalTokensForRung,
   parsePositiveIntegerList,
   parseServeBenchmarkArgs,
+  parseServeBenchmarkCommand,
   parseServeBenchmarkMixedRungs,
   parseServeBenchmarkRungs,
   requestShapesForRung,
@@ -262,7 +264,14 @@ describe("serve benchmark options", () => {
   });
 
   test("rejects malformed values before a benchmark starts", () => {
+    expect(parseServeBenchmarkCommand(["--help"])).toEqual({ kind: "help" });
+    expect(parseServeBenchmarkCommand(["model", "--help"])).toEqual({ kind: "help" });
+    expect(formatServeBenchmarkUsage()).toContain("exit_codes[3]");
+    expect(() => parseServeBenchmarkArgs([])).toThrow("--model is required");
     expect(() => parseServeBenchmarkArgs(["model", "--model-id"])).toThrow(
+      "missing value for --model-id",
+    );
+    expect(() => parseServeBenchmarkArgs(["model", "--model-id", ""])).toThrow(
       "missing value for --model-id",
     );
     expect(() => parseServeBenchmarkArgs(["model", "--matrix", "diagonal"])).toThrow(
@@ -281,6 +290,9 @@ describe("serve benchmark options", () => {
       parseServeBenchmarkArgs(["model", "--protocol", "anthropic", "--ignore-eos"]),
     ).toThrow("--ignore-eos is not supported with --protocol anthropic");
     expect(() => parsePositiveIntegerList("--concurrency", "1,0")).toThrow(
+      "--concurrency expects a positive integer",
+    );
+    expect(() => parsePositiveIntegerList("--concurrency", "1,2abc")).toThrow(
       "--concurrency expects a positive integer",
     );
     expect(() => parseServeBenchmarkArgs(["model", "--request-stagger-ms", "-1"])).toThrow(

@@ -2,8 +2,16 @@ import { describe, expect, test } from "bun:test";
 import { existsSync, mkdtempSync, readFileSync, rmSync } from "fs";
 import { join } from "path";
 
-import { serverRequestTimingReports, writeBenchmarkReport } from "./benchmark-serve";
-import { requestLaunchDelayMs } from "./benchmark-serve-options";
+import {
+  type BenchmarkReport,
+  formatServeBenchmarkError,
+  formatServeBenchmarkSuccess,
+  runServeBenchmarkCommand,
+  serverRequestTimingReports,
+  type TrialMetrics,
+  writeBenchmarkReport,
+} from "./benchmark-serve";
+import { formatServeBenchmarkUsage, requestLaunchDelayMs } from "./benchmark-serve-options";
 
 const SCHEDULER_TOKENS = {
   waitingTotalTokens: 0,
@@ -18,6 +26,89 @@ const SCHEDULER_TOKENS = {
   scheduledMemoryBytes: 1024,
   maxScheduledMemoryBytes: 4096,
 };
+
+function trialMetrics(overrides: Partial<TrialMetrics> = {}): TrialMetrics {
+  return {
+    wallMs: 1000,
+    requestTps: 1,
+    completionTps: 16,
+    totalTps: 144,
+    meanTtftMs: 100,
+    meanPromptToFirstTokenTps: 1280,
+    meanServerPrefillMs: 80,
+    meanServerPrefillTps: 1600,
+    meanPostTtftCompletionTps: 20,
+    meanStreamChunkGapMs: null,
+    maxStreamChunkGapMs: null,
+    promptTokens: 128,
+    completionTokens: 16,
+    totalTokens: 144,
+    cacheReadTokens: 64,
+    cacheWriteTokens: 128,
+    meanRequestMs: 1000,
+    p95RequestMs: 1000,
+    maxRequestMs: 1000,
+    peakMemoryGb: 1.25,
+    activeMemoryGb: 1,
+    cacheMemoryGb: 0.25,
+    activeDeltaGb: 0.5,
+    admissionBatches: 1,
+    admissionRows: 1,
+    maxAdmissionBatchSize: 1,
+    staticBatches: 1,
+    staticBatchRows: 1,
+    continuousAdmissions: 0,
+    continuousAdmissionRows: 0,
+    continuousSchedulerPhases: 0,
+    maxContinuousBatchSize: 0,
+    maxGenerationBatchSize: 1,
+    promptCacheHits: 1,
+    promptCacheMisses: 1,
+    promptCacheWrites: 1,
+    promptCacheReadTokens: 64,
+    promptCacheWriteTokens: 128,
+    streamChunks: 0,
+    streamBytes: 0,
+    finishReasons: ["length"],
+    routeDecisions: [],
+    routeSummary: [{ key: "static:eligible", route: "static", reason: "eligible", count: 1 }],
+    requests: [],
+    serverRequests: [],
+    ...overrides,
+  };
+}
+
+function benchmarkReport(overrides: Partial<BenchmarkReport> = {}): BenchmarkReport {
+  const metrics = trialMetrics();
+  return {
+    createdAt: "2026-04-30T00:00:00.000Z",
+    model: "model",
+    modelId: "local-model",
+    snapshotPath: "/tmp/model",
+    samplingMode: "greedy",
+    transportMode: "non-streaming",
+    protocolMode: "completions",
+    ignoreEos: true,
+    maxBatchSize: 8,
+    batchWindowMs: 2,
+    prefillStepSize: 512,
+    activePrefillStepSize: 128,
+    activeDecodeStepsPerPrefillChunk: 16,
+    streamDecodeInterval: 1,
+    requestStaggerMs: 25,
+    maxConcurrentRequests: 1,
+    gpuMemoryUtilization: 0.9,
+    rungs: [
+      {
+        rung: { promptTokens: 128, generationTokens: 16, concurrency: 1 },
+        arrivalSpanMs: 0,
+        trials: [metrics],
+        averages: metrics,
+      },
+    ],
+    ...overrides,
+  };
+}
 
 describe("serve benchmark reports", () => {
   test("computes staggered request launch offsets", () => {
@@ -60,6 +151,106 @@ describe("serve benchmark reports", () => {
     } finally {
       rmSync(directory, { recursive: true, force: true });
     }
+  });
+
+  test("formats compact AXI success and error output", () => {
+    expect(formatServeBenchmarkSuccess(benchmarkReport(), ".tmp/serve-report.json")).toBe(
+      [
+        "serve_benchmark:",
+        "  status: passed",
+        '  model: "model"',
+        '  model_id: "local-model"',
+        '  snapshot_path: "/tmp/model"',
+        '  transport: "non-streaming"',
+        '  protocol: "completions"',
+        '  sampling: "greedy"',
+        "  rungs: 1",
+        '  report_json: ".tmp/serve-report.json"',
+        "rungs[1]{rung,trials,completion_tps,total_tps,mean_ttft_ms,p95_request_ms,prompt_cache_hits,prompt_cache_read_tokens,routes}:",
+        '  "128x16@1",1,16.000,144.000,100.0,1000.0,1,64,"static:eligible=1"',
+      ].join("\n"),
+    );
+    expect(formatServeBenchmarkError("bad flag", "rerun")).toBe(
+      ["error:", '  message: "bad flag"', 'help: "rerun"'].join("\n"),
+    );
+    expect(formatServeBenchmarkError("bad\nflag", "rerun")).toContain("  message: |");
+  });
+
+  test("runs help, success, usage error, and runtime error paths with AXI stdout", async () => {
+    const helpStdout: string[] = [];
+    expect(
+      await runServeBenchmarkCommand(["--help"], {
+        stdout: (text) => helpStdout.push(text),
+      }),
+    ).toBe(0);
+    expect(helpStdout.join("\n")).toBe(formatServeBenchmarkUsage());
+
+    const stdout: string[] = [];
+    const stderr: string[] = [];
+    const writtenReports: string[] = [];
+    let lockDepth = 0;
+    expect(
+      await runServeBenchmarkCommand(["--model", "model", "--report-json", ".tmp/report.json"], {
+        stdout: (text) => stdout.push(text),
+        stderr: (text) => stderr.push(text),
+        acquireLock: () => {
+          lockDepth += 1;
+          return {
+            [Symbol.dispose]: () => {
+              lockDepth -= 1;
+            },
+          };
+        },
+        runBenchmark: async (options, progress) => {
+          expect(options.model).toBe("model");
+          expect(lockDepth).toBe(1);
+          progress("benchmark-serve: probe");
+          return benchmarkReport();
+        },
+        writeReport: async (path) => {
+          writtenReports.push(path);
+        },
+      }),
+    ).toBe(0);
+    expect(lockDepth).toBe(0);
+    expect(stderr).toEqual(["benchmark-serve: probe"]);
+    expect(writtenReports).toEqual([".tmp/report.json"]);
+    expect(stdout.join("\n")).toContain("serve_benchmark:");
+
+    const usageStdout: string[] = [];
+    let usageLockCalls = 0;
+    expect(
+      await runServeBenchmarkCommand(["--trials", "0"], {
+        stdout: (text) => usageStdout.push(text),
+        acquireLock: () => {
+          usageLockCalls += 1;
+          return { [Symbol.dispose]: () => undefined };
+        },
+      }),
+    ).toBe(2);
+    expect(usageLockCalls).toBe(0);
+    expect(usageStdout.join("\n")).toContain("--trials expects a positive integer");
+
+    const runtimeStdout: string[] = [];
+    let runtimeLockDepth = 0;
+    expect(
+      await runServeBenchmarkCommand(["--model", "model"], {
+        stdout: (text) => runtimeStdout.push(text),
+        acquireLock: () => {
+          runtimeLockDepth += 1;
+          return {
+            [Symbol.dispose]: () => {
+              runtimeLockDepth -= 1;
+            },
+          };
+        },
+        runBenchmark: async () => {
+          throw new Error("benchmark failed");
+        },
+      }),
+    ).toBe(1);
+    expect(runtimeLockDepth).toBe(0);
+    expect(runtimeStdout.join("\n")).toContain("benchmark failed");
   });
 
   test("keeps model-lane wait timing in server request reports", () => {

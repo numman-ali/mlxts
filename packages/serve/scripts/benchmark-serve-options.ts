@@ -48,6 +48,10 @@ export type ServeBenchmarkRequestShape = {
   generationTokens: number;
 };
 
+export type ServeBenchmarkCommand =
+  | { kind: "help" }
+  | { kind: "run"; options: ServeBenchmarkOptions };
+
 export function requestLaunchDelayMs(requestIndex: number, requestStaggerMs: number): number {
   return Math.max(0, requestIndex) * requestStaggerMs;
 }
@@ -59,70 +63,88 @@ const DEFAULT_GENERATION_TOKENS = [128];
 const DEFAULT_CONCURRENCY = [1];
 const DEFAULT_STREAM_DECODE_INTERVAL = 1;
 
-function usage(): never {
-  console.error(
-    [
-      "Usage: bun run packages/serve/scripts/benchmark-serve.ts --model <repo-or-path> [options]",
-      "",
-      "Options:",
-      "  --prompt-tokens <list>          Comma-separated prompt token targets, default 128",
-      "  --generation-tokens <list>      Comma-separated max_tokens targets, default 128",
-      "  --concurrency <list>            Comma-separated parallel request counts, default 1",
-      "  --rungs <spec>                  Explicit rungs like 128x128@1,1024x512@2",
-      "  --mixed-rungs <spec>            Per-request rungs like 32768x128+128x32",
-      "  --request-stagger-ms <n>        Delay each request launch by index*n ms, default 0",
-      "  --matrix <cartesian|zip>        Pair prompt/output rungs, default cartesian",
-      "  --trials <n>                    Trials per rung, default 1",
-      "  --report-json <path>            Write a structured JSON report at the end",
-      "  --protocol <name>               completions, chat, responses, or anthropic; default completions",
-      "  --stream                        Measure SSE streaming and time-to-first-token",
-      "  --ignore-eos                    Request exact max_tokens for throughput ladders",
-      "  --greedy                        Send temperature=0 for deterministic throughput",
-      "  --no-warmup                     Skip the one-request warmup for each prompt/output pair",
-      "  --max-concurrent-requests <n>   Server-side in-flight generation limit, default 1",
-      "  --max-batch-size <n>            Admission micro-batch size, default 32",
-      "  --batch-window-ms <n>           Admission micro-batch window, default 1",
-      `  --prefill-step-size <n>         Cold prompt-prefill chunk size, default ${DEFAULT_SERVE_PREFILL_STEP_SIZE}`,
-      "  --active-prefill-step-size <n>  Prefill chunk size while rows are decoding, default 128",
-      "  --active-decode-steps-per-prefill-chunk <n>  Decode quantum before prefill resumes, default 16",
-      "  --stream-decode-interval <n>    Streaming text flush interval, default 1",
-      "  --gpu-memory-utilization <f>    Serving memory preflight budget, default 0.9",
-      "  --request-timeout-ms <n>        Client fetch timeout per request, default 3600000",
-      "  --max-prompt-tokens <n>         Override server prompt admission limit",
-      "  --max-total-tokens <n>          Override server total-token admission limit",
-      "  --allow-download                Allow Hub downloads; default is cached/local only",
-    ].join("\n"),
-  );
-  process.exit(1);
+export class ServeBenchmarkUsageError extends Error {}
+
+export function formatServeBenchmarkUsage(): string {
+  return [
+    "description: Benchmark @mlxts/serve completions/chat/responses/anthropic throughput",
+    "usage[3]:",
+    "  bun run bench:serve -- --model <repo-or-path>",
+    "  bun run bench:serve -- --model <repo-or-path> --rungs 128x32@1 --greedy",
+    "  bun run bench:serve -- --model <repo-or-path> --mixed-rungs 32768x128+128x32 --stream",
+    "options[29]{flag,description}:",
+    '  "--model <repo-or-path>","Model id/path; may also be the first positional argument"',
+    '  "--model-id <id>","Served model id; default derived from model"',
+    '  "--prompt-tokens <list>","Comma-separated prompt token targets; default 128"',
+    '  "--generation-tokens <list>","Comma-separated max_tokens targets; default 128"',
+    '  "--concurrency <list>","Comma-separated parallel request counts; default 1"',
+    '  "--rungs <spec>","Explicit rungs like 128x128@1,1024x512@2"',
+    '  "--mixed-rungs <spec>","Per-request rungs like 32768x128+128x32"',
+    '  "--request-stagger-ms <n>","Delay each request launch by index*n ms; default 0"',
+    '  "--matrix <cartesian|zip>","Pair prompt/output rungs; default cartesian"',
+    '  "--trials <n>","Trials per rung; default 1"',
+    '  "--report-json <path>","Write a structured JSON report"',
+    '  "--protocol <name>","completions, chat, responses, or anthropic; default completions"',
+    '  "--stream","Measure SSE streaming and time-to-first-token"',
+    '  "--ignore-eos","Request exact max_tokens for throughput ladders"',
+    '  "--greedy","Send temperature=0 for deterministic throughput"',
+    '  "--no-warmup","Skip one-request warmup for each prompt/output pair"',
+    '  "--max-concurrent-requests <n>","Server-side in-flight generation limit; default 1"',
+    '  "--max-batch-size <n>","Admission micro-batch size; default 32"',
+    '  "--batch-window-ms <n>","Admission micro-batch window; default 1"',
+    `  "--prefill-step-size <n>","Cold prompt-prefill chunk size; default ${DEFAULT_SERVE_PREFILL_STEP_SIZE}"`,
+    '  "--active-prefill-step-size <n>","Prefill chunk size while rows are decoding; default 128"',
+    '  "--active-decode-steps-per-prefill-chunk <n>","Decode quantum before prefill resumes; default 16"',
+    '  "--stream-decode-interval <n>","Streaming text flush interval; default 1"',
+    '  "--gpu-memory-utilization <f>","Serving memory preflight budget in (0,1]; default 0.9"',
+    '  "--request-timeout-ms <n>","Client fetch timeout per request; default 3600000"',
+    '  "--max-prompt-tokens <n>","Override server prompt admission limit"',
+    '  "--max-total-tokens <n>","Override server total-token admission limit"',
+    '  "--allow-download","Allow Hub downloads; default is cached/local only"',
+    '  "--help","Show this help"',
+    "exit_codes[3]{code,meaning}:",
+    '  0,"benchmark completed"',
+    '  1,"runtime or benchmark failure"',
+    '  2,"usage error"',
+  ].join("\n");
 }
 
 function readRequiredValue(flag: string, value: string | undefined): string {
-  if (value === undefined || value.startsWith("--")) {
-    throw new Error(`benchmark-serve: missing value for ${flag}.`);
+  if (value === undefined || value.trim() === "" || value.startsWith("-")) {
+    throw new ServeBenchmarkUsageError(`benchmark-serve: missing value for ${flag}.`);
+  }
+  return value;
+}
+
+function readRequiredNumberValue(flag: string, value: string | undefined): string {
+  if (value === undefined || value.trim() === "" || value.startsWith("--")) {
+    throw new ServeBenchmarkUsageError(`benchmark-serve: missing value for ${flag}.`);
   }
   return value;
 }
 
 function readPositiveInteger(flag: string, value: string | undefined): number {
-  const parsed = Number.parseInt(readRequiredValue(flag, value), 10);
+  const raw = readRequiredNumberValue(flag, value);
+  const parsed = /^\d+$/.test(raw) ? Number(raw) : Number.NaN;
   if (!Number.isInteger(parsed) || parsed <= 0) {
-    throw new Error(`benchmark-serve: ${flag} expects a positive integer.`);
+    throw new ServeBenchmarkUsageError(`benchmark-serve: ${flag} expects a positive integer.`);
   }
   return parsed;
 }
 
 function readNonNegativeInteger(flag: string, value: string | undefined): number {
-  const parsed = Number.parseInt(readRequiredValue(flag, value), 10);
+  const raw = readRequiredNumberValue(flag, value);
+  const parsed = /^\d+$/.test(raw) ? Number(raw) : Number.NaN;
   if (!Number.isInteger(parsed) || parsed < 0) {
-    throw new Error(`benchmark-serve: ${flag} expects a non-negative integer.`);
+    throw new ServeBenchmarkUsageError(`benchmark-serve: ${flag} expects a non-negative integer.`);
   }
   return parsed;
 }
 
 function readPositiveFraction(flag: string, value: string | undefined): number {
-  const parsed = Number.parseFloat(readRequiredValue(flag, value));
+  const parsed = Number.parseFloat(readRequiredNumberValue(flag, value));
   if (!Number.isFinite(parsed) || parsed <= 0 || parsed > 1) {
-    throw new Error(`benchmark-serve: ${flag} expects 0 < value <= 1.`);
+    throw new ServeBenchmarkUsageError(`benchmark-serve: ${flag} expects 0 < value <= 1.`);
   }
   return parsed;
 }
@@ -130,7 +152,9 @@ function readPositiveFraction(flag: string, value: string | undefined): number {
 export function parsePositiveIntegerList(flag: string, value: string | undefined): number[] {
   const requiredValue = readRequiredValue(flag, value);
   if (requiredValue.trim() === "") {
-    throw new Error(`benchmark-serve: ${flag} expects a comma-separated integer list.`);
+    throw new ServeBenchmarkUsageError(
+      `benchmark-serve: ${flag} expects a comma-separated integer list.`,
+    );
   }
   const parsed = requiredValue.split(",").map((entry) => readPositiveInteger(flag, entry.trim()));
   return [...new Set(parsed)];
@@ -139,7 +163,9 @@ export function parsePositiveIntegerList(flag: string, value: string | undefined
 function parseServeBenchmarkRung(flag: string, value: string): ServeBenchmarkRung {
   const match = /^(\d+)x(\d+)(?:@(\d+))?$/.exec(value);
   if (match === null) {
-    throw new Error(`benchmark-serve: ${flag} entries must look like 128x128@1.`);
+    throw new ServeBenchmarkUsageError(
+      `benchmark-serve: ${flag} entries must look like 128x128@1.`,
+    );
   }
   const [, promptTokensText, generationTokensText, concurrencyText] = match;
   return {
@@ -152,7 +178,9 @@ function parseServeBenchmarkRung(flag: string, value: string): ServeBenchmarkRun
 function parseServeBenchmarkRequestShape(flag: string, value: string): ServeBenchmarkRequestShape {
   const match = /^(\d+)x(\d+)$/.exec(value);
   if (match === null) {
-    throw new Error(`benchmark-serve: ${flag} entries must look like 32768x128+128x32.`);
+    throw new ServeBenchmarkUsageError(
+      `benchmark-serve: ${flag} entries must look like 32768x128+128x32.`,
+    );
   }
   const [, promptTokensText, generationTokensText] = match;
   return {
@@ -167,7 +195,7 @@ export function parseServeBenchmarkRungs(
 ): ServeBenchmarkRung[] {
   const requiredValue = readRequiredValue(flag, value);
   if (requiredValue.trim() === "") {
-    throw new Error(`benchmark-serve: ${flag} expects comma-separated rungs.`);
+    throw new ServeBenchmarkUsageError(`benchmark-serve: ${flag} expects comma-separated rungs.`);
   }
   return requiredValue.split(",").map((entry) => parseServeBenchmarkRung(flag, entry.trim()));
 }
@@ -178,14 +206,18 @@ export function parseServeBenchmarkMixedRungs(
 ): ServeBenchmarkRung[] {
   const requiredValue = readRequiredValue(flag, value);
   if (requiredValue.trim() === "") {
-    throw new Error(`benchmark-serve: ${flag} expects comma-separated mixed rungs.`);
+    throw new ServeBenchmarkUsageError(
+      `benchmark-serve: ${flag} expects comma-separated mixed rungs.`,
+    );
   }
   return requiredValue.split(",").map((entry) => {
     const requestShapes = entry
       .split("+")
       .map((shape) => parseServeBenchmarkRequestShape(flag, shape.trim()));
     if (requestShapes.length < 2) {
-      throw new Error(`benchmark-serve: ${flag} mixed rungs need at least two request shapes.`);
+      throw new ServeBenchmarkUsageError(
+        `benchmark-serve: ${flag} mixed rungs need at least two request shapes.`,
+      );
     }
     return {
       promptTokens: Math.max(...requestShapes.map((shape) => shape.promptTokens)),
@@ -201,7 +233,7 @@ function parseMatrixMode(value: string | undefined): MatrixMode {
   if (requiredValue === "cartesian" || requiredValue === "zip") {
     return requiredValue;
   }
-  throw new Error('benchmark-serve: --matrix must be "cartesian" or "zip".');
+  throw new ServeBenchmarkUsageError('benchmark-serve: --matrix must be "cartesian" or "zip".');
 }
 
 function defaultModelId(model: string | undefined): string {
@@ -281,7 +313,7 @@ function parseProtocolMode(value: string | undefined): ProtocolMode {
   ) {
     return requiredValue;
   }
-  throw new Error(
+  throw new ServeBenchmarkUsageError(
     'benchmark-serve: --protocol must be "completions", "chat", "responses", or "anthropic".',
   );
 }
@@ -292,7 +324,9 @@ function setBenchmarkRungs(
   rungs: ServeBenchmarkRung[],
 ): void {
   if (state.rungSource !== undefined && state.rungSource !== flag) {
-    throw new Error("benchmark-serve: use either --rungs or --mixed-rungs, not both.");
+    throw new ServeBenchmarkUsageError(
+      "benchmark-serve: use either --rungs or --mixed-rungs, not both.",
+    );
   }
   state.rungSource = flag;
   state.rungs = rungs;
@@ -385,9 +419,6 @@ function readServerValueArg(state: ParseState, arg: string, value: string | unde
 }
 
 function readBooleanArg(state: ParseState, arg: string): boolean {
-  if (arg === "--help" || arg === "-h") {
-    usage();
-  }
   switch (arg) {
     case "--greedy":
       state.samplingMode = "greedy";
@@ -428,7 +459,7 @@ function readBenchmarkArg(state: ParseState, argv: readonly string[], index: num
     state.model = arg;
     return index;
   }
-  throw new Error(`benchmark-serve: unknown argument "${arg}".`);
+  throw new ServeBenchmarkUsageError(`benchmark-serve: unknown argument "${arg}".`);
 }
 
 export function parseServeBenchmarkArgs(argv: readonly string[]): ServeBenchmarkOptions {
@@ -439,14 +470,14 @@ export function parseServeBenchmarkArgs(argv: readonly string[]): ServeBenchmark
   }
 
   if (state.model === undefined || state.model.trim() === "") {
-    usage();
+    throw new ServeBenchmarkUsageError("benchmark-serve: --model is required.");
   }
 
   if (
     (state.protocolMode === "responses" || state.protocolMode === "anthropic") &&
     state.ignoreEos
   ) {
-    throw new Error(
+    throw new ServeBenchmarkUsageError(
       `benchmark-serve: --ignore-eos is not supported with --protocol ${state.protocolMode}.`,
     );
   }
@@ -481,6 +512,13 @@ export function parseServeBenchmarkArgs(argv: readonly string[]): ServeBenchmark
     ...(state.maxPromptTokens === undefined ? {} : { maxPromptTokens: state.maxPromptTokens }),
     ...(state.maxTotalTokens === undefined ? {} : { maxTotalTokens: state.maxTotalTokens }),
   };
+}
+
+export function parseServeBenchmarkCommand(argv: readonly string[]): ServeBenchmarkCommand {
+  if (argv.includes("--help") || argv.includes("-h")) {
+    return { kind: "help" };
+  }
+  return { kind: "run", options: parseServeBenchmarkArgs(argv) };
 }
 
 function buildZippedPromptOutputPairs(options: ServeBenchmarkOptions): PromptOutputPair[] {
