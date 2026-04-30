@@ -107,9 +107,12 @@ major product-agent focus on package-owned CLIs and future PI-agent integration.
   VAE unscale, and 0..1 postprocessing live in `@mlxts/diffusion`. A local
   snapshot now loads into one disposable Stable Diffusion runtime bundle with
   VAE, UNet, scheduler, parsed manifest/configs, thin sampling methods, and
-  explicit rejection for required/enabled safety-checker semantics. Real
-  checkpoint image proof remains the next diffusion tranche once a conditioning
-  source and finite AXI proof command are in place.
+  explicit rejection for required/enabled safety-checker semantics.
+  `examples/stable-diffusion` now owns the application-layer prompt
+  conditioner that composes CLIP tokenizers, CLIP text encoders, and diffusion
+  tensor conditioning while preserving package dependencies. Real checkpoint
+  image proof remains the next diffusion tranche once a finite AXI proof command
+  can sample and write an image artifact.
 - **Phase 10 CLIP conditioning**: `@mlxts/transformers` now owns a
   `families/clip/` text encoder surface with CLIP text config parsing, causal
   text attention, quick GELU, EOS pooling, projected text features, and retained
@@ -118,8 +121,8 @@ major product-agent focus on package-owned CLIs and future PI-agent integration.
   and `text_projection.weight` into the module tree. `@mlxts/tokenizers` now
   owns CLIP vocab/merges BPE plus fixed-length prompt preparation for root CLIP
   tokenizer snapshots. CLIP is intentionally outside the CausalLM registry. The
-  higher-level Stable Diffusion conditioning composer remains the next
-  prompt-conditioning step.
+  Stable Diffusion conditioning composer lives in `examples/stable-diffusion`
+  as application-layer code over the package surfaces.
 - **Qwen conditional serving**: top-level Qwen 3.5 / 3.6 conditional
   checkpoints expose the Qwen text batch-cache surface for text-only continuous
   serving. Media/content requests still route as `media_input` and stay off

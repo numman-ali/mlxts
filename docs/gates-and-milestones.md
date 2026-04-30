@@ -19,6 +19,7 @@ These gates are non-negotiable at every phase boundary. Code does not advance un
 | Runtime review | `bun run check:runtime-review` | Runtime-sensitive diffs have review artifacts |
 | Coverage | `bun run check:coverage` | Package-specific line/function/branch thresholds |
 | Training proof surfaces | `bun run check:training-proofs` | Phase 8 example proof code typechecks and report-verifier tests pass |
+| Phase 10 proof surfaces | `bun run check:phase10-proofs` | Phase 10 example proof code typechecks and focused tests pass |
 | Agent-facing CLI contract | Focused CLI formatter/parser tests plus manual AXI review | Finite commands emit compact structured stdout, actionable stdout errors, stable exit codes, and no non-TTY prompts |
 | Full validation | `bun run validate` | All of the above in sequence |
 
@@ -405,6 +406,7 @@ If a developer can follow the example and do the same for a different paper, the
 - Type assertion check prevents `as` leaking out of FFI
 - Tensor lifetime check prevents anonymous intermediate leaks
 - `check:training-proofs` keeps Phase 8 proof/example surfaces statically checked without running heavy model training
+- `check:phase10-proofs` keeps Phase 10 proof/example surfaces statically checked without running heavy image-generation models
 - The heavier `bun run examples/train-proof/index.ts` proof currently lives on a manual self-hosted Apple Silicon workflow; it can be promoted to a stricter regression gate later
 
 ### Semi-Automated (Agent Review)

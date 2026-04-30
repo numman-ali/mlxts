@@ -260,6 +260,9 @@ bun run check:cross-package-imports
 # Check Phase 8 proof surfaces
 bun run check:training-proofs
 
+# Check Phase 10 proof surfaces
+bun run check:phase10-proofs
+
 # Generation and serving benchmarks
 bun run bench:generation
 bun run bench:generation:parity

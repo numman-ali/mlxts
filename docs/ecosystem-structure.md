@@ -228,9 +228,10 @@ Diffusion pipeline assembly over supplied conditioning tensors owns NHWC latent
 shape, DDIM/Euler denoising, classifier-free guidance, VAE unscale, and
 postprocessing. Local snapshots now load into a disposable Stable Diffusion
 runtime bundle with VAE, UNet, scheduler, parsed manifest/configs, and thin
-sampling methods. Flux, conditioning-source composition, Hugging Face
-Hub-backed checkpoint loading, finite CLI proof, and host image output remain
-follow-on Phase 10 tranches.
+sampling methods. `examples/stable-diffusion` owns the application-layer CLIP
+prompt-conditioning composition over package surfaces. Flux, Hugging Face
+Hub-backed Diffusers root loading, finite CLI proof, and host image output
+remain follow-on Phase 10 tranches.
 
 **Architecture pattern:** Mirrors `@mlxts/transformers` — explicit family
 registry, config-driven model construction, and official Hugging Face JS-backed snapshot loading.
