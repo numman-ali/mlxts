@@ -128,6 +128,14 @@ export {
   type EulerTimestepPair,
 } from "./schedulers/euler";
 export {
+  calculateFlowMatchShift,
+  FlowMatchEulerScheduler,
+  type FlowMatchEulerSchedulerConfig,
+  type FlowMatchEulerStep,
+  type FlowMatchEulerTimeShiftType,
+  type FlowMatchEulerTimestepsOptions,
+} from "./schedulers/flow-match-euler";
+export {
   type BetaSchedule,
   type DiffusionScheduleConfig,
   makeAlphaCumprodSchedule,

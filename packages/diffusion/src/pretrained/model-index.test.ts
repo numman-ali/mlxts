@@ -296,9 +296,46 @@ describe("diffusion model index loading", () => {
       writeComponentFiles(directory, "text_encoder_2", ["config.json"], ["model.safetensors"]);
       writeComponentFiles(directory, "tokenizer_2", ["spiece.model"]);
 
-      await expect(loadDiffusionSnapshotManifest(directory)).rejects.toThrow(
-        "FlowMatchEulerDiscreteScheduler",
+      const manifest = await loadDiffusionSnapshotManifest(directory);
+
+      expect(manifest.modelIndex.kind).toBe("flux");
+      expect(manifest.schedulerConfig.kind).toBe("flow-match-euler");
+    });
+
+    await withTempDirectory("mlxts-diffusion-flux-unsupported-scheduler-", async (directory) => {
+      writeJson(join(directory, "model_index.json"), {
+        _class_name: "FluxPipeline",
+        transformer: ["diffusers", "FluxTransformer2DModel"],
+        vae: ["diffusers", "AutoencoderKL"],
+        scheduler: ["diffusers", "FlowMatchEulerDiscreteScheduler"],
+        text_encoder: ["transformers", "CLIPTextModel"],
+        tokenizer: ["transformers", "CLIPTokenizer"],
+        text_encoder_2: ["transformers", "T5EncoderModel"],
+        tokenizer_2: ["transformers", "T5TokenizerFast"],
+      });
+      writeComponentFiles(
+        directory,
+        "transformer",
+        ["config.json"],
+        ["diffusion_pytorch_model.safetensors"],
       );
+      writeComponentFiles(
+        directory,
+        "vae",
+        ["config.json"],
+        ["diffusion_pytorch_model.safetensors"],
+      );
+      writeComponentFiles(directory, "scheduler", ["scheduler_config.json"]);
+      writeJson(join(directory, "scheduler", "scheduler_config.json"), {
+        _class_name: "FlowMatchEulerDiscreteScheduler",
+        stochastic_sampling: true,
+      });
+      writeComponentFiles(directory, "text_encoder", ["config.json"], ["model.safetensors"]);
+      writeComponentFiles(directory, "tokenizer", ["vocab.json", "merges.txt"]);
+      writeComponentFiles(directory, "text_encoder_2", ["config.json"], ["model.safetensors"]);
+      writeComponentFiles(directory, "tokenizer_2", ["spiece.model"]);
+
+      await expect(loadDiffusionSnapshotManifest(directory)).rejects.toThrow("stochastic_sampling");
     });
   });
 });

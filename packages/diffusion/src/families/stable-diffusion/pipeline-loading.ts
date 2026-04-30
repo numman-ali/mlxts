@@ -6,7 +6,10 @@
 import type { MxArray } from "@mlxts/core";
 
 import { DiffusionConfigError } from "../../errors";
-import { createDiffusionScheduler } from "../../pretrained/scheduler-config";
+import {
+  createDiffusionScheduler,
+  type ParsedDiffusionSchedulerConfig,
+} from "../../pretrained/scheduler-config";
 import {
   type DiffusionSnapshotManifest,
   loadDiffusionSnapshotManifest,
@@ -124,6 +127,20 @@ function assertUnsupportedSafetyCheckerAbsent(manifest: DiffusionSnapshotManifes
   }
 }
 
+function createStableDiffusionScheduler(
+  parsedConfig: ParsedDiffusionSchedulerConfig,
+): StableDiffusionScheduler {
+  if (parsedConfig.kind === "ddim") {
+    return createDiffusionScheduler(parsedConfig);
+  }
+  if (parsedConfig.kind === "euler") {
+    return createDiffusionScheduler(parsedConfig);
+  }
+  throw new DiffusionConfigError(
+    "Stable Diffusion pipeline loading requires a DDIM or Euler scheduler.",
+  );
+}
+
 /** Load Stable Diffusion VAE, UNet, scheduler, and parsed metadata from a local snapshot. */
 export async function loadStableDiffusionPipelineFromSnapshot(
   snapshotDirectory: string,
@@ -143,7 +160,7 @@ export async function loadStableDiffusionPipelineFromSnapshot(
       configs,
       vae,
       unet,
-      createDiffusionScheduler(manifest.schedulerConfig),
+      createStableDiffusionScheduler(manifest.schedulerConfig),
     );
   } catch (error) {
     unet?.[Symbol.dispose]();

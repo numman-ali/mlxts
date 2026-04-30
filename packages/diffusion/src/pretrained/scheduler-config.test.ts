@@ -6,6 +6,7 @@ import { join } from "path";
 import { DiffusionConfigError } from "../errors";
 import { DDIMScheduler } from "../schedulers/ddim";
 import { EulerScheduler } from "../schedulers/euler";
+import { FlowMatchEulerScheduler } from "../schedulers/flow-match-euler";
 
 import {
   createDiffusionScheduler,
@@ -99,6 +100,43 @@ describe("diffusion scheduler config loading", () => {
       },
     });
     expect(createDiffusionScheduler(parsed)).toBeInstanceOf(EulerScheduler);
+  });
+
+  test("parses FlowMatch Euler scheduler config for Flux snapshots", () => {
+    const parsed = parseDiffusionSchedulerConfig({
+      _class_name: "FlowMatchEulerDiscreteScheduler",
+      _diffusers_version: "0.34.0.dev0",
+      base_image_seq_len: 256,
+      base_shift: 0.5,
+      invert_sigmas: false,
+      max_image_seq_len: 4096,
+      max_shift: 1.15,
+      num_train_timesteps: 1000,
+      shift: 3,
+      shift_terminal: null,
+      stochastic_sampling: false,
+      time_shift_type: "exponential",
+      use_beta_sigmas: false,
+      use_dynamic_shifting: true,
+      use_exponential_sigmas: false,
+      use_karras_sigmas: false,
+    });
+
+    expect(parsed).toEqual({
+      kind: "flow-match-euler",
+      className: "FlowMatchEulerDiscreteScheduler",
+      config: {
+        baseImageSeqLen: 256,
+        baseShift: 0.5,
+        maxImageSeqLen: 4096,
+        maxShift: 1.15,
+        numTrainTimesteps: 1000,
+        shift: 3,
+        timeShiftType: "exponential",
+        useDynamicShifting: true,
+      },
+    });
+    expect(createDiffusionScheduler(parsed)).toBeInstanceOf(FlowMatchEulerScheduler);
   });
 
   test("loads scheduler config and scheduler instances from a local snapshot", async () => {
@@ -211,6 +249,48 @@ describe("diffusion scheduler config loading", () => {
         final_sigmas_type: "sigma_min",
       }),
     ).toThrow("final_sigmas_type");
+    expect(() =>
+      parseDiffusionSchedulerConfig({
+        _class_name: "FlowMatchEulerDiscreteScheduler",
+        invert_sigmas: true,
+      }),
+    ).toThrow("invert_sigmas");
+    expect(() =>
+      parseDiffusionSchedulerConfig({
+        _class_name: "FlowMatchEulerDiscreteScheduler",
+        shift_terminal: 0.1,
+      }),
+    ).toThrow("shift_terminal");
+    expect(() =>
+      parseDiffusionSchedulerConfig({
+        _class_name: "FlowMatchEulerDiscreteScheduler",
+        stochastic_sampling: true,
+      }),
+    ).toThrow("stochastic_sampling");
+    expect(() =>
+      parseDiffusionSchedulerConfig({
+        _class_name: "FlowMatchEulerDiscreteScheduler",
+        use_beta_sigmas: true,
+      }),
+    ).toThrow("use_beta_sigmas");
+    expect(() =>
+      parseDiffusionSchedulerConfig({
+        _class_name: "FlowMatchEulerDiscreteScheduler",
+        prediction_type: "epsilon",
+      }),
+    ).toThrow("prediction_type");
+    expect(() =>
+      parseDiffusionSchedulerConfig({
+        _class_name: "FlowMatchEulerDiscreteScheduler",
+        beta_schedule: "linear",
+      }),
+    ).toThrow("beta_schedule");
+    expect(() =>
+      parseDiffusionSchedulerConfig({
+        _class_name: "FlowMatchEulerDiscreteScheduler",
+        time_shift_type: "cosine",
+      }),
+    ).toThrow("time_shift_type");
   });
 
   test("rejects unknown classes, malformed fields, and missing config files", async () => {

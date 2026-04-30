@@ -2,17 +2,25 @@ import { isAbsolute, join, normalize } from "path";
 import { DiffusionConfigError } from "../errors";
 import { DDIMScheduler, type DDIMSchedulerConfig } from "../schedulers/ddim";
 import { EulerScheduler, type EulerSchedulerConfig } from "../schedulers/euler";
+import {
+  FlowMatchEulerScheduler,
+  type FlowMatchEulerSchedulerConfig,
+} from "../schedulers/flow-match-euler";
 import type {
   BetaSchedule,
   DiffusionScheduleConfig,
   TimestepSpacing,
 } from "../schedulers/schedule";
+import { parseFlowMatchEulerConfig } from "./flow-match-scheduler-config";
 
 /** Supported scheduler families for local diffusion checkpoint metadata. */
-export type DiffusionSchedulerKind = "ddim" | "euler";
+export type DiffusionSchedulerKind = "ddim" | "euler" | "flow-match-euler";
 
 /** Diffusers scheduler class names with implemented scheduler math. */
-export type DiffusersSchedulerClassName = "DDIMScheduler" | "EulerDiscreteScheduler";
+export type DiffusersSchedulerClassName =
+  | "DDIMScheduler"
+  | "EulerDiscreteScheduler"
+  | "FlowMatchEulerDiscreteScheduler";
 
 /** Parsed scheduler metadata translated into package-native scheduler config. */
 export type ParsedDiffusionSchedulerConfig =
@@ -25,10 +33,15 @@ export type ParsedDiffusionSchedulerConfig =
       kind: "euler";
       className: "EulerDiscreteScheduler";
       config: EulerSchedulerConfig;
+    }
+  | {
+      kind: "flow-match-euler";
+      className: "FlowMatchEulerDiscreteScheduler";
+      config: FlowMatchEulerSchedulerConfig;
     };
 
 /** Scheduler instances currently constructible from Diffusers metadata. */
-export type SupportedDiffusionScheduler = DDIMScheduler | EulerScheduler;
+export type SupportedDiffusionScheduler = DDIMScheduler | EulerScheduler | FlowMatchEulerScheduler;
 
 /** Options for reading a scheduler config from a local snapshot directory. */
 export type DiffusionSchedulerLoadOptions = {
@@ -240,7 +253,11 @@ function parseClassName(
   context: string,
 ): DiffusersSchedulerClassName {
   const className = optionalString(record, "_class_name", context);
-  if (className === "DDIMScheduler" || className === "EulerDiscreteScheduler") {
+  if (
+    className === "DDIMScheduler" ||
+    className === "EulerDiscreteScheduler" ||
+    className === "FlowMatchEulerDiscreteScheduler"
+  ) {
     return className;
   }
   if (className === undefined) {
@@ -339,6 +356,14 @@ export function parseDiffusionSchedulerConfig(rawConfig: unknown): ParsedDiffusi
     };
   }
 
+  if (className === "FlowMatchEulerDiscreteScheduler") {
+    return {
+      kind: "flow-match-euler",
+      className,
+      config: parseFlowMatchEulerConfig(record, context),
+    };
+  }
+
   return {
     kind: "euler",
     className,
@@ -348,10 +373,25 @@ export function parseDiffusionSchedulerConfig(rawConfig: unknown): ParsedDiffusi
 
 /** Create a supported scheduler instance from a parsed Diffusers config. */
 export function createDiffusionScheduler(
+  parsedConfig: Extract<ParsedDiffusionSchedulerConfig, { kind: "ddim" }>,
+): DDIMScheduler;
+export function createDiffusionScheduler(
+  parsedConfig: Extract<ParsedDiffusionSchedulerConfig, { kind: "euler" }>,
+): EulerScheduler;
+export function createDiffusionScheduler(
+  parsedConfig: Extract<ParsedDiffusionSchedulerConfig, { kind: "flow-match-euler" }>,
+): FlowMatchEulerScheduler;
+export function createDiffusionScheduler(
+  parsedConfig: ParsedDiffusionSchedulerConfig,
+): SupportedDiffusionScheduler;
+export function createDiffusionScheduler(
   parsedConfig: ParsedDiffusionSchedulerConfig,
 ): SupportedDiffusionScheduler {
   if (parsedConfig.kind === "ddim") {
     return new DDIMScheduler(parsedConfig.config);
+  }
+  if (parsedConfig.kind === "flow-match-euler") {
+    return new FlowMatchEulerScheduler(parsedConfig.config);
   }
   return new EulerScheduler(parsedConfig.config);
 }
