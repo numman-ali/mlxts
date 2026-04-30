@@ -21,6 +21,7 @@ import type {
   Qwen3_5TextConfig,
   Qwen3_5VisionConfig,
 } from "../../../transformers/src/families/qwen3_5/types";
+import { DecodedImageCache } from "../media/decoded-image-cache";
 import type { NormalizedGenerationRequest } from "../types";
 import {
   createQwen3_5ImageContentAdapter,
@@ -339,6 +340,12 @@ function imageDataUrl(): string {
   return btoa(binary);
 }
 
+function arrayBufferFromBytes(bytes: Uint8Array): ArrayBuffer {
+  const buffer = new ArrayBuffer(bytes.byteLength);
+  new Uint8Array(buffer).set(bytes);
+  return buffer;
+}
+
 function contentRequest(input: NormalizedGenerationRequest["input"]): NormalizedGenerationRequest {
   return {
     id: "content",
@@ -458,6 +465,153 @@ describe("transformers media-content preparation", () => {
     expect(plan?.tokenIds).toEqual([7, 28, 9]);
     expect(plan?.canSkipPromptPreparation(1)).toBe(false);
     expect(plan?.canSkipPromptPreparation(2)).toBe(true);
+  });
+
+  test("reuses decoded Qwen image bytes by content digest and preprocessor", async () => {
+    const decodedImageCache = new DecodedImageCache(1024);
+    const adapter = createQwen3_5ImageContentAdapter(qwenPreprocessor, { decodedImageCache });
+    const request = contentRequest({
+      kind: "content",
+      messages: [
+        {
+          role: "user",
+          content: [
+            { kind: "text", text: "Describe: " },
+            {
+              kind: "image",
+              source: { kind: "data", mediaType: "image/bmp", data: imageDataUrl() },
+            },
+          ],
+        },
+      ],
+    });
+    const context = {
+      tokenizer: new QwenImageTokenizer(),
+      interactionProfile: chatProfile([]),
+    };
+
+    const first = await adapter.load(request, context);
+    const second = await adapter.load(request, context);
+
+    expect(decodedImageCache.entryCount).toBe(1);
+    expect(decodedImageCache.missCount).toBe(1);
+    expect(decodedImageCache.hitCount).toBe(1);
+    expect(second.promptCacheIdentity?.contentKeys).toEqual(first.promptCacheIdentity?.contentKeys);
+  });
+
+  test("keeps Qwen decoded-image cache keys preprocessor-specific", async () => {
+    const decodedImageCache = new DecodedImageCache(1024);
+    const alternatePreprocessor = {
+      ...qwenPreprocessor,
+      size: { ...qwenPreprocessor.size, shortestEdge: qwenPreprocessor.size.shortestEdge + 1 },
+    };
+    const request = contentRequest({
+      kind: "content",
+      messages: [
+        {
+          role: "user",
+          content: [
+            {
+              kind: "image",
+              source: { kind: "data", mediaType: "image/bmp", data: imageDataUrl() },
+            },
+          ],
+        },
+      ],
+    });
+    const context = {
+      tokenizer: new QwenImageTokenizer(),
+      interactionProfile: chatProfile([]),
+    };
+
+    await createQwen3_5ImageContentAdapter(qwenPreprocessor, { decodedImageCache }).load(
+      request,
+      context,
+    );
+    await createQwen3_5ImageContentAdapter(alternatePreprocessor, { decodedImageCache }).load(
+      request,
+      context,
+    );
+
+    expect(decodedImageCache.entryCount).toBe(2);
+    expect(decodedImageCache.missCount).toBe(2);
+    expect(decodedImageCache.hitCount).toBe(0);
+  });
+
+  test("refetches remote image URLs while reusing identical decoded bytes", async () => {
+    const decodedImageCache = new DecodedImageCache(1024);
+    const adapter = createQwen3_5ImageContentAdapter(qwenPreprocessor, { decodedImageCache });
+    const request = contentRequest({
+      kind: "content",
+      messages: [
+        {
+          role: "user",
+          content: [
+            {
+              kind: "image",
+              source: { kind: "url", url: "https://example.com/image.bmp" },
+            },
+          ],
+        },
+      ],
+    });
+    let fetchCalls = 0;
+    const context = {
+      tokenizer: new QwenImageTokenizer(),
+      interactionProfile: chatProfile([]),
+      remoteImageHosts: ["example.com"],
+      remoteResolve: async () => [{ address: "93.184.216.34", family: 4 as const }],
+      remoteFetch: async () => {
+        fetchCalls += 1;
+        const bytes = bmpBytes(1, 1, [255, 0, 0]);
+        const body = arrayBufferFromBytes(bytes);
+        return new Response(body, {
+          headers: {
+            "content-type": "image/bmp",
+            "content-length": String(bytes.byteLength),
+          },
+        });
+      },
+    };
+
+    await adapter.load(request, context);
+    await adapter.load(request, context);
+
+    expect(fetchCalls).toBe(2);
+    expect(decodedImageCache.missCount).toBe(1);
+    expect(decodedImageCache.hitCount).toBe(1);
+  });
+
+  test("does not cache rejected image payloads", async () => {
+    const decodedImageCache = new DecodedImageCache(1024);
+    const adapter = createQwen3_5ImageContentAdapter(qwenPreprocessor, { decodedImageCache });
+
+    await expect(
+      adapter.load(
+        contentRequest({
+          kind: "content",
+          messages: [
+            {
+              role: "user",
+              content: [
+                {
+                  kind: "image",
+                  source: { kind: "data", mediaType: "text/plain", data: btoa("not image") },
+                },
+              ],
+            },
+          ],
+        }),
+        {
+          tokenizer: new QwenImageTokenizer(),
+          interactionProfile: chatProfile([]),
+        },
+      ),
+    ).rejects.toThrow("image/*");
+
+    expect(decodedImageCache.entryCount).toBe(0);
+    expect(decodedImageCache.missCount).toBe(0);
+    expect(decodedImageCache.hitCount).toBe(0);
   });
 
   test("rejects unsupported Qwen content shapes before tensor preparation", async () => {

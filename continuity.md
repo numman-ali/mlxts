@@ -60,6 +60,10 @@ image, and bounded tool endpoints while benchmark and scheduler work continues.
   local base64 and allowlisted remote HTTP(S) user image blocks through the same
   content route. Exact repeated Qwen image prompts now short-circuit full visual
   preparation when the media-aware prefix cache covers all expanded image tokens.
+  Serve also keeps a per-adapter host-side decoded RGB LRU cache keyed by image
+  byte digest plus Qwen preprocessor config; it stores no MLX tensors or visual
+  embeddings, and remote URLs still refetch before content-addressed cache
+  lookup.
   File image sources remain rejected until a file-store policy exists.
 - **Qwen conditional serving**: top-level Qwen 3.5 / 3.6 conditional
   checkpoints expose the Qwen text batch-cache surface for text-only continuous
@@ -147,6 +151,14 @@ Full evidence ladder lives in
   across OpenAI Chat, OpenResponses, and Anthropic Messages read `92` cached
   tokens and stayed on the media route without introducing persistent visual
   embedding storage.
+- Qwen decoded-image cache passed focused media/content tests, all
+  `packages/serve` tests, full `bun run validate`, and
+  `bun run regression:qwen-image -- --report-dir .tmp/qwen-decoded-image-cache`.
+  The real run kept media requests on `single:media_input`; the cold OpenAI
+  Chat request wrote `92` prompt-cache tokens, and exact repeats across OpenAI
+  Chat, OpenResponses, and Anthropic Messages read `92` cached prompt tokens
+  while reusing host-side decoded RGB bytes when the image digest and
+  preprocessor matched.
 - Qwen image direct example proof passed against cached
   `mlx-community/Qwen3.6-27B-4bit` using
   `examples/qwen3_5-image/index.ts --json --greedy --max-tokens 64`. The

@@ -20,6 +20,7 @@ import {
   smartResizeQwen3_5Image,
 } from "@mlxts/transformers";
 import { ServeError } from "../errors";
+import { DecodedImageCache } from "../media/decoded-image-cache";
 import {
   decodeResizedImageBytes,
   type ImageReadOptions,
@@ -62,6 +63,8 @@ export type TransformersContentAdapterLoadContext = {
   interactionProfile?: InteractionProfile;
   signal?: AbortSignal;
   remoteImageHosts?: readonly string[];
+  remoteFetch?: ImageReadOptions["remoteFetch"];
+  remoteResolve?: ImageReadOptions["remoteResolve"];
 };
 
 /** Model state available only while the model execution lane is held. */
@@ -88,12 +91,23 @@ type DecodedQwenImage = {
   cacheKey: string;
 };
 
+export type Qwen3_5ImageContentAdapterOptions = {
+  decodedImageCache?: DecodedImageCache;
+  decodedImageCacheMaxBytes?: number;
+};
+
 function rejectUnsupportedContent(message: string): never {
   throw new ServeError(message, { code: "unsupported_input", param: "messages" });
 }
 
 function throwIfRequestAborted(request: NormalizedGenerationRequest, context: string): void {
   if (request.abortSignal?.aborted === true) {
+    throw new GenerationAbortError(`${context}: generation was cancelled.`);
+  }
+}
+
+function throwIfSignalAborted(signal: AbortSignal | undefined, context: string): void {
+  if (signal?.aborted === true) {
     throw new GenerationAbortError(`${context}: generation was cancelled.`);
   }
 }
@@ -217,6 +231,8 @@ function imageReadOptions(context: TransformersContentAdapterLoadContext): Image
     ...(context.remoteImageHosts === undefined
       ? {}
       : { remoteImageHosts: context.remoteImageHosts }),
+    ...(context.remoteFetch === undefined ? {} : { remoteFetch: context.remoteFetch }),
+    ...(context.remoteResolve === undefined ? {} : { remoteResolve: context.remoteResolve }),
   };
 }
 
@@ -253,12 +269,25 @@ async function decodeQwenImage(
   part: GenerationContentPart,
   preprocessor: Qwen3_5VisionPreprocessorConfig,
   context: TransformersContentAdapterLoadContext,
+  decodedImageCache: DecodedImageCache,
 ): Promise<DecodedQwenImage> {
   if (part.kind !== "image") {
     throw new Error("decodeQwenImage requires an image part.");
   }
   const readOptions = imageReadOptions(context);
   const bytes = await readImageSourceBytes(part.source, readOptions);
+  throwIfSignalAborted(context.signal, "decodeQwenImage");
+  const digest = await sha256Hex(bytes);
+  throwIfSignalAborted(context.signal, "decodeQwenImage");
+  const cacheKey = JSON.stringify({
+    kind: "qwen-image",
+    digest,
+    preprocessor: preprocessorCacheKey(preprocessor),
+  });
+  const cached = decodedImageCache.get(cacheKey);
+  if (cached !== undefined) {
+    return { image: cached, cacheKey };
+  }
   const originalSize = await readImageBytesSize(bytes, readOptions);
   const resizedSize = smartResizeQwen3_5Image(
     originalSize.height,
@@ -266,22 +295,21 @@ async function decodeQwenImage(
     preprocessor,
   );
   const image = await decodeResizedImageBytes(bytes, resizedSize, readOptions);
+  throwIfSignalAborted(context.signal, "decodeQwenImage");
+  decodedImageCache.set(cacheKey, image);
   return {
     image,
-    cacheKey: JSON.stringify({
-      kind: "qwen-image",
-      digest: await sha256Hex(bytes),
-      originalSize,
-      resizedSize,
-      preprocessor: preprocessorCacheKey(preprocessor),
-    }),
+    cacheKey,
   };
 }
 
 /** Create the first Qwen 3.5/3.6 image-content adapter used by local serving. */
 export function createQwen3_5ImageContentAdapter(
   preprocessor: Qwen3_5VisionPreprocessorConfig,
+  options: Qwen3_5ImageContentAdapterOptions = {},
 ): TransformersContentAdapter {
+  const decodedImageCache =
+    options.decodedImageCache ?? new DecodedImageCache(options.decodedImageCacheMaxBytes);
   return {
     async load(request, context) {
       if (request.input.kind !== "content") {
@@ -295,7 +323,7 @@ export function createQwen3_5ImageContentAdapter(
       const decodedImages: DecodedQwen3_5Image[] = [];
       const contentKeys: string[] = [];
       for (const image of images) {
-        const decoded = await decodeQwenImage(image, preprocessor, context);
+        const decoded = await decodeQwenImage(image, preprocessor, context, decodedImageCache);
         decodedImages.push(decoded.image);
         contentKeys.push(decoded.cacheKey);
       }
