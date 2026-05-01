@@ -1047,7 +1047,8 @@ shift, external classifier-free guidance, distilled-guidance suppression, and
 the VAE batch-norm inverse decode boundary. FLUX.2 transformer execution,
 transformer/VAE weight loading, Qwen3 prompt conditioning, and a finite
 AXI-shaped `examples/flux2` proof command have landed. Bounded real checkpoint
-evidence, reference-image/KV variants, broader VLM families, audio
+evidence has also passed through the official `black-forest-labs/FLUX.2-klein-4B`
+checkpoint. Reference-image/KV variants, broader VLM families, audio
 encoder/decoder families, and additional diffusion/flow families remain Phase
 10 work.
 
@@ -1124,9 +1125,10 @@ All diffusion and flow-based generation across modalities: image, video, and aud
    package-owned FLUX.2 latent ids, FlowMatch denoising, external CFG, and VAE
    batch-norm decode semantics. Transformer execution, transformer/VAE weight
    loading, Qwen3 prompt conditioning, and a finite proof command in
-   `examples/flux2` have landed. Image/reference conditioning, KV cache
-   behavior, bounded real checkpoint evidence, and larger quality/performance
-   characterization remain separate tranches.
+   `examples/flux2` have landed. Official `black-forest-labs/FLUX.2-klein-4B`
+   has passed a bounded real checkpoint image proof through that path.
+   Image/reference conditioning, KV cache behavior, and larger
+   quality/performance characterization remain separate tranches.
 6. **Stable Diffusion 3 / 3.5 and distilled variants**: these become follow-on
    targets when their MMDiT/flow components can reuse the FLUX/Z-Image/Qwen
    infrastructure without creating a parallel package shape. SD3 has its own

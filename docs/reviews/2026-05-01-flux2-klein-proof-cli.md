@@ -10,8 +10,9 @@ tokenizer/chat template/text encoder, runs denoising, and writes one BMP
 artifact.
 
 This tranche does not add reference-image conditioning, KV-cache pipeline
-variants, inpainting, editing, LoRA, GGUF/single-file loading, quantized
-sidecars, or bounded real checkpoint evidence.
+variants, inpainting, editing, LoRA, GGUF/single-file loading, or quantized
+sidecars. Bounded real checkpoint evidence landed in the follow-up proof
+artifact.
 
 ## Files Reviewed
 
@@ -71,8 +72,8 @@ with thinking disabled.
 
 ## Remaining Risks / Follow-ups
 
-- The first real `black-forest-labs/FLUX.2-klein-4B` checkpoint proof still
-  needs to run and record artifact evidence.
+- The first real `black-forest-labs/FLUX.2-klein-4B` checkpoint proof landed
+  in `docs/reviews/2026-05-01-flux2-klein-real-checkpoint-proof.md`.
 - The Qwen3 text-encoder path pads token ids when a pad token exists but does
   not yet pass a Diffusers-style attention mask into `LlamaLikeModel`.
   Generated proof commands are therefore product-capability evidence, not exact

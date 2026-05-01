@@ -4,7 +4,7 @@ import type { DirectDataDType } from "./array-data";
 import { ffi } from "./ffi/lib";
 import { unwrapPointer } from "./ffi/pointer";
 
-export type ExactDataDType = DirectDataDType | "float16" | "bfloat16";
+export type ExactDataDType = DirectDataDType | "uint64" | "int64" | "float16" | "bfloat16";
 
 export function getDataPointer(arr: MxArray, dtype: ExactDataDType): Pointer {
   let result: Pointer | null = null;
@@ -31,11 +31,17 @@ export function getDataPointer(arr: MxArray, dtype: ExactDataDType): Pointer {
     case "int32":
       result = ffi.mlx_array_data_int32(arr._ctx);
       break;
+    case "int64":
+      result = ffi.mlx_array_data_int64(arr._ctx);
+      break;
     case "uint16":
       result = ffi.mlx_array_data_uint16(arr._ctx);
       break;
     case "uint32":
       result = ffi.mlx_array_data_uint32(arr._ctx);
+      break;
+    case "uint64":
+      result = ffi.mlx_array_data_uint64(arr._ctx);
       break;
     case "uint8":
     case "bool":

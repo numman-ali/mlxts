@@ -17,9 +17,11 @@ export type SupportedSafetensorsDType =
   | "uint8"
   | "uint16"
   | "uint32"
+  | "uint64"
   | "int8"
   | "int16"
   | "int32"
+  | "int64"
   | "float16"
   | "bfloat16"
   | "float32"
@@ -30,9 +32,11 @@ type SafetensorsDTypeTag =
   | "U8"
   | "U16"
   | "U32"
+  | "U64"
   | "I8"
   | "I16"
   | "I32"
+  | "I64"
   | "F16"
   | "BF16"
   | "F32"
@@ -50,9 +54,11 @@ type RawStorageView =
   | Int8Array
   | Int16Array
   | Int32Array
+  | BigInt64Array
   | Uint8Array
   | Uint16Array
-  | Uint32Array;
+  | Uint32Array
+  | BigUint64Array;
 
 export type LoadedSafetensors = {
   tensors: Record<string, MxArray>;
@@ -76,9 +82,11 @@ const DTYPE_TO_SAFETENSORS = {
   uint8: "U8",
   uint16: "U16",
   uint32: "U32",
+  uint64: "U64",
   int8: "I8",
   int16: "I16",
   int32: "I32",
+  int64: "I64",
   float16: "F16",
   bfloat16: "BF16",
   float32: "F32",
@@ -90,9 +98,11 @@ const SAFETENSORS_TO_DTYPE: Record<SafetensorsDTypeTag, SupportedSafetensorsDTyp
   U8: "uint8",
   U16: "uint16",
   U32: "uint32",
+  U64: "uint64",
   I8: "int8",
   I16: "int16",
   I32: "int32",
+  I64: "int64",
   F16: "float16",
   BF16: "bfloat16",
   F32: "float32",
@@ -113,9 +123,11 @@ export function toSupportedSafetensorsDType(dtype: DType): SupportedSafetensorsD
     case "uint8":
     case "uint16":
     case "uint32":
+    case "uint64":
     case "int8":
     case "int16":
     case "int32":
+    case "int64":
     case "float16":
     case "bfloat16":
     case "float32":
@@ -270,12 +282,16 @@ function createStorageView(bytes: Uint8Array, dtype: SupportedSafetensorsDType):
       return new Uint16Array(bytes.buffer, bytes.byteOffset, bytes.byteLength / 2);
     case "uint32":
       return new Uint32Array(bytes.buffer, bytes.byteOffset, bytes.byteLength / 4);
+    case "uint64":
+      return new BigUint64Array(bytes.buffer, bytes.byteOffset, bytes.byteLength / 8);
     case "int8":
       return new Int8Array(bytes.buffer, bytes.byteOffset, bytes.byteLength);
     case "int16":
       return new Int16Array(bytes.buffer, bytes.byteOffset, bytes.byteLength / 2);
     case "int32":
       return new Int32Array(bytes.buffer, bytes.byteOffset, bytes.byteLength / 4);
+    case "int64":
+      return new BigInt64Array(bytes.buffer, bytes.byteOffset, bytes.byteLength / 8);
     case "float32":
       return new Float32Array(bytes.buffer, bytes.byteOffset, bytes.byteLength / 4);
     case "float64":

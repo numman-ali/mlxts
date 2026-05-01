@@ -203,8 +203,9 @@ major product-agent focus on package-owned CLIs and future PI-agent integration.
   checkpoint chat template with thinking disabled, selects hidden states
   `9/18/27`, concatenates them for FLUX.2 joint attention, handles non-distilled
   empty negative prompts for CFG, and writes BMP proof artifacts through an
-  AXI-shaped command. Bounded real FLUX.2 checkpoint evidence,
-  image/reference conditioning, and KV-cache behavior remain future work.
+  AXI-shaped command. Official `black-forest-labs/FLUX.2-klein-4B` has passed
+  bounded real checkpoint evidence through this path. Image/reference
+  conditioning and KV-cache behavior remain future work.
 - **Qwen conditional serving**: top-level Qwen 3.5 / 3.6 conditional
   checkpoints expose the Qwen text batch-cache surface for text-only continuous
   serving. Media/content requests still route as `media_input` and stay off

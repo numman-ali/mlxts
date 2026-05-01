@@ -4,10 +4,9 @@
 
 Refreshed the Phase 10 image-generation support order against current
 Hugging Face and Diffusers references. SD/SDXL, FLUX.1, Z-Image-Turbo, and
-Qwen-Image / Qwen-Image-2512 now have bounded real checkpoint image evidence.
-FLUX.2 Klein remains a separate later family rather than a FLUX.1 variant and
-now has a finite proof command pending real checkpoint evidence. Stable
-Diffusion 3 / 3.5 remains a separate MMDiT/flow target.
+Qwen-Image / Qwen-Image-2512 and FLUX.2 Klein now have bounded real checkpoint
+image evidence. FLUX.2 Klein remains a separate later family rather than a
+FLUX.1 variant. Stable Diffusion 3 / 3.5 remains a separate MMDiT/flow target.
 
 ## Files Reviewed
 
@@ -62,8 +61,9 @@ The support ladder is:
 5. FLUX.2 Klein.
 6. Stable Diffusion 3 / 3.5 and compatible distilled variants.
 
-This is a product support order, not a claim that every listed family has
-bounded real checkpoint evidence today.
+Stable Diffusion / SDXL, FLUX.1, Z-Image-Turbo, Qwen-Image / Qwen-Image-2512,
+and FLUX.2 Klein all have bounded real checkpoint evidence. Stable Diffusion 3
+/ 3.5 remains unimplemented.
 
 ## Tensor Lifetime Audit
 
@@ -97,6 +97,9 @@ boundary needed by the Qwen-Image proof.
 - Qwen-Image / Qwen-Image-2512 has bounded official checkpoint image evidence,
   but still needs larger/default-step quality and performance characterization
   before it can be called product-complete.
+- FLUX.2 Klein has bounded official checkpoint image evidence, but still needs
+  reference-image/KV variants plus larger/default-step quality and performance
+  characterization before it can be called product-complete.
 - Image-to-image, inpainting, ControlNet, edit/control/layered variants, video,
   and audio generation remain Phase 10 work after the first text-to-image
   surfaces are stable.

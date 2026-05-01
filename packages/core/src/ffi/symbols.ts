@@ -86,6 +86,7 @@ export const ARRAY_LIFECYCLE_SYMBOLS = {
   mlx_array_data_uint8: { args: [P], returns: P },
   mlx_array_data_uint16: { args: [P], returns: P },
   mlx_array_data_uint32: { args: [P], returns: P },
+  mlx_array_data_uint64: { args: [P], returns: P },
   mlx_array_data_int8: { args: [P], returns: P },
   mlx_array_data_int16: { args: [P], returns: P },
   mlx_array_data_int32: { args: [P], returns: P },

@@ -44,6 +44,20 @@ This file captures durable cross-session learnings for `mlxts` so future agent s
   `bn.running_mean` and `bn.running_var` as required non-parameter buffers, and
   keep `bn.num_batches_tracked` skipped.
 
+- (2026-05-01) [DIFFUSION/FLUX2] Official `black-forest-labs/FLUX.2-klein-4B`
+  now has a bounded real checkpoint proof through `examples/flux2`: snapshot
+  revision `e7b7dc27f91deacad38e78976d1f2b499d76a294`, 18 selected Diffusers
+  files / `15,980,131,745` bytes, Qwen3 hidden-state prompt conditioning,
+  four 256x256 bfloat16 denoise steps, and a `196,662` byte BMP artifact.
+  `@mlxts/core` safetensors loading now accepts valid `I64` / `U64` tensor tags
+  because the FLUX.2 VAE carries a skipped `bn.num_batches_tracked` `I64`
+  scalar. This is capability evidence, not throughput or quality
+  characterization; reference-image/KV behavior and larger/default-step
+  characterization remain follow-ups. — refs: `examples/flux2/index.ts`,
+  `packages/core/src/io-safetensors-format.ts`,
+  `docs/reviews/2026-05-01-flux2-klein-real-checkpoint-proof.md`,
+  `docs/reviews/2026-05-01-safetensors-int64-interop.md`
+
 - (2026-05-01) [DIFFUSION/FLUX2] FLUX.2 Klein transformer runtime now exists
   for the non-KV prepared-embedding path in `@mlxts/diffusion`: four-axis RoPE,
   shared timestep/guidance modulation, double-stream image/text blocks,
@@ -51,8 +65,8 @@ This file captures durable cross-session learnings for `mlxts` so future agent s
   Diffusers-format transformer safetensor mapping/loading is direct and
   package-owned; do not copy FLUX.1's fused-QKV merge or final modulation swap
   into FLUX.2. `examples/flux2` now owns Qwen3 hidden-state prompt conditioning
-  and the finite proof command. Reference-image KV cache and real checkpoint
-  proof evidence remain follow-ups. — refs:
+  and the finite proof command. Official real checkpoint proof evidence landed
+  later on 2026-05-01; reference-image KV cache remains a follow-up. — refs:
   `packages/diffusion/src/families/flux2/transformer.ts`,
   `packages/diffusion/src/families/flux2/blocks.ts`,
   `packages/diffusion/src/families/flux2/transformer-weights.ts`,
@@ -61,7 +75,7 @@ This file captures durable cross-session learnings for `mlxts` so future agent s
   `docs/reviews/2026-05-01-flux2-klein-transformer-runtime.md`,
   `docs/reviews/2026-05-01-flux2-klein-transformer-weight-loading.md`,
   `docs/reviews/2026-05-01-flux2-klein-proof-cli.md`
-- (2026-05-01) [DIFFUSION/FLUX2] FLUX.2 Klein now has a prepared-embedding sampling foundation in `@mlxts/diffusion`: NCHW 2x2 VAE latent patching, 4-axis text/image ids, empirical FlowMatch dynamic shift, external CFG for non-distilled checkpoints, distilled guidance suppression, and VAE batch-norm inverse before decode. `examples/flux2` owns the Qwen3 prompt-conditioning/proof boundary. This is not yet a real checkpoint proof; reference-image/KV behavior and bounded official checkpoint evidence remain follow-ups. — refs: `packages/diffusion/src/families/flux2/latents.ts`, `packages/diffusion/src/families/flux2/pipeline.ts`, `packages/diffusion/src/families/flux2/decoding.ts`, `examples/flux2/`, `docs/reviews/2026-05-01-flux2-klein-sampling-foundation.md`, `docs/reviews/2026-05-01-flux2-klein-proof-cli.md`
+- (2026-05-01) [DIFFUSION/FLUX2] FLUX.2 Klein now has a prepared-embedding sampling foundation in `@mlxts/diffusion`: NCHW 2x2 VAE latent patching, 4-axis text/image ids, empirical FlowMatch dynamic shift, external CFG for non-distilled checkpoints, distilled guidance suppression, and VAE batch-norm inverse before decode. `examples/flux2` owns the Qwen3 prompt-conditioning/proof boundary. Official real checkpoint proof evidence landed later on 2026-05-01; reference-image/KV behavior remains a follow-up. — refs: `packages/diffusion/src/families/flux2/latents.ts`, `packages/diffusion/src/families/flux2/pipeline.ts`, `packages/diffusion/src/families/flux2/decoding.ts`, `examples/flux2/`, `docs/reviews/2026-05-01-flux2-klein-sampling-foundation.md`, `docs/reviews/2026-05-01-flux2-klein-proof-cli.md`, `docs/reviews/2026-05-01-flux2-klein-real-checkpoint-proof.md`
 - (2026-05-01) [DIFFUSION/FLUX2] FLUX.2 Klein is represented as a separate `@mlxts/diffusion` family contract, not as a FLUX.1 variant. The snapshot skeleton tranche recognizes Diffusers `Flux2KleinPipeline` snapshots and parses `Flux2Transformer2DModel` plus `AutoencoderKLFlux2` component configs, including `is_distilled` and VAE packed-latent-channel agreement with transformer input channels. — refs: `packages/diffusion/src/pretrained/model-index.ts`, `packages/diffusion/src/families/flux2/config.ts`, `docs/reviews/2026-05-01-flux2-klein-snapshot-skeleton.md`
 - (2026-05-01) [PHASE10/WHISPER] Whisper is package-owned and now has a finite transcription proof, but not production ASR. `@mlxts/core` exposes `log10`, `hanning`, `rfft`, and explicit `asStrided` views with negative-stride parity; `@mlxts/transformers` owns `families/whisper/` config parsing, feature extraction, executable encoder-decoder blocks, cross-attention, tied decoder-embedding logits projection, local loading, Hugging Face safetensor mapping with Conv1d transposition, special-token prompting, and finite greedy transcription. `examples/whisper` owns 16 kHz WAV loading and the AXI proof command. Cached decoder state, timestamp segmentation, language detection, resampling, and long-form chunking remain follow-up work. — refs: `packages/core/src/ops/fft.ts`, `packages/core/src/ops/strides.ts`, `packages/core/src/ops/windows.ts`, `packages/transformers/src/families/whisper/`, `examples/whisper/`, `docs/reviews/2026-05-01-whisper-audio-preprocessing-foundation.md`, `docs/reviews/2026-05-01-whisper-encoder-decoder-foundation.md`, `docs/reviews/2026-05-01-whisper-transcription-proof.md`
 - (2026-05-01) [SERVE/CACHE] `bun run regression:agent-cache` reports now carry per-request operator evidence for each cold/warm/exact phase: client duration, TTFT, stream chunks/bytes, cache usage, and server route, prompt-prepare, prompt-cache, prefill, and stream summaries. Use the report to distinguish cold-concurrent misses, prompt-shape drift, and real warm-retention failures before changing cache code. — refs: `packages/serve/scripts/regression-agent-cache.ts`, `packages/serve/README.md`, `.agents/skills/serve-cache-qa/SKILL.md`

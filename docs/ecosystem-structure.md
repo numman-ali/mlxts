@@ -240,14 +240,15 @@ contract over `Flux2KleinPipeline`, `Flux2Transformer2DModel`, and
 `AutoencoderKLFlux2`. The prepared-embedding sampling foundation now covers
 NCHW packed latents, 4-axis ids, FlowMatch denoising, external CFG, and the VAE
 batch-norm decode boundary. Transformer/VAE weight loading, Qwen3 prompt
-conditioning, and a finite `examples/flux2` proof command now exist; bounded
-real checkpoint evidence remains pending.
+conditioning, and a finite `examples/flux2` proof command now exist. Official
+`black-forest-labs/FLUX.2-klein-4B` has bounded checkpoint evidence through
+that path.
 `examples/stable-diffusion`, `examples/flux`, `examples/flux2`,
 `examples/z-image`, and `examples/qwen-image` own application-layer
 prompt-conditioning composition and finite BMP image proof commands over package
-surfaces. Official SDXL, FLUX.1-schnell, Z-Image-Turbo, and Qwen-Image-2512
-bounded checkpoint proofs have passed. Broader image output formats remain
-follow-on Phase 10 tranches.
+surfaces. Official SDXL, FLUX.1-schnell, Z-Image-Turbo, Qwen-Image-2512, and
+FLUX.2 Klein bounded checkpoint proofs have passed. Broader image output
+formats remain follow-on Phase 10 tranches.
 
 **Image-generation support order:** Stable Diffusion / SDXL is the baseline
 pipeline family. FLUX.1 is the next flow-matching target. Z-Image-Turbo is the
@@ -258,7 +259,8 @@ text-to-image generation family and stays separate from Qwen 3.5 / Qwen 3.6
 image understanding in `@mlxts/transformers`; `Qwen/Qwen-Image-2512` is the
 primary forward runtime target and has bounded real checkpoint evidence.
 FLUX.2 Klein is a later separate family, not a FLUX.1 checkpoint variant, and
-now has a finite text-to-image proof command pending real checkpoint evidence.
+now has bounded real checkpoint evidence through its finite text-to-image proof
+command.
 Stable Diffusion 3 / 3.5 and distilled or turbo variants follow only when they
 reuse the base family infrastructure or come with a documented architecture
 delta.
@@ -647,11 +649,11 @@ work is deferred unless a row says otherwise.
 - **Phase 10 creates:** `diffusion`. Scheduler infrastructure, Stable
   Diffusion / SDXL, FLUX.1, Z-Image-Turbo, and Qwen-Image/Qwen-Image-2512
   runtime paths plus example proof commands are in place with bounded real
-  checkpoint evidence. FLUX.2 Klein has snapshot/config recognition plus a
-  prepared-embedding sampling foundation, transformer/VAE weight loading, and a
-  finite proof command; bounded real checkpoint evidence, Stable Diffusion 3 /
-  3.5, image-to-image, inpainting, ControlNet, video, and audio generation
-  remain Phase 10 work. Vision/audio encoders extend `transformers`, not a
+  checkpoint evidence. FLUX.2 Klein has snapshot/config recognition,
+  prepared-embedding sampling, transformer/VAE weight loading, a finite proof
+  command, and bounded real checkpoint evidence. Stable Diffusion 3 / 3.5,
+  image-to-image, inpainting, ControlNet, video, and audio generation remain
+  Phase 10 work. Vision/audio encoders extend `transformers`, not a
   separate package. Generative media
   (image/video/audio) uses diffusion/flow → `@mlxts/diffusion`.
 - **Phase 12 creates:** `eval`. This appears when benchmark evaluation lands.

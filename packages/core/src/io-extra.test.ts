@@ -88,6 +88,80 @@ describe("io extra coverage", () => {
     expect(restored?.item()).toBe(7);
   });
 
+  test("saveSafetensors round-trips 64-bit integer tensors", async () => {
+    const dtypes: readonly ("int64" | "uint64")[] = ["int64", "uint64"];
+
+    for (const dtype of dtypes) {
+      const path = writeFixturePath(`${dtype}-roundtrip`);
+      using tensor = array(7, dtype);
+
+      await saveSafetensors({ scalar: tensor }, path);
+      const inspected = await inspectSafetensors(path);
+      expect(inspected.tensors).toContainEqual({
+        name: "scalar",
+        shape: [],
+        dtype,
+        byteLength: 8,
+      });
+
+      const loaded = await loadSafetensors(path);
+      using restored = loaded.tensors.scalar;
+      expect(restored).toBeDefined();
+      expect(restored?.dtype).toBe(dtype);
+      expect(restored?.shape).toEqual([]);
+      expect(restored?.item()).toBe(7);
+    }
+  });
+
+  test("loadSafetensors preserves incident-shaped 64-bit scalar bytes", async () => {
+    const path = writeFixturePath("incident-int64-scalar");
+    const body = new Uint8Array(8);
+    new DataView(body.buffer).setBigInt64(0, 5_000_000_001n, true);
+    await Bun.write(
+      path,
+      encodeFixture(
+        {
+          "bn.num_batches_tracked": {
+            dtype: "I64",
+            shape: [],
+            data_offsets: [0, 8],
+          },
+        },
+        body,
+      ),
+    );
+
+    const inspected = await inspectSafetensors(path);
+    expect(inspected.tensors).toContainEqual({
+      name: "bn.num_batches_tracked",
+      shape: [],
+      dtype: "int64",
+      byteLength: 8,
+    });
+
+    const skippedNames: string[] = [];
+    for await (const entry of iterateSafetensors(path, {
+      include: (name) => {
+        skippedNames.push(name);
+        return false;
+      },
+    })) {
+      entry.tensor.free();
+      throw new Error("I64 bookkeeping tensor should have been skipped");
+    }
+    expect(skippedNames).toEqual(["bn.num_batches_tracked"]);
+
+    const loaded = await loadSafetensors(path);
+    using restored = loaded.tensors["bn.num_batches_tracked"];
+    expect(restored).toBeDefined();
+    if (restored === undefined) {
+      throw new Error("bn.num_batches_tracked was unexpectedly missing");
+    }
+    expect(restored?.dtype).toBe("int64");
+    expect(restored?.shape).toEqual([]);
+    expect(Array.from(tensorBytes(restored, "int64"))).toEqual(Array.from(body));
+  });
+
   test("loadSafetensors rejects malformed tensor headers", async () => {
     const path = writeFixturePath("malformed-header");
     await Bun.write(
