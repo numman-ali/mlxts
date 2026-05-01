@@ -94,6 +94,12 @@ export { WhisperAttention } from "./families/whisper/attention";
 export { WhisperDecoderBlock, WhisperEncoderBlock } from "./families/whisper/block";
 export { parseWhisperConfig, parseWhisperFeatureExtractorConfig } from "./families/whisper/config";
 export {
+  generateWhisperGreedyTranscription,
+  type WhisperGreedyTokenEvent,
+  type WhisperGreedyTranscriptionOptions,
+  type WhisperGreedyTranscriptionResult,
+} from "./families/whisper/generation";
+export {
   type LoadWhisperModelOptions,
   loadWhisperModel,
   resolveWhisperModelSource,
@@ -111,6 +117,14 @@ export {
   createWhisperMelFilterBank,
   prepareWhisperAudioFeatures,
 } from "./families/whisper/preprocessing";
+export {
+  createWhisperDecoderPromptTokenIds,
+  decodeWhisperGeneratedTokenIds,
+  resolveWhisperSpecialTokens,
+  type WhisperPromptOptions,
+  type WhisperSpecialTokens,
+  type WhisperTask,
+} from "./families/whisper/tokenizer";
 export type {
   WhisperActivation,
   WhisperAudioFeatures,

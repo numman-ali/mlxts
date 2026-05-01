@@ -316,9 +316,11 @@ export class WhisperModel extends Module {
 /** Whisper conditional-generation model with tied decoder embedding projection. */
 export class WhisperForConditionalGeneration extends Module {
   model: WhisperModel;
+  readonly config: WhisperConfig;
 
   constructor(config: WhisperConfig) {
     super();
+    this.config = config;
     this.model = new WhisperModel(config);
   }
 

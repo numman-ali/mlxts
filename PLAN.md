@@ -1031,11 +1031,13 @@ bytes on disk without rerunning generation. The first Whisper audio foundation
 has landed in `@mlxts/transformers`: config parsing, feature-extractor config
 parsing, Slaney mel filter creation, and channel-last log-mel feature
 preparation over MLX-backed `@mlxts/core` primitives (`hanning`, `rfft`,
-`asStrided`, `log10`). Full Whisper encoder-decoder execution and decoded-text
-proof remain separate work. The first executable Whisper encoder-decoder
-foundation now owns audio encoder blocks, text decoder blocks, cross-attention,
-tied decoder-embedding logits projection, and Hugging Face safetensor loading;
-decoded transcription remains the next audio proof.
+`asStrided`, `log10`). The first executable Whisper encoder-decoder foundation
+now owns audio encoder blocks, text decoder blocks, cross-attention, tied
+decoder-embedding logits projection, and Hugging Face safetensor loading.
+`examples/whisper` now provides a finite AXI-shaped greedy transcription proof
+for 16 kHz WAV inputs over the package-owned Whisper prompt/decode helpers.
+Cached decoder state, timestamp segmentation, language detection, resampling,
+and long-form audio chunking remain follow-up work.
 Broader VLM families, audio encoder/decoder families, and additional
 diffusion/flow families remain Phase 10 work.
 
