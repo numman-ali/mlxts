@@ -115,6 +115,8 @@ describe("resolveDiffusionSnapshot", () => {
       ["text_encoder/config.json", "{}"],
       ["tokenizer/spiece.model", "tokenizer"],
       ["transformer/diffusion_pytorch_model.safetensors", new Uint8Array([1, 2, 3])],
+      ["transformer/diffusion_pytorch_model.fp16.safetensors", new Uint8Array([4, 5, 6])],
+      ["flux-root.safetensors", new Uint8Array([8])],
       ["README.md", "docs"],
       ["original/consolidated.00.pth", new Uint8Array([9])],
     ]);
@@ -137,7 +139,13 @@ describe("resolveDiffusionSnapshot", () => {
         yield { type: "file", path: "scheduler/scheduler_config.json", size: 2 };
         yield { type: "file", path: "text_encoder/config.json", size: 2 };
         yield { type: "file", path: "tokenizer/spiece.model", size: 9 };
+        yield { type: "file", path: "flux-root.safetensors", size: 1 };
         yield { type: "file", path: "transformer/diffusion_pytorch_model.safetensors", size: 3 };
+        yield {
+          type: "file",
+          path: "transformer/diffusion_pytorch_model.fp16.safetensors",
+          size: 3,
+        };
         yield { type: "file", path: "original/consolidated.00.pth", size: 1 };
       },
       downloadFileToCacheDir: async ({
@@ -171,6 +179,7 @@ describe("resolveDiffusionSnapshot", () => {
       snapshot = await resolveDiffusionSnapshot(repoId, {
         accessToken: "hf_explicit",
         revision: "refs/pr/1",
+        variant: "fp16",
         onProgress: (event) => events.push(event),
       });
     } finally {
@@ -183,13 +192,14 @@ describe("resolveDiffusionSnapshot", () => {
       `${resolvedRevision}\n`,
     );
     expect(existsSync(join(snapshot.directory, "README.md"))).toBe(false);
+    expect(existsSync(join(snapshot.directory, "flux-root.safetensors"))).toBe(false);
     expect(existsSync(join(snapshot.directory, "original", "consolidated.00.pth"))).toBe(false);
     expect(snapshot.files.map((file) => file.relativePath)).toEqual([
       "model_index.json",
       "scheduler/scheduler_config.json",
       "text_encoder/config.json",
       "tokenizer/spiece.model",
-      "transformer/diffusion_pytorch_model.safetensors",
+      "transformer/diffusion_pytorch_model.fp16.safetensors",
     ]);
 
     const downloadStatuses = events
@@ -207,8 +217,8 @@ describe("resolveDiffusionSnapshot", () => {
       "text_encoder/config.json:complete",
       "tokenizer/spiece.model:start",
       "tokenizer/spiece.model:complete",
-      "transformer/diffusion_pytorch_model.safetensors:start",
-      "transformer/diffusion_pytorch_model.safetensors:complete",
+      "transformer/diffusion_pytorch_model.fp16.safetensors:start",
+      "transformer/diffusion_pytorch_model.fp16.safetensors:complete",
     ]);
   });
 

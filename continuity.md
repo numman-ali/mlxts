@@ -130,7 +130,10 @@ major product-agent focus on package-owned CLIs and future PI-agent integration.
   runtime lock, samples one image, and writes an uncompressed BMP artifact from
   the returned NHWC image tensor. `examples/flux` owns the analogous FLUX
   application layer for T5/CLIP prompt conditioning and BMP output, with the
-  same local-or-Hub snapshot source ergonomics. The image-generation support
+  same local-or-Hub snapshot source ergonomics. Remote snapshot resolution now
+  selects component-local Diffusers weights instead of root monolithic exports;
+  both proof commands expose `--variant` for repos that publish fp16 component
+  weights. The image-generation support
   ladder is now explicit: Stable Diffusion / SDXL baseline first, then FLUX.1,
   then Qwen-Image, then Z-Image-Turbo, with
   Stable Diffusion 3 / 3.5 and distilled variants following when they reuse the

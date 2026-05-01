@@ -24,6 +24,7 @@ type CliOptions = {
   revision?: string;
   cacheDir?: string;
   hfToken?: string;
+  variant?: string;
   localFilesOnly: boolean;
   prompt: string;
   prompt2?: string;
@@ -44,6 +45,7 @@ type CliOptionsDraft = {
   revision?: string;
   cacheDir?: string;
   hfToken?: string;
+  variant?: string;
   localFilesOnly: boolean;
   prompt?: string;
   prompt2?: string;
@@ -104,10 +106,11 @@ export function formatUsage(): string {
     '  bun run examples/flux/index.ts black-forest-labs/FLUX.1-schnell --local-files-only --prompt "a quiet library" --output .tmp/flux.bmp --steps 4',
     "arguments[1]{name,description}:",
     '  "snapshot-source","Local Diffusers snapshot directory or Hugging Face model id"',
-    "options[16]{flag,description}:",
+    "options[17]{flag,description}:",
     '  "--revision <rev>","Hub revision; default main"',
     '  "--cache-dir <path>","Hub cache directory; default Hugging Face cache"',
     '  "--hf-token <token>","Hub access token; defaults to HF token environment or cache file"',
+    '  "--variant <name>","Optional Hub weight filename variant, for example fp16"',
     '  "--local-files-only","Use only an already-cached Hub snapshot"',
     '  "--prompt <text>","Required positive prompt for CLIP and T5"',
     '  "--prompt-2 <text>","Optional T5 prompt; defaults to --prompt"',
@@ -193,6 +196,9 @@ function applyFlag(argv: readonly string[], index: number, draft: CliOptionsDraf
       return index + 1;
     case "--hf-token":
       draft.hfToken = readStringFlag(arg, argv[index + 1]);
+      return index + 1;
+    case "--variant":
+      draft.variant = readStringFlag(arg, argv[index + 1]);
       return index + 1;
     case "--local-files-only":
       draft.localFilesOnly = true;
@@ -302,6 +308,9 @@ export function parseCommand(argv: readonly string[]): CliCommand {
   if (draft.hfToken !== undefined) {
     options.hfToken = draft.hfToken;
   }
+  if (draft.variant !== undefined) {
+    options.variant = draft.variant;
+  }
   if (draft.guidanceScale !== undefined) {
     options.guidanceScale = draft.guidanceScale;
   }
@@ -323,6 +332,9 @@ function printRunIntro(cli: CliOptions, writeLine: (line: string) => void): void
   }
   if (cli.localFilesOnly) {
     writeLine("Local files only: true");
+  }
+  if (cli.variant !== undefined) {
+    writeLine(`Weight variant: ${cli.variant}`);
   }
   writeLine(`Prompt: ${cli.prompt}`);
   writeLine(`Output: ${cli.outputPath}`);
@@ -365,6 +377,7 @@ export async function runFluxExample(
     ...(cli.revision === undefined ? {} : { revision: cli.revision }),
     ...(cli.cacheDir === undefined ? {} : { cacheDir: cli.cacheDir }),
     ...(cli.hfToken === undefined ? {} : { accessToken: cli.hfToken }),
+    ...(cli.variant === undefined ? {} : { variant: cli.variant }),
     localFilesOnly: cli.localFilesOnly,
     onProgress: (event) => {
       progress(formatSnapshotResolveProgress(event));

@@ -997,7 +997,10 @@ owns the first FLUX.1 package path: FlowMatch Euler scheduling, FLUX
 transformer config/backbone/weights, FLUX VAE config/loading/decoding, latent
 packing, sampling, and an AXI-shaped `examples/flux` proof command. Both image
 proof commands accept a local directory or Hugging Face model id and resolve it
-to a concrete local snapshot before generation. Base Qwen-Image snapshot
+to a concrete local snapshot before generation; remote resolution selects
+component-local Diffusers weights and supports an explicit filename variant such
+as `fp16` so proof runs do not download root monolith exports or duplicate
+weight variants. Base Qwen-Image snapshot
 recognition and config
 parsing has landed, including the Qwen-specific 3D causal VAE metadata and
 FlowMatch `shift_terminal` scheduler field, but Qwen-Image tensor execution is

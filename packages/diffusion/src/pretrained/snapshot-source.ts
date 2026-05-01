@@ -7,6 +7,11 @@ import {
 } from "@huggingface/hub";
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "fs";
 import { dirname, join, resolve } from "path";
+import {
+  type DiffusionSnapshotFileSelectionOptions,
+  type RemoteDiffusionSnapshotFile,
+  selectSupportedRemoteFiles,
+} from "./snapshot-file-selection";
 
 /** Options for resolving a Diffusers snapshot from a local path or Hugging Face model id. */
 export type ResolveDiffusionSnapshotOptions = {
@@ -14,6 +19,7 @@ export type ResolveDiffusionSnapshotOptions = {
   accessToken?: string;
   cacheDir?: string;
   localFilesOnly?: boolean;
+  variant?: string;
   onProgress?: (event: DiffusionSnapshotResolveProgressEvent) => void;
 };
 
@@ -65,29 +71,9 @@ export type ResolvedDiffusionSnapshot = {
   resolvedRevision?: string;
 };
 
-type RemoteDiffusionSnapshotFile = {
-  relativePath: string;
-  size: number;
-};
-
 const DEFAULT_REVISION = "main";
 const HIDDEN_DIRECTORIES = new Set([".cache", ".git"]);
 const COMMIT_HASH = /^[0-9a-f]{40}$/;
-const REMOTE_SUPPORTED_FILE_NAMES = new Set([
-  "model_index.json",
-  "scheduler_config.json",
-  "config.json",
-  "preprocessor_config.json",
-  "tokenizer.json",
-  "tokenizer_config.json",
-  "special_tokens_map.json",
-  "vocab.json",
-  "merges.txt",
-  "spiece.model",
-  "tokenizer.model",
-  "chat_template.jinja",
-  "added_tokens.json",
-]);
 
 function emitProgress(
   options: ResolveDiffusionSnapshotOptions,
@@ -259,34 +245,6 @@ function cachedHubSnapshot(
   };
 }
 
-function isSupportedRemoteFile(path: string): boolean {
-  const name = path.split("/").at(-1) ?? path;
-  return (
-    path.endsWith(".safetensors") ||
-    path.endsWith(".safetensors.index.json") ||
-    REMOTE_SUPPORTED_FILE_NAMES.has(name)
-  );
-}
-
-function selectSupportedRemoteFiles(
-  source: string,
-  resolvedRevision: string,
-  remoteFiles: readonly RemoteDiffusionSnapshotFile[],
-): RemoteDiffusionSnapshotFile[] {
-  const selected = remoteFiles.filter((file) => isSupportedRemoteFile(file.relativePath));
-  if (!selected.some((file) => file.relativePath === "model_index.json")) {
-    throw new Error(
-      `resolveDiffusionSnapshot: repo ${source}@${resolvedRevision} did not contain model_index.json.`,
-    );
-  }
-  if (selected.length === 1) {
-    throw new Error(
-      `resolveDiffusionSnapshot: repo ${source}@${resolvedRevision} did not contain supported Diffusers component artifacts.`,
-    );
-  }
-  return selected;
-}
-
 async function listRemoteSnapshotFiles(
   source: string,
   resolvedRevision: string,
@@ -412,6 +370,7 @@ async function resolveRemoteSnapshot(
     source,
     resolvedRevision,
     await listRemoteSnapshotFiles(source, resolvedRevision, accessToken),
+    fileSelectionOptions(options),
   );
   await downloadRemoteSnapshotFiles(
     source,
@@ -433,6 +392,12 @@ async function resolveRemoteSnapshot(
     files,
     totalBytes: snapshotTotals(files),
   };
+}
+
+function fileSelectionOptions(
+  options: ResolveDiffusionSnapshotOptions,
+): DiffusionSnapshotFileSelectionOptions {
+  return options.variant === undefined ? {} : { variant: options.variant };
 }
 
 /** Resolve a local Diffusers directory or Hugging Face model id to a local snapshot. */
