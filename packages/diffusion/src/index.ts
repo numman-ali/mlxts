@@ -260,6 +260,7 @@ export {
   transformStableDiffusionAutoencoderWeight,
   transformStableDiffusionUNetWeight,
 } from "./families/stable-diffusion/weights";
+export { StableDiffusion3AutoencoderKL } from "./families/stable-diffusion-3/autoencoder";
 export {
   loadStableDiffusion3ComponentConfigs,
   parseStableDiffusion3AutoencoderConfig,
@@ -294,6 +295,20 @@ export {
   type StableDiffusion3DenoiserInput,
   StableDiffusion3Transformer2DModel,
 } from "./families/stable-diffusion-3/transformer";
+export {
+  loadStableDiffusion3AutoencoderFromSnapshot,
+  loadStableDiffusion3AutoencoderWeights,
+  loadStableDiffusion3TransformerFromSnapshot,
+  loadStableDiffusion3TransformerWeights,
+  type StableDiffusion3AutoencoderWeightLoadOptions,
+  type StableDiffusion3AutoencoderWeightLoadResult,
+  type StableDiffusion3TransformerWeightLoadOptions,
+  type StableDiffusion3TransformerWeightLoadResult,
+  stableDiffusion3AutoencoderWeightPath,
+  stableDiffusion3TransformerWeightPath,
+  transformStableDiffusion3AutoencoderWeight,
+  transformStableDiffusion3TransformerWeight,
+} from "./families/stable-diffusion-3/weights";
 export {
   loadZImageComponentConfigs,
   parseZImageAutoencoderConfig,

@@ -1055,8 +1055,10 @@ encoder/tokenizer components, and SD3.5 dual-attention metadata. The prepared
 runtime foundation now covers NHWC latent patch embedding, fixed SD3 2D sincos
 position crops, MMDiT joint attention, SD3.5 RMS q/k norm plus dual-attention
 blocks, FlowMatch denoising over prepared conditioning tensors, and the VAE
-shift/scale decode boundary. Weight mapping/loading, prompt encoding, and
-authenticated gated checkpoint proof remain separate tranches. Reference-image
+shift/scale decode boundary. Transformer and VAE weight mapping/loading now
+exist for inspected Diffusers snapshots, including base SD3 and SD3.5-style
+generated safetensor proofs. Prompt encoding and authenticated gated checkpoint
+proof remain separate tranches. Reference-image
 / KV variants, broader VLM families, audio encoder/decoder families, and
 additional diffusion/flow families remain Phase 10 work.
 
@@ -1145,9 +1147,10 @@ All diffusion and flow-based generation across modalities: image, video, and aud
    and component config parsing have landed for Diffusers
    `StableDiffusion3Pipeline` snapshots, including SD3.5 dual-attention fields.
    Runtime tensor execution has landed for prepared conditioning tensors,
-   including SD3.5 q/k norm and dual-attention blocks. Weight mapping/loading,
-   prompt encoding, and gated official checkpoint proof remain separate
-   follow-on tranches.
+   including SD3.5 q/k norm and dual-attention blocks. Transformer and VAE
+   weight mapping/loading have landed for generated local safetensor snapshots.
+   Prompt encoding and gated official checkpoint proof remain separate follow-on
+   tranches.
 
 ### 10c. Examples
 
