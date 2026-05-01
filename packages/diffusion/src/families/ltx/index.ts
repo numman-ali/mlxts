@@ -150,6 +150,17 @@ export {
   type LtxVideoDenoisingStepEvent,
   type LtxVideoScheduler,
 } from "./pipeline";
+export {
+  denoiseLtx2Latents,
+  type Ltx2Conditioning,
+  type Ltx2DenoiseOptions,
+  type Ltx2DenoiseResult,
+  type Ltx2Denoiser,
+  type Ltx2DenoiserInput,
+  type Ltx2DenoiserOutput,
+  type Ltx2DenoisingStepEvent,
+  type Ltx2Scheduler,
+} from "./pipeline-ltx2";
 export { LtxVideoTransformer3DModel } from "./transformer";
 export {
   type LtxVideoTransformerWeightLoadOptions,
