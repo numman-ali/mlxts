@@ -1000,17 +1000,19 @@ proof commands accept a local directory or Hugging Face model id and resolve it
 to a concrete local snapshot before generation; remote resolution selects
 component-local Diffusers weights and supports an explicit filename variant such
 as `fp16` so proof runs do not download root monolith exports or duplicate
-weight variants. Base Qwen-Image snapshot
-recognition and config
-parsing has landed, including the Qwen-specific 3D causal VAE metadata and
-FlowMatch `shift_terminal` scheduler field, but Qwen-Image tensor execution is
-not implemented yet. Base Z-Image snapshot recognition and config parsing has
+weight variants. The official SDXL base fp16 checkpoint has passed a bounded
+real image proof through this path, loading the Hub snapshot, encoding prompt
+conditioning, running denoising, and writing a BMP artifact. Base Qwen-Image
+snapshot recognition and config parsing has landed, including the
+Qwen-specific 3D causal VAE metadata and FlowMatch `shift_terminal` scheduler
+field, but Qwen-Image tensor execution is not implemented yet. Base Z-Image
+snapshot recognition and config parsing has
 also landed for current Diffusers `ZImagePipeline` snapshots, including
 `ZImageTransformer2DModel` geometry, RoPE axes, padding constants, standard
 AutoencoderKL metadata, and the Qwen3 text-encoder manifest boundary. Z-Image
 tensor execution is not implemented yet. Real checkpoint image evidence is
-still pending for both SD/SDXL and FLUX before either becomes a product-complete
-generation claim.
+still pending for FLUX before that path becomes a product-complete generation
+claim.
 Broader VLM families, audio encoder/decoder families, and additional
 diffusion/flow families remain Phase 10 work.
 
@@ -1047,8 +1049,8 @@ All diffusion and flow-based generation across modalities: image, video, and aud
    the reusable package surface end to end: VAE, UNet2D, scheduler, CLIP
    conditioning, Diffusers local-or-Hub snapshot loading, sampling, and an
    AXI-shaped proof command. Diffusers Euler checkpoint metadata now maps to
-   sigma-space scheduler behavior; real checkpoint image evidence is still
-   required before this becomes a product-complete image generation claim.
+   sigma-space scheduler behavior, and official SDXL base fp16 has passed a
+   bounded real checkpoint image proof.
 2. **FLUX.1 family**: this is the first modern flow-matching target after the
    Stable Diffusion baseline because it moves `@mlxts/diffusion` from UNet2D
    pipelines into DiT/flow-style backbones. The local `FLUX.1-schnell` proof

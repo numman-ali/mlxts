@@ -56,12 +56,12 @@ function requireDirectory(path: string, context: string): void {
 
 function listWeightPaths(directory: string): string[] {
   return readdirSync(directory, { withFileTypes: true })
-    .filter(
-      (entry) =>
-        entry.isFile() &&
-        (entry.name.endsWith(".safetensors") || entry.name.endsWith(".safetensors.index.json")),
-    )
     .map((entry) => join(directory, entry.name))
+    .filter(
+      (path) =>
+        pathIfFile(path) !== undefined &&
+        (path.endsWith(".safetensors") || path.endsWith(".safetensors.index.json")),
+    )
     .sort((left, right) => left.localeCompare(right));
 }
 

@@ -133,7 +133,10 @@ major product-agent focus on package-owned CLIs and future PI-agent integration.
   same local-or-Hub snapshot source ergonomics. Remote snapshot resolution now
   selects component-local Diffusers weights instead of root monolithic exports;
   both proof commands expose `--variant` for repos that publish fp16 component
-  weights. The image-generation support
+  weights. Official SDXL base fp16 has passed a bounded real checkpoint proof
+  through the Stable Diffusion proof command: the command loaded the Hub
+  snapshot, encoded prompt conditioning, ran denoising, and wrote a BMP
+  artifact. The image-generation support
   ladder is now explicit: Stable Diffusion / SDXL baseline first, then FLUX.1,
   then Qwen-Image, then Z-Image-Turbo, with
   Stable Diffusion 3 / 3.5 and distilled variants following when they reuse the

@@ -76,6 +76,37 @@ describe("StableDiffusionUNet2DConditionModel", () => {
     expect(paths).toContain("convOut.weight");
   });
 
+  test("attention projection bias layout follows Diffusers checkpoints", () => {
+    using model = new StableDiffusionUNet2DConditionModel(tinyUNetConfig());
+
+    const paths = treeFlatten(model.parameters()).map(([path]) => path.join("."));
+
+    expect(paths).not.toContain(
+      "downBlocks.0.attentions.0.transformerBlocks.0.attention1.queryProjection.bias",
+    );
+    expect(paths).not.toContain(
+      "downBlocks.0.attentions.0.transformerBlocks.0.attention1.keyProjection.bias",
+    );
+    expect(paths).not.toContain(
+      "downBlocks.0.attentions.0.transformerBlocks.0.attention1.valueProjection.bias",
+    );
+    expect(paths).toContain(
+      "downBlocks.0.attentions.0.transformerBlocks.0.attention1.outputProjection.bias",
+    );
+    expect(paths).not.toContain(
+      "downBlocks.0.attentions.0.transformerBlocks.0.attention2.queryProjection.bias",
+    );
+    expect(paths).not.toContain(
+      "downBlocks.0.attentions.0.transformerBlocks.0.attention2.keyProjection.bias",
+    );
+    expect(paths).not.toContain(
+      "downBlocks.0.attentions.0.transformerBlocks.0.attention2.valueProjection.bias",
+    );
+    expect(paths).toContain(
+      "downBlocks.0.attentions.0.transformerBlocks.0.attention2.outputProjection.bias",
+    );
+  });
+
   test("projection shape follows useLinearProjection checkpoint semantics", () => {
     using convProjectionModel = new StableDiffusionUNet2DConditionModel(
       tinyUNetConfig({ useLinearProjection: false }),
@@ -90,6 +121,23 @@ describe("StableDiffusionUNet2DConditionModel", () => {
     expect(linearProjectionModel.downBlocks[0]?.attentions?.[0]?.projectionIn.weight.shape).toEqual(
       [4, 4],
     );
+  });
+
+  test("up block resnet channels follow Diffusers previous-output semantics", () => {
+    using model = new StableDiffusionUNet2DConditionModel(
+      tinyUNetConfig({
+        blockOutChannels: [4, 8, 16],
+        layersPerBlock: [1, 1, 1],
+        transformerLayersPerBlock: [1, 1, 1],
+        numAttentionHeads: [2, 2, 4],
+        crossAttentionDim: [6, 6, 6],
+        downBlockTypes: ["DownBlock2D", "CrossAttnDownBlock2D", "CrossAttnDownBlock2D"],
+        upBlockTypes: ["CrossAttnUpBlock2D", "CrossAttnUpBlock2D", "UpBlock2D"],
+      }),
+    );
+
+    expect(model.upBlocks[1]?.resnets[0]?.conv1.weight.shape).toEqual([8, 3, 3, 24]);
+    expect(model.upBlocks[2]?.resnets[0]?.conv1.weight.shape).toEqual([4, 3, 3, 12]);
   });
 
   test("downsample uses UNet stride-2 padding instead of VAE bottom-right pre-padding", () => {

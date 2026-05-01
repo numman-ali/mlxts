@@ -73,7 +73,11 @@ export type DiffusionModelIndexComponentSpec = {
   requiresWeights?: boolean;
 };
 
-const SCALAR_CONFIG_KEYS = new Set(["requires_safety_checker", "force_zeros_for_empty_prompt"]);
+const SCALAR_CONFIG_KEYS = new Set([
+  "add_watermarker",
+  "requires_safety_checker",
+  "force_zeros_for_empty_prompt",
+]);
 
 function fieldName(context: string, key: string): string {
   return `${context}.${key}`;

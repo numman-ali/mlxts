@@ -79,9 +79,9 @@ export class StableDiffusionUNetAttention extends Module {
     if (!Number.isInteger(numHeads) || numHeads <= 0 || modelDims % numHeads !== 0) {
       throw new Error("StableDiffusionUNetAttention: numHeads must divide modelDims.");
     }
-    this.queryProjection = new Linear(modelDims, modelDims);
-    this.keyProjection = new Linear(keyValueDims, modelDims);
-    this.valueProjection = new Linear(keyValueDims, modelDims);
+    this.queryProjection = new Linear(modelDims, modelDims, false);
+    this.keyProjection = new Linear(keyValueDims, modelDims, false);
+    this.valueProjection = new Linear(keyValueDims, modelDims, false);
     this.outputProjection = new Linear(modelDims, modelDims);
     this.#numHeads = numHeads;
     this.#headDim = modelDims / numHeads;

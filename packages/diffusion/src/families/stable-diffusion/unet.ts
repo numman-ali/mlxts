@@ -180,7 +180,7 @@ function makeUpBlocks(
     const previousOutputChannels =
       index === 0
         ? firstChannel(reversedChannels, "StableDiffusionUNet2DConditionModel")
-        : outputChannels;
+        : blockChannel(reversedChannels, index - 1, "StableDiffusionUNet2DConditionModel");
     const reverseIndex = config.upBlockTypes.length - index - 1;
     return new StableDiffusionUNetUpBlock2d({
       inChannels: inputChannels,

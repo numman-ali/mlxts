@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "fs";
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 
@@ -110,10 +110,14 @@ describe("diffusion model index loading", () => {
       unet: ["diffusers", "UNet2DConditionModel"],
       scheduler: ["diffusers", "EulerDiscreteScheduler"],
       force_zeros_for_empty_prompt: true,
+      add_watermarker: null,
     });
 
     expect(parsed.kind).toBe("stable-diffusion-xl");
-    expect(parsed.pipelineConfig).toEqual({ force_zeros_for_empty_prompt: true });
+    expect(parsed.pipelineConfig).toEqual({
+      add_watermarker: null,
+      force_zeros_for_empty_prompt: true,
+    });
     expect(parsed.components.map((component) => component.name)).toEqual([
       "vae",
       "text_encoder",
@@ -215,6 +219,35 @@ describe("diffusion model index loading", () => {
         join(directory, "unet", "diffusion_pytorch_model.safetensors"),
       ]);
       expect(tokenizer?.metadataPaths).toContain(join(directory, "tokenizer", "vocab.json"));
+    });
+  });
+
+  test("loads symlinked Hub-cache component weights", async () => {
+    await withTempDirectory("mlxts-diffusion-model-index-symlinks-", async (directory) => {
+      writeStableDiffusionSnapshot(directory);
+      const blobDirectory = join(directory, "blobs");
+      const blobPath = join(blobDirectory, "vae-fp16");
+      const indexBlobPath = join(blobDirectory, "unet-index");
+      const vaeWeightPath = join(directory, "vae", "diffusion_pytorch_model.fp16.safetensors");
+      const unetIndexPath = join(
+        directory,
+        "unet",
+        "diffusion_pytorch_model.fp16.safetensors.index.json",
+      );
+      mkdirSync(blobDirectory);
+      writeFileSync(blobPath, "weights");
+      writeFileSync(indexBlobPath, "{}");
+      rmSync(join(directory, "vae", "diffusion_pytorch_model.safetensors"), { force: true });
+      rmSync(join(directory, "unet", "diffusion_pytorch_model.safetensors"), { force: true });
+      symlinkSync(blobPath, vaeWeightPath);
+      symlinkSync(indexBlobPath, unetIndexPath);
+
+      const manifest = await loadDiffusionSnapshotManifest(directory);
+      const vae = manifest.components.find((component) => component.name === "vae");
+      const unet = manifest.components.find((component) => component.name === "unet");
+
+      expect(vae?.weightPaths).toEqual([vaeWeightPath]);
+      expect(unet?.weightPaths).toEqual([unetIndexPath]);
     });
   });
 
