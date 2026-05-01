@@ -8,7 +8,7 @@ Weight tying stays functional. `Embedding.asLinear(hidden)` returns the projecti
 
 `Module[]` arrays scan with string indices ("0", "1", ...) matching HuggingFace weight naming (`model.layers.0.self_attn.q_proj.weight`). Layer collections are plain arrays.
 
-The public surface holds semantic names: `gelu`, `relu`, `silu`, `swiglu`, `crossEntropy`, `mse`, `RMSNorm`, `LayerNorm`, `GroupNorm`, `RoPE`, `Linear`, `Embedding`, `Conv1d`, `Conv2d`, `Dropout`, `GroupedQueryAttention`, `LoRALinear`. Compile and shape-keyed reuse live behind these names, not in front of them.
+The public surface holds semantic names: `gelu`, `relu`, `silu`, `swiglu`, `crossEntropy`, `mse`, `RMSNorm`, `LayerNorm`, `GroupNorm`, `RoPE`, `Linear`, `Embedding`, `Conv1d`, `Conv2d`, `Conv3d`, `Dropout`, `GroupedQueryAttention`, `LoRALinear`. Compile and shape-keyed reuse live behind these names, not in front of them.
 
 Layer implementations live in `src/layers/`. Quantized layer variants live in `src/quantized/`. `Module`, checkpointing, value-and-grad, activations, and losses stay in their current root or domain folders.
 

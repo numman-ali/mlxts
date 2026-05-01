@@ -16,6 +16,7 @@ import {
   contiguous,
   conv1d,
   conv2d,
+  conv3d,
   cos,
   cumsum,
   divide,
@@ -329,6 +330,62 @@ describe("Arithmetic ops", () => {
     input.free();
     weight.free();
     output.free();
+  });
+
+  test("conv3d performs channel-last volume convolution", () => {
+    const input = MxArray.fromData([1, 2, 3, 4, 5, 6, 7, 8], [1, 2, 2, 2, 1]);
+    const weight = MxArray.fromData([1, 2, 3, 4, 5, 6, 7, 8], [1, 2, 2, 2, 1]);
+    const output = conv3d(input, weight);
+    mxEval(output);
+
+    expect(output.shape).toEqual([1, 1, 1, 1, 1]);
+    expect(output.toList()).toEqual([[[[[204]]]]]);
+
+    input.free();
+    weight.free();
+    output.free();
+  });
+
+  test("conv3d supports spatial stride and padding triples", () => {
+    const input = MxArray.fromData(
+      [
+        1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25,
+        26, 27,
+      ],
+      [1, 3, 3, 3, 1],
+    );
+    const weight = ones([1, 2, 2, 2, 1]);
+    const output = conv3d(input, weight, [2, 2, 2], [1, 1, 1]);
+    mxEval(output);
+
+    expect(output.shape).toEqual([1, 2, 2, 2, 1]);
+    expect(output.toList()).toEqual([
+      [
+        [
+          [[1], [5]],
+          [[11], [28]],
+        ],
+        [
+          [[29], [64]],
+          [[76], [164]],
+        ],
+      ],
+    ]);
+
+    input.free();
+    weight.free();
+    output.free();
+  });
+
+  test("conv3d rejects grouped convolution until MLX supports it", () => {
+    const input = ones([1, 1, 1, 1, 2]);
+    const weight = ones([2, 1, 1, 1, 1]);
+    expect(() => conv3d(input, weight, 1, 0, 1, 2)).toThrow(
+      "groups other than 1 are not supported",
+    );
+
+    input.free();
+    weight.free();
   });
 
   test("geluApprox rejects non-floating tensors", () => {

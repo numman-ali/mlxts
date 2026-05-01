@@ -8,6 +8,8 @@ export { checkpoint } from "./checkpoint";
 export { Conv1d } from "./layers/conv1d";
 export type { Conv2dSpatialPair } from "./layers/conv2d";
 export { Conv2d } from "./layers/conv2d";
+export type { Conv3dSpatialTriple } from "./layers/conv3d";
+export { Conv3d } from "./layers/conv3d";
 export { Dropout } from "./layers/dropout";
 export { Embedding } from "./layers/embedding";
 export { GroupNorm } from "./layers/group-norm";

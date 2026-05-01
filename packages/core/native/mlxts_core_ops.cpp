@@ -81,6 +81,38 @@ extern "C" int mlxts_conv2d(
   }
 }
 
+extern "C" int mlxts_conv3d(
+    mlx_array* res,
+    const mlx_array input,
+    const mlx_array weight,
+    const int* params,
+    size_t params_num,
+    const mlx_stream s) {
+  try {
+    if (params_num != 10) {
+      throw std::runtime_error("mlxts_conv3d: expected 10 convolution params.");
+    }
+    return mlx_conv3d(
+        res,
+        input,
+        weight,
+        params[0],
+        params[1],
+        params[2],
+        params[3],
+        params[4],
+        params[5],
+        params[6],
+        params[7],
+        params[8],
+        params[9],
+        s);
+  } catch (std::exception& e) {
+    mlx_error(e.what());
+    return 1;
+  }
+}
+
 extern "C" int mlxts_slice_update_inplace(
     const mlx_array src,
     const mlx_array update,

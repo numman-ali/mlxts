@@ -96,6 +96,7 @@ export {
   contiguous,
   conv1d,
   conv2d,
+  conv3d,
   cos,
   cumsum,
   divide,
