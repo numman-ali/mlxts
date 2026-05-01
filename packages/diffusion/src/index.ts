@@ -66,6 +66,34 @@ export {
   parseFlux2KleinTransformerConfig,
 } from "./families/flux2/config";
 export {
+  decodeFlux2KleinLatents,
+  type Flux2KleinLatentDecoder,
+} from "./families/flux2/decoding";
+export {
+  createFlux2InitialLatents,
+  createFlux2LatentIds,
+  createFlux2TextIds,
+  type Flux2InitialLatentOptions,
+  flux2LatentMapShape,
+  flux2PackedLatentShape,
+  packFlux2Latents,
+  patchifyFlux2VaeLatents,
+  unpackFlux2Latents,
+  unpatchifyFlux2VaeLatents,
+} from "./families/flux2/latents";
+export {
+  computeFlux2KleinEmpiricalMu,
+  denoiseFlux2KleinLatents,
+  type Flux2KleinConditioning,
+  type Flux2KleinDenoiseOptions,
+  type Flux2KleinDenoiser,
+  type Flux2KleinDenoiserInput,
+  type Flux2KleinDenoisingStepEvent,
+  type Flux2KleinImageGenerationOptions,
+  type Flux2KleinScheduler,
+  generateFlux2KleinImage,
+} from "./families/flux2/pipeline";
+export {
   QwenImageAutoencoderKL,
   QwenImageDecoder3d,
   QwenImageEncoder3d,
