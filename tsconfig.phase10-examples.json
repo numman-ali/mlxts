@@ -3,6 +3,7 @@
   "include": [
     "examples/stable-diffusion/**/*.ts",
     "examples/flux/**/*.ts",
-    "examples/z-image/**/*.ts"
+    "examples/z-image/**/*.ts",
+    "examples/qwen-image/**/*.ts"
   ]
 }
