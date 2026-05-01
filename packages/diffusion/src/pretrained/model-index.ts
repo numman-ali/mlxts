@@ -5,6 +5,7 @@ import { PIPELINE_SPECS, type PipelineSpec } from "./pipeline-specs";
 export type DiffusersPipelineClassName =
   | "StableDiffusionPipeline"
   | "StableDiffusionXLPipeline"
+  | "StableDiffusion3Pipeline"
   | "FluxPipeline"
   | "Flux2KleinPipeline"
   | "QwenImagePipeline"
@@ -14,6 +15,7 @@ export type DiffusersPipelineClassName =
 export type DiffusionPipelineKind =
   | "stable-diffusion"
   | "stable-diffusion-xl"
+  | "stable-diffusion-3"
   | "flux"
   | "flux2-klein"
   | "qwen-image"
@@ -24,8 +26,10 @@ export type DiffusionComponentName =
   | "vae"
   | "text_encoder"
   | "text_encoder_2"
+  | "text_encoder_3"
   | "tokenizer"
   | "tokenizer_2"
+  | "tokenizer_3"
   | "unet"
   | "transformer"
   | "scheduler"
@@ -137,6 +141,7 @@ function parsePipelineClassName(
   if (
     className === "StableDiffusionPipeline" ||
     className === "StableDiffusionXLPipeline" ||
+    className === "StableDiffusion3Pipeline" ||
     className === "FluxPipeline" ||
     className === "Flux2KleinPipeline" ||
     className === "QwenImagePipeline" ||

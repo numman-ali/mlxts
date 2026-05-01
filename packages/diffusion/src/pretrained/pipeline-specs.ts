@@ -147,6 +147,89 @@ const STABLE_DIFFUSION_XL_COMPONENTS: readonly DiffusionModelIndexComponentSpec[
   },
 ];
 
+const STABLE_DIFFUSION_3_COMPONENTS: readonly DiffusionModelIndexComponentSpec[] = [
+  {
+    name: "transformer",
+    role: "backbone",
+    allowed: [["diffusers", "SD3Transformer2DModel"]],
+    requiresConfig: true,
+    requiresWeights: true,
+  },
+  {
+    name: "scheduler",
+    role: "scheduler",
+    allowed: [["diffusers", "FlowMatchEulerDiscreteScheduler"]],
+    requiresConfig: true,
+  },
+  {
+    name: "vae",
+    role: "vae",
+    allowed: [["diffusers", "AutoencoderKL"]],
+    requiresConfig: true,
+    requiresWeights: true,
+  },
+  {
+    name: "text_encoder",
+    role: "text-encoder",
+    allowed: [["transformers", "CLIPTextModelWithProjection"]],
+    requiresConfig: true,
+    requiresWeights: true,
+  },
+  {
+    name: "tokenizer",
+    role: "tokenizer",
+    allowed: [
+      ["transformers", "CLIPTokenizer"],
+      ["transformers", "CLIPTokenizerFast"],
+    ],
+    requiresTokenizerFiles: true,
+  },
+  {
+    name: "text_encoder_2",
+    role: "text-encoder",
+    allowed: [["transformers", "CLIPTextModelWithProjection"]],
+    requiresConfig: true,
+    requiresWeights: true,
+  },
+  {
+    name: "tokenizer_2",
+    role: "tokenizer",
+    allowed: [
+      ["transformers", "CLIPTokenizer"],
+      ["transformers", "CLIPTokenizerFast"],
+    ],
+    requiresTokenizerFiles: true,
+  },
+  {
+    name: "text_encoder_3",
+    role: "text-encoder",
+    allowed: [["transformers", "T5EncoderModel"]],
+    requiresConfig: true,
+    requiresWeights: true,
+  },
+  {
+    name: "tokenizer_3",
+    role: "tokenizer",
+    allowed: [["transformers", "T5TokenizerFast"]],
+    requiresTokenizerFiles: true,
+  },
+  {
+    name: "image_encoder",
+    role: "image-encoder",
+    optional: true,
+    allowed: [["transformers", "SiglipVisionModel"]],
+    requiresConfig: true,
+    requiresWeights: true,
+  },
+  {
+    name: "feature_extractor",
+    role: "image-processor",
+    optional: true,
+    allowed: [["transformers", "SiglipImageProcessor"]],
+    requiresConfig: true,
+  },
+];
+
 const FLUX_COMPONENTS: readonly DiffusionModelIndexComponentSpec[] = [
   {
     name: "transformer",
@@ -315,6 +398,10 @@ export const PIPELINE_SPECS: Record<DiffusersPipelineClassName, PipelineSpec> = 
   StableDiffusionXLPipeline: {
     kind: "stable-diffusion-xl",
     components: STABLE_DIFFUSION_XL_COMPONENTS,
+  },
+  StableDiffusion3Pipeline: {
+    kind: "stable-diffusion-3",
+    components: STABLE_DIFFUSION_3_COMPONENTS,
   },
   FluxPipeline: {
     kind: "flux",

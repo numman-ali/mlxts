@@ -243,6 +243,12 @@ batch-norm decode boundary. Transformer/VAE weight loading, Qwen3 prompt
 conditioning, and a finite `examples/flux2` proof command now exist. Official
 `black-forest-labs/FLUX.2-klein-4B` has bounded checkpoint evidence through
 that path.
+Stable Diffusion 3 / 3.5 snapshot/config recognition now exists for Diffusers
+`StableDiffusion3Pipeline` layouts, including `SD3Transformer2DModel`, FlowMatch
+Euler, AutoencoderKL, three text encoder/tokenizer components, and SD3.5
+dual-attention metadata. Runtime tensor execution, weight mapping/loading,
+prompt encoding, and authenticated gated checkpoint proof remain separate
+tranches.
 `examples/stable-diffusion`, `examples/flux`, `examples/flux2`,
 `examples/z-image`, and `examples/qwen-image` own application-layer
 prompt-conditioning composition and finite BMP image proof commands over package
@@ -261,9 +267,9 @@ primary forward runtime target and has bounded real checkpoint evidence.
 FLUX.2 Klein is a later separate family, not a FLUX.1 checkpoint variant, and
 now has bounded real checkpoint evidence through its finite text-to-image proof
 command.
-Stable Diffusion 3 / 3.5 and distilled or turbo variants follow only when they
-reuse the base family infrastructure or come with a documented architecture
-delta.
+Stable Diffusion 3 / 3.5 and distilled or turbo variants now have manifest and
+component-config skeleton support; runtime/proof work follows only through the
+base family infrastructure or with a documented architecture delta.
 
 **Architecture pattern:** Mirrors `@mlxts/transformers` — explicit family
 registry, config-driven model construction, and official Hugging Face JS-backed snapshot loading.
@@ -651,9 +657,10 @@ work is deferred unless a row says otherwise.
   runtime paths plus example proof commands are in place with bounded real
   checkpoint evidence. FLUX.2 Klein has snapshot/config recognition,
   prepared-embedding sampling, transformer/VAE weight loading, a finite proof
-  command, and bounded real checkpoint evidence. Stable Diffusion 3 / 3.5,
-  image-to-image, inpainting, ControlNet, video, and audio generation remain
-  Phase 10 work. Vision/audio encoders extend `transformers`, not a
+  command, and bounded real checkpoint evidence. Stable Diffusion 3 / 3.5 has
+  snapshot/config recognition; its runtime, weights, prompt encoding, and proof
+  remain Phase 10 work. Image-to-image, inpainting, ControlNet, video, and
+  audio generation remain Phase 10 work. Vision/audio encoders extend `transformers`, not a
   separate package. Generative media
   (image/video/audio) uses diffusion/flow → `@mlxts/diffusion`.
 - **Phase 12 creates:** `eval`. This appears when benchmark evaluation lands.

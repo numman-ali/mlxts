@@ -1048,9 +1048,14 @@ the VAE batch-norm inverse decode boundary. FLUX.2 transformer execution,
 transformer/VAE weight loading, Qwen3 prompt conditioning, and a finite
 AXI-shaped `examples/flux2` proof command have landed. Bounded real checkpoint
 evidence has also passed through the official `black-forest-labs/FLUX.2-klein-4B`
-checkpoint. Reference-image/KV variants, broader VLM families, audio
-encoder/decoder families, and additional diffusion/flow families remain Phase
-10 work.
+checkpoint. Stable Diffusion 3 / 3.5 snapshot/config recognition now exists for
+Diffusers `StableDiffusion3Pipeline` layouts, including
+`SD3Transformer2DModel`, FlowMatch Euler, AutoencoderKL, three text
+encoder/tokenizer components, and SD3.5 dual-attention metadata. Runtime tensor
+execution, weight mapping/loading, prompt encoding, and authenticated gated
+checkpoint proof remain separate tranches. Reference-image/KV variants, broader
+VLM families, audio encoder/decoder families, and additional diffusion/flow
+families remain Phase 10 work.
 
 **What this phase covers**:
 
@@ -1133,7 +1138,11 @@ All diffusion and flow-based generation across modalities: image, video, and aud
    targets when their MMDiT/flow components can reuse the FLUX/Z-Image/Qwen
    infrastructure without creating a parallel package shape. SD3 has its own
    product cost because it combines `SD3Transformer2DModel`, FlowMatch Euler,
-   AutoencoderKL, and three text encoders including T5-XXL.
+   AutoencoderKL, and three text encoders including T5-XXL. Snapshot recognition
+   and component config parsing have landed for Diffusers
+   `StableDiffusion3Pipeline` snapshots, including SD3.5 dual-attention fields.
+   Runtime tensor execution, weight mapping/loading, prompt encoding, and gated
+   official checkpoint proof remain separate follow-on tranches.
 
 ### 10c. Examples
 

@@ -147,8 +147,10 @@ major product-agent focus on package-owned CLIs and future PI-agent integration.
   ladder is now explicit: Stable Diffusion / SDXL baseline first, then FLUX.1,
   then Z-Image-Turbo, then Qwen-Image with `Qwen/Qwen-Image-2512` as the
   forward runtime target, then FLUX.2 Klein as a separate later family, with
-  Stable Diffusion 3 / 3.5 and distilled variants following when they reuse the
-  base flow/DiT infrastructure. Z-Image and Qwen-Image now both have finite
+  Stable Diffusion 3 / 3.5 and distilled variants following through the base
+  flow/DiT infrastructure. Stable Diffusion 3 / 3.5 now has snapshot/config
+  skeleton support; runtime, weights, and proof remain future work. Z-Image and
+  Qwen-Image now both have finite
   AXI-shaped proof commands over package-owned runtime paths. Official
   `Tongyi-MAI/Z-Image-Turbo` and `Qwen/Qwen-Image-2512` have both passed
   bounded checkpoint image proofs. Phase 10 image proof JSON now includes
@@ -206,6 +208,14 @@ major product-agent focus on package-owned CLIs and future PI-agent integration.
   AXI-shaped command. Official `black-forest-labs/FLUX.2-klein-4B` has passed
   bounded real checkpoint evidence through this path. Image/reference
   conditioning and KV-cache behavior remain future work.
+- **Phase 10 Stable Diffusion 3 / 3.5 skeleton**: `@mlxts/diffusion` now
+  recognizes Diffusers `StableDiffusion3Pipeline` snapshots and parses
+  `SD3Transformer2DModel` plus AutoencoderKL component configs. The skeleton
+  includes the SD3 triple text-encoder/tokenizer manifest layout and SD3.5
+  dual-attention / `rms_norm` metadata, while text encoders remain manifest
+  metadata outside `@mlxts/diffusion`. Runtime tensor execution, weight
+  mapping/loading, prompt encoding, and authenticated proof against gated
+  Stability checkpoints remain future work.
 - **Qwen conditional serving**: top-level Qwen 3.5 / 3.6 conditional
   checkpoints expose the Qwen text batch-cache surface for text-only continuous
   serving. Media/content requests still route as `media_input` and stay off

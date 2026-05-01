@@ -261,6 +261,17 @@ export {
   transformStableDiffusionUNetWeight,
 } from "./families/stable-diffusion/weights";
 export {
+  loadStableDiffusion3ComponentConfigs,
+  parseStableDiffusion3AutoencoderConfig,
+  parseStableDiffusion3TransformerConfig,
+  type StableDiffusion3AutoencoderConfig,
+  type StableDiffusion3ComponentConfigs,
+  type StableDiffusion3QkNorm,
+  type StableDiffusion3TransformerConfig,
+  type StableDiffusion3VaeDownBlockType,
+  type StableDiffusion3VaeUpBlockType,
+} from "./families/stable-diffusion-3/config";
+export {
   loadZImageComponentConfigs,
   parseZImageAutoencoderConfig,
   parseZImageTransformerConfig,

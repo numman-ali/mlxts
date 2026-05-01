@@ -116,8 +116,9 @@ bun run examples/qwen3_5-image/index.ts mlx-community/Qwen3.6-27B-4bit \
 If you want to sanity-check the current Phase 10 image-generation proof
 surface, use one of the finite proof workbooks. Stable Diffusion / SDXL,
 FLUX.1, Z-Image-Turbo, Qwen-Image / Qwen-Image-2512, and FLUX.2 Klein have
-bounded real checkpoint evidence. Stable Diffusion 3 / 3.5 is a later separate
-family tranche.
+bounded real checkpoint evidence. Stable Diffusion 3 / 3.5 has snapshot/config
+recognition for its Diffusers text-to-image layout, while runtime and gated
+checkpoint proof remain separate tranches.
 
 ```bash
 bun run examples/stable-diffusion/index.ts /models/stable-diffusion \
@@ -221,7 +222,7 @@ packing checks for the public packages before any real release happens.
 - larger/default-step quality and performance characterization for SDXL,
   FLUX.1, Z-Image-Turbo, Qwen-Image-2512, and FLUX.2 Klein beyond bounded
   capability proofs
-- Stable Diffusion 3 / 3.5, image-to-image, inpainting,
+- Stable Diffusion 3 / 3.5 runtime/weights/proof, image-to-image, inpainting,
   ControlNet, video, and audio generation
 - advanced serving backends such as paged KV, TurboQuant-style KV compression,
   speculative decoding, and full multimodal serving until the cache/scheduler

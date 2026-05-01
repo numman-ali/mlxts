@@ -6,7 +6,8 @@ Refreshed the Phase 10 image-generation support order against current
 Hugging Face and Diffusers references. SD/SDXL, FLUX.1, Z-Image-Turbo, and
 Qwen-Image / Qwen-Image-2512 and FLUX.2 Klein now have bounded real checkpoint
 image evidence. FLUX.2 Klein remains a separate later family rather than a
-FLUX.1 variant. Stable Diffusion 3 / 3.5 remains a separate MMDiT/flow target.
+FLUX.1 variant. Stable Diffusion 3 / 3.5 now has snapshot/config skeleton
+support as a separate MMDiT/flow target.
 
 ## Files Reviewed
 
@@ -45,9 +46,12 @@ FLUX.1 variant. Stable Diffusion 3 / 3.5 remains a separate MMDiT/flow target.
   as a 4B model with a separate reference implementation and Diffusers support.
   Sources: https://huggingface.co/docs/diffusers/en/api/pipelines/flux2 and
   https://huggingface.co/black-forest-labs/FLUX.2-klein-4B
-- Stable Diffusion 3 / 3.5 remains later because it uses MMDiT and three text
-  encoders, and the public SD3.5 Large checkpoint is access-gated under the
-  Stability community license. Source:
+- Stable Diffusion 3 / 3.5 uses Diffusers `StableDiffusion3Pipeline` over
+  `SD3Transformer2DModel`, FlowMatch Euler, AutoencoderKL, two CLIP projection
+  encoders, and a T5 encoder. The public SD3.5 Large checkpoint remains
+  access-gated under the Stability community license, so real proof needs an
+  authenticated follow-up. Sources:
+  https://huggingface.co/docs/diffusers/api/pipelines/stable_diffusion/stable_diffusion_3 and
   https://huggingface.co/stabilityai/stable-diffusion-3.5-large
 
 ## Outcome
@@ -63,7 +67,8 @@ The support ladder is:
 
 Stable Diffusion / SDXL, FLUX.1, Z-Image-Turbo, Qwen-Image / Qwen-Image-2512,
 and FLUX.2 Klein all have bounded real checkpoint evidence. Stable Diffusion 3
-/ 3.5 remains unimplemented.
+/ 3.5 has snapshot/config recognition but no package-owned runtime or real
+checkpoint proof yet.
 
 ## Tensor Lifetime Audit
 
@@ -100,6 +105,9 @@ boundary needed by the Qwen-Image proof.
 - FLUX.2 Klein has bounded official checkpoint image evidence, but still needs
   reference-image/KV variants plus larger/default-step quality and performance
   characterization before it can be called product-complete.
+- Stable Diffusion 3 / 3.5 has manifest/config skeleton support only; runtime
+  tensor execution, weight mapping/loading, prompt encoding, and authenticated
+  official checkpoint proof remain follow-up work.
 - Image-to-image, inpainting, ControlNet, edit/control/layered variants, video,
   and audio generation remain Phase 10 work after the first text-to-image
   surfaces are stable.

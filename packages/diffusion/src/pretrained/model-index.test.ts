@@ -66,6 +66,41 @@ function writeStableDiffusionSnapshot(snapshot: string): void {
   });
 }
 
+function writeStableDiffusion3Snapshot(snapshot: string): void {
+  writeJson(join(snapshot, "model_index.json"), {
+    _class_name: "StableDiffusion3Pipeline",
+    _diffusers_version: "0.30.0.dev0",
+    scheduler: ["diffusers", "FlowMatchEulerDiscreteScheduler"],
+    text_encoder: ["transformers", "CLIPTextModelWithProjection"],
+    text_encoder_2: ["transformers", "CLIPTextModelWithProjection"],
+    text_encoder_3: ["transformers", "T5EncoderModel"],
+    tokenizer: ["transformers", "CLIPTokenizer"],
+    tokenizer_2: ["transformers", "CLIPTokenizer"],
+    tokenizer_3: ["transformers", "T5TokenizerFast"],
+    transformer: ["diffusers", "SD3Transformer2DModel"],
+    vae: ["diffusers", "AutoencoderKL"],
+  });
+  writeComponentFiles(
+    snapshot,
+    "transformer",
+    ["config.json"],
+    ["diffusion_pytorch_model.safetensors"],
+  );
+  writeComponentFiles(snapshot, "vae", ["config.json"], ["diffusion_pytorch_model.safetensors"]);
+  writeComponentFiles(snapshot, "scheduler", ["scheduler_config.json"]);
+  writeJson(join(snapshot, "scheduler", "scheduler_config.json"), {
+    _class_name: "FlowMatchEulerDiscreteScheduler",
+    num_train_timesteps: 1000,
+    shift: 1,
+  });
+  writeComponentFiles(snapshot, "text_encoder", ["config.json"], ["model.safetensors"]);
+  writeComponentFiles(snapshot, "text_encoder_2", ["config.json"], ["model.safetensors"]);
+  writeComponentFiles(snapshot, "text_encoder_3", ["config.json"], ["model.safetensors"]);
+  writeComponentFiles(snapshot, "tokenizer", ["vocab.json", "merges.txt"]);
+  writeComponentFiles(snapshot, "tokenizer_2", ["vocab.json", "merges.txt"]);
+  writeComponentFiles(snapshot, "tokenizer_3", ["spiece.model"]);
+}
+
 describe("diffusion model index loading", () => {
   test("parses Stable Diffusion model_index components", () => {
     const parsed = parseDiffusionModelIndex({
@@ -127,6 +162,52 @@ describe("diffusion model index loading", () => {
       "unet",
       "scheduler",
     ]);
+  });
+
+  test("parses Stable Diffusion 3 model_index components", () => {
+    const parsed = parseDiffusionModelIndex({
+      _class_name: "StableDiffusion3Pipeline",
+      _diffusers_version: "0.30.0.dev0",
+      scheduler: ["diffusers", "FlowMatchEulerDiscreteScheduler"],
+      text_encoder: ["transformers", "CLIPTextModelWithProjection"],
+      text_encoder_2: ["transformers", "CLIPTextModelWithProjection"],
+      text_encoder_3: ["transformers", "T5EncoderModel"],
+      tokenizer: ["transformers", "CLIPTokenizer"],
+      tokenizer_2: ["transformers", "CLIPTokenizerFast"],
+      tokenizer_3: ["transformers", "T5TokenizerFast"],
+      transformer: ["diffusers", "SD3Transformer2DModel"],
+      vae: ["diffusers", "AutoencoderKL"],
+      image_encoder: [null, null],
+      feature_extractor: [null, null],
+    });
+
+    expect(parsed.kind).toBe("stable-diffusion-3");
+    expect(parsed.diffusersVersion).toBe("0.30.0.dev0");
+    expect(parsed.components.map((component) => component.name)).toEqual([
+      "transformer",
+      "scheduler",
+      "vae",
+      "text_encoder",
+      "tokenizer",
+      "text_encoder_2",
+      "tokenizer_2",
+      "text_encoder_3",
+      "tokenizer_3",
+      "image_encoder",
+      "feature_extractor",
+    ]);
+    expect(
+      parsed.components.find((component) => component.name === "text_encoder_3"),
+    ).toMatchObject({
+      role: "text-encoder",
+      className: "T5EncoderModel",
+    });
+    expect(parsed.components.find((component) => component.name === "image_encoder")).toMatchObject(
+      {
+        enabled: false,
+        optional: true,
+      },
+    );
   });
 
   test("parses Flux model_index without claiming scheduler support", () => {
@@ -250,6 +331,24 @@ describe("diffusion model index loading", () => {
     });
   });
 
+  test("loads a Stable Diffusion 3 local snapshot manifest", async () => {
+    await withTempDirectory("mlxts-diffusion-sd3-model-index-", async (directory) => {
+      writeStableDiffusion3Snapshot(directory);
+
+      const manifest = await loadDiffusionSnapshotManifest(directory);
+      const transformer = manifest.components.find((component) => component.name === "transformer");
+      const t5Tokenizer = manifest.components.find((component) => component.name === "tokenizer_3");
+
+      expect(manifest.modelIndex.className).toBe("StableDiffusion3Pipeline");
+      expect(manifest.modelIndex.kind).toBe("stable-diffusion-3");
+      expect(manifest.schedulerConfig.kind).toBe("flow-match-euler");
+      expect(transformer?.weightPaths).toEqual([
+        join(directory, "transformer", "diffusion_pytorch_model.safetensors"),
+      ]);
+      expect(t5Tokenizer?.metadataPaths).toEqual([join(directory, "tokenizer_3", "spiece.model")]);
+    });
+  });
+
   test("loads symlinked Hub-cache component weights", async () => {
     await withTempDirectory("mlxts-diffusion-model-index-symlinks-", async (directory) => {
       writeStableDiffusionSnapshot(directory);
@@ -288,6 +387,9 @@ describe("diffusion model index loading", () => {
     ).toThrow("_class_name");
     expect(() =>
       parseDiffusionModelIndex({ _class_name: "StableDiffusionImg2ImgPipeline" }),
+    ).toThrow("not supported");
+    expect(() =>
+      parseDiffusionModelIndex({ _class_name: "StableDiffusion3Img2ImgPipeline" }),
     ).toThrow("not supported");
     expect(() => parseDiffusionModelIndex({ _class_name: "QwenImageEditPipeline" })).toThrow(
       "not supported",

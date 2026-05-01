@@ -7,8 +7,8 @@ families generate autoregressively, while diffusion families iteratively denoise
 latents through schedulers, backbones, VAE decoders, and conditioning tensors.
 
 The current package surface covers the active Phase 10 image-generation ladder:
-Stable Diffusion / SDXL, FLUX.1, Z-Image, Qwen-Image, and FLUX.2 Klein snapshot
-plus prepared-embedding sampling truth. The package owns Diffusers snapshot
+Stable Diffusion / SDXL, FLUX.1, Z-Image, Qwen-Image, FLUX.2 Klein, and
+Stable Diffusion 3 / 3.5 snapshot/config truth. The package owns Diffusers snapshot
 inspection, scheduler/config loading, VAE and backbone modules, safetensor
 loading, denoising loops, latent helpers, and conditioning tensor contracts.
 Prompt tokenization, text encoders, image artifact writing, and proof-command
@@ -56,13 +56,13 @@ bundle.scheduler.timesteps(2);
 | Z-Image-Turbo | Dense base Z-Image transformer, FlowMatch denoising, VAE decode layout, weight loading | `examples/z-image` | Official `Tongyi-MAI/Z-Image-Turbo` bounded proof passed | Speed-first modern flow path |
 | Qwen-Image / Qwen-Image-2512 | Qwen-Image transformer, 3D causal VAE, FlowMatch, true-CFG denoising, weight loading | `examples/qwen-image` | Official `Qwen/Qwen-Image-2512` bounded proof passed | Forward Qwen image-generation path |
 | FLUX.2 Klein | Snapshot/config skeleton, transformer/VAE loading, prepared-embedding sampling, NCHW latent patching, external CFG, empirical FlowMatch shift, and VAE batch-norm decode boundary | `examples/flux2` | Official `black-forest-labs/FLUX.2-klein-4B` bounded proof passed | Separate family; reference-image and KV variants remain follow-ups |
-| Stable Diffusion 3 / 3.5 | Not implemented | None | None | Later MMDiT/flow family after shared seams settle |
+| Stable Diffusion 3 / 3.5 | `StableDiffusion3Pipeline` snapshot recognition and `SD3Transformer2DModel` / AutoencoderKL config parsing, including SD3.5 dual-attention metadata | None | Gated official checkpoints still need authenticated proof | MMDiT/flow skeleton; runtime and weights remain follow-ups |
 
 `examples/stable-diffusion`, `examples/flux`, `examples/flux2`,
 `examples/z-image`, and `examples/qwen-image` own the AXI-shaped finite proof
 commands that compose this package with tokenizer/text-encoder packages and
 write BMP image artifacts.
-FLUX.2 reference-image/KV variants, image-to-image, inpainting, ControlNet,
-Omni/SigLIP, video/audio generation, broader output formats, and quantized
-mflux-style sidecars remain follow-on Phase 10 tranches until their runtime
-semantics are designed deliberately.
+SD3 runtime/weights/proof, FLUX.2 reference-image/KV variants, image-to-image,
+inpainting, ControlNet, Omni/SigLIP, video/audio generation, broader output
+formats, and quantized mflux-style sidecars remain follow-on Phase 10 tranches
+until their runtime semantics are designed deliberately.
