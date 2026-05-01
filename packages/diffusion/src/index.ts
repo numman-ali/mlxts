@@ -92,7 +92,15 @@ export {
 } from "./families/qwen-image/latents";
 export {
   decodeQwenImageLatents,
+  denoiseQwenImageLatents,
+  generateQwenImage,
+  type QwenImageConditioning,
+  type QwenImageDenoiseOptions,
+  type QwenImageDenoiser,
+  type QwenImageDenoisingStepEvent,
+  type QwenImageGenerationOptions,
   type QwenImageLatentDecoder,
+  type QwenImageScheduler,
 } from "./families/qwen-image/pipeline";
 export {
   type QwenImageDenoiserInput,
