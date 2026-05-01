@@ -6,6 +6,7 @@
     "examples/stable-diffusion-3/**/*.ts",
     "examples/flux/**/*.ts",
     "examples/flux2/**/*.ts",
+    "examples/ltx-video/**/*.ts",
     "examples/z-image/**/*.ts",
     "examples/qwen-image/**/*.ts",
     "examples/whisper/**/*.ts"

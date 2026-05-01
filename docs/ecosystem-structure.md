@@ -285,8 +285,10 @@ LTX-Video VAE decode now covers decoder-only `AutoencoderKLLTXVideo`
 execution, Diffusers latent denormalization, decoder safetensor loading, and
 BFHWC `0..1` video tensors. Classic LTX sidecar latent upsampling now covers
 `LTXLatentUpsamplerModel` config parsing, safetensor loading, normalized BCFHW
-upsampling, and packed-latent unpack/repack boundaries. LTX-2 denoising,
-LTX-2 latent upsampling, and artifact output remain future Phase 10 tranches.
+upsampling, and packed-latent unpack/repack boundaries. `examples/ltx-video`
+now owns the finite AXI proof command that composes T5 conditioning, classic
+LTX denoising, VAE decode, and BMP preview-sheet artifact output. LTX-2
+denoising and LTX-2 latent upsampling remain future Phase 10 tranches.
 
 **Architecture pattern:** Mirrors `@mlxts/transformers` — explicit family
 registry, config-driven model construction, and official Hugging Face JS-backed snapshot loading.

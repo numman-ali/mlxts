@@ -20,7 +20,7 @@
     "check:per-package-agents": "bun run scripts/check-per-package-agents.ts",
     "check:cross-package-imports": "bun run scripts/check-cross-package-imports.ts",
     "check:training-proofs": "tsc -p tsconfig.phase8-examples.json && bun test examples/train-proof/helpers.test.ts examples/train-proof/verification.test.ts examples/train-proof/verify-report.test.ts examples/train-proof/cli.test.ts examples/train-proof/matrix.test.ts examples/lora-finetune/helpers.test.ts examples/lora-finetune/cli.test.ts examples/lora-finetune/verify-report.test.ts",
-    "check:phase10-proofs": "tsc -p tsconfig.phase10-examples.json && bun test examples/image-proof examples/stable-diffusion examples/stable-diffusion-3 examples/flux examples/flux2 examples/z-image examples/qwen-image examples/whisper",
+    "check:phase10-proofs": "tsc -p tsconfig.phase10-examples.json && bun test examples/image-proof examples/stable-diffusion examples/stable-diffusion-3 examples/flux examples/flux2 examples/ltx-video examples/z-image examples/qwen-image examples/whisper",
     "proof:training": "bun run examples/train-proof/index.ts",
     "check:tensor-lifetimes": "bun run scripts/check-visible-tensor-lifetimes.ts",
     "check:runtime-review": "bun run scripts/check-runtime-review.ts",

@@ -79,6 +79,15 @@ function reportFor(
       maxSequenceLength: 512,
     };
   }
+  if (pipeline === "ltx-video") {
+    return {
+      ...common,
+      guidanceScale: 3,
+      negativePrompt: "",
+      negativePromptTruncated: false,
+      maxSequenceLength: 128,
+    };
+  }
   if (pipeline === "z-image") {
     return {
       ...common,
@@ -142,6 +151,7 @@ describe("image proof report verifier", () => {
         "stable-diffusion-xl",
         "flux",
         "flux2-klein",
+        "ltx-video",
         "z-image",
         "qwen-image",
       ];

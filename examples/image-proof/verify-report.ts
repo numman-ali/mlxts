@@ -15,6 +15,7 @@ type ImageProofPipeline =
   | "stable-diffusion-xl"
   | "flux"
   | "flux2-klein"
+  | "ltx-video"
   | "z-image"
   | "qwen-image";
 
@@ -210,6 +211,7 @@ function readPipeline(
     value === "stable-diffusion-xl" ||
     value === "flux" ||
     value === "flux2-klein" ||
+    value === "ltx-video" ||
     value === "z-image" ||
     value === "qwen-image"
   ) {
@@ -509,6 +511,29 @@ function validateFlux2KleinFields(report: ImageProofExampleReport, failures: str
   );
 }
 
+function validateLtxVideoFields(report: ImageProofExampleReport, failures: string[]): void {
+  requireFamilyField(
+    typeof report.guidanceScale === "number",
+    "guidanceScale is required for LTX-Video reports",
+    failures,
+  );
+  requireFamilyField(
+    typeof report.maxSequenceLength === "number",
+    "maxSequenceLength is required for LTX-Video reports",
+    failures,
+  );
+  requireFamilyField(
+    report.negativePrompt === null || typeof report.negativePrompt === "string",
+    "negativePrompt is required for LTX-Video reports",
+    failures,
+  );
+  requireFamilyField(
+    typeof report.negativePromptTruncated === "boolean",
+    "negativePromptTruncated is required for LTX-Video reports",
+    failures,
+  );
+}
+
 function validateQwenImageFields(report: ImageProofExampleReport, failures: string[]): void {
   requireFamilyField(
     typeof report.trueCfgScale === "number",
@@ -547,6 +572,10 @@ function validateFamilyFields(report: ImageProofExampleReport, failures: string[
   }
   if (report.pipeline === "flux2-klein") {
     validateFlux2KleinFields(report, failures);
+    return;
+  }
+  if (report.pipeline === "ltx-video") {
+    validateLtxVideoFields(report, failures);
     return;
   }
   validateQwenImageFields(report, failures);
@@ -650,6 +679,7 @@ function readPipelineFlag(value: string | undefined): ImageProofPipeline {
     pipeline === "stable-diffusion-xl" ||
     pipeline === "flux" ||
     pipeline === "flux2-klein" ||
+    pipeline === "ltx-video" ||
     pipeline === "z-image" ||
     pipeline === "qwen-image"
   ) {
@@ -704,7 +734,7 @@ export function formatUsage(): string {
     "arguments[1]{name,description}:",
     '  "report-json","Path to JSON emitted by a Phase 10 image proof command"',
     "options[5]{flag,description}:",
-    '  "--expect-pipeline <name>","Require stable-diffusion, stable-diffusion-xl, flux, flux2-klein, z-image, or qwen-image"',
+    '  "--expect-pipeline <name>","Require stable-diffusion, stable-diffusion-xl, flux, flux2-klein, ltx-video, z-image, or qwen-image"',
     '  "--expect-source <source>","Require the report source field"',
     '  "--expect-resolved-revision <rev>","Require the report resolvedRevision field"',
     '  "--expect-sha256 <hex>","Require the BMP artifact SHA-256"',

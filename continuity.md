@@ -252,9 +252,11 @@ major product-agent focus on package-owned CLIs and future PI-agent integration.
   decoder safetensor loading, and BFHWC `0..1` video tensors. Classic LTX
   sidecar latent upsampling now covers normalized BCFHW latent upsampling,
   standalone/component safetensor loading, sidecar snapshot manifests, and
-  packed-token unpack/repack helpers. Audio/video artifact writing, LTX-2
-  denoising, LTX-2 latent upsampling, and proof commands remain future Phase 10
-  tranches.
+  packed-token unpack/repack helpers. `examples/ltx-video` now owns the finite
+  AXI proof command for classic LTX text-to-video: local/Hub snapshot resolve,
+  T5 prompt conditioning, packed-latent denoising, VAE decode, and BMP
+  preview-sheet artifact output. LTX-2 denoising and LTX-2 latent upsampling
+  remain future Phase 10 tranches.
 - **Qwen conditional serving**: top-level Qwen 3.5 / 3.6 conditional
   checkpoints expose the Qwen text batch-cache surface for text-only continuous
   serving. Media/content requests still route as `media_input` and stay off

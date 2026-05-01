@@ -1081,8 +1081,10 @@ covers decoder-only `AutoencoderKLLTXVideo` execution, Diffusers latent
 denormalization, decoder safetensor loading, and BFHWC `0..1` video tensors.
 Classic LTX sidecar latent upsampling now covers `LTXLatentUpsamplerModel`
 config parsing, safetensor loading, normalized latent upsampling, and packed
-latent repacking. Audio-video output encoding, LTX-2 denoising, LTX-2 latent
-upsampling, and finite proof commands remain future tranches.
+latent repacking. `examples/ltx-video` now provides the finite classic LTX
+text-to-video proof command with T5 conditioning, denoising, VAE decode, and a
+BMP preview-sheet artifact. LTX-2 denoising and LTX-2 latent upsampling remain
+future tranches.
 
 **What this phase covers**:
 
@@ -1202,9 +1204,9 @@ All diffusion and flow-based generation across modalities: image, video, and aud
    packed-latent unpacking, channelwise denormalization, Conv3d kernel layout,
    decoder safetensor loading, and BFHWC `0..1` output tensors. Classic LTX
    sidecar latent upsampling now loads and runs over normalized BCFHW latents
-   with packed-token unpack/repack helpers. Audio/video artifact output,
-   LTX-2 denoising, LTX-2 latent upsampling, and proof commands remain separate
-   tranches.
+   with packed-token unpack/repack helpers. The classic LTX finite proof command
+   now writes a BMP preview-sheet artifact from decoded video. LTX-2 denoising
+   and LTX-2 latent upsampling remain separate tranches.
 
 ### 10c. Examples
 

@@ -76,9 +76,11 @@ This file captures durable cross-session learnings for `mlxts` so future agent s
   loading, and BFHWC `0..1` video output. Classic LTX sidecar latent upsampling
   now has `LtxVideoLatentUpsamplerModel`, normalized BCFHW and packed-token
   helpers, standalone/component safetensor loading, and sidecar
-  `LTXLatentUpsamplePipeline` manifest recognition. LTX-2 denoising, LTX-2
-  latent upsampling, audio/video artifact output, and finite proof commands
-  remain future tranches. — refs:
+  `LTXLatentUpsamplePipeline` manifest recognition. `examples/ltx-video` now
+  has a finite AXI proof command for classic LTX text-to-video with T5 prompt
+  conditioning, packed-latent denoising, VAE decode, and BMP preview-sheet
+  artifact output. LTX-2 denoising and LTX-2 latent upsampling remain future
+  tranches. — refs:
   `packages/diffusion/src/pretrained/model-index.ts`,
   `packages/diffusion/src/pretrained/ltx-pipeline-specs.ts`,
   `packages/diffusion/src/pretrained/snapshot-file-selection.ts`,
@@ -94,6 +96,10 @@ This file captures durable cross-session learnings for `mlxts` so future agent s
   `packages/diffusion/src/families/ltx/latent-upsampler.ts`,
   `packages/diffusion/src/families/ltx/latent-upsample.ts`,
   `packages/diffusion/src/families/ltx/latent-upsampler-weights.ts`,
+  `examples/ltx-video/index.ts`,
+  `examples/ltx-video/conditioning.ts`,
+  `examples/ltx-video/video-output.ts`,
+  `examples/image-proof/verify-report.ts`,
   `docs/reviews/2026-05-01-ltx-video-snapshot-skeleton.md`,
   `docs/reviews/2026-05-01-ltx-video-component-configs.md`,
   `docs/reviews/2026-05-01-ltx-latent-geometry.md`,
@@ -101,7 +107,8 @@ This file captures durable cross-session learnings for `mlxts` so future agent s
   `docs/reviews/2026-05-01-ltx-video-denoising-runtime.md`,
   `docs/reviews/2026-05-01-ltx-video-transformer-runtime.md`,
   `docs/reviews/2026-05-01-ltx-video-vae-runtime.md`,
-  `docs/reviews/2026-05-01-ltx-latent-upsampler-runtime.md`
+  `docs/reviews/2026-05-01-ltx-latent-upsampler-runtime.md`,
+  `docs/reviews/2026-05-01-ltx-video-proof-cli.md`
 
 - (2026-05-01) [DIFFUSION/SD3] `@mlxts/diffusion` recognizes Diffusers
   `StableDiffusion3Pipeline` snapshots and parses `SD3Transformer2DModel` plus

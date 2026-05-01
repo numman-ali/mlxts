@@ -61,15 +61,15 @@ bundle.scheduler.timesteps(2);
 | Qwen-Image / Qwen-Image-2512 | Qwen-Image transformer, 3D causal VAE, FlowMatch, true-CFG denoising, weight loading | `examples/qwen-image` | Official `Qwen/Qwen-Image-2512` bounded proof passed | Forward Qwen image-generation path |
 | FLUX.2 Klein | Snapshot/config skeleton, transformer/VAE loading, prepared-embedding sampling, NCHW latent patching, external CFG, empirical FlowMatch shift, and VAE batch-norm decode boundary | `examples/flux2` | Official `black-forest-labs/FLUX.2-klein-4B` bounded proof passed | Separate family; reference-image and KV variants remain follow-ups |
 | Stable Diffusion 3 / 3.5 | Snapshot/config parsing, SD3 MMDiT transformer runtime, SD3.5 dual-attention and RMS q/k norm path, transformer/VAE safetensor loading, FlowMatch denoising over prepared conditioning, VAE shift/scale decode boundary | `examples/stable-diffusion-3` | Gated official checkpoints still need authenticated proof | Runtime, loading, prompt-conditioning, and finite command foundation |
-| LTX-Video / LTX-2 | Diffusers `LTXPipeline`, `LTXConditionPipeline`, `LTXLatentUpsamplePipeline`, and `LTX2Pipeline` manifest recognition, typed component config parsing, video latent shape/packing, LTX-2 audio latent shape/packing, video/audio RoPE coordinate helpers, classic LTX prepared-tensor packed denoising, classic LTX transformer execution/loading, classic LTX decoder-side VAE decode/loading, and classic LTX latent-upsampler loading over normalized packed latents | Future `examples/ltx-video` | Not yet run | Classic LTX transformer, VAE, and sidecar latent upsampler runtime exist; proof command and LTX-2 runtime remain future work |
+| LTX-Video / LTX-2 | Diffusers `LTXPipeline`, `LTXConditionPipeline`, `LTXLatentUpsamplePipeline`, and `LTX2Pipeline` manifest recognition, typed component config parsing, video latent shape/packing, LTX-2 audio latent shape/packing, video/audio RoPE coordinate helpers, classic LTX prepared-tensor packed denoising, classic LTX transformer execution/loading, classic LTX decoder-side VAE decode/loading, and classic LTX latent-upsampler loading over normalized packed latents | `examples/ltx-video` | Gated official checkpoint proof still needs local snapshot run | Classic LTX transformer, VAE, sidecar latent upsampler runtime, and finite BMP-preview proof command exist; LTX-2 runtime remains future work |
 
 `examples/stable-diffusion`, `examples/flux`, `examples/flux2`,
-`examples/z-image`, and `examples/qwen-image` own the AXI-shaped finite proof
+`examples/z-image`, `examples/qwen-image`, and `examples/ltx-video` own the AXI-shaped finite proof
 commands that compose this package with tokenizer/text-encoder packages and
-write BMP image artifacts. `examples/stable-diffusion-3` owns the SD3
+write BMP image or preview artifacts. `examples/stable-diffusion-3` owns the SD3
 application-layer CLIP/T5 prompt-conditioning bridge and finite proof command.
 SD3 authenticated checkpoint proof, FLUX.2 reference-image/KV variants,
-LTX video artifact output, image-to-image, inpainting,
+LTX authenticated checkpoint proof, LTX-2 runtime, image-to-image, inpainting,
 ControlNet, Omni/SigLIP, broader output formats, and quantized mflux-style
 sidecars remain follow-on Phase 10 tranches until their runtime semantics are
 designed deliberately.
