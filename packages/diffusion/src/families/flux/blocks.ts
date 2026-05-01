@@ -21,7 +21,12 @@ import {
 } from "@mlxts/core";
 import { Linear, Module, silu } from "@mlxts/nn";
 
-import { type FluxAttentionProjection, FluxSelfAttention, fluxAttention } from "./attention";
+import {
+  type FluxAttentionProjection,
+  FluxQKNorm,
+  FluxSelfAttention,
+  fluxAttention,
+} from "./attention";
 import { assertSequence3d, freeArrays, sliceAxis, sliceLastAxis } from "./tensor-utils";
 
 type FluxModulationTriplet = {
@@ -315,6 +320,7 @@ export class FluxDoubleStreamBlock extends Module {
 /** Single-stream FLUX block after text and image sequences are concatenated. */
 export class FluxSingleStreamBlock extends Module {
   modulation: FluxModulation;
+  norm: FluxQKNorm;
   linear1: Linear;
   linear2: Linear;
   #hiddenSize: number;
@@ -331,6 +337,7 @@ export class FluxSingleStreamBlock extends Module {
   }) {
     super();
     this.modulation = new FluxModulation(options.hiddenSize, false);
+    this.norm = new FluxQKNorm(options.headDim);
     this.linear1 = new Linear(
       options.hiddenSize,
       options.hiddenSize * 3 + options.mlpHiddenSize,
@@ -373,12 +380,23 @@ export class FluxSingleStreamBlock extends Module {
       using queries = this.#reshapeAttention(rawQueries, batch, length);
       using keys = this.#reshapeAttention(rawKeys, batch, length);
       using values = this.#reshapeAttention(rawValues, batch, length);
-      using attention = fluxAttention(queries, keys, values, rope);
-      using activatedMlp = geluApprox(mlpHidden);
-      using combined = concatenate([attention, activatedMlp], -1);
-      using projectedOutput = this.linear2.forward(combined);
-      using gated = multiply(modulation.attention.gate, projectedOutput);
-      return add(hiddenStates, gated);
+      const normalizedAttention = this.norm.normalize(queries, keys);
+      try {
+        using attention = fluxAttention(
+          normalizedAttention.queries,
+          normalizedAttention.keys,
+          values,
+          rope,
+        );
+        using activatedMlp = geluApprox(mlpHidden);
+        using combined = concatenate([attention, activatedMlp], -1);
+        using projectedOutput = this.linear2.forward(combined);
+        using gated = multiply(modulation.attention.gate, projectedOutput);
+        return add(hiddenStates, gated);
+      } finally {
+        normalizedAttention.queries.free();
+        normalizedAttention.keys.free();
+      }
     } finally {
       disposeModulation(modulation);
     }
