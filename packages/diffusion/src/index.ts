@@ -4,10 +4,19 @@ export {
   DiffusionWeightMismatchError,
 } from "./errors";
 export {
+  FluxAutoencoderKL,
+  type FluxAutoencoderWeightLoadOptions,
+  type FluxAutoencoderWeightLoadResult,
+  loadFluxAutoencoderFromSnapshot,
+  loadFluxAutoencoderWeights,
+} from "./families/flux/autoencoder";
+export {
   type FluxAutoencoderConfig,
   type FluxComponentConfigs,
   type FluxRopeAxes,
   type FluxTransformerConfig,
+  type FluxVaeDownBlockType,
+  type FluxVaeUpBlockType,
   loadFluxComponentConfigs,
   parseFluxAutoencoderConfig,
   parseFluxTransformerConfig,

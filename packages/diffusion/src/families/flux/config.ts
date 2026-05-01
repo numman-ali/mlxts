@@ -5,6 +5,12 @@ import type { DiffusionSnapshotManifest } from "../../pretrained/snapshot-manife
 
 export type FluxRopeAxes = readonly [number, number, number];
 
+/** Autoencoder encoder block supported by the FLUX VAE path. */
+export type FluxVaeDownBlockType = "DownEncoderBlock2D";
+
+/** Autoencoder decoder block supported by the FLUX VAE path. */
+export type FluxVaeUpBlockType = "UpDecoderBlock2D";
+
 /** Package-native config for the FLUX.1 `FluxTransformer2DModel` component. */
 export type FluxTransformerConfig = {
   patchSize: number;
@@ -38,6 +44,8 @@ export type FluxAutoencoderConfig = {
   scalingFactor: number;
   shiftFactor: number;
   vaeScaleFactor: number;
+  downBlockTypes: readonly FluxVaeDownBlockType[];
+  upBlockTypes: readonly FluxVaeUpBlockType[];
   forceUpcast: boolean;
   rawConfig: Record<string, unknown>;
 };
@@ -234,6 +242,64 @@ function requiredPositiveIntegerList(
   });
 }
 
+function optionalStringList(
+  record: Record<string, unknown>,
+  key: string,
+  context: string,
+  fallback: readonly string[],
+): string[] {
+  const value = record[key] ?? fallback;
+  if (!Array.isArray(value) || value.length !== fallback.length) {
+    throw new DiffusionConfigError(
+      `${fieldName(context, key)} must be a ${fallback.length}-item string array.`,
+    );
+  }
+  return value.map((entry, index) => {
+    if (typeof entry !== "string") {
+      throw new DiffusionConfigError(`${fieldName(context, `${key}[${index}]`)} must be a string.`);
+    }
+    return entry;
+  });
+}
+
+function parseVaeDownBlockTypes(
+  record: Record<string, unknown>,
+  context: string,
+  expectedLength: number,
+): FluxVaeDownBlockType[] {
+  const values = optionalStringList(
+    record,
+    "down_block_types",
+    context,
+    Array.from({ length: expectedLength }, () => "DownEncoderBlock2D"),
+  );
+  return values.map((value) => {
+    if (value === "DownEncoderBlock2D") {
+      return value;
+    }
+    throw new DiffusionConfigError(`${fieldName(context, "down_block_types")} contains ${value}.`);
+  });
+}
+
+function parseVaeUpBlockTypes(
+  record: Record<string, unknown>,
+  context: string,
+  expectedLength: number,
+): FluxVaeUpBlockType[] {
+  const values = optionalStringList(
+    record,
+    "up_block_types",
+    context,
+    Array.from({ length: expectedLength }, () => "UpDecoderBlock2D"),
+  );
+  return values.map((value) => {
+    if (value === "UpDecoderBlock2D") {
+      return value;
+    }
+    throw new DiffusionConfigError(`${fieldName(context, "up_block_types")} contains ${value}.`);
+  });
+}
+
 function rejectNonNull(record: Record<string, unknown>, key: string, context: string): void {
   const value = record[key];
   if (value !== undefined && value !== null) {
@@ -326,6 +392,8 @@ export function parseFluxAutoencoderConfig(rawConfig: unknown): FluxAutoencoderC
     scalingFactor: optionalExactFiniteNumber(record, "scaling_factor", context, 0.3611),
     shiftFactor: optionalExactFiniteNumber(record, "shift_factor", context, 0.1159),
     vaeScaleFactor,
+    downBlockTypes: parseVaeDownBlockTypes(record, context, blockOutChannels.length),
+    upBlockTypes: parseVaeUpBlockTypes(record, context, blockOutChannels.length),
     forceUpcast: optionalBoolean(record, "force_upcast", context, false),
     rawConfig: record,
   };

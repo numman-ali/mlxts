@@ -67,6 +67,12 @@ function fluxVaeConfig(): Record<string, unknown> {
     _class_name: "AutoencoderKL",
     _diffusers_version: "0.34.0.dev0",
     block_out_channels: [128, 256, 512, 512],
+    down_block_types: [
+      "DownEncoderBlock2D",
+      "DownEncoderBlock2D",
+      "DownEncoderBlock2D",
+      "DownEncoderBlock2D",
+    ],
     force_upcast: false,
     in_channels: 3,
     latent_channels: 16,
@@ -75,6 +81,12 @@ function fluxVaeConfig(): Record<string, unknown> {
     out_channels: 3,
     scaling_factor: 0.3611,
     shift_factor: 0.1159,
+    up_block_types: [
+      "UpDecoderBlock2D",
+      "UpDecoderBlock2D",
+      "UpDecoderBlock2D",
+      "UpDecoderBlock2D",
+    ],
   };
 }
 
@@ -126,6 +138,18 @@ describe("Flux component config parsing", () => {
     expect(vae.layersPerBlock).toBe(2);
     expect(vae.scalingFactor).toBe(0.3611);
     expect(vae.shiftFactor).toBe(0.1159);
+    expect(vae.downBlockTypes).toEqual([
+      "DownEncoderBlock2D",
+      "DownEncoderBlock2D",
+      "DownEncoderBlock2D",
+      "DownEncoderBlock2D",
+    ]);
+    expect(vae.upBlockTypes).toEqual([
+      "UpDecoderBlock2D",
+      "UpDecoderBlock2D",
+      "UpDecoderBlock2D",
+      "UpDecoderBlock2D",
+    ]);
     expect(vae.forceUpcast).toBe(false);
     expect(transformer.inChannels).toBe(64);
     expect(transformer.guidanceEmbeds).toBe(false);
@@ -145,6 +169,18 @@ describe("Flux component config parsing", () => {
     expect(parsed.scalingFactor).toBe(0.3611);
     expect(parsed.shiftFactor).toBe(0.1159);
     expect(parsed.vaeScaleFactor).toBe(8);
+    expect(parsed.downBlockTypes).toEqual([
+      "DownEncoderBlock2D",
+      "DownEncoderBlock2D",
+      "DownEncoderBlock2D",
+      "DownEncoderBlock2D",
+    ]);
+    expect(parsed.upBlockTypes).toEqual([
+      "UpDecoderBlock2D",
+      "UpDecoderBlock2D",
+      "UpDecoderBlock2D",
+      "UpDecoderBlock2D",
+    ]);
     expect(parsed.forceUpcast).toBe(false);
   });
 
@@ -252,6 +288,23 @@ describe("Flux component config parsing", () => {
         norm_num_groups: 0,
       }),
     ).toThrow("norm_num_groups");
+    expect(() =>
+      parseFluxAutoencoderConfig({
+        ...fluxVaeConfig(),
+        down_block_types: ["DownEncoderBlock2D"],
+      }),
+    ).toThrow("down_block_types");
+    expect(() =>
+      parseFluxAutoencoderConfig({
+        ...fluxVaeConfig(),
+        up_block_types: [
+          "UpDecoderBlock2D",
+          "UpDecoderBlock2D",
+          "UpDecoderBlock2D",
+          "OtherUpBlock",
+        ],
+      }),
+    ).toThrow("up_block_types");
   });
 
   test("rejects unsupported Flux transformer config shapes", () => {

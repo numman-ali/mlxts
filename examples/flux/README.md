@@ -3,9 +3,20 @@
 This workbook composes `@mlxts/diffusion`, `@mlxts/tokenizers`, and
 `@mlxts/transformers` for FLUX prompt conditioning.
 
-The first supported FLUX path is `FLUX.1-schnell`: CLIP produces pooled prompt
-projections, T5 produces prompt sequence embeddings, and `@mlxts/diffusion`
-consumes the resulting tensors through its FLUX sampling contract.
+The supported proof path loads local Diffusers FLUX snapshots, encodes CLIP and
+T5 prompt conditioning, denoises through the FLUX transformer, decodes with the
+FLUX VAE, and writes one BMP artifact.
 
-Backbone construction, transformer weight loading, and a finite image proof
-command remain follow-on Phase 10 tranches.
+```bash
+bun run examples/flux/index.ts /models/flux-schnell \
+  --prompt "a quiet library with warm afternoon light" \
+  --output .tmp/flux/sample.bmp \
+  --steps 4
+```
+
+`FLUX.1-schnell` runs without guidance. Dev-style checkpoints with guidance
+embeddings receive a default `--guidance-scale` of `3.5` unless the command
+sets another non-negative value.
+
+The command uses the shared runtime lock because it loads local MLX model
+weights. The default tests are fixture-backed and do not require a checkpoint.
