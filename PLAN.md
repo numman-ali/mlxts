@@ -1013,8 +1013,12 @@ field, but Qwen-Image tensor execution is not implemented yet. Base Z-Image
 snapshot recognition and config parsing has
 also landed for current Diffusers `ZImagePipeline` snapshots, including
 `ZImageTransformer2DModel` geometry, RoPE axes, padding constants, standard
-AutoencoderKL metadata, and the Qwen3 text-encoder manifest boundary. Z-Image
-tensor execution is not implemented yet.
+AutoencoderKL metadata, and the Qwen3 text-encoder manifest boundary. Base
+Z-Image tensor execution now has a package-owned foundation for dense
+Diffusers snapshots: latent patching, Z RoPE, single-stream transformer blocks,
+FlowMatch denoising over prepared Qwen caption embeddings, VAE decode layout,
+and transformer weight mapping/loading. The finite proof command and official
+`Tongyi-MAI/Z-Image-Turbo` checkpoint evidence remain follow-on work.
 Broader VLM families, audio encoder/decoder families, and additional
 diffusion/flow families remain Phase 10 work.
 
@@ -1067,8 +1071,10 @@ All diffusion and flow-based generation across modalities: image, video, and aud
    FLUX.1 because it keeps the next runtime tranche focused: Diffusers exposes
    base `ZImagePipeline` snapshots as FlowMatch Euler plus a 6B
    `ZImageTransformer2DModel`, standard `AutoencoderKL`, and Qwen chat-template
-   prompt encoding. The reference-audited snapshot/config skeleton has landed.
-   Runtime tensor execution and the finite proof command remain follow-on work.
+   prompt encoding. The reference-audited snapshot/config skeleton has landed,
+   and the base package runtime now owns patching, RoPE, single-stream
+   denoising, VAE decode layout, and dense transformer weight mapping. The
+   finite proof command and official checkpoint evidence remain follow-on work.
 4. **Qwen-Image family**: this is the Qwen text-to-image generation track, not
    the already-landed Qwen 3.5 / Qwen 3.6 image-understanding route.
    `Qwen/Qwen-Image-2512` is the primary forward target once runtime execution

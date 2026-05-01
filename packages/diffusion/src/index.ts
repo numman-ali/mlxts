@@ -161,6 +161,40 @@ export {
   type ZImageTransformerConfig,
 } from "./families/z-image/config";
 export {
+  createZImageCoordinateIds,
+  createZImageInitialLatents,
+  padZImageFeature,
+  patchifyZImageLatent,
+  sliceZImageLatentBatchItem,
+  stackZImageLatentBatchItems,
+  unpatchifyZImageLatent,
+  type ZImageInitialLatentOptions,
+  zImageLatentShape,
+} from "./families/z-image/latents";
+export {
+  decodeZImageLatents,
+  denoiseZImageLatents,
+  generateZImage,
+  type ZImageConditioning,
+  type ZImageDenoiseOptions,
+  type ZImageDenoiser,
+  type ZImageDenoisingStepEvent,
+  type ZImageGenerationOptions,
+  type ZImageLatentDecoder,
+  type ZImageScheduler,
+} from "./families/z-image/pipeline";
+export { type ZImageDenoiserInput, ZImageTransformer2DModel } from "./families/z-image/transformer";
+export {
+  loadZImageAutoencoderFromSnapshot,
+  loadZImageTransformerFromSnapshot,
+  loadZImageTransformerWeights,
+  transformZImageTransformerWeight,
+  ZImageAutoencoderKL,
+  type ZImageTransformerWeightLoadOptions,
+  type ZImageTransformerWeightLoadResult,
+  zImageTransformerWeightPath,
+} from "./families/z-image/weights";
+export {
   type DiffusersPipelineClassName,
   type DiffusionComponentName,
   type DiffusionComponentRole,

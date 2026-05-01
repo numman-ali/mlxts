@@ -334,7 +334,7 @@ safe to drive through shell tools.
 |-----------|--------------|
 | Stable Diffusion / SDXL has a real checkpoint proof | Local or Hub-resolved Diffusers snapshot generates an image artifact through `examples/stable-diffusion/` |
 | FLUX.1 has a real checkpoint proof | `examples/flux/` loads `black-forest-labs/FLUX.1-schnell` or an equivalent local Diffusers snapshot, runs the package-owned FLUX path, and writes an image artifact |
-| Z-Image-Turbo is the next speed-first runtime target after FLUX.1 | Base `ZImagePipeline` snapshots are recognized and `ZImageTransformer2DModel` plus AutoencoderKL configs parse; runtime tensor execution and the finite proof command remain follow-on gates |
+| Z-Image-Turbo is the next speed-first runtime target after FLUX.1 | Base `ZImagePipeline` snapshots are recognized, configs parse, and the package-owned base runtime covers latent patching, Z RoPE, single-stream transformer denoising, VAE decode layout, and dense weight mapping; the finite proof command and official checkpoint evidence remain follow-on gates |
 | Qwen-Image is tracked as image generation, not Qwen VLM serving | `@mlxts/diffusion` recognizes base `QwenImagePipeline` snapshots and parses Qwen-Image transformer, Qwen-specific VAE, and FlowMatch scheduler configs while `Qwen/Qwen-Image-2512` is the forward runtime target and tensor execution remains a separate tranche |
 | FLUX.2 Klein is treated as a separate later family | The roadmap names `Flux2KleinPipeline` / `Flux2Transformer2DModel` separately from FLUX.1 rather than treating Klein as a checkpoint variant |
 | Distilled or turbo variants do not become separate architecture surfaces | Tests prove they reuse the base family loader or document the required delta |

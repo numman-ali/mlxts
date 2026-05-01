@@ -119,9 +119,12 @@ major product-agent focus on package-owned CLIs and future PI-agent integration.
   designed. Base Z-Image Diffusers snapshots are now recognized as
   `ZImagePipeline`, with package-owned parsing for `ZImageTransformer2DModel`
   geometry, RoPE axes, sequence padding constants, standard AutoencoderKL
-  metadata, and the Qwen3 text-encoder manifest boundary; Z-Image ControlNet,
-  inpaint, img2img, and Omni variants remain unsupported until their runtime
-  semantics are designed.
+  metadata, and the Qwen3 text-encoder manifest boundary. The base Z-Image
+  dense runtime foundation now owns latent patching, Z RoPE, single-stream
+  transformer blocks, FlowMatch denoising over prepared Qwen caption
+  embeddings, VAE decode layout, and dense transformer weight mapping/loading;
+  Z-Image ControlNet, inpaint, img2img, and Omni variants remain unsupported
+  until their runtime semantics are designed.
   `examples/stable-diffusion` now owns the application-layer prompt
   conditioner that composes CLIP tokenizers, CLIP text encoders, and diffusion
   tensor conditioning while preserving package dependencies. It also has a
@@ -145,8 +148,9 @@ major product-agent focus on package-owned CLIs and future PI-agent integration.
   then Z-Image-Turbo, then Qwen-Image with `Qwen/Qwen-Image-2512` as the
   forward runtime target, then FLUX.2 Klein as a separate later family, with
   Stable Diffusion 3 / 3.5 and distilled variants following when they reuse the
-  base flow/DiT infrastructure. Z-Image/Qwen-Image runtime execution remains
-  separate from the command/snapshot surfaces.
+  base flow/DiT infrastructure. Z-Image finite proof command/official
+  checkpoint evidence and Qwen-Image runtime execution remain separate from the
+  current command/snapshot surfaces.
 - **Phase 10 CLIP conditioning**: `@mlxts/transformers` now owns a
   `families/clip/` text encoder surface with CLIP text config parsing, causal
   text attention, quick GELU, EOS pooling, projected text features, and retained

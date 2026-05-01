@@ -231,17 +231,21 @@ postprocessing. Resolved local snapshots now load into a disposable Stable
 Diffusion runtime bundle with VAE, UNet, scheduler, parsed manifest/configs,
 and thin sampling methods. FLUX.1 owns FlowMatch scheduling, transformer
 config/backbone/weights, VAE loading/decoding, latent packing, and sampling.
-Base Qwen-Image and Z-Image snapshots are recognized and parsed at the
-package-owned metadata boundary while their runtime tensor execution remains
-follow-on work. `examples/stable-diffusion` and `examples/flux` own
-application-layer prompt-conditioning composition and finite BMP image proof
-commands over package surfaces. Real checkpoint evidence and broader image
-output formats remain follow-on Phase 10 tranches.
+Base Qwen-Image snapshots are recognized and parsed at the package-owned
+metadata boundary while runtime tensor execution remains follow-on work.
+Z-Image now has base dense-runtime primitives for prepared-caption
+text-to-image execution and transformer weight loading; the finite proof command
+and official checkpoint evidence remain follow-on work.
+`examples/stable-diffusion` and `examples/flux` own application-layer
+prompt-conditioning composition and finite BMP image proof commands over
+package surfaces. Real checkpoint evidence and broader image output formats
+remain follow-on Phase 10 tranches.
 
 **Image-generation support order:** Stable Diffusion / SDXL is the baseline
 pipeline family. FLUX.1 is the next flow-matching target. Z-Image-Turbo is the
-speed-first local target after FLUX.1 and now has a reference-backed
-snapshot/config seam over standard AutoencoderKL. Qwen-Image is the Qwen
+speed-first local target after FLUX.1 and now has a reference-backed base
+runtime foundation over prepared Qwen caption embeddings and standard
+AutoencoderKL. Qwen-Image is the Qwen
 text-to-image generation family and stays separate from Qwen 3.5 / Qwen 3.6
 image understanding in `@mlxts/transformers`; `Qwen/Qwen-Image-2512` is the
 primary forward runtime target once the Qwen-specific VAE/text stack is ready.
@@ -632,10 +636,11 @@ work is deferred unless a row says otherwise.
 - **Phase 9 surfaces now exist:** `quantize`, `serve`, and `agent` are in-repo; serving, cache, scheduler, protocol, and model-pool work continue through package-owned surfaces.
 - **Phase 9.5 hardens:** agent-operated CLI contracts. Package-owned binaries adopt AXI-shaped finite output before any umbrella CLI centralizes names.
 - **Phase 10 creates:** `diffusion`. Scheduler infrastructure, Stable
-  Diffusion / SDXL package surfaces, and an example proof command are in place;
-  real checkpoint image evidence and additional diffusion/flow families remain
-  Phase 10 work. Vision/audio encoders extend `transformers`, not a separate
-  package. Generative media (image/video/audio) uses diffusion/flow →
+  Diffusion / SDXL package surfaces, FLUX.1 package surfaces, base Z-Image
+  runtime primitives, and example proof commands for SD/SDXL plus FLUX.1 are in
+  place; Qwen-Image runtime execution and additional diffusion/flow families
+  remain Phase 10 work. Vision/audio encoders extend `transformers`, not a
+  separate package. Generative media (image/video/audio) uses diffusion/flow →
   `@mlxts/diffusion`.
 - **Phase 12 creates:** `eval`. This appears when benchmark evaluation lands.
 - **`cli` grows incrementally** — subcommands arrive as their backing packages ship, after finite command contracts are already AXI-shaped at the package-owned boundary.
