@@ -67,6 +67,7 @@ examples/
   qwen3_5-image/ Dedicated Qwen 3.5 / Qwen 3.6 multimodal image example
   stable-diffusion/ Stable Diffusion / SDXL image-generation proof workbook
   flux/         FLUX.1 image-generation proof workbook
+  flux2/        FLUX.2 Klein image-generation proof workbook
   z-image/      Z-Image-Turbo image-generation proof workbook
   qwen-image/   Qwen-Image / Qwen-Image-2512 generation proof workbook
   image-proof/  Saved BMP/report verification helper for image proof outputs
@@ -115,8 +116,9 @@ bun run examples/qwen3_5-image/index.ts mlx-community/Qwen3.6-27B-4bit \
 If you want to sanity-check the current Phase 10 image-generation proof
 surface, use one of the finite proof workbooks. Stable Diffusion / SDXL,
 FLUX.1, Z-Image-Turbo, and Qwen-Image / Qwen-Image-2512 have bounded real
-checkpoint evidence; FLUX.2 Klein and Stable Diffusion 3 / 3.5 are later
-separate family tranches.
+checkpoint evidence. FLUX.2 Klein has a finite proof command over the
+package-owned runtime and remains pending bounded real checkpoint evidence;
+Stable Diffusion 3 / 3.5 is a later separate family tranche.
 
 ```bash
 bun run examples/stable-diffusion/index.ts /models/stable-diffusion \
@@ -134,6 +136,16 @@ bun run examples/flux/index.ts black-forest-labs/FLUX.1-schnell \
   --steps 2 \
   --height 256 \
   --width 256 \
+  --json
+
+bun run examples/flux2/index.ts black-forest-labs/FLUX.2-klein-4B \
+  --local-files-only \
+  --prompt "a small red apple on a white table, product photo" \
+  --output .tmp/flux2/sample.bmp \
+  --steps 4 \
+  --height 256 \
+  --width 256 \
+  --guidance-scale 1 \
   --json
 
 bun run examples/z-image/index.ts Tongyi-MAI/Z-Image-Turbo \

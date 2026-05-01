@@ -55,12 +55,13 @@ bundle.scheduler.timesteps(2);
 | FLUX.1 | FlowMatch Euler, FLUX transformer, VAE, latent packing, sampling | `examples/flux` | Official `black-forest-labs/FLUX.1-schnell` bounded proof passed | Modern flow baseline |
 | Z-Image-Turbo | Dense base Z-Image transformer, FlowMatch denoising, VAE decode layout, weight loading | `examples/z-image` | Official `Tongyi-MAI/Z-Image-Turbo` bounded proof passed | Speed-first modern flow path |
 | Qwen-Image / Qwen-Image-2512 | Qwen-Image transformer, 3D causal VAE, FlowMatch, true-CFG denoising, weight loading | `examples/qwen-image` | Official `Qwen/Qwen-Image-2512` bounded proof passed | Forward Qwen image-generation path |
-| FLUX.2 Klein | Snapshot/config skeleton plus prepared-embedding sampling, NCHW latent patching, external CFG, empirical FlowMatch shift, and VAE batch-norm decode boundary | None | None | Separate family; transformer/VAE weight loading and proof command not implemented |
+| FLUX.2 Klein | Snapshot/config skeleton, transformer/VAE loading, prepared-embedding sampling, NCHW latent patching, external CFG, empirical FlowMatch shift, and VAE batch-norm decode boundary | `examples/flux2` | Pending | Separate family; proof command implemented, real checkpoint proof pending |
 | Stable Diffusion 3 / 3.5 | Not implemented | None | None | Later MMDiT/flow family after shared seams settle |
 
-`examples/stable-diffusion`, `examples/flux`, `examples/z-image`, and
-`examples/qwen-image` own the AXI-shaped finite proof commands that compose this
-package with tokenizer/text-encoder packages and write BMP image artifacts.
+`examples/stable-diffusion`, `examples/flux`, `examples/flux2`,
+`examples/z-image`, and `examples/qwen-image` own the AXI-shaped finite proof
+commands that compose this package with tokenizer/text-encoder packages and
+write BMP image artifacts.
 Image-to-image, inpainting, ControlNet, Omni/SigLIP, video/audio generation,
 broader output formats, and quantized mflux-style sidecars remain follow-on
 Phase 10 tranches until their runtime semantics are designed deliberately.

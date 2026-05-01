@@ -70,6 +70,15 @@ function reportFor(
       prompt2Truncated: false,
     };
   }
+  if (pipeline === "flux2-klein") {
+    return {
+      ...common,
+      guidanceScale: 4,
+      negativePrompt: "",
+      negativePromptTruncated: false,
+      maxSequenceLength: 512,
+    };
+  }
   if (pipeline === "z-image") {
     return {
       ...common,
@@ -132,6 +141,7 @@ describe("image proof report verifier", () => {
         "stable-diffusion",
         "stable-diffusion-xl",
         "flux",
+        "flux2-klein",
         "z-image",
         "qwen-image",
       ];

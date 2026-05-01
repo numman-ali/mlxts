@@ -5,7 +5,8 @@
 Refreshed the top-level product docs so the repo advertises the current Phase
 10 image-generation state honestly. Stable Diffusion / SDXL, FLUX.1,
 Z-Image-Turbo, and Qwen-Image / Qwen-Image-2512 are the implemented
-finite-proof ladder with bounded real checkpoint evidence. FLUX.2 Klein,
+finite-proof ladder with bounded real checkpoint evidence. FLUX.2 Klein now
+has a finite proof command but remains pending bounded real checkpoint evidence.
 Stable Diffusion 3 / 3.5, image editing modes, video, and audio remain separate
 later tranches.
 
@@ -49,14 +50,15 @@ later tranches.
 ## Outcome
 
 `README.md` now lists the Phase 10 image proof workbooks in the repo shape,
-shows the four current finite proof commands, and moves stale Stable
+shows the current finite proof commands, and moves stale Stable
 Diffusion-only proof deferral into the correct future-work bucket:
 quality/performance characterization for proved families plus later families
 and modes.
 
 `docs/ecosystem-structure.md` now states that SDXL, FLUX.1, Z-Image-Turbo, and
 Qwen-Image-2512 runtime/proof paths are in place with bounded real checkpoint
-evidence.
+evidence, and that FLUX.2 Klein has a finite proof command pending real
+checkpoint evidence.
 
 ## Validation
 
@@ -66,6 +68,8 @@ evidence.
 
 - Larger/default-step image quality and performance characterization remains
   future work for every proved image family.
-- FLUX.2 Klein and Stable Diffusion 3 / 3.5 need separate reference spikes
-  before implementation because their pipeline/component shapes are not FLUX.1
-  or SDXL variants.
+- FLUX.2 Klein needs bounded real checkpoint evidence plus
+  reference-image/KV follow-up work before it can join the proved image ladder.
+- Stable Diffusion 3 / 3.5 needs a separate reference spike before
+  implementation because its pipeline/component shape is not a FLUX.1 or SDXL
+  variant.

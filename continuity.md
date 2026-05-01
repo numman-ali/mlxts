@@ -198,9 +198,13 @@ major product-agent focus on package-owned CLIs and future PI-agent integration.
   and final AdaLayerNorm projection all run through synthetic tensor tests.
   Diffusers-format transformer safetensor loading is package-owned too, with
   direct expanded-state mapping for double-stream, single-stream, modulation,
-  timestep/guidance, and output projection weights. Qwen3 prompt conditioning,
-  image/reference conditioning, KV-cache behavior, examples, and proof commands
-  remain future work.
+  timestep/guidance, and output projection weights. `examples/flux2` now owns
+  Qwen3 prompt conditioning for the text-to-image path: it applies the
+  checkpoint chat template with thinking disabled, selects hidden states
+  `9/18/27`, concatenates them for FLUX.2 joint attention, handles non-distilled
+  empty negative prompts for CFG, and writes BMP proof artifacts through an
+  AXI-shaped command. Bounded real FLUX.2 checkpoint evidence,
+  image/reference conditioning, and KV-cache behavior remain future work.
 - **Qwen conditional serving**: top-level Qwen 3.5 / 3.6 conditional
   checkpoints expose the Qwen text batch-cache surface for text-only continuous
   serving. Media/content requests still route as `media_input` and stay off

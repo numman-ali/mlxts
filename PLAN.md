@@ -1044,10 +1044,12 @@ FLUX.2 Klein snapshot/config recognition now exists as a separate
 metadata. The first prepared-embedding sampling foundation has also landed:
 NCHW 2x2 latent patching, 4-axis image/text ids, empirical FlowMatch dynamic
 shift, external classifier-free guidance, distilled-guidance suppression, and
-the VAE batch-norm inverse decode boundary. FLUX.2 transformer execution, VAE
-weight loading, Qwen3 prompt conditioning, reference-image/KV variants, proof
-commands, broader VLM families, audio encoder/decoder families, and additional
-diffusion/flow families remain Phase 10 work.
+the VAE batch-norm inverse decode boundary. FLUX.2 transformer execution,
+transformer/VAE weight loading, Qwen3 prompt conditioning, and a finite
+AXI-shaped `examples/flux2` proof command have landed. Bounded real checkpoint
+evidence, reference-image/KV variants, broader VLM families, audio
+encoder/decoder families, and additional diffusion/flow families remain Phase
+10 work.
 
 **What this phase covers**:
 
@@ -1120,9 +1122,11 @@ All diffusion and flow-based generation across modalities: image, video, and aud
    parallel package shape. Snapshot recognition and component config parsing
    have landed, along with a prepared-embedding sampling foundation over
    package-owned FLUX.2 latent ids, FlowMatch denoising, external CFG, and VAE
-   batch-norm decode semantics. Transformer execution, Qwen3 prompt
-   conditioning, image/reference conditioning, KV cache behavior, weight
-   loading, and proof commands remain separate tranches.
+   batch-norm decode semantics. Transformer execution, transformer/VAE weight
+   loading, Qwen3 prompt conditioning, and a finite proof command in
+   `examples/flux2` have landed. Image/reference conditioning, KV cache
+   behavior, bounded real checkpoint evidence, and larger quality/performance
+   characterization remain separate tranches.
 6. **Stable Diffusion 3 / 3.5 and distilled variants**: these become follow-on
    targets when their MMDiT/flow components can reuse the FLUX/Z-Image/Qwen
    infrastructure without creating a parallel package shape. SD3 has its own

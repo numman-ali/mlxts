@@ -5,8 +5,9 @@
 Refreshed the Phase 10 image-generation support order against current
 Hugging Face and Diffusers references. SD/SDXL, FLUX.1, Z-Image-Turbo, and
 Qwen-Image / Qwen-Image-2512 now have bounded real checkpoint image evidence.
-FLUX.2 Klein remains a separate later family rather than a FLUX.1 variant, and
-Stable Diffusion 3 / 3.5 remains a separate MMDiT/flow target.
+FLUX.2 Klein remains a separate later family rather than a FLUX.1 variant and
+now has a finite proof command pending real checkpoint evidence. Stable
+Diffusion 3 / 3.5 remains a separate MMDiT/flow target.
 
 ## Files Reviewed
 
@@ -62,7 +63,7 @@ The support ladder is:
 6. Stable Diffusion 3 / 3.5 and compatible distilled variants.
 
 This is a product support order, not a claim that every listed family has
-runtime tensor execution today.
+bounded real checkpoint evidence today.
 
 ## Tensor Lifetime Audit
 
