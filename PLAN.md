@@ -1069,8 +1069,10 @@ now have a package-owned Diffusers manifest entry point: current
 video/audio component roles and typed component configs without importing
 transformer encoders or claiming runtime generation. Package-owned LTX latent
 geometry now covers Diffusers-compatible video BCFHW packing and LTX-2 audio
-BCLM packing. LTX runtime, latent upsampling, audio-video output encoding, and
-finite proof commands remain future tranches.
+BCLM packing, and package-owned RoPE geometry now covers classic LTX video
+coordinate scaling plus LTX-2 video/audio patch-boundary coordinates. LTX
+runtime, latent upsampling, audio-video output encoding, and finite proof
+commands remain future tranches.
 
 **What this phase covers**:
 
@@ -1177,8 +1179,10 @@ All diffusion and flow-based generation across modalities: image, video, and aud
    `AutoencoderKLLTX2Audio`, `LTX2TextConnectors`, and `LTX2Vocoder`. Snapshot
    recognition and component config parsing have landed as the entry point.
    Video latent shape/packing and LTX-2 audio latent shape/packing now match
-   Diffusers token order. Runtime generation, latent upsampling, audio/video
-   artifact output, and proof commands remain separate tranches.
+   Diffusers token order. Classic LTX video RoPE coordinates and LTX-2
+   video/audio patch-boundary RoPE coordinates now match the current Diffusers
+   geometry. Runtime generation, latent upsampling, audio/video artifact
+   output, and proof commands remain separate tranches.
 
 ### 10c. Examples
 

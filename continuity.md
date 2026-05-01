@@ -236,9 +236,11 @@ major product-agent focus on package-owned CLIs and future PI-agent integration.
   LTX-2 video/audio/connector/vocoder cross-component checks. Package-owned
   LTX latent helpers now cover Diffusers-compatible video BCFHW token packing,
   video latent shape derivation, LTX-2 audio BCLM token packing, and audio
-  latent duration/mel geometry. Runtime generation, latent upsampling,
-  audio/video artifact writing, and proof commands remain future Phase 10
-  tranches.
+  latent duration/mel geometry. LTX RoPE helpers now cover classic LTX
+  video coordinate scaling plus LTX-2 video/audio patch-boundary coordinates
+  and interleaved/split frequency tensors. Runtime generation, latent
+  upsampling, audio/video artifact writing, and proof commands remain future
+  Phase 10 tranches.
 - **Qwen conditional serving**: top-level Qwen 3.5 / 3.6 conditional
   checkpoints expose the Qwen text batch-cache surface for text-only continuous
   serving. Media/content requests still route as `media_input` and stay off

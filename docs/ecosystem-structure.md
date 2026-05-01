@@ -274,8 +274,9 @@ LTX-Video and LTX-2 now have snapshot recognition and typed component config
 parsing for current Diffusers `LTXPipeline`, `LTXConditionPipeline`, and
 `LTX2Pipeline` layouts. Package-owned latent geometry helpers now cover
 Diffusers-compatible LTX video BCFHW token packing and LTX-2 audio BCLM token
-packing. Runtime video/audio generation, latent upsampling, and artifact output
-remain future Phase 10 tranches.
+packing, plus classic LTX and LTX-2 video/audio RoPE coordinate geometry.
+Runtime video/audio generation, latent upsampling, and artifact output remain
+future Phase 10 tranches.
 
 **Architecture pattern:** Mirrors `@mlxts/transformers` — explicit family
 registry, config-driven model construction, and official Hugging Face JS-backed snapshot loading.

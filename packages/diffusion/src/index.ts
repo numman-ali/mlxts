@@ -142,6 +142,20 @@ export {
   parseLtxVideoTransformerConfig,
 } from "./families/ltx/config";
 export {
+  createLtx2AudioCoords,
+  createLtx2RotaryEmbeddings,
+  createLtx2VideoCoords,
+  createLtxVideoRopeCoords,
+  createLtxVideoRotaryEmbeddings,
+  type Ltx2AudioCoordinateOptions,
+  type Ltx2RotaryEmbeddingOptions,
+  type Ltx2VideoCoordinateOptions,
+  type LtxRotaryEmbeddings,
+  type LtxVideoRopeCoordinateOptions,
+  type LtxVideoRopeInterpolationScale,
+  type LtxVideoRotaryEmbeddingOptions,
+} from "./families/ltx/embeddings";
+export {
   createLtx2AudioInitialLatents,
   createLtxVideoInitialLatents,
   type Ltx2AudioInitialLatentOptions,
