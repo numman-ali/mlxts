@@ -3,7 +3,7 @@
  * @module
  */
 
-import { formatShape, MxArray, multiply } from "@mlxts/core";
+import { formatShape, MxArray, multiply, retainArray } from "@mlxts/core";
 import { Embedding, Linear, Module } from "@mlxts/nn";
 
 import {
@@ -22,6 +22,19 @@ import type { CausalLM, DecoderCache, ForwardOptions, TransformerCache } from ".
 import { LlamaLikeDecoderBlock } from "./block";
 import { LlamaLikeNorm } from "./norm";
 import type { LlamaLikeConfig } from "./types";
+
+/** Runtime options for a shared LLaMA-like decoder backbone pass. */
+export type LlamaLikeModelOptions = {
+  cache?: DecoderCache;
+  inputEmbeddings?: MxArray;
+  outputHiddenStates?: boolean;
+};
+
+/** Retained decoder backbone outputs for encoder-style conditioning consumers. */
+export type LlamaLikeModelOutput = {
+  lastHiddenState: MxArray;
+  hiddenStates?: MxArray[];
+};
 
 function createAttentionMask(
   sequenceLength: number,
@@ -44,6 +57,21 @@ function createAttentionMask(
     cache.length,
     leftPadding,
   );
+}
+
+function disposeHiddenStates(hiddenStates: MxArray[] | undefined): void {
+  if (hiddenStates === undefined) {
+    return;
+  }
+  for (const hiddenState of hiddenStates) {
+    hiddenState.free();
+  }
+}
+
+/** Dispose arrays returned by `LlamaLikeModel.runWithHiddenStates`. */
+export function disposeLlamaLikeModelOutput(output: LlamaLikeModelOutput): void {
+  output.lastHiddenState.free();
+  disposeHiddenStates(output.hiddenStates);
 }
 
 /** Decoder backbone shared by the supported LLaMA-like families. */
@@ -71,6 +99,27 @@ export class LlamaLikeModel extends Module {
   }
 
   run(inputIds: MxArray, cache?: DecoderCache, inputEmbeddings?: MxArray): MxArray {
+    const options: LlamaLikeModelOptions = {};
+    if (cache !== undefined) {
+      options.cache = cache;
+    }
+    if (inputEmbeddings !== undefined) {
+      options.inputEmbeddings = inputEmbeddings;
+    }
+    const output = this.runModel(inputIds, options);
+    disposeHiddenStates(output.hiddenStates);
+    return output.lastHiddenState;
+  }
+
+  /** Run the decoder backbone and retain hidden states for conditioning paths. */
+  runWithHiddenStates(
+    inputIds: MxArray,
+    options: LlamaLikeModelOptions = {},
+  ): LlamaLikeModelOutput {
+    return this.runModel(inputIds, options);
+  }
+
+  private runModel(inputIds: MxArray, options: LlamaLikeModelOptions): LlamaLikeModelOutput {
     const [batch, sequenceLength] = inputIds.shape;
     if (batch === undefined || sequenceLength === undefined || inputIds.shape.length !== 2) {
       throw new Error(
@@ -81,12 +130,14 @@ export class LlamaLikeModel extends Module {
     using embedded =
       retainInputEmbeddings(
         inputIds,
-        inputEmbeddings,
+        options.inputEmbeddings,
         this.#hiddenSize,
         "LlamaLikeModel.forward",
       ) ?? this.embedTokens.forward(inputIds);
     let hidden = this.#embeddingScale === 1.0 ? embedded : multiply(embedded, this.#embeddingScale);
-    const attentionMask = createAttentionMask(sequenceLength, cache);
+    const hiddenStates: MxArray[] | undefined = options.outputHiddenStates ? [] : undefined;
+    const attentionMask = createAttentionMask(sequenceLength, options.cache);
+    let lastHiddenState: MxArray | null = null;
 
     try {
       for (let index = 0; index < this.layers.length; index += 1) {
@@ -95,22 +146,32 @@ export class LlamaLikeModel extends Module {
           continue;
         }
 
-        const nextHidden = layer.run(hidden, index, cache, attentionMask);
+        if (hiddenStates !== undefined) {
+          hiddenStates.push(retainArray(hidden));
+        }
+        const nextHidden = layer.run(hidden, index, options.cache, attentionMask);
         hidden.free();
         hidden = nextHidden;
       }
 
-      const normalized = this.norm.forward(hidden);
-      hidden.free();
-      hidden = normalized;
-      return hidden;
+      lastHiddenState = this.norm.forward(hidden);
+      if (hiddenStates !== undefined) {
+        hiddenStates.push(retainArray(lastHiddenState));
+      }
+      const output: LlamaLikeModelOutput = { lastHiddenState };
+      if (hiddenStates !== undefined) {
+        output.hiddenStates = hiddenStates;
+      }
+      return output;
     } catch (error) {
-      hidden.free();
+      lastHiddenState?.free();
+      disposeHiddenStates(hiddenStates);
       throw error;
     } finally {
       if (attentionMask instanceof MxArray) {
         attentionMask.free();
       }
+      hidden.free();
     }
   }
 }

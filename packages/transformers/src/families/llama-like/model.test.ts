@@ -67,6 +67,16 @@ describe("LlamaLikeCausalLM batch cache", () => {
     );
   });
 
+  test("runs per-head query/key RMSNorm when the family config requires it", () => {
+    using model = new LlamaLikeCausalLM(testConfig({ queryKeyNorm: true }));
+    using inputIds = array([[1, 2]], "int32");
+    using logits = model.forward(inputIds);
+
+    expect(model.model.layers[0]?.selfAttention.queryNorm).not.toBeNull();
+    expect(model.model.layers[0]?.selfAttention.keyNorm).not.toBeNull();
+    expect(logits.shape).toEqual([1, 2, 16]);
+  });
+
   test("static greedy batch generation matches separate single-prompt generation", () => {
     using model = new LlamaLikeCausalLM(testConfig());
     const prompts = [[1, 2], [3]];
@@ -97,5 +107,26 @@ describe("LlamaLikeCausalLM batch cache", () => {
     });
 
     expect(batched).toEqual(separate);
+  });
+
+  test("exposes retained hidden states for encoder-style conditioning", () => {
+    using model = new LlamaLikeCausalLM(testConfig({ numHiddenLayers: 2 }));
+    using inputIds = array([[1, 2, 3]], "int32");
+
+    const output = model.model.runWithHiddenStates(inputIds, { outputHiddenStates: true });
+    try {
+      mxEval(output.lastHiddenState, ...(output.hiddenStates ?? []));
+      expect(output.lastHiddenState.shape).toEqual([1, 3, 8]);
+      expect(output.hiddenStates?.map((hidden) => hidden.shape)).toEqual([
+        [1, 3, 8],
+        [1, 3, 8],
+        [1, 3, 8],
+      ]);
+    } finally {
+      output.lastHiddenState.free();
+      for (const hiddenState of output.hiddenStates ?? []) {
+        hiddenState.free();
+      }
+    }
   });
 });

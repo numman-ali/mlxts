@@ -39,6 +39,8 @@ export {
   clipTextWeightPath,
   loadCLIPTextWeights,
 } from "./families/clip/weights";
+export { parseQwen3Config } from "./families/qwen3/config";
+export { loadQwen3CausalLM, type Qwen3TextCausalLM } from "./families/qwen3/load";
 export {
   loadQwen3_5ForConditionalGeneration,
   shouldLoadQwen3_5ForConditionalGeneration,

@@ -34,6 +34,7 @@ export type LlamaLikeConfig = BaseModelConfig & {
   embeddingScale?: number;
   normWeightOffset?: boolean;
   rotaryDimensions?: number;
+  queryKeyNorm?: boolean;
   attentionProjectionLayout?: AttentionProjectionLayout;
   mlpProjectionLayout?: MlpProjectionLayout;
   mlpActivation: LlamaLikeActivation;
@@ -82,6 +83,19 @@ export function sanitizeLlamaLikeWeight(
     "self_attn.o_proj.bias": biasPath("outputProjection"),
     "mlp.down_proj.weight": layerPath(layerIndex, ["mlp", "downProjection", "weight"]),
   };
+
+  if (config.queryKeyNorm === true) {
+    mapping["self_attn.q_norm.weight"] = layerPath(layerIndex, [
+      "selfAttention",
+      "queryNorm",
+      "weight",
+    ]);
+    mapping["self_attn.k_norm.weight"] = layerPath(layerIndex, [
+      "selfAttention",
+      "keyNorm",
+      "weight",
+    ]);
+  }
 
   if (config.attentionProjectionLayout === "packed_qkv") {
     mapping["self_attn.qkv_proj.weight"] = layerPath(layerIndex, [

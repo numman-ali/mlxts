@@ -22,6 +22,7 @@ import {
 } from "../../infrastructure/cache/view";
 import { type AttentionMask, createCausalMask } from "../../infrastructure/masks";
 import type { DecoderCache } from "../../types";
+import { LlamaLikeNorm } from "./norm";
 import type { LlamaLikeConfig } from "./types";
 
 function takeLastAxisRange(x: MxArray, start: number, end: number): MxArray {
@@ -73,12 +74,18 @@ function retainAttentionMask(
   return createCausalMask(sequenceLength, totalKeyLength, visiblePastLength, dtype);
 }
 
+function applyHeadNorm(norm: LlamaLikeNorm | null, x: MxArray): MxArray {
+  return norm === null ? retainArray(x) : norm.forward(x);
+}
+
 /** Decoder self-attention with cache integration and offset-aware RoPE. */
 export class LlamaLikeAttention extends Module {
   qProjection: Linear | null;
   kProjection: Linear | null;
   vProjection: Linear | null;
   qkvProjection: Linear | null;
+  queryNorm: LlamaLikeNorm | null;
+  keyNorm: LlamaLikeNorm | null;
   outputProjection: Linear;
   rope: RoPE;
   #hiddenSize: number;
@@ -120,6 +127,14 @@ export class LlamaLikeAttention extends Module {
       this.vProjection = new Linear(config.hiddenSize, keyValueWidth, config.attentionBias);
       this.qkvProjection = null;
     }
+    this.queryNorm =
+      config.queryKeyNorm === true
+        ? new LlamaLikeNorm({ hiddenSize: config.headDim, rmsNormEps: config.rmsNormEps })
+        : null;
+    this.keyNorm =
+      config.queryKeyNorm === true
+        ? new LlamaLikeNorm({ hiddenSize: config.headDim, rmsNormEps: config.rmsNormEps })
+        : null;
     this.outputProjection = new Linear(
       config.numAttentionHeads * config.headDim,
       config.hiddenSize,
@@ -174,8 +189,10 @@ export class LlamaLikeAttention extends Module {
         this.#numKeyValueHeads,
         this.#headDim,
       ]);
-      using queryHeads = transpose(queryInputs, [0, 2, 1, 3]);
-      using keyHeads = transpose(keyInputs, [0, 2, 1, 3]);
+      using normalizedQueryInputs = applyHeadNorm(this.queryNorm, queryInputs);
+      using normalizedKeyInputs = applyHeadNorm(this.keyNorm, keyInputs);
+      using queryHeads = transpose(normalizedQueryInputs, [0, 2, 1, 3]);
+      using keyHeads = transpose(normalizedKeyInputs, [0, 2, 1, 3]);
       using valueHeads = transpose(valueInputs, [0, 2, 1, 3]);
       const ropeOffset = ropeOffsetForCache(cache);
       try {
