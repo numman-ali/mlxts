@@ -192,9 +192,13 @@ major product-agent focus on package-owned CLIs and future PI-agent integration.
   preserves an NCHW public VAE boundary, reuses channel-last VAE internals
   through explicit transposes, supports separate decoder channel schedules, and
   loads required `bn.running_mean` / `bn.running_var` checkpoint buffers.
-  Transformer execution and transformer weight loading, Qwen3 prompt
-  conditioning, image/reference conditioning, KV-cache behavior, examples, and
-  proof commands remain future work.
+  FLUX.2 Klein transformer execution is now package-owned for the non-KV
+  prepared-embedding path: four-axis RoPE, shared timestep/guidance modulation,
+  double-stream image/text blocks, single-stream fused QKV-plus-SwiGLU blocks,
+  and final AdaLayerNorm projection all run through synthetic tensor tests.
+  Transformer weight loading, Qwen3 prompt conditioning, image/reference
+  conditioning, KV-cache behavior, examples, and proof commands remain future
+  work.
 - **Qwen conditional serving**: top-level Qwen 3.5 / 3.6 conditional
   checkpoints expose the Qwen text batch-cache surface for text-only continuous
   serving. Media/content requests still route as `media_input` and stay off

@@ -40,6 +40,7 @@ export type Flux2KleinDenoiserInput = {
   hiddenStates: MxArray;
   encoderHiddenStates: MxArray;
   timestep: MxArray;
+  guidance?: MxArray;
   imageIds: MxArray;
   textIds: MxArray;
 };

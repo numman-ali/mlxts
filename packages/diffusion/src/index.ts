@@ -94,6 +94,7 @@ export {
   type Flux2KleinScheduler,
   generateFlux2KleinImage,
 } from "./families/flux2/pipeline";
+export { Flux2KleinTransformer2DModel } from "./families/flux2/transformer";
 export {
   type Flux2KleinAutoencoderWeightLoadOptions,
   type Flux2KleinAutoencoderWeightLoadResult,
