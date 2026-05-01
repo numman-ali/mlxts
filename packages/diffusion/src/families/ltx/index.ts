@@ -13,6 +13,27 @@ export {
   unpatchLtx2VideoDecoderOutput,
 } from "./autoencoder-ltx2";
 export {
+  Ltx2AudioAutoencoderKL,
+  Ltx2AudioDecoder2d,
+} from "./autoencoder-ltx2-audio";
+export {
+  Ltx2AudioAttnBlock,
+  Ltx2AudioCausalConv2d,
+  Ltx2AudioMidBlock,
+  Ltx2AudioPixelNorm,
+  Ltx2AudioResnetBlock,
+  Ltx2AudioUpStage,
+  Ltx2AudioUpsample,
+} from "./autoencoder-ltx2-audio-blocks";
+export {
+  type Ltx2AudioAutoencoderWeightLoadOptions,
+  type Ltx2AudioAutoencoderWeightLoadResult,
+  loadLtx2AudioAutoencoderFromSnapshot,
+  loadLtx2AudioAutoencoderWeights,
+  ltx2AudioAutoencoderWeightPath,
+  transformLtx2AudioAutoencoderWeight,
+} from "./autoencoder-ltx2-audio-weights";
+export {
   Ltx2VideoCausalConv3d,
   Ltx2VideoMidBlock3d,
   Ltx2VideoResnetBlock3d,
@@ -108,8 +129,11 @@ export {
   transformLtx2TextConnectorWeight,
 } from "./connectors-ltx2-weights";
 export {
+  decodeLtx2AudioLatents,
   decodeLtxVideoLatents,
+  denormalizeLtx2AudioLatents,
   denormalizeLtxVideoLatents,
+  type Ltx2AudioLatentDecoder,
   type LtxVideoLatentDecoder,
 } from "./decoding";
 export {

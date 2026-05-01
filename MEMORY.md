@@ -83,8 +83,11 @@ This file captures durable cross-session learnings for `mlxts` so future agent s
   conditioning, packed-latent denoising, VAE decode, and BMP preview-sheet
   artifact output. LTX-2 sidecar latent upsampling now has
   `Ltx2LatentUpsamplerModel`, rational spatial resampling, standalone/sidecar
-  safetensor loading, and packed-token unpack/repack helpers. LTX-2 denoising
-  remains a future tranche. — refs:
+  safetensor loading, and packed-token unpack/repack helpers. LTX-2 audio VAE
+  decode now has decoder-only `AutoencoderKLLTX2Audio` execution, packed-token
+  latent denormalization against `base_channels` stat buffers, audio decoder
+  safetensor loading, and explicit transformer/audio-VAE/vocoder width checks.
+  LTX-2 denoising remains a future tranche. — refs:
   `packages/diffusion/src/pretrained/model-index.ts`,
   `packages/diffusion/src/pretrained/ltx-pipeline-specs.ts`,
   `packages/diffusion/src/pretrained/snapshot-file-selection.ts`,
@@ -96,6 +99,9 @@ This file captures durable cross-session learnings for `mlxts` so future agent s
   `packages/diffusion/src/families/ltx/transformer-weights.ts`,
   `packages/diffusion/src/families/ltx/autoencoder.ts`,
   `packages/diffusion/src/families/ltx/autoencoder-weights.ts`,
+  `packages/diffusion/src/families/ltx/autoencoder-ltx2-audio.ts`,
+  `packages/diffusion/src/families/ltx/autoencoder-ltx2-audio-blocks.ts`,
+  `packages/diffusion/src/families/ltx/autoencoder-ltx2-audio-weights.ts`,
   `packages/diffusion/src/families/ltx/decoding.ts`,
   `packages/diffusion/src/families/ltx/latent-upsampler.ts`,
   `packages/diffusion/src/families/ltx/latent-upsample.ts`,
@@ -116,7 +122,8 @@ This file captures durable cross-session learnings for `mlxts` so future agent s
   `docs/reviews/2026-05-01-ltx-video-vae-runtime.md`,
   `docs/reviews/2026-05-01-ltx-latent-upsampler-runtime.md`,
   `docs/reviews/2026-05-01-ltx-video-proof-cli.md`,
-  `docs/reviews/2026-05-01-ltx2-latent-upsampler-runtime.md`
+  `docs/reviews/2026-05-01-ltx2-latent-upsampler-runtime.md`,
+  `docs/reviews/2026-05-01-ltx2-audio-vae-runtime.md`
 
 - (2026-05-01) [DIFFUSION/SD3] `@mlxts/diffusion` recognizes Diffusers
   `StableDiffusion3Pipeline` snapshots and parses `SD3Transformer2DModel` plus

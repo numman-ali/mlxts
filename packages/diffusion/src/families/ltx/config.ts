@@ -20,7 +20,10 @@ import {
   optionalStringValue,
 } from "./config-common";
 import {
+  type Ltx2AudioAutoencoderConfig,
   type Ltx2ComponentConfigs,
+  type Ltx2VideoTransformerConfig,
+  type Ltx2VocoderConfig,
   parseLtx2AudioAutoencoderConfig,
   parseLtx2TextConnectorsConfig,
   parseLtx2VideoAutoencoderConfig,
@@ -338,6 +341,56 @@ async function loadLtxVideoComponentConfigs(
   return { pipelineKind: "ltx-video", transformer, vae };
 }
 
+function validateLtx2AudioComponentAgreement(
+  transformer: Ltx2VideoTransformerConfig,
+  audioVae: Ltx2AudioAutoencoderConfig,
+  vocoder: Ltx2VocoderConfig,
+): void {
+  if (audioVae.sampleRate !== transformer.audioSamplingRate) {
+    throw new DiffusionConfigError(
+      `LTX-2 audio VAE sample rate ${audioVae.sampleRate} does not match transformer audio sampling rate ${transformer.audioSamplingRate}.`,
+    );
+  }
+  if (audioVae.melHopLength !== transformer.audioHopLength) {
+    throw new DiffusionConfigError(
+      `LTX-2 audio VAE hop length ${audioVae.melHopLength} does not match transformer audio hop length ${transformer.audioHopLength}.`,
+    );
+  }
+  if (audioVae.packedFeatureSize !== null && audioVae.packedFeatureSize !== audioVae.baseChannels) {
+    throw new DiffusionConfigError(
+      `LTX-2 audio VAE packed feature size ${audioVae.packedFeatureSize} must match base channels ${audioVae.baseChannels}.`,
+    );
+  }
+  if (
+    audioVae.packedFeatureSize !== null &&
+    audioVae.packedFeatureSize !== transformer.audioInChannels
+  ) {
+    throw new DiffusionConfigError(
+      `LTX-2 audio VAE packed feature size ${audioVae.packedFeatureSize} does not match transformer audio input channels ${transformer.audioInChannels}.`,
+    );
+  }
+  if (audioVae.baseChannels !== transformer.audioInChannels) {
+    throw new DiffusionConfigError(
+      `LTX-2 audio VAE base channels ${audioVae.baseChannels} do not match transformer audio input channels ${transformer.audioInChannels}.`,
+    );
+  }
+  if (transformer.audioOutChannels !== audioVae.baseChannels) {
+    throw new DiffusionConfigError(
+      `LTX-2 transformer audio output channels ${transformer.audioOutChannels} must match audio VAE base channels ${audioVae.baseChannels}.`,
+    );
+  }
+  if (
+    audioVae.melBins !== null &&
+    vocoder.inChannels !== audioVae.outputChannels * audioVae.melBins
+  ) {
+    throw new DiffusionConfigError(
+      `LTX-2 vocoder input channels ${vocoder.inChannels} must match decoded audio width ${
+        audioVae.outputChannels * audioVae.melBins
+      }.`,
+    );
+  }
+}
+
 async function loadLtx2ComponentConfigs(
   manifest: DiffusionSnapshotManifest,
 ): Promise<Ltx2ComponentConfigs> {
@@ -379,34 +432,12 @@ async function loadLtx2ComponentConfigs(
       `${fieldName("vae/config.json", "spatial_compression_ratio")} must match transformer spatial vae_scale_factors.`,
     );
   }
-  if (audioVae.sampleRate !== transformer.audioSamplingRate) {
-    throw new DiffusionConfigError(
-      `LTX-2 audio VAE sample rate ${audioVae.sampleRate} does not match transformer audio sampling rate ${transformer.audioSamplingRate}.`,
-    );
-  }
-  if (audioVae.melHopLength !== transformer.audioHopLength) {
-    throw new DiffusionConfigError(
-      `LTX-2 audio VAE hop length ${audioVae.melHopLength} does not match transformer audio hop length ${transformer.audioHopLength}.`,
-    );
-  }
-  if (
-    audioVae.packedFeatureSize !== null &&
-    audioVae.packedFeatureSize !== transformer.audioInChannels
-  ) {
-    throw new DiffusionConfigError(
-      `LTX-2 audio VAE packed feature size ${audioVae.packedFeatureSize} does not match transformer audio input channels ${transformer.audioInChannels}.`,
-    );
-  }
   if (connectors.captionChannels !== transformer.captionChannels) {
     throw new DiffusionConfigError(
       `LTX-2 connector caption channels ${connectors.captionChannels} do not match transformer caption channels ${transformer.captionChannels}.`,
     );
   }
-  if (vocoder.inChannels !== transformer.audioOutChannels) {
-    throw new DiffusionConfigError(
-      `LTX-2 vocoder input channels ${vocoder.inChannels} do not match transformer audio output channels ${transformer.audioOutChannels}.`,
-    );
-  }
+  validateLtx2AudioComponentAgreement(transformer, audioVae, vocoder);
   return { pipelineKind: "ltx2", transformer, vae, audioVae, connectors, vocoder };
 }
 

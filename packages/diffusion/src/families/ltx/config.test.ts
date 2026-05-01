@@ -482,6 +482,43 @@ describe("LTX component config parsing", () => {
       const manifest = await loadDiffusionSnapshotManifest(directory);
       await expect(loadLtxComponentConfigs(manifest)).rejects.toThrow("packed feature size");
     });
+
+    await withTempDirectory("mlxts-ltx2-audio-base-mismatch-", async (directory) => {
+      writeLtx2Snapshot(directory, ltx2TransformerConfig(), ltx2VideoVaeConfig(), {
+        ...ltx2AudioVaeConfig(),
+        latent_channels: 4,
+      });
+
+      const manifest = await loadDiffusionSnapshotManifest(directory);
+      await expect(loadLtxComponentConfigs(manifest)).rejects.toThrow("base channels");
+    });
+
+    await withTempDirectory("mlxts-ltx2-audio-output-mismatch-", async (directory) => {
+      writeLtx2Snapshot(directory, {
+        ...ltx2TransformerConfig(),
+        audio_out_channels: 64,
+      });
+
+      const manifest = await loadDiffusionSnapshotManifest(directory);
+      await expect(loadLtxComponentConfigs(manifest)).rejects.toThrow("audio output channels");
+    });
+
+    await withTempDirectory("mlxts-ltx2-vocoder-mismatch-", async (directory) => {
+      writeLtx2Snapshot(
+        directory,
+        ltx2TransformerConfig(),
+        ltx2VideoVaeConfig(),
+        ltx2AudioVaeConfig(),
+        ltx2ConnectorsConfig(),
+        {
+          ...ltx2VocoderConfig(),
+          in_channels: 64,
+        },
+      );
+
+      const manifest = await loadDiffusionSnapshotManifest(directory);
+      await expect(loadLtxComponentConfigs(manifest)).rejects.toThrow("decoded audio width");
+    });
   });
 
   test("rejects unsupported LTX config variants", async () => {

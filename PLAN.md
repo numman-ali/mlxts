@@ -1211,7 +1211,10 @@ All diffusion and flow-based generation across modalities: image, video, and aud
    sidecar latent upsampling now loads and runs over normalized BCFHW latents
    with packed-token unpack/repack helpers. LTX-2 sidecar latent upsampling
    now loads and runs over BCFHW latents with rational spatial resampling and
-   packed-token unpack/repack helpers. The classic LTX finite proof command
+   packed-token unpack/repack helpers. LTX-2 audio VAE decode now matches the
+   Diffusers decoder-side boundary for BCLM latent spectrograms, packed-token
+   latent denormalization, decoder safetensor loading, and audio VAE/vocoder
+   width validation. The classic LTX finite proof command
    now writes a BMP preview-sheet artifact from decoded video. LTX-2 denoising
    remains a separate tranche.
 

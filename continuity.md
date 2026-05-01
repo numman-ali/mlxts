@@ -256,6 +256,10 @@ major product-agent focus on package-owned CLIs and future PI-agent integration.
   packed-token unpack/repack helpers. LTX-2 sidecar latent upsampling now
   covers `LTX2LatentUpsamplerModel`, rational spatial resampling, standalone
   and sidecar safetensor loading, and packed-token unpack/repack helpers.
+  LTX-2 audio VAE decode now covers decoder-only `AutoencoderKLLTX2Audio`
+  execution, packed-token latent denormalization against `base_channels` stat
+  buffers, audio decoder safetensor loading, and transformer/audio-VAE/vocoder
+  width checks.
   `examples/ltx-video` now owns the finite
   AXI proof command for classic LTX text-to-video: local/Hub snapshot resolve,
   T5 prompt conditioning, packed-latent denoising, VAE decode, and BMP

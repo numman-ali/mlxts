@@ -368,9 +368,11 @@ function writeLtx2SnapshotMetadata(directory: string): void {
   });
   writeComponent(directory, "audio_vae", {
     _class_name: "AutoencoderKLLTX2Audio",
-    latent_channels: 1,
-    mel_bins: 16,
+    base_channels: config.audioInChannels,
+    latent_channels: config.audioInChannels,
+    mel_bins: 4,
     mel_hop_length: config.audioHopLength,
+    output_channels: 1,
     sample_rate: config.audioSamplingRate,
   });
   writeComponent(directory, "connectors", {
