@@ -196,9 +196,11 @@ major product-agent focus on package-owned CLIs and future PI-agent integration.
   prepared-embedding path: four-axis RoPE, shared timestep/guidance modulation,
   double-stream image/text blocks, single-stream fused QKV-plus-SwiGLU blocks,
   and final AdaLayerNorm projection all run through synthetic tensor tests.
-  Transformer weight loading, Qwen3 prompt conditioning, image/reference
-  conditioning, KV-cache behavior, examples, and proof commands remain future
-  work.
+  Diffusers-format transformer safetensor loading is package-owned too, with
+  direct expanded-state mapping for double-stream, single-stream, modulation,
+  timestep/guidance, and output projection weights. Qwen3 prompt conditioning,
+  image/reference conditioning, KV-cache behavior, examples, and proof commands
+  remain future work.
 - **Qwen conditional serving**: top-level Qwen 3.5 / 3.6 conditional
   checkpoints expose the Qwen text batch-cache surface for text-only continuous
   serving. Media/content requests still route as `media_input` and stay off

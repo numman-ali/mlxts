@@ -17,6 +17,15 @@ import {
 import { Flux2KleinAutoencoderKL } from "./autoencoder";
 import { loadFlux2KleinComponentConfigs } from "./config";
 
+export {
+  type Flux2KleinTransformerWeightLoadOptions,
+  type Flux2KleinTransformerWeightLoadResult,
+  flux2KleinTransformerWeightPath,
+  loadFlux2KleinTransformerFromSnapshot,
+  loadFlux2KleinTransformerWeights,
+  transformFlux2KleinTransformerWeight,
+} from "./transformer-weights";
+
 export type Flux2KleinAutoencoderWeightLoadOptions = {
   /** Throw when the checkpoint contains unsupported tensor names. */
   strictUnexpectedWeights?: boolean;

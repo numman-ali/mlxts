@@ -98,9 +98,15 @@ export { Flux2KleinTransformer2DModel } from "./families/flux2/transformer";
 export {
   type Flux2KleinAutoencoderWeightLoadOptions,
   type Flux2KleinAutoencoderWeightLoadResult,
+  type Flux2KleinTransformerWeightLoadOptions,
+  type Flux2KleinTransformerWeightLoadResult,
   flux2KleinAutoencoderWeightPath,
+  flux2KleinTransformerWeightPath,
   loadFlux2KleinAutoencoderFromSnapshot,
   loadFlux2KleinAutoencoderWeights,
+  loadFlux2KleinTransformerFromSnapshot,
+  loadFlux2KleinTransformerWeights,
+  transformFlux2KleinTransformerWeight,
 } from "./families/flux2/weights";
 export {
   QwenImageAutoencoderKL,
