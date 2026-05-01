@@ -46,6 +46,7 @@ export type StableDiffusionAutoencoderConfig = {
   useQuantConv: boolean;
   usePostQuantConv: boolean;
   blockOutChannels: readonly number[];
+  decoderBlockOutChannels?: readonly number[];
   layersPerBlock: number;
   normNumGroups: number;
   scalingFactor: number;

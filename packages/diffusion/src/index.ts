@@ -53,6 +53,7 @@ export {
   loadFluxTransformerWeights,
   transformFluxTransformerWeight,
 } from "./families/flux/weights";
+export { Flux2KleinAutoencoderKL } from "./families/flux2/autoencoder";
 export {
   type Flux2KleinAutoencoderConfig,
   type Flux2KleinComponentConfigs,
@@ -93,6 +94,13 @@ export {
   type Flux2KleinScheduler,
   generateFlux2KleinImage,
 } from "./families/flux2/pipeline";
+export {
+  type Flux2KleinAutoencoderWeightLoadOptions,
+  type Flux2KleinAutoencoderWeightLoadResult,
+  flux2KleinAutoencoderWeightPath,
+  loadFlux2KleinAutoencoderFromSnapshot,
+  loadFlux2KleinAutoencoderWeights,
+} from "./families/flux2/weights";
 export {
   QwenImageAutoencoderKL,
   QwenImageDecoder3d,

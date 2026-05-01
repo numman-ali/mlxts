@@ -61,15 +61,25 @@ function lastBlockChannel(channels: readonly number[], owner: string): number {
   return value;
 }
 
+function decoderBlockChannels(config: StableDiffusionAutoencoderConfig): readonly number[] {
+  return config.decoderBlockOutChannels ?? config.blockOutChannels;
+}
+
 function validateAutoencoderConfig(config: StableDiffusionAutoencoderConfig): void {
   if (config.blockOutChannels.length === 0) {
     throw new Error("StableDiffusionAutoencoderKL: blockOutChannels must not be empty.");
   }
+  const decoderChannels = decoderBlockChannels(config);
+  if (decoderChannels.length === 0) {
+    throw new Error("StableDiffusionAutoencoderKL: decoderBlockOutChannels must not be empty.");
+  }
   if (config.downBlockTypes.length !== config.blockOutChannels.length) {
     throw new Error("StableDiffusionAutoencoderKL: downBlockTypes must match blockOutChannels.");
   }
-  if (config.upBlockTypes.length !== config.blockOutChannels.length) {
-    throw new Error("StableDiffusionAutoencoderKL: upBlockTypes must match blockOutChannels.");
+  if (config.upBlockTypes.length !== decoderChannels.length) {
+    throw new Error(
+      "StableDiffusionAutoencoderKL: upBlockTypes must match decoder block channels.",
+    );
   }
   if (config.latentChannelsOut !== config.latentChannels * 2) {
     throw new Error("StableDiffusionAutoencoderKL: latentChannelsOut must be 2 * latentChannels.");
@@ -171,9 +181,10 @@ export class StableDiffusionVaeDecoder extends Module {
   constructor(config: StableDiffusionAutoencoderConfig) {
     super();
     validateAutoencoderConfig(config);
-    const firstChannels = blockChannels(config.blockOutChannels, 0, "StableDiffusionVaeDecoder");
-    const finalChannels = lastBlockChannel(config.blockOutChannels, "StableDiffusionVaeDecoder");
-    const reversedChannels = [...config.blockOutChannels].reverse();
+    const decoderChannels = decoderBlockChannels(config);
+    const firstChannels = blockChannels(decoderChannels, 0, "StableDiffusionVaeDecoder");
+    const finalChannels = lastBlockChannel(decoderChannels, "StableDiffusionVaeDecoder");
+    const reversedChannels = [...decoderChannels].reverse();
     this.convIn = new Conv2d(config.latentChannels, finalChannels, 3, 1, 1);
     this.midBlock = new StableDiffusionVaeMidBlock2d(finalChannels, config.normNumGroups);
     this.upBlocks = reversedChannels.map((outChannels, index) => {

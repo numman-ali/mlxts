@@ -187,10 +187,14 @@ major product-agent focus on package-owned CLIs and future PI-agent integration.
   separate family contract. The package also owns prepared-embedding sampling
   over NCHW 2x2 packed latents, 4-axis image/text ids, empirical FlowMatch
   dynamic shift, external classifier-free guidance, distilled guidance
-  suppression, and VAE batch-norm inverse decode semantics. Transformer
-  execution, weight loading, Qwen3 prompt conditioning, image/reference
-  conditioning, KV-cache behavior, examples, and proof commands remain future
-  work.
+  suppression, and VAE batch-norm inverse decode semantics. `AutoencoderKLFlux2`
+  construction and safetensor loading are package-owned too: the FLUX.2 family
+  preserves an NCHW public VAE boundary, reuses channel-last VAE internals
+  through explicit transposes, supports separate decoder channel schedules, and
+  loads required `bn.running_mean` / `bn.running_var` checkpoint buffers.
+  Transformer execution and transformer weight loading, Qwen3 prompt
+  conditioning, image/reference conditioning, KV-cache behavior, examples, and
+  proof commands remain future work.
 - **Qwen conditional serving**: top-level Qwen 3.5 / 3.6 conditional
   checkpoints expose the Qwen text batch-cache surface for text-only continuous
   serving. Media/content requests still route as `media_input` and stay off
