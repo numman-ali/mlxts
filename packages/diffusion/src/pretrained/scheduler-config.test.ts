@@ -71,7 +71,7 @@ describe("diffusion scheduler config loading", () => {
     expect(createDiffusionScheduler(parsed)).toBeInstanceOf(DDIMScheduler);
   });
 
-  test("parses Euler scheduler config only when unsupported Diffusers knobs are inactive", () => {
+  test("parses SDXL-style Euler scheduler config", () => {
     const parsed = parseDiffusionSchedulerConfig({
       _class_name: "EulerDiscreteScheduler",
       beta_start: 0.00085,
@@ -80,13 +80,13 @@ describe("diffusion scheduler config loading", () => {
       num_train_timesteps: 1000,
       prediction_type: "epsilon",
       interpolation_type: "linear",
-      timestep_spacing: "linspace",
+      timestep_spacing: "leading",
       timestep_type: "discrete",
       final_sigmas_type: "zero",
       use_karras_sigmas: false,
       use_exponential_sigmas: false,
       use_beta_sigmas: false,
-      steps_offset: 0,
+      steps_offset: 1,
     });
 
     expect(parsed).toEqual({
@@ -97,9 +97,28 @@ describe("diffusion scheduler config loading", () => {
         betaEnd: 0.012,
         betaSchedule: "scaled_linear",
         numTrainTimesteps: 1000,
+        timestepSpacing: "leading",
+        stepsOffset: 1,
+        finalSigmasType: "zero",
       },
     });
     expect(createDiffusionScheduler(parsed)).toBeInstanceOf(EulerScheduler);
+  });
+
+  test("parses Euler final sigma and trailing spacing metadata", () => {
+    const parsed = parseDiffusionSchedulerConfig({
+      _class_name: "EulerDiscreteScheduler",
+      timestep_spacing: "trailing",
+      steps_offset: 1,
+      final_sigmas_type: "sigma_min",
+    });
+
+    expect(parsed.kind).toBe("euler");
+    expect(parsed.config).toEqual({
+      timestepSpacing: "trailing",
+      stepsOffset: 1,
+      finalSigmasType: "sigma_min",
+    });
   });
 
   test("parses FlowMatch Euler scheduler config for Flux snapshots", () => {
@@ -241,13 +260,7 @@ describe("diffusion scheduler config loading", () => {
     expect(() =>
       parseDiffusionSchedulerConfig({
         _class_name: "EulerDiscreteScheduler",
-        steps_offset: 1,
-      }),
-    ).toThrow("steps_offset");
-    expect(() =>
-      parseDiffusionSchedulerConfig({
-        _class_name: "EulerDiscreteScheduler",
-        final_sigmas_type: "sigma_min",
+        final_sigmas_type: "last",
       }),
     ).toThrow("final_sigmas_type");
     expect(() =>

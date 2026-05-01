@@ -20,8 +20,8 @@ import {
   subtract,
 } from "@mlxts/core";
 
-import type { DDIMScheduler } from "../../schedulers/ddim";
-import { EulerScheduler } from "../../schedulers/euler";
+import type { DDIMScheduler, DDIMSchedulerStep } from "../../schedulers/ddim";
+import { EulerScheduler, type EulerTimestepPair } from "../../schedulers/euler";
 import type {
   StableDiffusionUNetForwardOptions,
   StableDiffusionUNetTextTimeConditioning,
@@ -61,6 +61,7 @@ export type StableDiffusionInitialLatentOptions = {
   height: number;
   width: number;
   latentChannels: number;
+  numInferenceSteps?: number;
   vaeScaleFactor?: number;
   dtype?: DType;
   rngKey?: MxArray;
@@ -105,6 +106,8 @@ type OwnedStableDiffusionConditioning = {
   encoderHiddenStates: MxArray;
   textTime?: StableDiffusionUNetTextTimeConditioning;
 };
+
+type StableDiffusionSchedulerStep = DDIMSchedulerStep | EulerTimestepPair;
 
 function assertPositiveInteger(name: string, value: number): void {
   if (!Number.isInteger(value) || value <= 0) {
@@ -259,13 +262,15 @@ function stepScheduler(
   scheduler: StableDiffusionScheduler,
   modelOutput: MxArray,
   latents: MxArray,
-  timestep: number,
-  previousTimestep: number,
+  step: StableDiffusionSchedulerStep,
 ): MxArray {
   if (scheduler instanceof EulerScheduler) {
-    return scheduler.step(modelOutput, latents, { timestep, previousTimestep });
+    if (!("sigma" in step) || !("previousSigma" in step)) {
+      throw new Error("Euler scheduler steps must carry sigma values.");
+    }
+    return scheduler.step(modelOutput, latents, step);
   }
-  const output = scheduler.step(modelOutput, latents, { timestep, previousTimestep });
+  const output = scheduler.step(modelOutput, latents, step);
   output.predOriginalSample.free();
   return output.prevSample;
 }
@@ -273,7 +278,7 @@ function stepScheduler(
 function schedulerSteps(
   scheduler: StableDiffusionScheduler,
   numInferenceSteps: number,
-): readonly { timestep: number; previousTimestep: number }[] {
+): readonly StableDiffusionSchedulerStep[] {
   return scheduler instanceof EulerScheduler
     ? scheduler.timesteps(numInferenceSteps)
     : scheduler.steps(numInferenceSteps);
@@ -323,17 +328,11 @@ function predictNoise(
 function denoiseStep(
   options: StableDiffusionDenoiseOptions,
   latents: MxArray,
-  step: { timestep: number; previousTimestep: number },
+  step: StableDiffusionSchedulerStep,
   batchSize: number,
 ): MxArray {
   using prediction = predictNoise(options, latents, step.timestep, batchSize);
-  return stepScheduler(
-    options.scheduler,
-    prediction,
-    latents,
-    step.timestep,
-    step.previousTimestep,
-  );
+  return stepScheduler(options.scheduler, prediction, latents, step);
 }
 
 function resolveVaeScaleFactor(options: StableDiffusionImageGenerationOptions): number | undefined {
@@ -368,7 +367,8 @@ export function createStableDiffusionInitialLatents(
   const shape = stableDiffusionLatentShape(options);
   const dtype = options.dtype ?? "float32";
   if (options.scheduler instanceof EulerScheduler) {
-    return options.scheduler.samplePrior([...shape], dtype, options.rngKey);
+    const steps = options.numInferenceSteps;
+    return options.scheduler.samplePrior([...shape], dtype, options.rngKey, steps);
   }
   return random.normal([...shape], dtype, 0, 1, options.rngKey);
 }
@@ -460,6 +460,7 @@ export function generateStableDiffusionImage(
     height: options.height,
     width: options.width,
     latentChannels: options.vae.latentChannels,
+    numInferenceSteps: options.numInferenceSteps,
   };
   const vaeScaleFactor = resolveVaeScaleFactor(options);
   if (vaeScaleFactor !== undefined) {

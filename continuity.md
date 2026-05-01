@@ -102,7 +102,10 @@ major product-agent focus on package-owned CLIs and future PI-agent integration.
   tests. Stable Diffusion pipeline assembly over supplied conditioning tensors
   is package-owned too: NHWC latent shape, initial noise, DDIM/Euler denoising,
   negative-first classifier-free guidance, VAE unscale, and 0..1
-  postprocessing live in `@mlxts/diffusion`. A local snapshot now loads into
+  postprocessing live in `@mlxts/diffusion`. Euler now follows Diffusers
+  sigma-space semantics for real SD/SDXL checkpoint metadata, including
+  leading/trailing timestep spacing, `steps_offset`, and final sigma policy.
+  A local snapshot now loads into
   one disposable Stable Diffusion runtime bundle with VAE, UNet, scheduler,
   parsed manifest/configs, thin sampling methods, and explicit rejection for
   required/enabled safety-checker semantics. FLUX now has package-owned

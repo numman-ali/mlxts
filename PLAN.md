@@ -990,7 +990,9 @@ protocol media transport and scheduling, and `examples/qwen3_5-image` is the
 direct workbook. `@mlxts/diffusion` now owns Stable Diffusion / SDXL package
 surfaces through Diffusers snapshot source resolution, local manifest
 inspection, scheduler/config loading, VAE/UNet construction and loading,
-sampling, pipeline loading, and an AXI-shaped example proof command. It also
+sampling, pipeline loading, and an AXI-shaped example proof command. Diffusers
+Euler metadata now maps to sigma-space scheduler behavior for SD/SDXL leading
+or trailing timestep spacing, `steps_offset`, and final sigma policy. It also
 owns the first FLUX.1 package path: FlowMatch Euler scheduling, FLUX
 transformer config/backbone/weights, FLUX VAE config/loading/decoding, latent
 packing, sampling, and an AXI-shaped `examples/flux` proof command. Both image
@@ -1041,8 +1043,9 @@ All diffusion and flow-based generation across modalities: image, video, and aud
 1. **Stable Diffusion / SDXL baseline**: this remains first because it proves
    the reusable package surface end to end: VAE, UNet2D, scheduler, CLIP
    conditioning, Diffusers local-or-Hub snapshot loading, sampling, and an
-   AXI-shaped proof command. Real checkpoint image evidence is still required
-   before this becomes a product-complete image generation claim.
+   AXI-shaped proof command. Diffusers Euler checkpoint metadata now maps to
+   sigma-space scheduler behavior; real checkpoint image evidence is still
+   required before this becomes a product-complete image generation claim.
 2. **FLUX.1 family**: this is the first modern flow-matching target after the
    Stable Diffusion baseline because it moves `@mlxts/diffusion` from UNet2D
    pipelines into DiT/flow-style backbones. The local `FLUX.1-schnell` proof

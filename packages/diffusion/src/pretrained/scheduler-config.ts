@@ -1,7 +1,11 @@
 import { isAbsolute, join, normalize } from "path";
 import { DiffusionConfigError } from "../errors";
 import { DDIMScheduler, type DDIMSchedulerConfig } from "../schedulers/ddim";
-import { EulerScheduler, type EulerSchedulerConfig } from "../schedulers/euler";
+import {
+  type EulerFinalSigmasType,
+  EulerScheduler,
+  type EulerSchedulerConfig,
+} from "../schedulers/euler";
 import {
   FlowMatchEulerScheduler,
   type FlowMatchEulerSchedulerConfig,
@@ -181,6 +185,23 @@ function optionalTimestepSpacing(
   );
 }
 
+function optionalEulerFinalSigmasType(
+  record: Record<string, unknown>,
+  key: string,
+  context: string,
+): EulerFinalSigmasType | undefined {
+  const value = optionalString(record, key, context);
+  if (value === undefined) {
+    return undefined;
+  }
+  if (value === "zero" || value === "sigma_min") {
+    return value;
+  }
+  throw new DiffusionConfigError(
+    `${fieldName(context, key)}="${value}" is not a supported final sigma type.`,
+  );
+}
+
 function expectAbsent(record: Record<string, unknown>, key: string, context: string): void {
   const value = record[key];
   if (value !== undefined && value !== null) {
@@ -205,20 +226,6 @@ function expectStringValue(
   if (value !== undefined && value !== expected) {
     throw new DiffusionConfigError(
       `${fieldName(context, key)}="${value}" is not supported; expected "${expected}".`,
-    );
-  }
-}
-
-function expectIntegerValue(
-  record: Record<string, unknown>,
-  key: string,
-  expected: number,
-  context: string,
-): void {
-  const value = optionalInteger(record, key, context);
-  if (value !== undefined && value !== expected) {
-    throw new DiffusionConfigError(
-      `${fieldName(context, key)}=${value} is not supported; expected ${expected}.`,
     );
   }
 }
@@ -334,12 +341,23 @@ function parseEulerConfig(record: Record<string, unknown>, context: string): Eul
   expectBooleanNotTrue(record, "use_beta_sigmas", context);
   expectAbsent(record, "sigma_min", context);
   expectAbsent(record, "sigma_max", context);
-  expectStringValue(record, "timestep_spacing", "linspace", context);
   expectStringValue(record, "timestep_type", "discrete", context);
-  expectIntegerValue(record, "steps_offset", 0, context);
-  expectStringValue(record, "final_sigmas_type", "zero", context);
 
-  return parseBaseScheduleConfig(record, context);
+  const config: EulerSchedulerConfig = parseBaseScheduleConfig(record, context);
+  const timestepSpacing = optionalTimestepSpacing(record, "timestep_spacing", context);
+  const stepsOffset = optionalInteger(record, "steps_offset", context);
+  const finalSigmasType = optionalEulerFinalSigmasType(record, "final_sigmas_type", context);
+
+  if (timestepSpacing !== undefined) {
+    config.timestepSpacing = timestepSpacing;
+  }
+  if (stepsOffset !== undefined) {
+    config.stepsOffset = stepsOffset;
+  }
+  if (finalSigmasType !== undefined) {
+    config.finalSigmasType = finalSigmasType;
+  }
+  return config;
 }
 
 /** Parse a Diffusers scheduler config JSON payload into a supported scheduler spec. */
