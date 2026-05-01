@@ -1051,11 +1051,14 @@ evidence has also passed through the official `black-forest-labs/FLUX.2-klein-4B
 checkpoint. Stable Diffusion 3 / 3.5 snapshot/config recognition now exists for
 Diffusers `StableDiffusion3Pipeline` layouts, including
 `SD3Transformer2DModel`, FlowMatch Euler, AutoencoderKL, three text
-encoder/tokenizer components, and SD3.5 dual-attention metadata. Runtime tensor
-execution, weight mapping/loading, prompt encoding, and authenticated gated
-checkpoint proof remain separate tranches. Reference-image/KV variants, broader
-VLM families, audio encoder/decoder families, and additional diffusion/flow
-families remain Phase 10 work.
+encoder/tokenizer components, and SD3.5 dual-attention metadata. The prepared
+runtime foundation now covers NHWC latent patch embedding, fixed SD3 2D sincos
+position crops, MMDiT joint attention, SD3.5 RMS q/k norm plus dual-attention
+blocks, FlowMatch denoising over prepared conditioning tensors, and the VAE
+shift/scale decode boundary. Weight mapping/loading, prompt encoding, and
+authenticated gated checkpoint proof remain separate tranches. Reference-image
+/ KV variants, broader VLM families, audio encoder/decoder families, and
+additional diffusion/flow families remain Phase 10 work.
 
 **What this phase covers**:
 
@@ -1141,8 +1144,10 @@ All diffusion and flow-based generation across modalities: image, video, and aud
    AutoencoderKL, and three text encoders including T5-XXL. Snapshot recognition
    and component config parsing have landed for Diffusers
    `StableDiffusion3Pipeline` snapshots, including SD3.5 dual-attention fields.
-   Runtime tensor execution, weight mapping/loading, prompt encoding, and gated
-   official checkpoint proof remain separate follow-on tranches.
+   Runtime tensor execution has landed for prepared conditioning tensors,
+   including SD3.5 q/k norm and dual-attention blocks. Weight mapping/loading,
+   prompt encoding, and gated official checkpoint proof remain separate
+   follow-on tranches.
 
 ### 10c. Examples
 

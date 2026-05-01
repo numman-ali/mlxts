@@ -272,6 +272,29 @@ export {
   type StableDiffusion3VaeUpBlockType,
 } from "./families/stable-diffusion-3/config";
 export {
+  createStableDiffusion3InitialLatents,
+  type StableDiffusion3InitialLatentOptions,
+  stableDiffusion3LatentShape,
+  unpatchifyStableDiffusion3Latents,
+} from "./families/stable-diffusion-3/latents";
+export {
+  applyStableDiffusion3ClassifierFreeGuidance,
+  decodeStableDiffusion3Latents,
+  denoiseStableDiffusion3Latents,
+  generateStableDiffusion3Image,
+  type StableDiffusion3Conditioning,
+  type StableDiffusion3DenoiseOptions,
+  type StableDiffusion3Denoiser,
+  type StableDiffusion3DenoisingStepEvent,
+  type StableDiffusion3ImageGenerationOptions,
+  type StableDiffusion3LatentDecoder,
+  type StableDiffusion3Scheduler,
+} from "./families/stable-diffusion-3/pipeline";
+export {
+  type StableDiffusion3DenoiserInput,
+  StableDiffusion3Transformer2DModel,
+} from "./families/stable-diffusion-3/transformer";
+export {
   loadZImageComponentConfigs,
   parseZImageAutoencoderConfig,
   parseZImageTransformerConfig,

@@ -32,8 +32,8 @@ checkpoint proof remain explicit follow-ups.
   SigLIP IP-Adapter components:
   `.reference/diffusers/src/diffusers/pipelines/stable_diffusion_3/pipeline_stable_diffusion_3.py`
 - Local Diffusers `SD3Transformer2DModel` source identifies learned patch
-  positional embeddings, `caption_projection_dim`, `pooled_projection_dim`,
-  `dual_attention_layers`, and optional `qk_norm`:
+  projection, fixed sincos positional embeddings, `caption_projection_dim`,
+  `pooled_projection_dim`, `dual_attention_layers`, and optional `qk_norm`:
   `.reference/diffusers/src/diffusers/models/transformers/transformer_sd3.py`
 - `hf-internal-testing/tiny-sd3-pipe` provides public tiny manifest/config
   fixtures with the same component layout.

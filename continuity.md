@@ -210,12 +210,14 @@ major product-agent focus on package-owned CLIs and future PI-agent integration.
   conditioning and KV-cache behavior remain future work.
 - **Phase 10 Stable Diffusion 3 / 3.5 skeleton**: `@mlxts/diffusion` now
   recognizes Diffusers `StableDiffusion3Pipeline` snapshots and parses
-  `SD3Transformer2DModel` plus AutoencoderKL component configs. The skeleton
-  includes the SD3 triple text-encoder/tokenizer manifest layout and SD3.5
-  dual-attention / `rms_norm` metadata, while text encoders remain manifest
-  metadata outside `@mlxts/diffusion`. Runtime tensor execution, weight
-  mapping/loading, prompt encoding, and authenticated proof against gated
-  Stability checkpoints remain future work.
+  `SD3Transformer2DModel` plus AutoencoderKL component configs. The runtime
+  foundation now includes NHWC latent patch embedding, fixed SD3 2D sincos
+  position crops, MMDiT joint attention, SD3.5 dual-attention / `rms_norm`
+  execution, prepared-conditioning FlowMatch denoising, and the SD3 VAE
+  shift/scale decode boundary. The SD3 triple text-encoder/tokenizer stack
+  remains manifest metadata outside `@mlxts/diffusion`; weight mapping/loading,
+  prompt encoding, and authenticated proof against gated Stability checkpoints
+  remain future work.
 - **Qwen conditional serving**: top-level Qwen 3.5 / 3.6 conditional
   checkpoints expose the Qwen text batch-cache surface for text-only continuous
   serving. Media/content requests still route as `media_input` and stay off
