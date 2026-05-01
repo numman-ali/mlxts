@@ -221,8 +221,10 @@ major product-agent focus on package-owned CLIs and future PI-agent integration.
   the application-layer CLIP/T5 prompt-conditioning bridge: CLIP hidden-state
   selection, pooled projection embeddings, T5 padding/sequence concatenation,
   and classifier-free guidance prompt rules stay outside `@mlxts/diffusion`.
-  The finite proof command and authenticated proof against gated Stability
-  checkpoints remain future work.
+  The finite proof command now resolves snapshots, loads the package-owned
+  FlowMatch scheduler, transformer, and VAE, runs the prompt bridge, and writes
+  BMP artifact evidence. Authenticated proof against gated Stability
+  checkpoints remains future work.
 - **Qwen conditional serving**: top-level Qwen 3.5 / 3.6 conditional
   checkpoints expose the Qwen text batch-cache surface for text-only continuous
   serving. Media/content requests still route as `media_input` and stay off

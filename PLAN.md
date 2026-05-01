@@ -1059,8 +1059,9 @@ shift/scale decode boundary. Transformer and VAE weight mapping/loading now
 exist for inspected Diffusers snapshots, including base SD3 and SD3.5-style
 generated safetensor proofs. The example-owned SD3 prompt-conditioning bridge
 now composes the two CLIP projection encoders with the T5 encoder while keeping
-encoder ownership outside `@mlxts/diffusion`. The finite proof command and
-authenticated gated checkpoint proof remain separate tranches. Reference-image
+encoder ownership outside `@mlxts/diffusion`, and the finite AXI proof command
+now runs that bridge through FlowMatch denoising plus BMP artifact evidence.
+Authenticated gated checkpoint proof remains a separate tranche. Reference-image
 / KV variants, broader VLM families, audio encoder/decoder families, and
 additional diffusion/flow families remain Phase 10 work.
 
@@ -1154,8 +1155,10 @@ All diffusion and flow-based generation across modalities: image, video, and aud
    `examples/stable-diffusion-3` now owns the CLIP/T5 prompt-conditioning
    bridge with Diffusers hidden-state selection, pooled projection embeddings,
    T5 prompt embedding padding, and classifier-free guidance prompt rules.
-   The finite proof command and gated official checkpoint proof remain separate
-   follow-on tranches.
+   The finite proof command now resolves snapshots, loads the package-owned
+   FlowMatch scheduler, transformer, and VAE, runs the prompt bridge, and writes
+   BMP artifact evidence. Gated official checkpoint proof remains a separate
+   follow-on tranche.
 
 ### 10c. Examples
 

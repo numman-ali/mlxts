@@ -51,8 +51,8 @@ type SequenceShape = {
   channels: number;
 };
 
-const SD3_DEFAULT_MAX_SEQUENCE_LENGTH = 256;
-const SD3_MAX_SEQUENCE_LENGTH = 512;
+export const SD3_DEFAULT_MAX_SEQUENCE_LENGTH = 256;
+export const SD3_MAX_SEQUENCE_LENGTH = 512;
 
 function disposeHiddenStates(hiddenStates: MxArray[] | undefined): void {
   if (hiddenStates === undefined) {
