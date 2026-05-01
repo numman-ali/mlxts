@@ -54,6 +54,19 @@ export {
   parseLtxVideoTransformerConfig,
 } from "./config";
 export {
+  disposeLtx2TextConnectorOutput,
+  type Ltx2TextConnectorOutput,
+  Ltx2TextConnectors,
+} from "./connectors-ltx2";
+export {
+  disposeLtx2ConnectorTransformerOutput,
+  Ltx2ConnectorBlock1d,
+  Ltx2ConnectorFeedForward,
+  Ltx2ConnectorTransformer1d,
+  type Ltx2ConnectorTransformerOutput,
+  replaceLtx2ConnectorPaddingWithRegisters,
+} from "./connectors-ltx2-transformer";
+export {
   decodeLtxVideoLatents,
   denormalizeLtxVideoLatents,
   type LtxVideoLatentDecoder,
