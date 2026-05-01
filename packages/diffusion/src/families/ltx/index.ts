@@ -8,6 +8,26 @@ export {
   LtxVideoVaeRMSNorm,
 } from "./autoencoder-blocks";
 export {
+  Ltx2VideoAutoencoderKL,
+  Ltx2VideoDecoder3d,
+  unpatchLtx2VideoDecoderOutput,
+} from "./autoencoder-ltx2";
+export {
+  Ltx2VideoCausalConv3d,
+  Ltx2VideoMidBlock3d,
+  Ltx2VideoResnetBlock3d,
+  Ltx2VideoUpBlock3d,
+  Ltx2VideoUpsampler3d,
+} from "./autoencoder-ltx2-blocks";
+export {
+  type Ltx2VideoAutoencoderWeightLoadOptions,
+  type Ltx2VideoAutoencoderWeightLoadResult,
+  loadLtx2VideoAutoencoderFromSnapshot,
+  loadLtx2VideoAutoencoderWeights,
+  ltx2VideoAutoencoderWeightPath,
+  transformLtx2VideoAutoencoderWeight,
+} from "./autoencoder-ltx2-weights";
+export {
   expectLtxVideoVaeVolume,
   LtxVideoCausalConv3d,
   ltxVideoBcfhwToBfhwc,
