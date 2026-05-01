@@ -1040,7 +1040,7 @@ All diffusion and flow-based generation across modalities: image, video, and aud
 - Schedulers: DDPM, DDIM, DPM-Solver, Euler, Flow Matching
 - Conditioning: cross-attention from text/image embeddings (produced by encoders from `@mlxts/transformers`)
 - Sampling: classifier-free guidance, negative prompts
-- Target families (informed by mlxr proving workloads): Stable Diffusion/SDXL, FLUX.1, Qwen-Image, Z-Image-Turbo, LTX-Video
+- Target families (informed by mlxr proving workloads): Stable Diffusion/SDXL, FLUX.1, Z-Image-Turbo, Qwen-Image/Qwen-Image-2512, FLUX.2 Klein, Stable Diffusion 3 / 3.5, LTX-Video
 - Fine-tuning: `@mlxts/lora` and `@mlxts/train` work on diffusion models — LoRA targets attention layers in UNet/DiT the same way it targets attention in text decoders. DreamBooth and textual inversion are diffusion-specific techniques that live in this package.
 
 **Image-generation support ladder:**
@@ -1059,22 +1059,29 @@ All diffusion and flow-based generation across modalities: image, video, and aud
    explicit: short prompt sequence length, guidance disabled, and few-step
    sampling. Gated or non-commercial variants require explicit operator and
    license handling before they are advertised.
-3. **Qwen-Image family**: this is the Qwen text-to-image generation track, not
-   the already-landed Qwen 3.5 / Qwen 3.6 image-understanding route. Diffusers
+3. **Z-Image-Turbo**: this is the first speed-first modern image target after
+   FLUX.1 because it keeps the next runtime tranche focused: Diffusers exposes
+   base `ZImagePipeline` snapshots as FlowMatch Euler plus a 6B
+   `ZImageTransformer2DModel`, standard `AutoencoderKL`, and Qwen chat-template
+   prompt encoding. The reference-audited snapshot/config skeleton has landed.
+   Runtime tensor execution and the finite proof command remain follow-on work.
+4. **Qwen-Image family**: this is the Qwen text-to-image generation track, not
+   the already-landed Qwen 3.5 / Qwen 3.6 image-understanding route.
+   `Qwen/Qwen-Image-2512` is the primary forward target once runtime execution
+   starts; `Qwen/Qwen-Image` remains the base compatibility fixture. Diffusers
    exposes it as `QwenImagePipeline` over FlowMatch Euler,
    `QwenImageTransformer2DModel`, `AutoencoderKLQwenImage`, and a Qwen2.5-VL
    text encoder. Its VAE is a 3D causal Qwen/Wan-derived autoencoder, so the
    first implementation tranche is the landed reference-audited
-   config/model-index parser, not reuse of the Stable Diffusion or FLUX VAE
-   path. Runtime tensor execution remains a separate tranche.
-4. **Z-Image-Turbo**: this is the first speed-first modern image target after
-   Qwen-Image is represented cleanly. The reference-audited snapshot/config
-   skeleton has landed for base `ZImagePipeline` snapshots: Diffusers exposes a
-   6B `ZImageTransformer2DModel` pipeline using FlowMatch Euler, standard
-   `AutoencoderKL`, and Qwen chat-template prompt encoding. Runtime tensor
-   execution and the finite proof command remain follow-on work.
-5. **Stable Diffusion 3 / 3.5 and distilled variants**: these become follow-on
-   targets when their MMDiT/flow components can reuse the FLUX/Qwen/Z-Image
+   config/model-index parser, not reuse of the Stable Diffusion, FLUX, or
+   Z-Image VAE path. Runtime tensor execution remains a separate tranche.
+5. **FLUX.2 Klein 4B**: this is a later separate family, not a FLUX.1 variant.
+   It uses Diffusers `Flux2KleinPipeline`, `Flux2Transformer2DModel`,
+   `AutoencoderKLFlux2`, and Qwen3 text encoding, so it should land only after
+   the FLUX.1 and Z/Qwen flow-transformer seams are clean enough to avoid a
+   parallel package shape.
+6. **Stable Diffusion 3 / 3.5 and distilled variants**: these become follow-on
+   targets when their MMDiT/flow components can reuse the FLUX/Z-Image/Qwen
    infrastructure without creating a parallel package shape. SD3 has its own
    product cost because it combines `SD3Transformer2DModel`, FlowMatch Euler,
    AutoencoderKL, and three text encoders including T5-XXL.

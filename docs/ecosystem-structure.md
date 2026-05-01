@@ -239,13 +239,16 @@ commands over package surfaces. Real checkpoint evidence and broader image
 output formats remain follow-on Phase 10 tranches.
 
 **Image-generation support order:** Stable Diffusion / SDXL is the baseline
-pipeline family. FLUX.1 is the next flow-matching target. Qwen-Image is the
-Qwen text-to-image generation family and stays separate from Qwen 3.5 / Qwen
-3.6 image understanding in `@mlxts/transformers`. Z-Image-Turbo is the
-speed-first local target after Qwen-Image and now has a reference-backed
-snapshot/config seam. Stable Diffusion 3 / 3.5 and distilled or turbo variants
-follow only when they reuse the base family infrastructure or come with a
-documented architecture delta.
+pipeline family. FLUX.1 is the next flow-matching target. Z-Image-Turbo is the
+speed-first local target after FLUX.1 and now has a reference-backed
+snapshot/config seam over standard AutoencoderKL. Qwen-Image is the Qwen
+text-to-image generation family and stays separate from Qwen 3.5 / Qwen 3.6
+image understanding in `@mlxts/transformers`; `Qwen/Qwen-Image-2512` is the
+primary forward runtime target once the Qwen-specific VAE/text stack is ready.
+FLUX.2 Klein is a later separate family, not a FLUX.1 checkpoint variant.
+Stable Diffusion 3 / 3.5 and distilled or turbo variants follow only when they
+reuse the base family infrastructure or come with a documented architecture
+delta.
 
 **Architecture pattern:** Mirrors `@mlxts/transformers` — explicit family
 registry, config-driven model construction, and official Hugging Face JS-backed snapshot loading.

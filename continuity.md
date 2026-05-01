@@ -138,10 +138,12 @@ major product-agent focus on package-owned CLIs and future PI-agent integration.
   snapshot, encoded prompt conditioning, ran denoising, and wrote a BMP
   artifact. The image-generation support
   ladder is now explicit: Stable Diffusion / SDXL baseline first, then FLUX.1,
-  then Qwen-Image, then Z-Image-Turbo, with
+  then Z-Image-Turbo, then Qwen-Image with `Qwen/Qwen-Image-2512` as the
+  forward runtime target, then FLUX.2 Klein as a separate later family, with
   Stable Diffusion 3 / 3.5 and distilled variants following when they reuse the
-  base flow/DiT infrastructure. Real checkpoint quality/parity evidence and
-  Z-Image runtime execution remain separate from the command/snapshot surfaces.
+  base flow/DiT infrastructure. Real checkpoint quality/parity evidence,
+  FLUX.1 image proof, and Z-Image/Qwen-Image runtime execution remain separate
+  from the command/snapshot surfaces.
 - **Phase 10 CLIP conditioning**: `@mlxts/transformers` now owns a
   `families/clip/` text encoder surface with CLIP text config parsing, causal
   text attention, quick GELU, EOS pooling, projected text features, and retained
