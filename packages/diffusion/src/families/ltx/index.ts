@@ -1,3 +1,4 @@
+export { Ltx2Attention, type Ltx2AttentionOptions } from "./attention-ltx2";
 export { LtxVideoAutoencoderKL, LtxVideoDecoder3d } from "./autoencoder";
 export {
   LtxVideoMidBlock3d,
@@ -20,6 +21,18 @@ export {
   ltxVideoAutoencoderWeightPath,
   transformLtxVideoAutoencoderWeight,
 } from "./autoencoder-weights";
+export {
+  disposeLtx2VideoTransformerBlockOutput,
+  Ltx2FeedForward,
+  Ltx2VideoTransformerBlock,
+  type Ltx2VideoTransformerBlockInput,
+  type Ltx2VideoTransformerBlockOutput,
+} from "./blocks-ltx2";
+export {
+  disposeLtx2AdaLayerNormSingleOutput,
+  Ltx2AdaLayerNormSingle,
+  type Ltx2AdaLayerNormSingleOutput,
+} from "./conditioning-ltx2";
 export {
   type Ltx2AudioAutoencoderConfig,
   type Ltx2AudioCausalityAxis,
@@ -175,6 +188,7 @@ export {
   type Ltx2Scheduler,
 } from "./pipeline-ltx2";
 export { LtxVideoTransformer3DModel } from "./transformer";
+export { Ltx2VideoTransformer3DModel } from "./transformer-ltx2";
 export {
   type LtxVideoTransformerWeightLoadOptions,
   type LtxVideoTransformerWeightLoadResult,

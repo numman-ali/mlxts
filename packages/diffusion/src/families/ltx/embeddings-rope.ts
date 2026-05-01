@@ -91,17 +91,17 @@ function expectLtx2CoordShape(options: Ltx2RotaryEmbeddingOptions): {
   ) {
     throw new Error("LTX-2 RoPE coordinates must have shape [batch, axes, tokens, 2].");
   }
-  const expectedPositionDims = options.modality === "video" ? 3 : 1;
-  if (positionDims !== expectedPositionDims) {
+  const validPositionDims = options.modality === "video" ? [1, 3] : [1];
+  if (!validPositionDims.includes(positionDims)) {
     throw new Error(
-      `LTX-2 ${options.modality} RoPE requires ${expectedPositionDims} coordinate axes.`,
+      `LTX-2 ${options.modality} RoPE requires ${validPositionDims.join(" or ")} coordinate axes.`,
     );
   }
   return { batchSize, positionDims, tokens };
 }
 
 function ltx2BasePositions(options: Ltx2RotaryEmbeddingOptions): readonly number[] {
-  if (options.modality === "audio") {
+  if (options.modality === "audio" || options.coords.shape[1] === 1) {
     return [options.baseNumFrames ?? 20];
   }
   return [options.baseNumFrames ?? 20, options.baseHeight ?? 2048, options.baseWidth ?? 2048];
