@@ -636,11 +636,12 @@ work is deferred unless a row says otherwise.
 - **Phase 9 surfaces now exist:** `quantize`, `serve`, and `agent` are in-repo; serving, cache, scheduler, protocol, and model-pool work continue through package-owned surfaces.
 - **Phase 9.5 hardens:** agent-operated CLI contracts. Package-owned binaries adopt AXI-shaped finite output before any umbrella CLI centralizes names.
 - **Phase 10 creates:** `diffusion`. Scheduler infrastructure, Stable
-  Diffusion / SDXL package surfaces, FLUX.1 package surfaces, base Z-Image
-  runtime primitives, and example proof commands for SD/SDXL plus FLUX.1 are in
-  place; Qwen-Image runtime execution and additional diffusion/flow families
-  remain Phase 10 work. Vision/audio encoders extend `transformers`, not a
-  separate package. Generative media (image/video/audio) uses diffusion/flow →
+  Diffusion / SDXL, FLUX.1, Z-Image-Turbo, and Qwen-Image/Qwen-Image-2512
+  runtime paths plus example proof commands are in place with bounded real
+  checkpoint evidence. FLUX.2 Klein, Stable Diffusion 3 / 3.5,
+  image-to-image, inpainting, ControlNet, video, and audio generation remain
+  Phase 10 work. Vision/audio encoders extend `transformers`, not a separate
+  package. Generative media (image/video/audio) uses diffusion/flow →
   `@mlxts/diffusion`.
 - **Phase 12 creates:** `eval`. This appears when benchmark evaluation lands.
 - **`cli` grows incrementally** — subcommands arrive as their backing packages ship, after finite command contracts are already AXI-shaped at the package-owned boundary.

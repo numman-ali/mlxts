@@ -58,7 +58,7 @@ packages/
   align/        SFT/DPO data prep and recipe helpers
   serve/        Local OpenAI-compatible serving and scheduling surfaces
   agent/        Local tool-using agent loops over served models
-  diffusion/    Diffusion/flow generation primitives and Stable Diffusion path
+  diffusion/    Diffusion/flow generation primitives and image proof paths
 examples/
   nanogpt/      Committed nanoGPT example and regression surface
   chat/         Interactive local chat over transformer checkpoints
@@ -66,6 +66,10 @@ examples/
   train-proof/  Training/alignment proof workflow
   qwen3_5-image/ Dedicated Qwen 3.5 / Qwen 3.6 multimodal image example
   stable-diffusion/ Stable Diffusion / SDXL image-generation proof workbook
+  flux/         FLUX.1 image-generation proof workbook
+  z-image/      Z-Image-Turbo image-generation proof workbook
+  qwen-image/   Qwen-Image / Qwen-Image-2512 generation proof workbook
+  image-proof/  Saved BMP/report verification helper for image proof outputs
   serve-completions/ Serving concurrency/protocol example
 docs/           Architecture, setup, standards, roadmap
 scripts/        Validation, packaging, and repo tooling
@@ -108,13 +112,50 @@ bun run examples/qwen3_5-image/index.ts mlx-community/Qwen3.6-27B-4bit \
   --greedy
 ```
 
-If you want to sanity-check the current Stable Diffusion proof surface, use a
-local Diffusers snapshot:
+If you want to sanity-check the current Phase 10 image-generation proof
+surface, use one of the finite proof workbooks. Stable Diffusion / SDXL,
+FLUX.1, Z-Image-Turbo, and Qwen-Image / Qwen-Image-2512 have bounded real
+checkpoint evidence; FLUX.2 Klein and Stable Diffusion 3 / 3.5 are later
+separate family tranches.
 
 ```bash
 bun run examples/stable-diffusion/index.ts /models/stable-diffusion \
   --prompt "a cat sitting on a laptop" \
-  --output .tmp/stable-diffusion/sample.bmp
+  --output .tmp/stable-diffusion/sample.bmp \
+  --steps 2 \
+  --height 256 \
+  --width 256 \
+  --json
+
+bun run examples/flux/index.ts black-forest-labs/FLUX.1-schnell \
+  --local-files-only \
+  --prompt "a small red apple on a white table, product photo" \
+  --output .tmp/flux/sample.bmp \
+  --steps 2 \
+  --height 256 \
+  --width 256 \
+  --json
+
+bun run examples/z-image/index.ts Tongyi-MAI/Z-Image-Turbo \
+  --local-files-only \
+  --prompt "a small red apple on a white table, product photo" \
+  --output .tmp/z-image/sample.bmp \
+  --steps 2 \
+  --height 256 \
+  --width 256 \
+  --guidance-scale 0 \
+  --json
+
+bun run examples/qwen-image/index.ts Qwen/Qwen-Image-2512 \
+  --local-files-only \
+  --prompt "a small red apple on a white table, product photo" \
+  --negative-prompt " " \
+  --output .tmp/qwen-image/sample.bmp \
+  --steps 2 \
+  --height 256 \
+  --width 256 \
+  --true-cfg-scale 4 \
+  --json
 ```
 
 If you want to serve a local model and talk to it through the package-owned
@@ -166,8 +207,10 @@ packing checks for the public packages before any real release happens.
 - hosted API docs
 - production deployment ergonomics beyond the current local serving/runtime
   surfaces
-- real Stable Diffusion checkpoint image evidence and broader diffusion/flow
-  families beyond the first Stable Diffusion / SDXL package surfaces
+- larger/default-step quality and performance characterization for SDXL,
+  FLUX.1, Z-Image-Turbo, and Qwen-Image-2512 beyond bounded capability proofs
+- FLUX.2 Klein, Stable Diffusion 3 / 3.5, image-to-image, inpainting,
+  ControlNet, video, and audio generation
 - advanced serving backends such as paged KV, TurboQuant-style KV compression,
   speculative decoding, and full multimodal serving until the cache/scheduler
   seams are proven

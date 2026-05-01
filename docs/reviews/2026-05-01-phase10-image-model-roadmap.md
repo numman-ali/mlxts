@@ -3,11 +3,10 @@
 ## Summary
 
 Refreshed the Phase 10 image-generation support order against current
-Hugging Face and Diffusers references. The roadmap now keeps SD/SDXL and
-FLUX.1 as the near-term proof foundation, moves Z-Image-Turbo ahead of full
-Qwen-Image runtime because it is the cleaner speed-first runtime target, names
-`Qwen/Qwen-Image-2512` as the forward Qwen image target, and treats FLUX.2
-Klein as a separate later family rather than a FLUX.1 variant.
+Hugging Face and Diffusers references. SD/SDXL, FLUX.1, Z-Image-Turbo, and
+Qwen-Image / Qwen-Image-2512 now have bounded real checkpoint image evidence.
+FLUX.2 Klein remains a separate later family rather than a FLUX.1 variant, and
+Stable Diffusion 3 / 3.5 remains a separate MMDiT/flow target.
 
 ## Files Reviewed
 
@@ -97,5 +96,6 @@ boundary needed by the Qwen-Image proof.
 - Qwen-Image / Qwen-Image-2512 has bounded official checkpoint image evidence,
   but still needs larger/default-step quality and performance characterization
   before it can be called product-complete.
-- Video and audio generation remain Phase 10 work after the first image
-  generation surfaces are stable.
+- Image-to-image, inpainting, ControlNet, edit/control/layered variants, video,
+  and audio generation remain Phase 10 work after the first text-to-image
+  surfaces are stable.

@@ -1087,9 +1087,9 @@ All diffusion and flow-based generation across modalities: image, video, and aud
    dense checkpoint evidence has passed as a bounded 256px capability proof.
 4. **Qwen-Image family**: this is the Qwen text-to-image generation track, not
    the already-landed Qwen 3.5 / Qwen 3.6 image-understanding route.
-   `Qwen/Qwen-Image-2512` is the primary forward target once runtime execution
-   starts; `Qwen/Qwen-Image` remains the base compatibility fixture. Diffusers
-   exposes it as `QwenImagePipeline` over FlowMatch Euler,
+   `Qwen/Qwen-Image-2512` is the primary proved forward runtime target;
+   `Qwen/Qwen-Image` remains the base compatibility fixture. Diffusers exposes
+   it as `QwenImagePipeline` over FlowMatch Euler,
    `QwenImageTransformer2DModel`, `AutoencoderKLQwenImage`, and a Qwen2.5-VL
    text encoder. Its VAE is a 3D causal Qwen/Wan-derived autoencoder, so the
    landed implementation path is separate from the Stable Diffusion, FLUX, and
