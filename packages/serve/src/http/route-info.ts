@@ -4,6 +4,7 @@
  */
 
 import { jsonResponse, ServeError } from "../errors";
+import type { GenerationPromptPrefixCacheInfo } from "../prompt-cache-observability";
 import {
   formatOpenAIModelResponse,
   formatOpenAIModelsResponse,
@@ -42,6 +43,29 @@ export type ServeInfoModel = {
   effective_total_tokens: number | null;
 };
 
+export type ServePromptPrefixCacheInfo = {
+  total_retained_snapshots: number;
+  total_retained_snapshot_bytes: number;
+  total_indexed_block_hashes: number;
+  total_token_blocks: number;
+  total_token_block_references: number;
+  total_unique_token_count: number;
+  total_referenced_token_count: number;
+  models: readonly {
+    id: string;
+    retained_snapshots: number;
+    retained_snapshot_bytes: number;
+    indexed_block_hashes: number;
+    token_blocks: {
+      block_size: number;
+      block_count: number;
+      block_references: number;
+      unique_token_count: number;
+      referenced_token_count: number;
+    };
+  }[];
+};
+
 export type ServeInfoResponse = {
   status: "ok";
   router: "@mlxts/serve";
@@ -78,6 +102,7 @@ export type ServeInfoResponse = {
   };
   runtime_strategy: ServeRuntimeStrategyInfo;
   model_pool: GenerationModelPoolInfo | null;
+  prompt_prefix_cache: ServePromptPrefixCacheInfo | null;
 };
 
 export type ServeInfoOptions = {
@@ -120,6 +145,36 @@ function strategyForInfo(
       ? {}
       : { gpuMemoryUtilization: limits.gpuMemoryUtilization }),
   });
+}
+
+function formatPromptPrefixCacheInfo(
+  info: GenerationPromptPrefixCacheInfo | undefined,
+): ServePromptPrefixCacheInfo | null {
+  if (info === undefined) {
+    return null;
+  }
+  return {
+    total_retained_snapshots: info.totalRetainedSnapshots,
+    total_retained_snapshot_bytes: info.totalRetainedSnapshotBytes,
+    total_indexed_block_hashes: info.totalIndexedBlockHashes,
+    total_token_blocks: info.totalTokenBlocks,
+    total_token_block_references: info.totalTokenBlockReferences,
+    total_unique_token_count: info.totalUniqueTokenCount,
+    total_referenced_token_count: info.totalReferencedTokenCount,
+    models: info.models.map((model) => ({
+      id: model.id,
+      retained_snapshots: model.retainedSnapshots,
+      retained_snapshot_bytes: model.retainedSnapshotBytes,
+      indexed_block_hashes: model.indexedBlockHashes,
+      token_blocks: {
+        block_size: model.tokenBlocks.blockSize,
+        block_count: model.tokenBlocks.blockCount,
+        block_references: model.tokenBlocks.blockReferences,
+        unique_token_count: model.tokenBlocks.uniqueTokenCount,
+        referenced_token_count: model.tokenBlocks.referencedTokenCount,
+      },
+    })),
+  };
 }
 
 function servedModelById(models: readonly ServedModelInfo[], id: string): ServedModelInfo {
@@ -176,6 +231,7 @@ export function formatServeInfoResponse(options: ServeInfoOptions): ServeInfoRes
     },
     runtime_strategy: formatServeRuntimeStrategyInfo(strategy),
     model_pool: options.engine.modelPoolInfo?.() ?? null,
+    prompt_prefix_cache: formatPromptPrefixCacheInfo(options.engine.promptPrefixCacheInfo?.()),
   };
 }
 

@@ -118,6 +118,32 @@ describe("serve fetch handler", () => {
           invoked = true;
           yield { type: "text", text: "" };
         },
+        promptPrefixCacheInfo() {
+          return {
+            models: [
+              {
+                id: "tiny",
+                retainedSnapshots: 1,
+                retainedSnapshotBytes: 2048,
+                indexedBlockHashes: 2,
+                tokenBlocks: {
+                  blockSize: 64,
+                  blockCount: 2,
+                  blockReferences: 2,
+                  uniqueTokenCount: 128,
+                  referencedTokenCount: 128,
+                },
+              },
+            ],
+            totalRetainedSnapshots: 1,
+            totalRetainedSnapshotBytes: 2048,
+            totalIndexedBlockHashes: 2,
+            totalTokenBlocks: 2,
+            totalTokenBlockReferences: 2,
+            totalUniqueTokenCount: 128,
+            totalReferencedTokenCount: 128,
+          };
+        },
       },
       models: [{ id: "tiny" }, { id: "mlx-community/Qwen3.6-27B-4bit" }],
       limits: {
@@ -146,6 +172,30 @@ describe("serve fetch handler", () => {
       model_ids: ["tiny", "mlx-community/Qwen3.6-27B-4bit"],
       model_count: 2,
       model_pool: null,
+      prompt_prefix_cache: {
+        total_retained_snapshots: 1,
+        total_retained_snapshot_bytes: 2048,
+        total_indexed_block_hashes: 2,
+        total_token_blocks: 2,
+        total_token_block_references: 2,
+        total_unique_token_count: 128,
+        total_referenced_token_count: 128,
+        models: [
+          {
+            id: "tiny",
+            retained_snapshots: 1,
+            retained_snapshot_bytes: 2048,
+            indexed_block_hashes: 2,
+            token_blocks: {
+              block_size: 64,
+              block_count: 2,
+              block_references: 2,
+              unique_token_count: 128,
+              referenced_token_count: 128,
+            },
+          },
+        ],
+      },
       limits: {
         max_generated_tokens: 2048,
         max_prompt_tokens: 4096,

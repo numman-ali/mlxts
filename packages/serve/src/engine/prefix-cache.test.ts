@@ -520,18 +520,20 @@ describe("PromptPrefixCache", () => {
       promptCache: cache,
       tokenIds: tokenRange(1, 6),
       enabled: true,
-      onEvent(result, usage) {
-        events.push(`${result}:${usage.readTokens}:${usage.writeTokens}`);
+      onEvent(result, details) {
+        events.push(
+          `${result}:${details.usage.readTokens}:${details.usage.writeTokens}:${details.stats.entries}`,
+        );
       },
     });
 
     expect(session.tokenIdsForGeneration()).toEqual([4, 5, 6]);
-    expect(events).toEqual(["hit:3:0"]);
+    expect(events).toEqual(["hit:3:0:1"]);
 
     const options = session.generationOptions();
     expect(options.samplerHistoryTokenIds).toEqual(tokenRange(1, 6));
     options.onPromptCacheSnapshot?.({ offset: 5, snapshot: new FakeSnapshot(5) });
     expect(session.usage()).toEqual({ readTokens: 3, writeTokens: 2 });
-    expect(events).toEqual(["hit:3:0", "write:3:2"]);
+    expect(events).toEqual(["hit:3:0:1", "write:3:2:1"]);
   });
 });

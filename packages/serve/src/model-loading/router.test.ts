@@ -92,6 +92,86 @@ describe("model router generation engine", () => {
     expect(betaDisposeCount).toBe(1);
   });
 
+  test("aggregates prompt-prefix cache retention info from routed engines", () => {
+    const engine = createModelRouterGenerationEngine({
+      engines: {
+        alpha: {
+          generate() {
+            return { text: "a", finishReason: "stop" };
+          },
+          promptPrefixCacheInfo() {
+            return {
+              models: [
+                {
+                  id: "alpha",
+                  retainedSnapshots: 1,
+                  retainedSnapshotBytes: 1024,
+                  indexedBlockHashes: 2,
+                  tokenBlocks: {
+                    blockSize: 64,
+                    blockCount: 2,
+                    blockReferences: 2,
+                    uniqueTokenCount: 128,
+                    referencedTokenCount: 128,
+                  },
+                },
+              ],
+              totalRetainedSnapshots: 1,
+              totalRetainedSnapshotBytes: 1024,
+              totalIndexedBlockHashes: 2,
+              totalTokenBlocks: 2,
+              totalTokenBlockReferences: 2,
+              totalUniqueTokenCount: 128,
+              totalReferencedTokenCount: 128,
+            };
+          },
+        },
+        beta: {
+          generate() {
+            return { text: "b", finishReason: "stop" };
+          },
+          promptPrefixCacheInfo() {
+            return {
+              models: [
+                {
+                  id: "beta",
+                  retainedSnapshots: 2,
+                  retainedSnapshotBytes: 2048,
+                  indexedBlockHashes: 3,
+                  tokenBlocks: {
+                    blockSize: 32,
+                    blockCount: 3,
+                    blockReferences: 5,
+                    uniqueTokenCount: 96,
+                    referencedTokenCount: 160,
+                  },
+                },
+              ],
+              totalRetainedSnapshots: 2,
+              totalRetainedSnapshotBytes: 2048,
+              totalIndexedBlockHashes: 3,
+              totalTokenBlocks: 3,
+              totalTokenBlockReferences: 5,
+              totalUniqueTokenCount: 96,
+              totalReferencedTokenCount: 160,
+            };
+          },
+        },
+      },
+    });
+
+    expect(engine.promptPrefixCacheInfo?.()).toMatchObject({
+      totalRetainedSnapshots: 3,
+      totalRetainedSnapshotBytes: 3072,
+      totalIndexedBlockHashes: 5,
+      totalTokenBlocks: 5,
+      totalTokenBlockReferences: 7,
+      totalUniqueTokenCount: 224,
+      totalReferencedTokenCount: 288,
+      models: [{ id: "alpha" }, { id: "beta" }],
+    });
+  });
+
   test("reports unknown model ids and delegates streaming per model", async () => {
     const engine = createModelRouterGenerationEngine({
       engines: new Map<string, GenerationEngine>([

@@ -106,6 +106,14 @@ export type AgentCacheServerPromptCacheEventReport = {
   promptTokens: number;
   readTokens: number;
   writeTokens: number;
+  matchType?: string;
+  sourceTokenLength?: number;
+  sourceLayerKinds?: readonly string[];
+  sourceTrimmable?: boolean;
+  retainedSnapshots?: number;
+  retainedSnapshotBytes?: number;
+  tokenBlocks?: number;
+  tokenBlockReferences?: number;
 };
 
 export type AgentCacheServerPrefillReport = {
@@ -487,6 +495,26 @@ function promptCacheEventReport(event: PromptCacheEvent): AgentCacheServerPrompt
     promptTokens: event.promptTokens,
     readTokens: event.cacheReadTokens,
     writeTokens: event.cacheWriteTokens,
+    ...(event.cacheMatchType === undefined ? {} : { matchType: event.cacheMatchType }),
+    ...(event.cacheSourceTokenLength === undefined
+      ? {}
+      : { sourceTokenLength: event.cacheSourceTokenLength }),
+    ...(event.cacheSourceLayerKinds === undefined
+      ? {}
+      : { sourceLayerKinds: event.cacheSourceLayerKinds }),
+    ...(event.cacheSourceTrimmable === undefined
+      ? {}
+      : { sourceTrimmable: event.cacheSourceTrimmable }),
+    ...(event.retainedSnapshots === undefined
+      ? {}
+      : { retainedSnapshots: event.retainedSnapshots }),
+    ...(event.retainedSnapshotBytes === undefined
+      ? {}
+      : { retainedSnapshotBytes: event.retainedSnapshotBytes }),
+    ...(event.tokenBlockCount === undefined ? {} : { tokenBlocks: event.tokenBlockCount }),
+    ...(event.tokenBlockReferences === undefined
+      ? {}
+      : { tokenBlockReferences: event.tokenBlockReferences }),
   };
 }
 

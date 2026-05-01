@@ -1,5 +1,11 @@
 import type { ServeInfoModel, ServeInfoResponse } from "../http/route-info";
 import { formatDefaultModelPool, formatModelPool, hasModelPoolInfo } from "./cli-status-model-pool";
+import {
+  formatDefaultPromptPrefixCache,
+  formatPromptPrefixCache,
+  hasPromptPrefixCacheInfo,
+} from "./cli-status-prompt-cache";
+import { formatDefaultLimits, formatLimits, formatRuntimeStrategy } from "./cli-status-runtime";
 
 export type ServeStatusCliOptions = {
   baseUrl: string;
@@ -190,54 +196,6 @@ function modelRows(models: readonly ServeInfoModel[]): string[] {
   ];
 }
 
-function formatLimits(info: ServeInfoResponse): string[] {
-  const limits = info.limits;
-  return [
-    "limits:",
-    `  max_generated_tokens: ${toon(limits.max_generated_tokens)}`,
-    `  max_prompt_tokens: ${toon(limits.max_prompt_tokens)}`,
-    `  max_total_tokens: ${toon(limits.max_total_tokens)}`,
-    `  max_client_batch_size: ${toon(limits.max_client_batch_size)}`,
-    `  batch_window_ms: ${toon(limits.batch_window_ms)}`,
-    `  prefill_step_size: ${toon(limits.prefill_step_size)}`,
-    `  active_prefill_step_size: ${toon(limits.active_prefill_step_size)}`,
-    `  active_decode_steps_per_prefill_chunk: ${toon(
-      limits.active_decode_steps_per_prefill_chunk,
-    )}`,
-    `  stream_decode_interval: ${toon(limits.stream_decode_interval)}`,
-    `  max_concurrent_requests: ${toon(limits.max_concurrent_requests)}`,
-    `  prompt_prefix_cache_max_entries: ${toon(limits.prompt_prefix_cache_max_entries)}`,
-    `  prompt_prefix_cache_max_bytes: ${toon(limits.prompt_prefix_cache_max_bytes)}`,
-    `  gpu_memory_utilization: ${toon(limits.gpu_memory_utilization)}`,
-  ];
-}
-
-function formatDefaultLimits(info: ServeInfoResponse): string[] {
-  const limits = info.limits;
-  return [
-    "limits:",
-    `  max_generated_tokens: ${toon(limits.max_generated_tokens)}`,
-    `  max_prompt_tokens: ${toon(limits.max_prompt_tokens)}`,
-    `  max_total_tokens: ${toon(limits.max_total_tokens)}`,
-    `  gpu_memory_utilization: ${toon(limits.gpu_memory_utilization)}`,
-  ];
-}
-
-function formatRuntimeStrategy(info: ServeInfoResponse): string[] {
-  const strategy = info.runtime_strategy;
-  return [
-    "runtime_strategy:",
-    `  scheduler: ${toon(strategy.scheduler.mode)}`,
-    `  max_batch_size: ${toon(strategy.scheduler.max_batch_size)}`,
-    `  cache: ${toon(`${strategy.cache.backend}/${strategy.cache.precision}`)}`,
-    `  attention: ${toon(strategy.attention.backend)}`,
-    `  decoding: ${toon(strategy.decoding.backend)}`,
-    `  stream_decode_interval: ${toon(strategy.streaming.stream_decode_interval)}`,
-    `  memory_policy: ${toon(strategy.memory.policy)}`,
-    `  gpu_memory_utilization: ${toon(strategy.memory.gpu_memory_utilization)}`,
-  ];
-}
-
 /** Format a running serve endpoint status as compact agent-readable stdout. */
 export function formatServeStatus(info: ServeInfoResponse, baseUrl: string, full: boolean): string {
   const lines = [
@@ -250,6 +208,7 @@ export function formatServeStatus(info: ServeInfoResponse, baseUrl: string, full
     `  streaming: ${toon(info.capabilities.sse_streaming)}`,
     `  batch_generation: ${toon(info.capabilities.batch_generation)}`,
     ...formatDefaultModelPool(info),
+    ...formatDefaultPromptPrefixCache(info),
     ...modelRows(info.models),
   ];
   if (full) {
@@ -257,6 +216,7 @@ export function formatServeStatus(info: ServeInfoResponse, baseUrl: string, full
       ...formatLimits(info),
       ...formatRuntimeStrategy(info),
       ...formatModelPool(info),
+      ...formatPromptPrefixCache(info),
       `endpoints[${info.endpoints.length}]:`,
       ...info.endpoints.map((endpointPath) => `  ${toon(endpointPath)}`),
     );
@@ -386,7 +346,8 @@ function isServeInfoResponse(value: unknown): value is ServeInfoResponse {
     hasServeLimits(value.limits) &&
     hasServeCapabilities(value.capabilities) &&
     hasRuntimeStrategy(value.runtime_strategy) &&
-    hasModelPoolInfo(value.model_pool)
+    hasModelPoolInfo(value.model_pool) &&
+    hasPromptPrefixCacheInfo(value.prompt_prefix_cache)
   );
 }
 

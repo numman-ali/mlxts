@@ -133,6 +133,35 @@ describe("request limit generation engine", () => {
     expect(chunks).toEqual(["request-2"]);
   });
 
+  test("forwards read-only engine observability hooks", () => {
+    const engine = createRequestLimitGenerationEngine({
+      engine: {
+        generate() {
+          return { text: "", finishReason: "stop" };
+        },
+        promptPrefixCacheInfo() {
+          return {
+            models: [],
+            totalRetainedSnapshots: 1,
+            totalRetainedSnapshotBytes: 2048,
+            totalIndexedBlockHashes: 2,
+            totalTokenBlocks: 3,
+            totalTokenBlockReferences: 4,
+            totalUniqueTokenCount: 128,
+            totalReferencedTokenCount: 256,
+          };
+        },
+      },
+      maxGeneratedTokens: 4,
+    });
+
+    expect(engine.promptPrefixCacheInfo?.()).toMatchObject({
+      totalRetainedSnapshots: 1,
+      totalRetainedSnapshotBytes: 2048,
+      totalTokenBlocks: 3,
+    });
+  });
+
   test("falls back to sequential batch generation and checks batch result sizes", async () => {
     const seen: string[] = [];
     const fallback = createRequestLimitGenerationEngine({

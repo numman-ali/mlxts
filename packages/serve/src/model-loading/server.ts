@@ -94,6 +94,7 @@ export function createLoadedModelEngine(
   options: ResolvedLoadedModelsOptions,
 ) {
   const modelEngine = createTransformersGenerationEngine({
+    modelId: model.modelId,
     model: model.model,
     tokenizer: model.tokenizer,
     maxGeneratedTokens: options.maxGeneratedTokens,

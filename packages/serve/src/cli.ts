@@ -109,6 +109,28 @@ function formatSchedulerPhase(
   }
 }
 
+function formatPromptCacheEvent(
+  event: Extract<ServeEvent, { type: "generation_prompt_cache" }>,
+): string {
+  return [
+    `[cache] ${event.id} ${event.result}`,
+    `prompt_tokens=${event.promptTokens}`,
+    `read_tokens=${event.cacheReadTokens}`,
+    `write_tokens=${event.cacheWriteTokens}`,
+    ...(event.cacheMatchType === undefined ? [] : [`match=${event.cacheMatchType}`]),
+    ...(event.cacheSourceTokenLength === undefined
+      ? []
+      : [`source_tokens=${event.cacheSourceTokenLength}`]),
+    ...(event.retainedSnapshots === undefined
+      ? []
+      : [`retained_snapshots=${event.retainedSnapshots}`]),
+    ...(event.retainedSnapshotBytes === undefined
+      ? []
+      : [`retained_bytes=${event.retainedSnapshotBytes}`]),
+    ...(event.tokenBlockCount === undefined ? [] : [`token_blocks=${event.tokenBlockCount}`]),
+  ].join(" ");
+}
+
 export function formatServeEvent(event: ServeEvent): string {
   switch (event.type) {
     case "request_start":
@@ -132,7 +154,7 @@ export function formatServeEvent(event: ServeEvent): string {
     case "generation_prefill_progress":
       return `[generation] ${event.id} prefill prompt_tokens=${event.promptTokens} prefill_tokens=${event.processedPrefillTokens}/${event.totalPrefillTokens} chunk_tokens=${event.chunkTokens}${formatMemoryUsage(event.memory)}`;
     case "generation_prompt_cache":
-      return `[cache] ${event.id} ${event.result} prompt_tokens=${event.promptTokens} read_tokens=${event.cacheReadTokens} write_tokens=${event.cacheWriteTokens}`;
+      return formatPromptCacheEvent(event);
     case "generation_stream_chunk":
       return `[stream] ${event.id} chunk=${event.chunkIndex} bytes=${event.bytes} at=${formatDuration(event.elapsedMs)}`;
     case "generation_stream_end":

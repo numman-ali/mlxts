@@ -1,3 +1,4 @@
+import { aggregateEnginePromptPrefixCacheInfo } from "../engine/prefix-cache-info";
 import { ServeError } from "../errors";
 import type {
   GenerationEngine,
@@ -351,6 +352,12 @@ export function createSourceModelPoolGenerationEngine(
         pressureReleaseTimeoutMs: options.pressureReleaseTimeoutMs,
         idleTtlMs: options.idleTtlMs,
       }),
+    promptPrefixCacheInfo: () =>
+      aggregateEnginePromptPrefixCacheInfo(
+        [...states.values()].map((state) =>
+          state.kind === "loaded" ? state.engine.promptPrefixCacheInfo?.() : undefined,
+        ),
+      ),
     async generate(request) {
       const modelLease = await acquire(request.model, [request]);
       const linkedRequest = modelLease.requests[0];

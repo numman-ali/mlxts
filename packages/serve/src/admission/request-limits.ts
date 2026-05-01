@@ -97,6 +97,14 @@ export function createRequestLimitGenerationEngine(
       return stream(request);
     };
   }
+  const modelPoolInfo = options.engine.modelPoolInfo;
+  if (modelPoolInfo !== undefined) {
+    limited.modelPoolInfo = () => modelPoolInfo();
+  }
+  const promptPrefixCacheInfo = options.engine.promptPrefixCacheInfo;
+  if (promptPrefixCacheInfo !== undefined) {
+    limited.promptPrefixCacheInfo = () => promptPrefixCacheInfo();
+  }
   limited[Symbol.dispose] = () => {
     options.engine[Symbol.dispose]?.();
   };

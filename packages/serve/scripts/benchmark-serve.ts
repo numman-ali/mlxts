@@ -103,6 +103,13 @@ export type ServerRequestTimingReport = {
   promptCacheWrites: number;
   promptCacheReadTokens: number;
   promptCacheWriteTokens: number;
+  promptCacheRetainedSnapshots: number;
+  promptCacheRetainedSnapshotBytes: number;
+  promptCacheIndexedBlockHashes: number;
+  promptCacheTokenBlocks: number;
+  promptCacheTokenBlockReferences: number;
+  promptCacheUniqueTokenCount: number;
+  promptCacheReferencedTokenCount: number;
   maxCompletionTokens: number;
   serverStreamChunkEvents: number;
   serverStreamEndEvents: number;
@@ -159,6 +166,13 @@ export type TrialMetrics = {
   promptCacheWrites: number;
   promptCacheReadTokens: number;
   promptCacheWriteTokens: number;
+  promptCacheRetainedSnapshots: number;
+  promptCacheRetainedSnapshotBytes: number;
+  promptCacheIndexedBlockHashes: number;
+  promptCacheTokenBlocks: number;
+  promptCacheTokenBlockReferences: number;
+  promptCacheUniqueTokenCount: number;
+  promptCacheReferencedTokenCount: number;
   streamChunks: number;
   streamBytes: number;
   finishReasons: string[];
@@ -410,7 +424,18 @@ type PromptCacheStats = {
   writes: number;
   readTokens: number;
   writeTokens: number;
+  retainedSnapshots: number;
+  retainedSnapshotBytes: number;
+  indexedBlockHashes: number;
+  tokenBlocks: number;
+  tokenBlockReferences: number;
+  uniqueTokenCount: number;
+  referencedTokenCount: number;
 };
+
+function maxDefined(values: readonly (number | undefined)[]): number {
+  return Math.max(0, ...values.filter((value): value is number => value !== undefined));
+}
 
 function promptCacheStats(
   events: readonly Extract<RecordedServeEvent, { type: "generation_prompt_cache" }>[],
@@ -421,6 +446,13 @@ function promptCacheStats(
     writes: events.filter((event) => event.result === "write").length,
     readTokens: sum(events.map((event) => event.cacheReadTokens)),
     writeTokens: sum(events.map((event) => event.cacheWriteTokens)),
+    retainedSnapshots: maxDefined(events.map((event) => event.retainedSnapshots)),
+    retainedSnapshotBytes: maxDefined(events.map((event) => event.retainedSnapshotBytes)),
+    indexedBlockHashes: maxDefined(events.map((event) => event.indexedBlockHashes)),
+    tokenBlocks: maxDefined(events.map((event) => event.tokenBlockCount)),
+    tokenBlockReferences: maxDefined(events.map((event) => event.tokenBlockReferences)),
+    uniqueTokenCount: maxDefined(events.map((event) => event.uniqueTokenCount)),
+    referencedTokenCount: maxDefined(events.map((event) => event.referencedTokenCount)),
   };
 }
 
@@ -665,6 +697,13 @@ function requestTimingReport(id: string, group: readonly RecordedServeEvent[]) {
     promptCacheWrites: cacheStats.writes,
     promptCacheReadTokens: cacheStats.readTokens,
     promptCacheWriteTokens: cacheStats.writeTokens,
+    promptCacheRetainedSnapshots: cacheStats.retainedSnapshots,
+    promptCacheRetainedSnapshotBytes: cacheStats.retainedSnapshotBytes,
+    promptCacheIndexedBlockHashes: cacheStats.indexedBlockHashes,
+    promptCacheTokenBlocks: cacheStats.tokenBlocks,
+    promptCacheTokenBlockReferences: cacheStats.tokenBlockReferences,
+    promptCacheUniqueTokenCount: cacheStats.uniqueTokenCount,
+    promptCacheReferencedTokenCount: cacheStats.referencedTokenCount,
     maxCompletionTokens: maxCompletionTokens(slice.sorted),
     ...serverStreamFields(slice),
     ...terminalFields(slice),
@@ -820,6 +859,13 @@ async function runTrial(
     promptCacheWrites: trialPromptCacheStats.writes,
     promptCacheReadTokens: trialPromptCacheStats.readTokens,
     promptCacheWriteTokens: trialPromptCacheStats.writeTokens,
+    promptCacheRetainedSnapshots: trialPromptCacheStats.retainedSnapshots,
+    promptCacheRetainedSnapshotBytes: trialPromptCacheStats.retainedSnapshotBytes,
+    promptCacheIndexedBlockHashes: trialPromptCacheStats.indexedBlockHashes,
+    promptCacheTokenBlocks: trialPromptCacheStats.tokenBlocks,
+    promptCacheTokenBlockReferences: trialPromptCacheStats.tokenBlockReferences,
+    promptCacheUniqueTokenCount: trialPromptCacheStats.uniqueTokenCount,
+    promptCacheReferencedTokenCount: trialPromptCacheStats.referencedTokenCount,
     streamChunks,
     streamBytes,
     finishReasons: results.map((result) => result.finishReason),
@@ -870,6 +916,19 @@ function averageTrialMetrics(trials: readonly TrialMetrics[]): TrialMetrics {
     promptCacheWrites: mean(trials.map((trial) => trial.promptCacheWrites)),
     promptCacheReadTokens: mean(trials.map((trial) => trial.promptCacheReadTokens)),
     promptCacheWriteTokens: mean(trials.map((trial) => trial.promptCacheWriteTokens)),
+    promptCacheRetainedSnapshots: mean(trials.map((trial) => trial.promptCacheRetainedSnapshots)),
+    promptCacheRetainedSnapshotBytes: mean(
+      trials.map((trial) => trial.promptCacheRetainedSnapshotBytes),
+    ),
+    promptCacheIndexedBlockHashes: mean(trials.map((trial) => trial.promptCacheIndexedBlockHashes)),
+    promptCacheTokenBlocks: mean(trials.map((trial) => trial.promptCacheTokenBlocks)),
+    promptCacheTokenBlockReferences: mean(
+      trials.map((trial) => trial.promptCacheTokenBlockReferences),
+    ),
+    promptCacheUniqueTokenCount: mean(trials.map((trial) => trial.promptCacheUniqueTokenCount)),
+    promptCacheReferencedTokenCount: mean(
+      trials.map((trial) => trial.promptCacheReferencedTokenCount),
+    ),
     streamChunks: mean(trials.map((trial) => trial.streamChunks)),
     streamBytes: mean(trials.map((trial) => trial.streamBytes)),
     finishReasons: trials.flatMap((trial) => trial.finishReasons),
@@ -932,6 +991,10 @@ function formatMetricsLine(prefix: string, metrics: TrialMetrics): string {
     `prompt_cache_writes=${metrics.promptCacheWrites.toFixed(0)}`,
     `prompt_cache_read_tokens=${metrics.promptCacheReadTokens.toFixed(0)}`,
     `prompt_cache_write_tokens=${metrics.promptCacheWriteTokens.toFixed(0)}`,
+    `prompt_cache_retained_snapshots=${metrics.promptCacheRetainedSnapshots.toFixed(0)}`,
+    `prompt_cache_retained_snapshot_bytes=${metrics.promptCacheRetainedSnapshotBytes.toFixed(0)}`,
+    `prompt_cache_token_blocks=${metrics.promptCacheTokenBlocks.toFixed(0)}`,
+    `prompt_cache_token_block_references=${metrics.promptCacheTokenBlockReferences.toFixed(0)}`,
     `stream_chunks=${metrics.streamChunks.toFixed(0)}`,
     `stream_bytes=${metrics.streamBytes.toFixed(0)}`,
     `finish_reasons=${[...new Set(metrics.finishReasons)].join("|") || "none"}`,
@@ -1133,6 +1196,8 @@ export function formatServeBenchmarkSuccess(report: BenchmarkReport, reportJson?
       metrics.p95RequestMs.toFixed(1),
       metrics.promptCacheHits.toFixed(0),
       metrics.promptCacheReadTokens.toFixed(0),
+      metrics.promptCacheRetainedSnapshots.toFixed(0),
+      metrics.promptCacheTokenBlocks.toFixed(0),
       toon(formatRouteSummary(metrics.routeSummary)),
     ].join(",");
   });
@@ -1147,7 +1212,7 @@ export function formatServeBenchmarkSuccess(report: BenchmarkReport, reportJson?
     `  sampling: ${toon(report.samplingMode)}`,
     `  rungs: ${report.rungs.length}`,
     ...(reportJson === undefined ? [] : [`  report_json: ${toon(reportJson)}`]),
-    `rungs[${rows.length}]{rung,trials,completion_tps,total_tps,mean_ttft_ms,p95_request_ms,prompt_cache_hits,prompt_cache_read_tokens,routes}:`,
+    `rungs[${rows.length}]{rung,trials,completion_tps,total_tps,mean_ttft_ms,p95_request_ms,prompt_cache_hits,prompt_cache_read_tokens,prompt_cache_retained_snapshots,prompt_cache_token_blocks,routes}:`,
     ...rows.map((row) => `  ${row}`),
   ].join("\n");
 }

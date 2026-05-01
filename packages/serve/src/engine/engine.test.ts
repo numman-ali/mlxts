@@ -879,16 +879,18 @@ describe("transformers generation engine", () => {
     });
     expect(model.forwardSequenceLengths).toEqual([3, 1]);
     expect(third.usage).toMatchObject({ cacheReadTokens: 0, cacheWriteTokens: 3 });
-    expect(events).toContainEqual({
-      type: "generation_prompt_cache",
-      id: "third",
-      protocol: "openai.chat_completions",
-      model: "tiny",
-      result: "miss",
-      promptTokens: 4,
-      cacheReadTokens: 0,
-      cacheWriteTokens: 0,
-    });
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "generation_prompt_cache",
+        id: "third",
+        protocol: "openai.chat_completions",
+        model: "tiny",
+        result: "miss",
+        promptTokens: 4,
+        cacheReadTokens: 0,
+        cacheWriteTokens: 0,
+      }),
+    );
   });
 
   test("streams media content through prepared prompt tensors", async () => {
@@ -1388,16 +1390,18 @@ describe("transformers generation engine", () => {
       ...ROUTE_STRATEGY,
       stream: false,
     });
-    expect(events).toContainEqual({
-      type: "generation_prompt_cache",
-      id: "second",
-      protocol: "openai.chat_completions",
-      model: "tiny",
-      result: "hit",
-      promptTokens: 7,
-      cacheReadTokens: 6,
-      cacheWriteTokens: 0,
-    });
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "generation_prompt_cache",
+        id: "second",
+        protocol: "openai.chat_completions",
+        model: "tiny",
+        result: "hit",
+        promptTokens: 7,
+        cacheReadTokens: 6,
+        cacheWriteTokens: 0,
+      }),
+    );
   });
 
   test("retains configured divergent prompt-prefix entries", async () => {
@@ -1439,16 +1443,18 @@ describe("transformers generation engine", () => {
       cacheWriteTokens: 0,
     });
     expect(model.forwardSequenceLengths).toEqual([1]);
-    expect(events).toContainEqual({
-      type: "generation_prompt_cache",
-      id: "third",
-      protocol: "openai.chat_completions",
-      model: "tiny",
-      result: "hit",
-      promptTokens: 5,
-      cacheReadTokens: 4,
-      cacheWriteTokens: 0,
-    });
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "generation_prompt_cache",
+        id: "third",
+        protocol: "openai.chat_completions",
+        model: "tiny",
+        result: "hit",
+        promptTokens: 5,
+        cacheReadTokens: 4,
+        cacheWriteTokens: 0,
+      }),
+    );
   });
 
   test("keeps parallel exact-boundary agent sessions warm by default", async () => {
@@ -1552,16 +1558,18 @@ describe("transformers generation engine", () => {
       ...ROUTE_STRATEGY,
       stream: false,
     });
-    expect(events).toContainEqual({
-      type: "generation_prompt_cache",
-      id: "second",
-      protocol: "openai.chat_completions",
-      model: "tiny",
-      result: "hit",
-      promptTokens: 7,
-      cacheReadTokens: 6,
-      cacheWriteTokens: 0,
-    });
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "generation_prompt_cache",
+        id: "second",
+        protocol: "openai.chat_completions",
+        model: "tiny",
+        result: "hit",
+        promptTokens: 7,
+        cacheReadTokens: 6,
+        cacheWriteTokens: 0,
+      }),
+    );
   });
 
   test("reuses Pi-style Qwen disabled-thinking replay prompts with exact-only caches", async () => {

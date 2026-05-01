@@ -30,12 +30,14 @@ import {
   streamSinglePreparedRequest,
 } from "./generation";
 import { PromptPrefixCache } from "./prefix-cache";
+import { promptPrefixCacheInfoForModel } from "./prefix-cache-info";
 import { continuousBatchIneligibilityReason, emitGenerationRouteDecision } from "./routing";
 import { createStaticTransformersGeneration, runStaticBatchOnModelLane } from "./static";
 
 type StaticTransformersGeneration = ReturnType<typeof createStaticTransformersGeneration>;
 
 export type TransformersGenerationEngineOptions = {
+  modelId?: string;
   model: CausalLM;
   tokenizer: Tokenizer;
   interactionProfile?: InteractionProfile;
@@ -303,6 +305,12 @@ export function createTransformersGenerationEngine(
 
   return {
     generate,
+    promptPrefixCacheInfo() {
+      return promptPrefixCacheInfoForModel(
+        options.modelId ?? options.model.config.modelType,
+        promptPrefixCache.stats(),
+      );
+    },
     async generateBatch(requests) {
       rejectMediaBatchInputs(options, requests);
       if (

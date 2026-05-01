@@ -4,6 +4,10 @@
  */
 
 import type { ChatMessage, ChatTool, ChatToolCall } from "@mlxts/transformers";
+import type {
+  GenerationPromptCacheEventObservability,
+  GenerationPromptPrefixCacheInfo,
+} from "./prompt-cache-observability";
 
 /** External media source normalized before any model-family preparation. */
 export type GenerationMediaSource =
@@ -392,7 +396,7 @@ export type ServeEvent =
       maxTokens: number;
       memory?: GenerationMemoryUsage;
     }
-  | {
+  | ({
       type: "generation_prompt_cache";
       id: string;
       protocol: GenerationProtocol;
@@ -401,7 +405,7 @@ export type ServeEvent =
       promptTokens: number;
       cacheReadTokens: number;
       cacheWriteTokens: number;
-    }
+    } & GenerationPromptCacheEventObservability)
   | {
       type: "generation_stream_chunk";
       id: string;
@@ -487,5 +491,6 @@ export type GenerationEngine = {
     request: NormalizedGenerationRequest,
   ): AsyncIterable<GenerationStreamEvent> | Promise<AsyncIterable<GenerationStreamEvent>>;
   modelPoolInfo?(): GenerationModelPoolInfo;
+  promptPrefixCacheInfo?(): GenerationPromptPrefixCacheInfo;
   [Symbol.dispose]?(): void;
 };

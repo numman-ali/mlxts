@@ -19,6 +19,7 @@ import type { TransformersGenerationEngineOptions } from "./index";
 import {
   createPromptPrefixCacheSession,
   type PromptPrefixCache,
+  type PromptPrefixCacheEventDetails,
   type PromptPrefixCacheIdentity,
   type PromptPrefixCacheSession,
   type PromptPrefixCacheUsage,
@@ -203,8 +204,11 @@ function emitPromptCacheEvent(
   prepared: PreparedGenerationRequest,
   options: TransformersGenerationEngineOptions,
   result: "hit" | "miss" | "write",
-  cacheUsage: PromptPrefixCacheUsage,
+  details: PromptPrefixCacheEventDetails,
 ): void {
+  const cacheUsage = details.usage;
+  const source = details.source;
+  const tokenBlocks = details.stats.tokenBlocks;
   options.onEvent?.({
     type: "generation_prompt_cache",
     id: prepared.request.id,
@@ -214,6 +218,27 @@ function emitPromptCacheEvent(
     promptTokens: prepared.promptTokens,
     cacheReadTokens: cacheUsage.readTokens,
     cacheWriteTokens: cacheUsage.writeTokens,
+    ...(details.matchType === undefined ? {} : { cacheMatchType: details.matchType }),
+    ...(source === undefined
+      ? {}
+      : {
+          cacheSourceTokenLength: source.tokenLength,
+          cacheSourceSnapshotOffset: source.snapshotOffset,
+          cacheSourceEstimatedBytes: source.estimatedByteSize,
+          cacheSourceLayerKinds: source.layerKinds,
+          cacheSourceTrimmable: source.trimmable,
+          cacheSourceTokenBlockSize: source.tokenBlocks.blockSize,
+          cacheSourceTokenBlockCount: source.tokenBlocks.blockCount,
+          cacheSourceBlockAlignedTokenLength: source.tokenBlocks.blockAlignedTokenLength,
+        }),
+    retainedSnapshots: details.stats.entries,
+    retainedSnapshotBytes: details.stats.retainedSnapshotBytes,
+    indexedBlockHashes: details.stats.indexedBlockHashes,
+    tokenBlockSize: tokenBlocks.blockSize,
+    tokenBlockCount: tokenBlocks.blockCount,
+    tokenBlockReferences: tokenBlocks.blockReferences,
+    uniqueTokenCount: tokenBlocks.uniqueTokenCount,
+    referencedTokenCount: tokenBlocks.referencedTokenCount,
   });
 }
 
@@ -230,8 +255,8 @@ export function createPromptCacheSession(
       ? {}
       : { identity: prepared.promptCacheIdentity }),
     ...(promptCache === undefined ? {} : { promptCache }),
-    onEvent(result, cacheUsage) {
-      emitPromptCacheEvent(prepared, options, result, cacheUsage);
+    onEvent(result, details) {
+      emitPromptCacheEvent(prepared, options, result, details);
     },
   });
 }

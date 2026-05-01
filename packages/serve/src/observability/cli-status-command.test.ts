@@ -122,6 +122,43 @@ const SAMPLE_INFO: ServeInfoResponse = {
       },
     ],
   },
+  prompt_prefix_cache: {
+    total_retained_snapshots: 2,
+    total_retained_snapshot_bytes: 4096,
+    total_indexed_block_hashes: 6,
+    total_token_blocks: 4,
+    total_token_block_references: 5,
+    total_unique_token_count: 256,
+    total_referenced_token_count: 320,
+    models: [
+      {
+        id: "mlx-community/Qwen3.6-27B-4bit",
+        retained_snapshots: 1,
+        retained_snapshot_bytes: 2048,
+        indexed_block_hashes: 3,
+        token_blocks: {
+          block_size: 64,
+          block_count: 2,
+          block_references: 2,
+          unique_token_count: 128,
+          referenced_token_count: 128,
+        },
+      },
+      {
+        id: "google/gemma-3-4b-it",
+        retained_snapshots: 1,
+        retained_snapshot_bytes: 2048,
+        indexed_block_hashes: 3,
+        token_blocks: {
+          block_size: 64,
+          block_count: 2,
+          block_references: 3,
+          unique_token_count: 128,
+          referenced_token_count: 192,
+        },
+      },
+    ],
+  },
 };
 
 type FetchCall = {
@@ -237,6 +274,7 @@ describe("serve status CLI command", () => {
     expect(output).toContain("models[2]{id,context_window,max_prompt_tokens,max_total_tokens}:");
     expect(output).toContain('"mlx-community/Qwen3.6-27B-4bit",262144,262144,262144');
     expect(output).toContain('model_pool: "lazy/shed_non_pinned"');
+    expect(output).toContain('prompt_prefix_cache: "snapshots=2/token_blocks=4"');
     expect(output).toContain("limits:");
     expect(output).toContain("max_total_tokens: 262144");
     expect(output).toContain("Run `mlxts-serve status --base-url");
@@ -253,6 +291,12 @@ describe("serve status CLI command", () => {
       "model_pool_models[2]{id,pinned,state,active_requests,pressure_aborted_requests}:",
     );
     expect(output).toContain('"google/gemma-3-4b-it",true,"not_loaded",0,0');
+    expect(output).toContain("prompt_prefix_cache:");
+    expect(output).toContain("retained_snapshot_bytes: 4096");
+    expect(output).toContain(
+      "prompt_prefix_cache_models[2]{id,retained_snapshots,retained_snapshot_bytes,indexed_block_hashes,block_size,token_blocks,token_block_references,unique_token_count,referenced_token_count}:",
+    );
+    expect(output).toContain('"google/gemma-3-4b-it",1,2048,3,64,2,3,128,192');
     expect(output).toContain("endpoints[8]:");
     expect(output).toContain('"/v1/chat/completions"');
   });

@@ -3,6 +3,7 @@
  * @module
  */
 
+import { aggregateEnginePromptPrefixCacheInfo } from "../engine/prefix-cache-info";
 import { ServeError } from "../errors";
 import type {
   GenerationEngine,
@@ -81,6 +82,11 @@ export function createModelRouterGenerationEngine(
   return {
     generate(request) {
       return engineFor(request.model).generate(request);
+    },
+    promptPrefixCacheInfo() {
+      return aggregateEnginePromptPrefixCacheInfo(
+        [...engines.values()].map((engine) => engine.promptPrefixCacheInfo?.()),
+      );
     },
     async generateBatch(requests) {
       const results: (NormalizedGenerationResult | undefined)[] = [];

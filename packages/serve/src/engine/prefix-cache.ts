@@ -54,15 +54,18 @@ export type PromptPrefixCacheUsage = {
   writeTokens: number;
 };
 
+export type PromptPrefixCacheEventDetails = {
+  usage: PromptPrefixCacheUsage;
+  stats: PromptPrefixCacheStats;
+  matchType?: PromptPrefixCacheMatchType;
+  source?: PromptPrefixCacheEntryMetadata;
+};
+
 /** Retention counters for prompt-prefix cache entries and token blocks. */
 export type PromptPrefixCacheStats = {
-  /** Retained prompt-boundary snapshots. */
   entries: number;
-  /** Estimated retained tensor bytes across all prompt-boundary snapshots. */
   retainedSnapshotBytes: number;
-  /** Indexed block hashes that currently point at retained entries. */
   indexedBlockHashes: number;
-  /** Shared token-block retention counters. */
   tokenBlocks: PromptPrefixTokenBlockStats;
 };
 
@@ -83,7 +86,7 @@ type PromptPrefixCacheSessionOptions = {
   tokenIds: readonly number[];
   identity?: PromptPrefixCacheIdentity;
   enabled: boolean;
-  onEvent?: (result: "hit" | "miss" | "write", usage: PromptPrefixCacheUsage) => void;
+  onEvent?: (result: "hit" | "miss" | "write", details: PromptPrefixCacheEventDetails) => void;
 };
 
 type PromptPrefixGenerationOptions = Pick<
@@ -443,7 +446,10 @@ class ActivePromptPrefixCacheSession implements PromptPrefixCacheSession {
   onPromptCacheSnapshot(event: PromptCacheSnapshotEvent): void {
     const storedTokens = this.#promptCache.store(this.#tokenIds, event.snapshot, this.#identity);
     this.#writeTokens = Math.max(0, storedTokens - this.#readTokens);
-    this.#onEvent?.("write", this.usage());
+    this.#onEvent?.("write", {
+      usage: this.usage(),
+      stats: this.#promptCache.stats(),
+    });
   }
 
   generationOptions(): PromptPrefixGenerationOptions {
@@ -473,11 +479,19 @@ export function createPromptPrefixCacheSession(
 
   const hit = options.promptCache.lookup(options.tokenIds, options.identity);
   if (hit === null) {
-    options.onEvent?.("miss", { readTokens: 0, writeTokens: 0 });
+    options.onEvent?.("miss", {
+      usage: { readTokens: 0, writeTokens: 0 },
+      stats: options.promptCache.stats(),
+    });
     return new ActivePromptPrefixCacheSession(options, null);
   }
 
   const usage = { readTokens: hit.readTokens, writeTokens: 0 };
-  options.onEvent?.("hit", usage);
+  options.onEvent?.("hit", {
+    usage,
+    stats: options.promptCache.stats(),
+    matchType: hit.matchType,
+    source: hit.source,
+  });
   return new ActivePromptPrefixCacheSession(options, hit);
 }

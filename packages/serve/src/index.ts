@@ -88,6 +88,13 @@ export {
   serveModels,
   serveModelsWithRuntime,
 } from "./model-loading/sources";
+export type {
+  GenerationPromptCacheEventObservability,
+  GenerationPromptCacheMatchType,
+  GenerationPromptPrefixCacheInfo,
+  GenerationPromptPrefixCacheModelInfo,
+  GenerationPromptPrefixTokenBlockInfo,
+} from "./prompt-cache-observability";
 export {
   type AnthropicContentBlock,
   type AnthropicMessageResponse,

@@ -268,6 +268,17 @@ describe("serveLoadedModel", () => {
             effective_total_tokens: 256,
           },
         ],
+        prompt_prefix_cache: {
+          total_retained_snapshots: 0,
+          total_retained_snapshot_bytes: 0,
+          models: [
+            {
+              id: "tiny",
+              retained_snapshots: 0,
+              retained_snapshot_bytes: 0,
+            },
+          ],
+        },
       });
       expect(running.modelIds).toEqual(["tiny"]);
     } finally {

@@ -117,6 +117,32 @@ function loadedEntry(
         yield event;
       }
     },
+    promptPrefixCacheInfo() {
+      return {
+        models: [
+          {
+            id: tag,
+            retainedSnapshots: 1,
+            retainedSnapshotBytes: 1024,
+            indexedBlockHashes: 2,
+            tokenBlocks: {
+              blockSize: 64,
+              blockCount: 2,
+              blockReferences: 2,
+              uniqueTokenCount: 128,
+              referencedTokenCount: 128,
+            },
+          },
+        ],
+        totalRetainedSnapshots: 1,
+        totalRetainedSnapshotBytes: 1024,
+        totalIndexedBlockHashes: 2,
+        totalTokenBlocks: 2,
+        totalTokenBlockReferences: 2,
+        totalUniqueTokenCount: 128,
+        totalReferencedTokenCount: 128,
+      };
+    },
   };
   return { engine, dispose };
 }
@@ -226,6 +252,10 @@ describe("source model pool generation engine", () => {
         },
       ],
     });
+    expect(engine.promptPrefixCacheInfo?.()).toMatchObject({
+      totalRetainedSnapshots: 0,
+      models: [],
+    });
 
     const stream = await engine.stream?.({ ...request("stream", "alpha"), stream: true });
     if (stream === undefined) {
@@ -248,6 +278,12 @@ describe("source model pool generation engine", () => {
         pressure_aborted_requests: 0,
       },
     ]);
+    expect(engine.promptPrefixCacheInfo?.()).toMatchObject({
+      totalRetainedSnapshots: 1,
+      totalRetainedSnapshotBytes: 1024,
+      totalTokenBlocks: 2,
+      models: [{ id: "alpha" }],
+    });
 
     let streamed = 0;
     for await (const _event of stream) {
