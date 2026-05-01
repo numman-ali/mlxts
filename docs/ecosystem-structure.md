@@ -231,15 +231,15 @@ postprocessing. Resolved local snapshots now load into a disposable Stable
 Diffusion runtime bundle with VAE, UNet, scheduler, parsed manifest/configs,
 and thin sampling methods. FLUX.1 owns FlowMatch scheduling, transformer
 config/backbone/weights, VAE loading/decoding, latent packing, and sampling.
-Base Qwen-Image snapshots are recognized and parsed at the package-owned
-metadata boundary while runtime tensor execution remains follow-on work.
-Z-Image now has base dense-runtime primitives for prepared-caption
-text-to-image execution and transformer weight loading; the finite proof command
-and official checkpoint evidence remain follow-on work.
-`examples/stable-diffusion` and `examples/flux` own application-layer
-prompt-conditioning composition and finite BMP image proof commands over
-package surfaces. Real checkpoint evidence and broader image output formats
-remain follow-on Phase 10 tranches.
+Qwen-Image owns Qwen-specific FlowMatch scheduling, transformer execution, 3D
+causal VAE loading/decoding, true-CFG denoising, and weight loading. Z-Image
+owns the dense base transformer path, prepared Qwen caption conditioning
+contract, FlowMatch denoising, VAE decode layout, and weight loading.
+`examples/stable-diffusion`, `examples/flux`, `examples/z-image`, and
+`examples/qwen-image` own application-layer prompt-conditioning composition and
+finite BMP image proof commands over package surfaces. Official SDXL,
+FLUX.1-schnell, Z-Image-Turbo, and Qwen-Image-2512 bounded checkpoint proofs
+have passed. Broader image output formats remain follow-on Phase 10 tranches.
 
 **Image-generation support order:** Stable Diffusion / SDXL is the baseline
 pipeline family. FLUX.1 is the next flow-matching target. Z-Image-Turbo is the
@@ -248,7 +248,7 @@ runtime foundation over prepared Qwen caption embeddings and standard
 AutoencoderKL. Qwen-Image is the Qwen
 text-to-image generation family and stays separate from Qwen 3.5 / Qwen 3.6
 image understanding in `@mlxts/transformers`; `Qwen/Qwen-Image-2512` is the
-primary forward runtime target once the Qwen-specific VAE/text stack is ready.
+primary forward runtime target and has bounded real checkpoint evidence.
 FLUX.2 Klein is a later separate family, not a FLUX.1 checkpoint variant.
 Stable Diffusion 3 / 3.5 and distilled or turbo variants follow only when they
 reuse the base family infrastructure or come with a documented architecture
