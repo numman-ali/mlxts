@@ -54,6 +54,24 @@ export {
   transformFluxTransformerWeight,
 } from "./families/flux/weights";
 export {
+  QwenImageAutoencoderKL,
+  QwenImageDecoder3d,
+  QwenImageEncoder3d,
+} from "./families/qwen-image/autoencoder";
+export {
+  QwenImageAttentionBlock,
+  QwenImageCausalConv3d,
+  QwenImageMidBlock,
+  QwenImageResample,
+  type QwenImageResampleMode,
+  QwenImageResidualBlock,
+  QwenImageRMSNorm,
+  type QwenImageSpatialTriple,
+  QwenImageUpBlock,
+  qwenImageNcfhwToNdhwc,
+  qwenImageNdhwcToNcfhw,
+} from "./families/qwen-image/autoencoder-blocks";
+export {
   loadQwenImageComponentConfigs,
   parseQwenImageAutoencoderConfig,
   parseQwenImageTransformerConfig,
@@ -72,6 +90,10 @@ export {
   qwenImageRopeImageShape,
   unpackQwenImageLatents,
 } from "./families/qwen-image/latents";
+export {
+  qwenImageAutoencoderWeightPath,
+  transformQwenImageAutoencoderWeight,
+} from "./families/qwen-image/weights";
 export {
   StableDiffusionAutoencoderKL,
   StableDiffusionVaeDecoder,
