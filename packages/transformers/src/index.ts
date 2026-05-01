@@ -90,6 +90,17 @@ export {
   type T5EncoderWeightLoadResult,
   t5EncoderWeightPath,
 } from "./families/t5/weights";
+export { parseWhisperConfig, parseWhisperFeatureExtractorConfig } from "./families/whisper/config";
+export {
+  createWhisperMelFilterBank,
+  prepareWhisperAudioFeatures,
+} from "./families/whisper/preprocessing";
+export type {
+  WhisperActivation,
+  WhisperAudioFeatures,
+  WhisperConfig,
+  WhisperFeatureExtractorConfig,
+} from "./families/whisper/types";
 export {
   type ContinuousBatchAdmissionBudgetSnapshot,
   type ContinuousBatchAdmissionController,

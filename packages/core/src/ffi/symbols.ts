@@ -189,6 +189,7 @@ export const ARITHMETIC_SYMBOLS = {
   mlx_square: { args: [P, P, P], returns: I32 },
   mlx_exp: { args: [P, P, P], returns: I32 },
   mlx_log: { args: [P, P, P], returns: I32 },
+  mlx_log10: { args: [P, P, P], returns: I32 },
   mlx_sigmoid: { args: [P, P, P], returns: I32 },
   mlx_erf: { args: [P, P, P], returns: I32 },
   mlx_reciprocal: { args: [P, P, P], returns: I32 },
@@ -272,6 +273,7 @@ export const SHAPE_SYMBOLS = {
   mlx_expand_dims: { args: [P, P, I32, P], returns: I32 },
   mlx_broadcast_to: { args: [P, P, P, U64_FAST, P], returns: I32 },
   mlx_astype: { args: [P, P, I32, P], returns: I32 },
+  mlx_as_strided: { args: [P, P, P, U64_FAST, P, U64_FAST, U64_FAST, P], returns: I32 },
   mlx_concatenate_axis: { args: [P, P, I32, P], returns: I32 },
   mlx_concatenate: { args: [P, P, P], returns: I32 },
   mlx_stack_axis: { args: [P, P, I32, P], returns: I32 },
@@ -288,6 +290,14 @@ export const SHAPE_SYMBOLS = {
   mlx_tril: { args: [P, P, I32, P], returns: I32 },
   // int mlx_triu(res, x, k, stream)
   mlx_triu: { args: [P, P, I32, P], returns: I32 },
+} as const;
+
+// ---------------------------------------------------------------------------
+// FFT operations (fft.h)
+// ---------------------------------------------------------------------------
+
+export const FFT_SYMBOLS = {
+  mlx_fft_rfft: { args: [P, P, I32, I32, P], returns: I32 },
 } as const;
 
 // ---------------------------------------------------------------------------
@@ -323,6 +333,7 @@ export const CREATION_SYMBOLS = {
   mlx_ones: { args: [P, P, U64_FAST, I32, P], returns: I32 },
   mlx_full: { args: [P, P, U64_FAST, P, I32, P], returns: I32 },
   mlx_arange: { args: [P, F64, F64, F64, I32, P], returns: I32 },
+  mlx_hanning: { args: [P, I32, P], returns: I32 },
   mlx_softmax_axis: { args: [P, P, I32, BOOL, P], returns: I32 },
   mlx_softmax: { args: [P, P, BOOL, P], returns: I32 },
   mlx_masked_scatter: { args: [P, P, P, P, P], returns: I32 },

@@ -35,6 +35,7 @@ export const TRACKED_TENSOR_PRODUCING_CALL_NAMES = [
   "less",
   "lessEqual",
   "log",
+  "log10",
   "logsumexp",
   "max",
   "matmul",
@@ -93,8 +94,11 @@ export const TRACKED_TENSOR_PRODUCING_CALL_NAMES = [
   "argmin",
   "argpartition",
   "argsort",
+  "asStrided",
   "cumsum",
+  "hanning",
   "retainArray",
+  "rfft",
 ] as const;
 
 export type TrackedTensorProducingCallName = (typeof TRACKED_TENSOR_PRODUCING_CALL_NAMES)[number];

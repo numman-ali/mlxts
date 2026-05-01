@@ -185,6 +185,13 @@ export function log(a: MxArray, stream?: S): MxArray {
   });
 }
 
+/** Element-wise base-10 logarithm. */
+export function log10(a: MxArray, stream?: S): MxArray {
+  return readResultArray("log10", (out) => {
+    checkStatus(ffi.mlx_log10(out, a._ctx, s(stream)), "log10");
+  });
+}
+
 /** Element-wise cosine. */
 export function cos(a: MxArray, stream?: S): MxArray {
   return readResultArray("cos", (out) => {

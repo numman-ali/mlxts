@@ -10,6 +10,7 @@ import {
   argpartition,
   argsort,
   arrayAssignInPlace,
+  asStrided,
   asType,
   broadcastTo,
   concatenate,
@@ -28,9 +29,11 @@ import {
   geluApprox,
   greater,
   greaterEqual,
+  hanning,
   less,
   lessEqual,
   log,
+  log10,
   logsumexp,
   maskedScatter,
   matmul,
@@ -48,6 +51,7 @@ import {
   reciprocal,
   repeat,
   reshape,
+  rfft,
   sigmoid,
   sin,
   slice,
@@ -152,6 +156,15 @@ describe("Arithmetic ops", () => {
     const b = log(a);
     b.eval();
     expect(b.toList()).toEqual([0, 0, 0]);
+    a.free();
+    b.free();
+  });
+
+  test("log10 returns base-10 logarithms", () => {
+    const a = array([1, 10, 100]);
+    const b = log10(a);
+    b.eval();
+    expect(b.toList()).toEqual([0, 1, 2]);
     a.free();
     b.free();
   });
@@ -763,6 +776,30 @@ describe("Shape ops", () => {
     b.free();
   });
 
+  test("asStrided creates an explicit strided view", () => {
+    const base = arange(0, 6, 1);
+    const view = asStrided(base, [2, 2], [2, 1]);
+    expect(view.shape).toEqual([2, 2]);
+    expect(view.dtype).toBe(base.dtype);
+    view.eval();
+    expect(view.toList()).toEqual([
+      [0, 1],
+      [2, 3],
+    ]);
+    base.free();
+    view.free();
+  });
+
+  test("asStrided supports negative strides with explicit offsets", () => {
+    const base = arange(0, 4, 1);
+    const view = asStrided(base, [4], [-1], 3);
+    expect(view.shape).toEqual([4]);
+    view.eval();
+    expect(view.toList()).toEqual([3, 2, 1, 0]);
+    base.free();
+    view.free();
+  });
+
   test("astype changes the visible dtype", () => {
     const a = array([1, 2, 3], "int32");
     const b = asType(a, "float32");
@@ -1036,6 +1073,30 @@ describe("Shape ops", () => {
   });
 });
 
+describe("Spectral ops", () => {
+  test("hanning returns MLX window coefficients", () => {
+    const window = hanning(4);
+    window.eval();
+    const values = window.toTypedArray();
+    expect(values).toHaveLength(4);
+    expect(values[0]).toBeCloseTo(0, 6);
+    expect(values[1]).toBeCloseTo(0.75, 6);
+    expect(values[2]).toBeCloseTo(0.75, 6);
+    expect(values[3]).toBeCloseTo(0, 6);
+    window.free();
+  });
+
+  test("rfft exposes complex output shape metadata", () => {
+    const signal = array([1, 0, 0, 0]);
+    const spectrum = rfft(signal);
+    expect(spectrum.shape).toEqual([3]);
+    expect(spectrum.dtype).toBe("complex64");
+    spectrum.eval();
+    signal.free();
+    spectrum.free();
+  });
+});
+
 describe("Comparison ops", () => {
   test("equal", () => {
     const a = array([1, 2, 3]);
@@ -1143,6 +1204,32 @@ describe("Error paths", () => {
   test("split rejects zero splits", () => {
     const values = ones([4, 4]);
     expect(() => split(values, 0)).toThrow();
+    values.free();
+  });
+
+  test("asStrided rejects invalid view metadata", () => {
+    const values = array([1, 2, 3], "float32");
+    expect(() => asStrided(values, [], [])).toThrow("shape must contain");
+    expect(() => asStrided(values, [2], [1.5])).toThrow("strides[0] must be an integer");
+    expect(() => asStrided(values, [2], [1], -1)).toThrow("offset");
+    values.free();
+  });
+
+  test("hanning rejects invalid lengths", () => {
+    expect(() => hanning(-1)).toThrow("non-negative integer");
+    expect(() => hanning(1.5)).toThrow("non-negative integer");
+  });
+
+  test("rfft rejects invalid transform metadata", () => {
+    const values = array(
+      [
+        [1, 2],
+        [3, 4],
+      ],
+      "float32",
+    );
+    expect(() => rfft(values, undefined, 2)).toThrow("out of bounds");
+    expect(() => rfft(values, 0)).toThrow("positive integer");
     values.free();
   });
 

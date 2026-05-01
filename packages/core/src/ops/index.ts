@@ -13,6 +13,7 @@ export {
   exp,
   geluApprox,
   log,
+  log10,
   maximum,
   minimum,
   multiply,
@@ -35,6 +36,7 @@ export {
   notEqual,
   where,
 } from "./comparison";
+export { rfft } from "./fft";
 export type { GatherMmOptions } from "./linalg";
 export { conv1d, conv2d, conv3d, gatherMm, matmul } from "./linalg";
 export type { PadMode } from "./padding";
@@ -84,3 +86,5 @@ export {
   tril,
   triu,
 } from "./shape";
+export { asStrided } from "./strides";
+export { hanning } from "./windows";

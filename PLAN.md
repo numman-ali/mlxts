@@ -1027,7 +1027,12 @@ transformer weight mapping/loading, and an AXI-shaped finite proof command in
 real checkpoint proof through that path. Phase 10 image proof commands now
 write machine-checkable artifact evidence in JSON output, and
 `examples/image-proof/verify-report.ts` verifies saved reports against the BMP
-bytes on disk without rerunning generation.
+bytes on disk without rerunning generation. The first Whisper audio foundation
+has landed in `@mlxts/transformers`: config parsing, feature-extractor config
+parsing, Slaney mel filter creation, and channel-last log-mel feature
+preparation over MLX-backed `@mlxts/core` primitives (`hanning`, `rfft`,
+`asStrided`, `log10`). Full Whisper encoder-decoder execution and decoded-text
+proof remain separate work.
 Broader VLM families, audio encoder/decoder families, and additional
 diffusion/flow families remain Phase 10 work.
 

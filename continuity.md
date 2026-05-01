@@ -165,6 +165,15 @@ major product-agent focus on package-owned CLIs and future PI-agent integration.
   tokenizer snapshots. CLIP is intentionally outside the CausalLM registry. The
   Stable Diffusion conditioning composer lives in `examples/stable-diffusion`
   as application-layer code over the package surfaces.
+- **Phase 10 Whisper audio foundation**: `@mlxts/core` now exposes the MLX
+  primitives needed by Whisper feature extraction (`log10`, `hanning`, `rfft`,
+  and explicit `asStrided` views, including negative-stride parity).
+  `@mlxts/transformers` now owns `families/whisper/` config parsing,
+  feature-extractor config parsing, Slaney mel filter creation, and channel-last
+  log-mel feature preparation from 16 kHz mono audio. This is not yet a
+  transcription claim: the full Whisper encoder-decoder model, tokenizer
+  integration, `examples/whisper`, and real checkpoint decoded-text proof remain
+  next Phase 10 audio work.
 - **Qwen conditional serving**: top-level Qwen 3.5 / 3.6 conditional
   checkpoints expose the Qwen text batch-cache surface for text-only continuous
   serving. Media/content requests still route as `media_input` and stay off
