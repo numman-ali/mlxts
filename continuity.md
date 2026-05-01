@@ -241,10 +241,13 @@ major product-agent focus on package-owned CLIs and future PI-agent integration.
   and interleaved/split frequency tensors. Classic LTX-Video prepared-tensor
   denoising now runs over packed video latents with raw FlowMatch timesteps,
   unpatched video-length dynamic shift, negative-first batched CFG, semantic
-  prompt attention masks, and VAE-derived RoPE interpolation scale. Transformer
-  execution, VAE decode/denormalization, latent upsampling, audio/video
-  artifact writing, LTX-2 denoising, and proof commands remain future Phase 10
-  tranches.
+  prompt attention masks, and VAE-derived RoPE interpolation scale. Classic
+  LTX-Video transformer execution now runs over packed video tokens with cached
+  classic RoPE, AdaLayerNormSingle timestep modulation, PixArt caption
+  projection, RMS-normalized self/cross attention, and Diffusers transformer
+  weight mapping/loading. VAE decode/denormalization, latent upsampling,
+  audio/video artifact writing, LTX-2 denoising, and proof commands remain
+  future Phase 10 tranches.
 - **Qwen conditional serving**: top-level Qwen 3.5 / 3.6 conditional
   checkpoints expose the Qwen text batch-cache surface for text-only continuous
   serving. Media/content requests still route as `media_input` and stay off

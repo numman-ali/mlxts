@@ -277,9 +277,12 @@ Diffusers-compatible LTX video BCFHW token packing and LTX-2 audio BCLM token
 packing, plus classic LTX and LTX-2 video/audio RoPE coordinate geometry.
 Classic LTX-Video prepared-tensor denoising now covers packed video latents,
 raw FlowMatch timesteps, video-length dynamic shift, prompt attention masks,
-RoPE interpolation scale, and batched CFG. Transformer/VAE execution, LTX-2
-denoising, latent upsampling, and artifact output remain future Phase 10
-tranches.
+RoPE interpolation scale, and batched CFG. Classic LTX-Video transformer
+execution now covers packed video tokens, cached classic RoPE,
+AdaLayerNormSingle timestep modulation, PixArt caption projection,
+RMS-normalized attention, and transformer weight mapping/loading. VAE
+execution, LTX-2 denoising, latent upsampling, and artifact output remain
+future Phase 10 tranches.
 
 **Architecture pattern:** Mirrors `@mlxts/transformers` — explicit family
 registry, config-driven model construction, and official Hugging Face JS-backed snapshot loading.

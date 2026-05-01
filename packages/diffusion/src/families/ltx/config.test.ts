@@ -16,6 +16,16 @@ import {
   parseLtxVideoAutoencoderConfig,
   parseLtxVideoTransformerConfig,
 } from "./config";
+import {
+  optionalBooleanArray,
+  optionalNonNegativeNumber,
+  optionalNullablePositiveInteger,
+  optionalNullableStringValue,
+  optionalPositiveIntegerArray,
+  optionalPositiveIntegerMatrix,
+  optionalStringArray,
+  optionalStringValue,
+} from "./config-common";
 
 async function withTempDirectory<T>(
   prefix: string,
@@ -336,6 +346,84 @@ describe("LTX component config parsing", () => {
     expect(audioVae.packedFeatureSize).toBe(128);
     expect(connectors.textEncoderDim).toBe(188160);
     expect(vocoder.totalUpsampleFactor).toBe(240);
+  });
+
+  test("normalizes LTX shared config helper variants", () => {
+    const record: Record<string, unknown> = {
+      booleanScalar: true,
+      booleanArray: [true, false],
+      integerArray: [1, 2],
+      maybeInteger: null,
+      maybeString: null,
+      nonNegative: 0,
+      stringArray: ["conv", "conv"],
+      stringValue: "conv",
+      matrix: [
+        [1, 2],
+        [3, 4],
+      ],
+    };
+    const allowed = new Set(["conv"]);
+
+    expect(optionalNonNegativeNumber(record, "nonNegative", "shared", 1)).toBe(0);
+    expect(optionalNonNegativeNumber({}, "nonNegative", "shared", 1)).toBe(1);
+    expect(optionalPositiveIntegerArray(record, "integerArray", "shared", [3, 4], 2)).toEqual([
+      1, 2,
+    ]);
+    expect(optionalNullablePositiveInteger(record, "maybeInteger", "shared", 8)).toBeNull();
+    expect(optionalNullablePositiveInteger({}, "maybeInteger", "shared", 8)).toBe(8);
+    expect(optionalBooleanArray(record, "booleanScalar", "shared", [false, false], 2)).toEqual([
+      true,
+      true,
+    ]);
+    expect(optionalBooleanArray(record, "booleanArray", "shared", [false, false], 2)).toEqual([
+      true,
+      false,
+    ]);
+    expect(
+      optionalStringArray(record, "stringArray", "shared", ["conv", "conv"], allowed, 2),
+    ).toEqual(["conv", "conv"]);
+    expect(optionalStringValue(record, "stringValue", "shared", "conv", allowed)).toBe("conv");
+    expect(optionalNullableStringValue(record, "maybeString", "shared", null, allowed)).toBeNull();
+    expect(optionalPositiveIntegerMatrix(record, "matrix", "shared", [[5, 6]], 2, 2)).toEqual([
+      [1, 2],
+      [3, 4],
+    ]);
+  });
+
+  test("rejects malformed LTX shared config helper values", () => {
+    const allowed = new Set(["conv"]);
+
+    expect(() => optionalNonNegativeNumber({ value: -1 }, "value", "shared", 0)).toThrow(
+      DiffusionConfigError,
+    );
+    expect(() =>
+      optionalPositiveIntegerArray({ value: [1] }, "value", "shared", [1, 2], 2),
+    ).toThrow("2 positive integers");
+    expect(() => optionalNullablePositiveInteger({ value: 0 }, "value", "shared", 1)).toThrow(
+      "positive integer or null",
+    );
+    expect(() =>
+      optionalBooleanArray({ value: [true, "false"] }, "value", "shared", [true, false], 2),
+    ).toThrow("value[1]");
+    expect(() =>
+      optionalBooleanArray({ value: [true] }, "value", "shared", [true, false], 2),
+    ).toThrow("2 boolean values");
+    expect(() =>
+      optionalStringArray({ value: ["nearest"] }, "value", "shared", ["conv"], allowed, 1),
+    ).toThrow("nearest");
+    expect(() => optionalStringValue({ value: 1 }, "value", "shared", "conv", allowed)).toThrow(
+      "1",
+    );
+    expect(() =>
+      optionalNullableStringValue({ value: "nearest" }, "value", "shared", null, allowed),
+    ).toThrow("nearest");
+    expect(() =>
+      optionalPositiveIntegerMatrix({ value: [[1]] }, "value", "shared", [[1, 2]], 1, 2),
+    ).toThrow("value[0]");
+    expect(() =>
+      optionalPositiveIntegerMatrix({ value: [[1, 0]] }, "value", "shared", [[1, 2]], 1, 2),
+    ).toThrow("value[0][1]");
   });
 
   test("loads LTX-Video configs from an inspected snapshot manifest", async () => {

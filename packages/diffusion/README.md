@@ -60,7 +60,7 @@ bundle.scheduler.timesteps(2);
 | Qwen-Image / Qwen-Image-2512 | Qwen-Image transformer, 3D causal VAE, FlowMatch, true-CFG denoising, weight loading | `examples/qwen-image` | Official `Qwen/Qwen-Image-2512` bounded proof passed | Forward Qwen image-generation path |
 | FLUX.2 Klein | Snapshot/config skeleton, transformer/VAE loading, prepared-embedding sampling, NCHW latent patching, external CFG, empirical FlowMatch shift, and VAE batch-norm decode boundary | `examples/flux2` | Official `black-forest-labs/FLUX.2-klein-4B` bounded proof passed | Separate family; reference-image and KV variants remain follow-ups |
 | Stable Diffusion 3 / 3.5 | Snapshot/config parsing, SD3 MMDiT transformer runtime, SD3.5 dual-attention and RMS q/k norm path, transformer/VAE safetensor loading, FlowMatch denoising over prepared conditioning, VAE shift/scale decode boundary | `examples/stable-diffusion-3` | Gated official checkpoints still need authenticated proof | Runtime, loading, prompt-conditioning, and finite command foundation |
-| LTX-Video / LTX-2 | Diffusers `LTXPipeline`, `LTXConditionPipeline`, and `LTX2Pipeline` manifest recognition, typed component config parsing, video latent shape/packing, LTX-2 audio latent shape/packing, video/audio RoPE coordinate helpers, and classic LTX prepared-tensor packed denoising | Future `examples/ltx-video` | Not yet run | Classic LTX denoising scaffold exists; transformer/VAE runtime and proof command remain future work |
+| LTX-Video / LTX-2 | Diffusers `LTXPipeline`, `LTXConditionPipeline`, and `LTX2Pipeline` manifest recognition, typed component config parsing, video latent shape/packing, LTX-2 audio latent shape/packing, video/audio RoPE coordinate helpers, classic LTX prepared-tensor packed denoising, and classic LTX transformer execution/loading | Future `examples/ltx-video` | Not yet run | Classic LTX transformer scaffold exists; VAE runtime and proof command remain future work |
 
 `examples/stable-diffusion`, `examples/flux`, `examples/flux2`,
 `examples/z-image`, and `examples/qwen-image` own the AXI-shaped finite proof
@@ -68,7 +68,7 @@ commands that compose this package with tokenizer/text-encoder packages and
 write BMP image artifacts. `examples/stable-diffusion-3` owns the SD3
 application-layer CLIP/T5 prompt-conditioning bridge and finite proof command.
 SD3 authenticated checkpoint proof, FLUX.2 reference-image/KV variants,
-LTX transformer/VAE execution, latent upsampling, image-to-image, inpainting,
+LTX VAE execution, latent upsampling, image-to-image, inpainting,
 ControlNet, Omni/SigLIP, broader output formats, and quantized mflux-style
 sidecars remain follow-on Phase 10 tranches until their runtime semantics are
 designed deliberately.
