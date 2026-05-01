@@ -19,6 +19,67 @@ function parsedOptions(argv: readonly string[]) {
   return command.options;
 }
 
+function requestEvidence(phase: "cold-a" | "cold-b" | "warm-a" | "warm-b" | "exact-a") {
+  return {
+    phase,
+    session: phase.endsWith("-b") ? "B" : "A",
+    responseId: `chatcmpl-${phase}`,
+    durationMs: 100,
+    ttftMs: 20,
+    finishReason: "stop",
+    streamChunks: 2,
+    streamBytes: 128,
+    promptTokens: 128,
+    completionTokens: 16,
+    totalTokens: 144,
+    cacheReadTokens: phase.startsWith("warm") || phase === "exact-a" ? 128 : 0,
+    cacheWriteTokens: phase.startsWith("cold") ? 128 : 0,
+    server: {
+      routes: [
+        {
+          id: `chatcmpl-${phase}`,
+          route: "continuous",
+          eligible: true,
+          reason: "eligible",
+          modelType: "qwen3_5_text",
+          stream: true,
+        },
+      ],
+      promptPrepare: [
+        {
+          id: `chatcmpl-${phase}`,
+          inputKind: "messages",
+          promptTokens: 128,
+          durationMs: 1,
+        },
+      ],
+      promptCache: [
+        {
+          id: `chatcmpl-${phase}`,
+          result: phase.startsWith("cold") ? "write" : "hit",
+          promptTokens: 128,
+          readTokens: phase.startsWith("cold") ? 0 : 128,
+          writeTokens: phase.startsWith("cold") ? 128 : 0,
+        },
+      ],
+      prefill: [],
+      streams: [
+        {
+          id: `chatcmpl-${phase}`,
+          chunks: 2,
+          bytes: 128,
+          outputChunks: 2,
+          outputBytes: 64,
+          ttftMs: 20,
+          durationMs: 100,
+          finishReason: "stop",
+          result: "completed",
+        },
+      ],
+    },
+  } as const;
+}
+
 function probe(overrides: Partial<AgentCacheProbeReport> = {}): AgentCacheProbeReport {
   return {
     id: "probe",
@@ -44,6 +105,13 @@ function probe(overrides: Partial<AgentCacheProbeReport> = {}): AgentCacheProbeR
       readTokens: 128,
       writeTokens: 128,
     },
+    requests: [
+      requestEvidence("cold-a"),
+      requestEvidence("cold-b"),
+      requestEvidence("warm-a"),
+      requestEvidence("warm-b"),
+      requestEvidence("exact-a"),
+    ],
     coldClientUsage: [
       { session: "A", readTokens: 0, writeTokens: 128 },
       { session: "B", readTokens: 0, writeTokens: 128 },

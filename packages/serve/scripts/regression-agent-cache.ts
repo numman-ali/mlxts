@@ -12,7 +12,11 @@ import {
   type LoadedModelServerEntry,
 } from "../src/model-loading/server-options";
 import type { ServeEvent } from "../src/types";
-import { type BenchmarkPrompt, runCompletionRequest } from "./benchmark-serve-completions";
+import {
+  type BenchmarkPrompt,
+  type RequestMetrics,
+  runCompletionRequest,
+} from "./benchmark-serve-completions";
 import type { ServeBenchmarkOptions } from "./benchmark-serve-options";
 
 type ScenarioName =
@@ -72,6 +76,82 @@ type PromptCacheStats = {
 };
 
 type PromptCacheEvent = Extract<ServeEvent, { type: "generation_prompt_cache" }>;
+type RouteDecisionEvent = Extract<ServeEvent, { type: "generation_route_decision" }>;
+type PromptPrepareEvent = Extract<ServeEvent, { type: "generation_prompt_prepare" }>;
+type PrefillProgressEvent = Extract<ServeEvent, { type: "generation_prefill_progress" }>;
+type StreamChunkEvent = Extract<ServeEvent, { type: "generation_stream_chunk" }>;
+type StreamEndEvent = Extract<ServeEvent, { type: "generation_stream_end" }>;
+
+export type AgentCacheProbePhase = "cold-a" | "cold-b" | "warm-a" | "warm-b" | "exact-a";
+
+export type AgentCacheServerRouteReport = {
+  id: string;
+  route: string;
+  eligible: boolean;
+  reason: string;
+  modelType: string;
+  stream: boolean;
+};
+
+export type AgentCacheServerPromptPrepareReport = {
+  id: string;
+  inputKind: string;
+  promptTokens?: number;
+  durationMs?: number;
+};
+
+export type AgentCacheServerPromptCacheEventReport = {
+  id: string;
+  result: "hit" | "miss" | "write";
+  promptTokens: number;
+  readTokens: number;
+  writeTokens: number;
+};
+
+export type AgentCacheServerPrefillReport = {
+  id: string;
+  events: number;
+  processedPrefillTokens: number;
+  totalPrefillTokens: number;
+  maxChunkTokens: number;
+};
+
+export type AgentCacheServerStreamReport = {
+  id: string;
+  chunks: number;
+  bytes: number;
+  outputChunks: number;
+  outputBytes: number;
+  ttftMs: number | null;
+  durationMs: number | null;
+  finishReason: string | null;
+  result: string | null;
+};
+
+export type AgentCacheServerEvidenceReport = {
+  routes: readonly AgentCacheServerRouteReport[];
+  promptPrepare: readonly AgentCacheServerPromptPrepareReport[];
+  promptCache: readonly AgentCacheServerPromptCacheEventReport[];
+  prefill: readonly AgentCacheServerPrefillReport[];
+  streams: readonly AgentCacheServerStreamReport[];
+};
+
+export type AgentCacheRequestEvidenceReport = {
+  phase: AgentCacheProbePhase;
+  session: "A" | "B";
+  responseId?: string;
+  durationMs: number;
+  ttftMs: number | null;
+  finishReason: string;
+  streamChunks: number;
+  streamBytes: number;
+  promptTokens: number;
+  completionTokens: number;
+  totalTokens: number;
+  cacheReadTokens: number;
+  cacheWriteTokens: number;
+  server: AgentCacheServerEvidenceReport;
+};
 
 export type AgentCacheClientUsageReport = {
   session: "A" | "B";
@@ -85,6 +165,7 @@ export type AgentCacheProbeReport = {
   cold: PromptCacheStats;
   warm: PromptCacheStats;
   exactReplay: PromptCacheStats;
+  requests: readonly AgentCacheRequestEvidenceReport[];
   coldClientUsage: readonly AgentCacheClientUsageReport[];
   warmClientUsage: readonly AgentCacheClientUsageReport[];
   warmClientReadTokens: number;
@@ -350,6 +431,167 @@ function promptCacheStats(events: readonly ServeEvent[], modelId: string): Promp
   };
 }
 
+function eventsForRequest(
+  events: readonly ServeEvent[],
+  modelId: string,
+  metrics: RequestMetrics,
+): readonly ServeEvent[] {
+  const modelEvents = events.filter((event) => "model" in event && event.model === modelId);
+  if (metrics.id === undefined) {
+    return modelEvents;
+  }
+  const requestEvents = modelEvents.filter((event) => "id" in event && event.id === metrics.id);
+  return requestEvents.length === 0 ? modelEvents : requestEvents;
+}
+
+function routeReport(event: RouteDecisionEvent): AgentCacheServerRouteReport {
+  return {
+    id: event.id,
+    route: event.route,
+    eligible: event.eligible,
+    reason: event.reason,
+    modelType: event.modelType,
+    stream: event.stream,
+  };
+}
+
+function promptPrepareReports(
+  events: readonly PromptPrepareEvent[],
+): AgentCacheServerPromptPrepareReport[] {
+  const reports = new Map<string, AgentCacheServerPromptPrepareReport>();
+  for (const event of events) {
+    const existing = reports.get(event.id);
+    if (event.phase === "start") {
+      reports.set(event.id, {
+        id: event.id,
+        inputKind: event.inputKind,
+        ...(existing?.promptTokens === undefined ? {} : { promptTokens: existing.promptTokens }),
+        ...(existing?.durationMs === undefined ? {} : { durationMs: existing.durationMs }),
+      });
+      continue;
+    }
+    reports.set(event.id, {
+      id: event.id,
+      inputKind: existing?.inputKind ?? event.inputKind,
+      promptTokens: event.promptTokens,
+      durationMs: Math.round(event.durationMs * 100) / 100,
+    });
+  }
+  return [...reports.values()];
+}
+
+function promptCacheEventReport(event: PromptCacheEvent): AgentCacheServerPromptCacheEventReport {
+  return {
+    id: event.id,
+    result: event.result,
+    promptTokens: event.promptTokens,
+    readTokens: event.cacheReadTokens,
+    writeTokens: event.cacheWriteTokens,
+  };
+}
+
+function prefillReports(events: readonly PrefillProgressEvent[]): AgentCacheServerPrefillReport[] {
+  const summaries = new Map<string, AgentCacheServerPrefillReport>();
+  for (const event of events) {
+    const existing = summaries.get(event.id);
+    summaries.set(event.id, {
+      id: event.id,
+      events: (existing?.events ?? 0) + 1,
+      processedPrefillTokens: Math.max(
+        existing?.processedPrefillTokens ?? 0,
+        event.processedPrefillTokens,
+      ),
+      totalPrefillTokens: Math.max(existing?.totalPrefillTokens ?? 0, event.totalPrefillTokens),
+      maxChunkTokens: Math.max(existing?.maxChunkTokens ?? 0, event.chunkTokens),
+    });
+  }
+  return [...summaries.values()];
+}
+
+function streamReports(
+  chunkEvents: readonly StreamChunkEvent[],
+  endEvents: readonly StreamEndEvent[],
+): AgentCacheServerStreamReport[] {
+  const ids = new Set([
+    ...chunkEvents.map((event) => event.id),
+    ...endEvents.map((event) => event.id),
+  ]);
+  return [...ids].map((id) => {
+    const chunks = chunkEvents.filter((event) => event.id === id);
+    const end = endEvents.find((event) => event.id === id);
+    return {
+      id,
+      chunks: end?.chunks ?? chunks.length,
+      bytes: end?.bytes ?? chunks.reduce((total, event) => total + event.bytes, 0),
+      outputChunks: end?.outputChunks ?? 0,
+      outputBytes: end?.outputBytes ?? 0,
+      ttftMs: end?.ttftMs ?? null,
+      durationMs: end?.durationMs ?? null,
+      finishReason: end?.finishReason ?? null,
+      result: end?.result ?? null,
+    };
+  });
+}
+
+function serverEvidenceReport(
+  events: readonly ServeEvent[],
+  modelId: string,
+  metrics: RequestMetrics,
+): AgentCacheServerEvidenceReport {
+  const requestEvents = eventsForRequest(events, modelId, metrics);
+  return {
+    routes: requestEvents
+      .filter((event): event is RouteDecisionEvent => event.type === "generation_route_decision")
+      .map(routeReport),
+    promptPrepare: promptPrepareReports(
+      requestEvents.filter(
+        (event): event is PromptPrepareEvent => event.type === "generation_prompt_prepare",
+      ),
+    ),
+    promptCache: requestEvents
+      .filter((event): event is PromptCacheEvent => event.type === "generation_prompt_cache")
+      .map(promptCacheEventReport),
+    prefill: prefillReports(
+      requestEvents.filter(
+        (event): event is PrefillProgressEvent => event.type === "generation_prefill_progress",
+      ),
+    ),
+    streams: streamReports(
+      requestEvents.filter(
+        (event): event is StreamChunkEvent => event.type === "generation_stream_chunk",
+      ),
+      requestEvents.filter(
+        (event): event is StreamEndEvent => event.type === "generation_stream_end",
+      ),
+    ),
+  };
+}
+
+function requestEvidenceReport(
+  phase: AgentCacheProbePhase,
+  session: "A" | "B",
+  metrics: RequestMetrics,
+  events: readonly ServeEvent[],
+  modelId: string,
+): AgentCacheRequestEvidenceReport {
+  return {
+    phase,
+    session,
+    ...(metrics.id === undefined ? {} : { responseId: metrics.id }),
+    durationMs: Math.round(metrics.durationMs * 100) / 100,
+    ttftMs: metrics.ttftMs === null ? null : Math.round(metrics.ttftMs * 100) / 100,
+    finishReason: metrics.finishReason,
+    streamChunks: metrics.streamChunks,
+    streamBytes: metrics.streamBytes,
+    promptTokens: metrics.promptTokens,
+    completionTokens: metrics.completionTokens,
+    totalTokens: metrics.totalTokens,
+    cacheReadTokens: metrics.cacheReadTokens,
+    cacheWriteTokens: metrics.cacheWriteTokens,
+    server: serverEvidenceReport(events, modelId, metrics),
+  };
+}
+
 function chatPrompt(
   tokenizer: { encode(text: string): number[] },
   targetTokens: number,
@@ -426,14 +668,16 @@ async function runProbe(
     runCompletionRequest(endpoint, entry.modelId, leftPrompt, rung, requestOptions),
     runCompletionRequest(endpoint, entry.modelId, rightPrompt, rung, requestOptions),
   ]);
-  const cold = promptCacheStats(events.slice(coldStart), entry.modelId);
+  const coldEvents = events.slice(coldStart);
+  const cold = promptCacheStats(coldEvents, entry.modelId);
 
   const warmStart = events.length;
   const [warmAResult, warmBResult] = await Promise.all([
     runCompletionRequest(endpoint, entry.modelId, leftPrompt, rung, requestOptions),
     runCompletionRequest(endpoint, entry.modelId, rightPrompt, rung, requestOptions),
   ]);
-  const warm = promptCacheStats(events.slice(warmStart), entry.modelId);
+  const warmEvents = events.slice(warmStart);
+  const warm = promptCacheStats(warmEvents, entry.modelId);
 
   const exactReplayStart = events.length;
   const exactReplayResult = await runCompletionRequest(
@@ -443,7 +687,8 @@ async function runProbe(
     rung,
     requestOptions,
   );
-  const exactReplay = promptCacheStats(events.slice(exactReplayStart), entry.modelId);
+  const exactReplayEvents = events.slice(exactReplayStart);
+  const exactReplay = promptCacheStats(exactReplayEvents, entry.modelId);
 
   const warmClientUsage = [
     {
@@ -476,6 +721,13 @@ async function runProbe(
     cold,
     warm,
     exactReplay,
+    requests: [
+      requestEvidenceReport("cold-a", "A", coldAResult, coldEvents, entry.modelId),
+      requestEvidenceReport("cold-b", "B", coldBResult, coldEvents, entry.modelId),
+      requestEvidenceReport("warm-a", "A", warmAResult, warmEvents, entry.modelId),
+      requestEvidenceReport("warm-b", "B", warmBResult, warmEvents, entry.modelId),
+      requestEvidenceReport("exact-a", "A", exactReplayResult, exactReplayEvents, entry.modelId),
+    ],
     coldClientUsage,
     warmClientUsage,
     warmClientReadTokens: warmClientUsage.reduce((total, result) => total + result.readTokens, 0),

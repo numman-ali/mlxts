@@ -29,6 +29,8 @@ disposal.
    - `[cache] ... miss|hit|write ... read_tokens=... write_tokens=...`
    - `generation_scheduler_phase` queued, prefill, admitted, first-token, and
      finished phases.
+   - `regression:agent-cache` JSON `requests[]` entries with client
+     duration/TTFT/stream/cache usage and server route/cache/prefill summaries.
 3. Separate cold-concurrent misses from warm-retention failures:
    - cold A+B simultaneous: misses are expected when no snapshot exists yet
    - warm exact A repeat: must hit
@@ -75,7 +77,10 @@ The cold A/B requests may both miss. The warm A/B replay and exact A replay must
 hit retained prompt boundaries.
 
 Use `cmux` for Pi/server smokes so server logs and two client terminals remain
-visible. Heavy MLX commands remain exclusive.
+visible. Keep the in-process regression as the canonical server gate, and use
+the `cmux` smoke to explain client-shape differences such as tool schemas,
+thinking flags, or changed workspace prompt text. Heavy MLX commands remain
+exclusive.
 
 ## Evidence
 

@@ -583,6 +583,17 @@ bun run regression:agent-cache -- --scenarios gemma-moe --max-concurrent-request
 
 Cold concurrent misses are expected until one completed prompt-boundary snapshot
 exists. Warm replay and exact A replay must hit retained prompt boundaries.
+The JSON report is the forensic artifact: every probe records cold, warm, and
+exact replay phases with client duration/TTFT/stream/cache usage plus matching
+server route, prompt-prepare, prompt-cache, prefill, and stream summaries.
+
+For interactive Pi reproduction, keep one server terminal and two Pi terminals
+visible with `cmux`. The server terminal should show `[route]`, `[cache]`, and
+`[generation] prefill` lines. Run the first Pi prompt in both clients from a
+cold server, then repeat the same prompts. The first cold pair can both miss;
+the repeated pair must show cached-token usage in Pi and `[cache] ... hit` on
+the server. The in-process `regression:agent-cache` report remains the
+canonical pass/fail gate; the `cmux` smoke is for client-shape diagnosis.
 
 ## Engine Primitives
 

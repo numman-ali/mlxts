@@ -53,6 +53,7 @@ before commit.
 | Model-family generation or performance | Family tests plus `bun run bench:generation:parity --require-mlx-lm-reference` when making parity claims | Qwen/Gemma real regression when cached checkpoints are available |
 | Serving behavior | `bun run --filter '@mlxts/serve' regression:serve` | `bun run regression:qwen-gemma -- --profile real` for high-risk serving/model commits |
 | Serving capability claim | `bench:serve --report-json` ladder with route, scheduler, stream, and memory evidence | `bun run regression:qwen-gemma -- --profile substantial` when cached models fit |
+| Pi-style prompt-cache claim | `bun run regression:agent-cache -- --scenarios qwen-dense,gemma-dense,multi-dense --max-concurrent-requests 2 --report-json <path>` | Add MoE scenarios when cached Qwen/Gemma MoE checkpoints and memory budget fit |
 | Agent loop behavior | `bun test packages/agent/src` plus a served-model smoke when practical | Serve regression if protocol or streaming semantics changed |
 | Agent-facing CLI work | Parser/formatter tests plus stdout/stderr/exit-code assertions | Package typecheck and coverage; served-model or example smoke when the command executes model work |
 | Training or alignment proof | Example/package-focused tests and the relevant proof command | Promote to self-hosted Apple Silicon gate only after the proof is stable |

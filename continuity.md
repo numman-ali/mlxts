@@ -258,6 +258,10 @@ Full evidence ladder lives in
   same-server MoE. This rules out a current warm-retention server regression;
   cold-concurrent misses before any completed retained snapshot still remain
   expected.
+- Agent-cache reports now include operator evidence per cold/warm/exact request:
+  client duration, TTFT, stream chunks/bytes, cache usage, plus server route,
+  prompt-prepare, prompt-cache, prefill, and stream summaries. Use that JSON
+  when Pi or another client reports a cache miss before changing cache code.
 - Repo-local skills now have a validation gate:
   `bun run check:skills` validates `.agents/skills/*/SKILL.md` frontmatter,
   catches malformed YAML/description shapes before auto-loader skips, and is
