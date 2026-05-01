@@ -18,6 +18,7 @@ import {
   conv1d,
   conv2d,
   conv3d,
+  convTranspose1d,
   cos,
   cumsum,
   divide,
@@ -306,6 +307,20 @@ describe("Arithmetic ops", () => {
 
     expect(output.shape).toEqual([1, 3, 1]);
     expect(output.toList()).toEqual([[[5], [8], [11]]]);
+
+    input.free();
+    weight.free();
+    output.free();
+  });
+
+  test("convTranspose1d performs channel-last transposed convolution", () => {
+    const input = MxArray.fromData([1, 2, 3], [1, 1, 3]);
+    const weight = MxArray.fromData([1, 1, 1], [1, 1, 3]);
+    const output = convTranspose1d(input, weight, 2, 0, 1, 1);
+    mxEval(output);
+
+    expect(output.shape).toEqual([1, 2, 1]);
+    expect(output.toList()).toEqual([[[6], [0]]]);
 
     input.free();
     weight.free();

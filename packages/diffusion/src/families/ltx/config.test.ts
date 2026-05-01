@@ -519,6 +519,23 @@ describe("LTX component config parsing", () => {
       const manifest = await loadDiffusionSnapshotManifest(directory);
       await expect(loadLtxComponentConfigs(manifest)).rejects.toThrow("decoded audio width");
     });
+
+    await withTempDirectory("mlxts-ltx2-vocoder-duration-mismatch-", async (directory) => {
+      writeLtx2Snapshot(
+        directory,
+        ltx2TransformerConfig(),
+        ltx2VideoVaeConfig(),
+        ltx2AudioVaeConfig(),
+        ltx2ConnectorsConfig(),
+        {
+          ...ltx2VocoderConfig(),
+          output_sampling_rate: 16000,
+        },
+      );
+
+      const manifest = await loadDiffusionSnapshotManifest(directory);
+      await expect(loadLtxComponentConfigs(manifest)).rejects.toThrow("total upsample factor");
+    });
   });
 
   test("rejects unsupported LTX config variants", async () => {
@@ -534,6 +551,24 @@ describe("LTX component config parsing", () => {
         resnet_dilations: [[1, 3, 5]],
       }),
     ).toThrow("resnet_dilations");
+    expect(() =>
+      parseLtx2VocoderConfig({
+        ...ltx2VocoderConfig(),
+        hidden_channels: 1000,
+      }),
+    ).toThrow("halve cleanly");
+    expect(() =>
+      parseLtx2VocoderConfig({
+        ...ltx2VocoderConfig(),
+        upsample_kernel_sizes: [15, 15, 8, 4, 4],
+      }),
+    ).toThrow("must be even");
+    expect(() =>
+      parseLtx2VocoderConfig({
+        ...ltx2VocoderConfig(),
+        resnet_kernel_sizes: [3, 6, 11],
+      }),
+    ).toThrow("must be odd");
 
     await withTempDirectory("mlxts-ltx-unsupported-", async (directory) => {
       writeJson(join(directory, "model_index.json"), {

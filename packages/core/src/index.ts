@@ -98,6 +98,7 @@ export {
   conv1d,
   conv2d,
   conv3d,
+  convTranspose1d,
   cos,
   cumsum,
   divide,

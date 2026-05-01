@@ -13,6 +13,7 @@ export const TRACKED_TENSOR_PRODUCING_CALL_NAMES = [
   "conv1d",
   "conv2d",
   "conv3d",
+  "convTranspose1d",
   "crossEntropy",
   "dequantize",
   "divide",

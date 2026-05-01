@@ -38,7 +38,7 @@ export {
 } from "./comparison";
 export { rfft } from "./fft";
 export type { GatherMmOptions } from "./linalg";
-export { conv1d, conv2d, conv3d, gatherMm, matmul } from "./linalg";
+export { conv1d, conv2d, conv3d, convTranspose1d, gatherMm, matmul } from "./linalg";
 export type { PadMode } from "./padding";
 export { pad } from "./padding";
 export type { SoftmaxOptions } from "./reduction";

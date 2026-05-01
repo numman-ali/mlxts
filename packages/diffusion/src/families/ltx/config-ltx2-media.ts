@@ -1,3 +1,4 @@
+import { DiffusionConfigError } from "../../errors";
 import {
   expectRecord,
   optionalBoolean,
@@ -251,9 +252,36 @@ export function parseLtx2VocoderConfig(rawConfig: unknown): Ltx2VocoderConfig {
     resnetKernelSizes.length,
     3,
   );
+  const hiddenChannels = optionalPositiveInteger(record, "hidden_channels", context, 1024);
+  const finalChannels = hiddenChannels / 2 ** upsampleFactors.length;
+  if (!Number.isInteger(finalChannels) || finalChannels <= 0) {
+    throw new DiffusionConfigError(
+      `${context}.hidden_channels must halve cleanly across all vocoder upsample layers.`,
+    );
+  }
+  for (let index = 0; index < upsampleKernelSizes.length; index += 1) {
+    const kernelSize = upsampleKernelSizes[index];
+    const factor = upsampleFactors[index];
+    if (kernelSize === undefined || factor === undefined) {
+      throw new DiffusionConfigError(`${context}.upsample factors must match kernel sizes.`);
+    }
+    if ((kernelSize - factor) % 2 !== 0) {
+      throw new DiffusionConfigError(
+        `${context}.upsample_kernel_sizes[${index}] - upsample_factors[${index}] must be even for exact LTX-2 vocoder duration.`,
+      );
+    }
+  }
+  for (let index = 0; index < resnetKernelSizes.length; index += 1) {
+    const kernelSize = resnetKernelSizes[index];
+    if (kernelSize === undefined || kernelSize % 2 !== 1) {
+      throw new DiffusionConfigError(
+        `${context}.resnet_kernel_sizes[${index}] must be odd for same-padding parity.`,
+      );
+    }
+  }
   return {
     inChannels: optionalPositiveInteger(record, "in_channels", context, 128),
-    hiddenChannels: optionalPositiveInteger(record, "hidden_channels", context, 1024),
+    hiddenChannels,
     outChannels: optionalPositiveInteger(record, "out_channels", context, 2),
     upsampleKernelSizes,
     upsampleFactors,

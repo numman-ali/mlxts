@@ -259,12 +259,14 @@ major product-agent focus on package-owned CLIs and future PI-agent integration.
   LTX-2 audio VAE decode now covers decoder-only `AutoencoderKLLTX2Audio`
   execution, packed-token latent denormalization against `base_channels` stat
   buffers, audio decoder safetensor loading, and transformer/audio-VAE/vocoder
-  width checks.
+  width checks. LTX-2 plain vocoder decode now covers BCLM mel spectrograms to
+  BCS waveform tensors through MLX-backed transposed Conv1d, with Diffusers
+  weight loading for `LTX2Vocoder`.
   `examples/ltx-video` now owns the finite
   AXI proof command for classic LTX text-to-video: local/Hub snapshot resolve,
   T5 prompt conditioning, packed-latent denoising, VAE decode, and BMP
-  preview-sheet artifact output. LTX-2 denoising remains a future Phase 10
-  tranche.
+  preview-sheet artifact output. LTX-2 full prompt/audio-video proof assembly,
+  bandwidth extension, and LTX-2.3 branches remain future Phase 10 tranches.
 - **Qwen conditional serving**: top-level Qwen 3.5 / 3.6 conditional
   checkpoints expose the Qwen text batch-cache surface for text-only continuous
   serving. Media/content requests still route as `media_input` and stay off

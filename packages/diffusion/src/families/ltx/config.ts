@@ -389,6 +389,14 @@ function validateLtx2AudioComponentAgreement(
       }.`,
     );
   }
+  if (
+    vocoder.totalUpsampleFactor * audioVae.sampleRate !==
+    vocoder.outputSamplingRate * audioVae.melHopLength
+  ) {
+    throw new DiffusionConfigError(
+      `LTX-2 vocoder total upsample factor ${vocoder.totalUpsampleFactor} must match output sample rate ${vocoder.outputSamplingRate}, audio VAE hop length ${audioVae.melHopLength}, and audio VAE sample rate ${audioVae.sampleRate}.`,
+    );
+  }
 }
 
 async function loadLtx2ComponentConfigs(

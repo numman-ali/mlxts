@@ -5,6 +5,7 @@
 
 export { gelu, relu, silu, swiglu } from "./activations";
 export { checkpoint } from "./checkpoint";
+export { ConvTranspose1d } from "./layers/conv-transpose1d";
 export { Conv1d } from "./layers/conv1d";
 export type { Conv2dSpatialPair } from "./layers/conv2d";
 export { Conv2d } from "./layers/conv2d";

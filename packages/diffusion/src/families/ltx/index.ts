@@ -257,3 +257,12 @@ export {
   ltxVideoTransformerWeightPath,
   transformLtxVideoTransformerWeight,
 } from "./transformer-weights";
+export { Ltx2Vocoder, Ltx2VocoderResBlock } from "./vocoder-ltx2";
+export {
+  type Ltx2VocoderWeightLoadOptions,
+  type Ltx2VocoderWeightLoadResult,
+  loadLtx2VocoderFromSnapshot,
+  loadLtx2VocoderWeights,
+  ltx2VocoderWeightPath,
+  transformLtx2VocoderWeight,
+} from "./vocoder-ltx2-weights";

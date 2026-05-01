@@ -308,6 +308,7 @@ export const FFT_SYMBOLS = {
 export const LINALG_SYMBOLS = {
   mlx_matmul: { args: [P, P, P, P], returns: I32 },
   mlx_conv1d: { args: [P, P, P, I32, I32, I32, I32, P], returns: I32 },
+  mlx_conv_transpose1d: { args: [P, P, P, I32, I32, I32, I32, I32, P], returns: I32 },
 } as const;
 
 // ---------------------------------------------------------------------------

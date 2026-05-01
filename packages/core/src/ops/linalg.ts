@@ -44,6 +44,17 @@ function conv1dOutputLength(
   return Math.floor((paddedLength - effectiveKernelSize) / stride) + 1;
 }
 
+function convTranspose1dOutputLength(
+  inputLength: number,
+  kernelSize: number,
+  padding: number,
+  dilation: number,
+  stride: number,
+  outputPadding: number,
+): number {
+  return (inputLength - 1) * stride - 2 * padding + dilation * (kernelSize - 1) + outputPadding + 1;
+}
+
 function normalizeSpatialPair(
   value: number | readonly [number, number],
   name: string,
@@ -313,6 +324,50 @@ export function conv1d(
     checkStatus(
       ffi.mlx_conv1d(out, input._ctx, weight._ctx, stride, padding, dilation, groups, s(stream)),
       "conv1d",
+    );
+  });
+}
+
+/** 1D transposed convolution over channel-last sequence inputs. */
+export function convTranspose1d(
+  input: MxArray,
+  weight: MxArray,
+  stride = 1,
+  padding = 0,
+  dilation = 1,
+  outputPadding = 0,
+  groups = 1,
+  stream?: S,
+): MxArray {
+  const shape = inferConv1dShape(input, weight);
+  const outputLength =
+    shape === undefined
+      ? undefined
+      : convTranspose1dOutputLength(
+          shape[1] ?? 0,
+          weight.shape[1] ?? 0,
+          padding,
+          dilation,
+          stride,
+          outputPadding,
+        );
+  const outputShape =
+    shape === undefined ? undefined : [shape[0] ?? 0, outputLength ?? 0, shape[2] ?? 0];
+  const metadata = convMetadata(input, weight, outputShape);
+  return readResultArrayWithMetadata("conv_transpose1d", metadata, (out) => {
+    checkStatus(
+      ffi.mlx_conv_transpose1d(
+        out,
+        input._ctx,
+        weight._ctx,
+        stride,
+        padding,
+        dilation,
+        outputPadding,
+        groups,
+        s(stream),
+      ),
+      "conv_transpose1d",
     );
   });
 }
