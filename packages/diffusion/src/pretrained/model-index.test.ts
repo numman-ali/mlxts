@@ -175,6 +175,32 @@ describe("diffusion model index loading", () => {
     });
   });
 
+  test("parses Z-Image model_index components", () => {
+    const parsed = parseDiffusionModelIndex({
+      _class_name: "ZImagePipeline",
+      _diffusers_version: "0.36.0.dev0",
+      transformer: ["diffusers", "ZImageTransformer2DModel"],
+      vae: ["diffusers", "AutoencoderKL"],
+      scheduler: ["diffusers", "FlowMatchEulerDiscreteScheduler"],
+      text_encoder: ["transformers", "Qwen3Model"],
+      tokenizer: ["transformers", "Qwen2Tokenizer"],
+    });
+
+    expect(parsed.kind).toBe("z-image");
+    expect(parsed.diffusersVersion).toBe("0.36.0.dev0");
+    expect(parsed.components.map((component) => component.name)).toEqual([
+      "transformer",
+      "vae",
+      "scheduler",
+      "text_encoder",
+      "tokenizer",
+    ]);
+    expect(parsed.components.find((component) => component.name === "text_encoder")).toMatchObject({
+      role: "text-encoder",
+      className: "Qwen3Model",
+    });
+  });
+
   test("loads a local snapshot manifest without constructing models", async () => {
     await withTempDirectory("mlxts-diffusion-model-index-", async (directory) => {
       writeStableDiffusionSnapshot(directory);
@@ -203,6 +229,9 @@ describe("diffusion model index loading", () => {
       parseDiffusionModelIndex({ _class_name: "StableDiffusionImg2ImgPipeline" }),
     ).toThrow("not supported");
     expect(() => parseDiffusionModelIndex({ _class_name: "QwenImageEditPipeline" })).toThrow(
+      "not supported",
+    );
+    expect(() => parseDiffusionModelIndex({ _class_name: "ZImageOmniPipeline" })).toThrow(
       "not supported",
     );
     expect(() =>
@@ -365,6 +394,46 @@ describe("diffusion model index loading", () => {
       expect(manifest.modelIndex.kind).toBe("qwen-image");
       expect(manifest.schedulerConfig.kind).toBe("flow-match-euler");
       expect(manifest.schedulerConfig.config).toMatchObject({ shiftTerminal: 0.02 });
+      expect(
+        manifest.components.find((component) => component.name === "tokenizer")?.metadataPaths,
+      ).toEqual([join(directory, "tokenizer", "tokenizer.json")]);
+    });
+
+    await withTempDirectory("mlxts-diffusion-z-image-manifest-", async (directory) => {
+      writeJson(join(directory, "model_index.json"), {
+        _class_name: "ZImagePipeline",
+        transformer: ["diffusers", "ZImageTransformer2DModel"],
+        vae: ["diffusers", "AutoencoderKL"],
+        scheduler: ["diffusers", "FlowMatchEulerDiscreteScheduler"],
+        text_encoder: ["transformers", "Qwen3Model"],
+        tokenizer: ["transformers", "Qwen2Tokenizer"],
+      });
+      writeComponentFiles(
+        directory,
+        "transformer",
+        ["config.json"],
+        ["diffusion_pytorch_model.safetensors"],
+      );
+      writeComponentFiles(
+        directory,
+        "vae",
+        ["config.json"],
+        ["diffusion_pytorch_model.safetensors"],
+      );
+      writeComponentFiles(directory, "scheduler", ["scheduler_config.json"]);
+      writeJson(join(directory, "scheduler", "scheduler_config.json"), {
+        _class_name: "FlowMatchEulerDiscreteScheduler",
+        shift: 3,
+        use_dynamic_shifting: false,
+      });
+      writeComponentFiles(directory, "text_encoder", ["config.json"], ["model.safetensors"]);
+      writeComponentFiles(directory, "tokenizer", ["tokenizer.json"]);
+
+      const manifest = await loadDiffusionSnapshotManifest(directory);
+
+      expect(manifest.modelIndex.kind).toBe("z-image");
+      expect(manifest.schedulerConfig.kind).toBe("flow-match-euler");
+      expect(manifest.schedulerConfig.config).toMatchObject({ shift: 3 });
       expect(
         manifest.components.find((component) => component.name === "tokenizer")?.metadataPaths,
       ).toEqual([join(directory, "tokenizer", "tokenizer.json")]);

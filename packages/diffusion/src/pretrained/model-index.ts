@@ -6,14 +6,16 @@ export type DiffusersPipelineClassName =
   | "StableDiffusionPipeline"
   | "StableDiffusionXLPipeline"
   | "FluxPipeline"
-  | "QwenImagePipeline";
+  | "QwenImagePipeline"
+  | "ZImagePipeline";
 
 /** Pipeline family represented by a supported Diffusers `model_index.json`. */
 export type DiffusionPipelineKind =
   | "stable-diffusion"
   | "stable-diffusion-xl"
   | "flux"
-  | "qwen-image";
+  | "qwen-image"
+  | "z-image";
 
 /** Component folders recognized in Diffusers text-to-image snapshots. */
 export type DiffusionComponentName =
@@ -129,7 +131,8 @@ function parsePipelineClassName(
     className === "StableDiffusionPipeline" ||
     className === "StableDiffusionXLPipeline" ||
     className === "FluxPipeline" ||
-    className === "QwenImagePipeline"
+    className === "QwenImagePipeline" ||
+    className === "ZImagePipeline"
   ) {
     return className;
   }

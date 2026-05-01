@@ -148,6 +148,19 @@ export {
   transformStableDiffusionUNetWeight,
 } from "./families/stable-diffusion/weights";
 export {
+  loadZImageComponentConfigs,
+  parseZImageAutoencoderConfig,
+  parseZImageTransformerConfig,
+  Z_IMAGE_LATENT_PAD_DIM,
+  Z_IMAGE_SEQUENCE_MULTIPLE,
+  type ZImageAutoencoderConfig,
+  type ZImageComponentConfigs,
+  type ZImagePatchGeometry,
+  type ZImageRopeAxes,
+  type ZImageRopeAxisLengths,
+  type ZImageTransformerConfig,
+} from "./families/z-image/config";
+export {
   type DiffusersPipelineClassName,
   type DiffusionComponentName,
   type DiffusionComponentRole,

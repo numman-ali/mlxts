@@ -996,8 +996,13 @@ config/loading/decoding, latent packing, sampling, and an AXI-shaped
 `examples/flux` proof command. Base Qwen-Image snapshot recognition and config
 parsing has landed, including the Qwen-specific 3D causal VAE metadata and
 FlowMatch `shift_terminal` scheduler field, but Qwen-Image tensor execution is
-not implemented yet. Real checkpoint image evidence is still pending for both
-SD/SDXL and FLUX before either becomes a product-complete generation claim.
+not implemented yet. Base Z-Image snapshot recognition and config parsing has
+also landed for current Diffusers `ZImagePipeline` snapshots, including
+`ZImageTransformer2DModel` geometry, RoPE axes, padding constants, standard
+AutoencoderKL metadata, and the Qwen3 text-encoder manifest boundary. Z-Image
+tensor execution is not implemented yet. Real checkpoint image evidence is
+still pending for both SD/SDXL and FLUX before either becomes a product-complete
+generation claim.
 Broader VLM families, audio encoder/decoder families, and additional
 diffusion/flow families remain Phase 10 work.
 
@@ -1051,12 +1056,11 @@ All diffusion and flow-based generation across modalities: image, video, and aud
    config/model-index parser, not reuse of the Stable Diffusion or FLUX VAE
    path. Runtime tensor execution remains a separate tranche.
 4. **Z-Image-Turbo**: this is the first speed-first modern image target after
-   Qwen-Image is represented cleanly. Diffusers exposes a 6B
-   `ZImageTransformer2DModel` pipeline using FlowMatch Euler, standard
-   `AutoencoderKL`, and chat-template prompt encoding; the Turbo checkpoint is
-   attractive for local product loops because it targets eight denoising
-   evaluations, but it still needs its own reference audit and finite proof
-   command.
+   Qwen-Image is represented cleanly. The reference-audited snapshot/config
+   skeleton has landed for base `ZImagePipeline` snapshots: Diffusers exposes a
+   6B `ZImageTransformer2DModel` pipeline using FlowMatch Euler, standard
+   `AutoencoderKL`, and Qwen chat-template prompt encoding. Runtime tensor
+   execution and the finite proof command remain follow-on work.
 5. **Stable Diffusion 3 / 3.5 and distilled variants**: these become follow-on
    targets when their MMDiT/flow components can reuse the FLUX/Qwen/Z-Image
    infrastructure without creating a parallel package shape. SD3 has its own

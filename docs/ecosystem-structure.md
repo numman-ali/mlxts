@@ -220,27 +220,32 @@ All diffusion and flow-based generation across modalities: image, video, and aud
 
 **Dependencies:** `@mlxts/core`, `@mlxts/nn`
 
-**Current state:** Initial scheduler infrastructure, local scheduler-config
-loading, Diffusers `model_index.json` snapshot inspection, and Stable Diffusion
-VAE/UNet config translation exist. Stable Diffusion VAE and conditional UNet
-module construction exists, with VAE and UNet safetensor loading in place. Stable
+**Current state:** Scheduler infrastructure, local scheduler-config loading,
+Diffusers `model_index.json` snapshot inspection, and Stable Diffusion VAE/UNet
+config translation exist. Stable Diffusion VAE and conditional UNet module
+construction exists, with VAE and UNet safetensor loading in place. Stable
 Diffusion pipeline assembly over supplied conditioning tensors owns NHWC latent
 shape, DDIM/Euler denoising, classifier-free guidance, VAE unscale, and
 postprocessing. Local snapshots now load into a disposable Stable Diffusion
 runtime bundle with VAE, UNet, scheduler, parsed manifest/configs, and thin
-sampling methods. `examples/stable-diffusion` owns the application-layer CLIP
-prompt-conditioning composition and finite BMP image proof command over package
-surfaces. Flux, Hugging Face Hub-backed Diffusers root loading, and broader
-image output formats remain follow-on Phase 10 tranches.
+sampling methods. FLUX.1 owns FlowMatch scheduling, transformer
+config/backbone/weights, VAE loading/decoding, latent packing, and sampling.
+Base Qwen-Image and Z-Image snapshots are recognized and parsed at the
+package-owned metadata boundary while their runtime tensor execution remains
+follow-on work. `examples/stable-diffusion` and `examples/flux` own
+application-layer prompt-conditioning composition and finite BMP image proof
+commands over package surfaces. Hugging Face Hub-backed Diffusers root loading,
+real checkpoint evidence, and broader image output formats remain follow-on
+Phase 10 tranches.
 
 **Image-generation support order:** Stable Diffusion / SDXL is the baseline
 pipeline family. FLUX.1 is the next flow-matching target. Qwen-Image is the
 Qwen text-to-image generation family and stays separate from Qwen 3.5 / Qwen
-3.6 image understanding in `@mlxts/transformers`. Z-Image-Turbo is a later
-local-speed target once FLUX/Qwen-style flow primitives have reference-backed
-package seams. Stable Diffusion 3 / 3.5 and distilled or turbo variants follow
-only when they reuse the base family infrastructure or come with a documented
-architecture delta.
+3.6 image understanding in `@mlxts/transformers`. Z-Image-Turbo is the
+speed-first local target after Qwen-Image and now has a reference-backed
+snapshot/config seam. Stable Diffusion 3 / 3.5 and distilled or turbo variants
+follow only when they reuse the base family infrastructure or come with a
+documented architecture delta.
 
 **Architecture pattern:** Mirrors `@mlxts/transformers` — explicit family
 registry, config-driven model construction, and official Hugging Face JS-backed snapshot loading.

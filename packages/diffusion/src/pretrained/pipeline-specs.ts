@@ -235,6 +235,42 @@ const QWEN_IMAGE_COMPONENTS: readonly DiffusionModelIndexComponentSpec[] = [
   },
 ];
 
+const Z_IMAGE_COMPONENTS: readonly DiffusionModelIndexComponentSpec[] = [
+  {
+    name: "transformer",
+    role: "backbone",
+    allowed: [["diffusers", "ZImageTransformer2DModel"]],
+    requiresConfig: true,
+    requiresWeights: true,
+  },
+  {
+    name: "vae",
+    role: "vae",
+    allowed: [["diffusers", "AutoencoderKL"]],
+    requiresConfig: true,
+    requiresWeights: true,
+  },
+  {
+    name: "scheduler",
+    role: "scheduler",
+    allowed: [["diffusers", "FlowMatchEulerDiscreteScheduler"]],
+    requiresConfig: true,
+  },
+  {
+    name: "text_encoder",
+    role: "text-encoder",
+    allowed: [["transformers", "Qwen3Model"]],
+    requiresConfig: true,
+    requiresWeights: true,
+  },
+  {
+    name: "tokenizer",
+    role: "tokenizer",
+    allowed: [["transformers", "Qwen2Tokenizer"]],
+    requiresTokenizerFiles: true,
+  },
+];
+
 export const PIPELINE_SPECS: Record<DiffusersPipelineClassName, PipelineSpec> = {
   StableDiffusionPipeline: {
     kind: "stable-diffusion",
@@ -251,5 +287,9 @@ export const PIPELINE_SPECS: Record<DiffusersPipelineClassName, PipelineSpec> = 
   QwenImagePipeline: {
     kind: "qwen-image",
     components: QWEN_IMAGE_COMPONENTS,
+  },
+  ZImagePipeline: {
+    kind: "z-image",
+    components: Z_IMAGE_COMPONENTS,
   },
 };
