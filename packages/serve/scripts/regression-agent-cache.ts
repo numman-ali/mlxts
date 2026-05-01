@@ -931,6 +931,12 @@ export function formatAgentCacheRegressionSuccess(
   reportJson: string,
 ): string {
   const rows = report.scenarios.map((scenario) => {
+    const coldMisses = scenario.probes.reduce((total, probe) => total + probe.cold.misses, 0);
+    const coldWrites = scenario.probes.reduce((total, probe) => total + probe.cold.writes, 0);
+    const coldWriteTokens = scenario.probes.reduce(
+      (total, probe) => total + probe.cold.writeTokens,
+      0,
+    );
     const warmHits = scenario.probes.reduce((total, probe) => total + probe.warm.hits, 0);
     const readTokens = scenario.probes.reduce((total, probe) => total + probe.warm.readTokens, 0);
     const clientReadTokens = scenario.probes.reduce(
@@ -949,6 +955,9 @@ export function formatAgentCacheRegressionSuccess(
       toon(scenario.id),
       toon(scenario.status),
       toon(scenario.models.join("|")),
+      String(coldMisses),
+      String(coldWrites),
+      String(coldWriteTokens),
       String(warmHits),
       String(readTokens),
       String(clientReadTokens),
@@ -963,7 +972,7 @@ export function formatAgentCacheRegressionSuccess(
     `  max_concurrent_requests: ${report.maxConcurrentRequests}`,
     `  prompt_prefix_cache_max_entries: ${report.promptPrefixCacheMaxEntries}`,
     `  report_json: ${toon(reportJson)}`,
-    `scenarios[${rows.length}]{id,status,models,warm_hits,warm_read_tokens,warm_client_read_tokens,exact_replay_hits,exact_replay_client_read_tokens}:`,
+    `scenarios[${rows.length}]{id,status,models,cold_misses,cold_writes,cold_write_tokens,warm_hits,warm_read_tokens,warm_client_read_tokens,exact_replay_hits,exact_replay_client_read_tokens}:`,
     ...rows.map((row) => `  ${row}`),
   ].join("\n");
 }

@@ -313,8 +313,8 @@ describe("agent cache regression", () => {
         "  max_concurrent_requests: 2",
         "  prompt_prefix_cache_max_entries: 4",
         '  report_json: ".tmp/report.json"',
-        "scenarios[1]{id,status,models,warm_hits,warm_read_tokens,warm_client_read_tokens,exact_replay_hits,exact_replay_client_read_tokens}:",
-        '  "multi-dense","passed","qwen-dense-local|gemma-dense-local",4,512,384,2,256',
+        "scenarios[1]{id,status,models,cold_misses,cold_writes,cold_write_tokens,warm_hits,warm_read_tokens,warm_client_read_tokens,exact_replay_hits,exact_replay_client_read_tokens}:",
+        '  "multi-dense","passed","qwen-dense-local|gemma-dense-local",4,4,512,4,512,384,2,256',
       ].join("\n"),
     );
     expect(formatAgentCacheRegressionError("bad flag", "rerun")).toBe(
