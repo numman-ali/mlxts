@@ -63,6 +63,16 @@ export {
   type QwenImageTransformerConfig,
 } from "./families/qwen-image/config";
 export {
+  createQwenImageInitialLatents,
+  packQwenImageLatents,
+  type QwenImageInitialLatentOptions,
+  type QwenImageRopeImageShape,
+  qwenImageLatentShape,
+  qwenImagePackedLatentShape,
+  qwenImageRopeImageShape,
+  unpackQwenImageLatents,
+} from "./families/qwen-image/latents";
+export {
   StableDiffusionAutoencoderKL,
   StableDiffusionVaeDecoder,
   StableDiffusionVaeEncoder,
