@@ -46,3 +46,28 @@ export type WhisperFeatureExtractorConfig = {
 export type WhisperAudioFeatures = {
   inputFeatures: MxArray;
 };
+
+export type WhisperRunOptions = {
+  outputHiddenStates?: boolean;
+};
+
+export type WhisperEncoderOutput = {
+  lastHiddenState: MxArray;
+  hiddenStates?: MxArray[];
+};
+
+export type WhisperDecoderOutput = {
+  lastHiddenState: MxArray;
+  hiddenStates?: MxArray[];
+};
+
+export type WhisperModelOutput = {
+  lastHiddenState: MxArray;
+  encoderLastHiddenState: MxArray;
+  encoderHiddenStates?: MxArray[];
+  decoderHiddenStates?: MxArray[];
+};
+
+export type WhisperConditionalGenerationOutput = WhisperModelOutput & {
+  logits: MxArray;
+};

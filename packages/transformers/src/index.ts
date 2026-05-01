@@ -90,7 +90,23 @@ export {
   type T5EncoderWeightLoadResult,
   t5EncoderWeightPath,
 } from "./families/t5/weights";
+export { WhisperAttention } from "./families/whisper/attention";
+export { WhisperDecoderBlock, WhisperEncoderBlock } from "./families/whisper/block";
 export { parseWhisperConfig, parseWhisperFeatureExtractorConfig } from "./families/whisper/config";
+export {
+  type LoadWhisperModelOptions,
+  loadWhisperModel,
+  resolveWhisperModelSource,
+} from "./families/whisper/load";
+export { WhisperMLP } from "./families/whisper/mlp";
+export {
+  disposeWhisperConditionalGenerationOutput,
+  disposeWhisperModelOutput,
+  WhisperAudioEncoder,
+  WhisperForConditionalGeneration,
+  WhisperModel,
+  WhisperTextDecoder,
+} from "./families/whisper/model";
 export {
   createWhisperMelFilterBank,
   prepareWhisperAudioFeatures,
@@ -98,9 +114,21 @@ export {
 export type {
   WhisperActivation,
   WhisperAudioFeatures,
+  WhisperConditionalGenerationOutput,
   WhisperConfig,
+  WhisperDecoderOutput,
+  WhisperEncoderOutput,
   WhisperFeatureExtractorConfig,
+  WhisperModelOutput,
+  WhisperRunOptions,
 } from "./families/whisper/types";
+export {
+  loadWhisperWeights,
+  transformWhisperWeight,
+  type WhisperWeightLoadOptions,
+  type WhisperWeightLoadResult,
+  whisperWeightPath,
+} from "./families/whisper/weights";
 export {
   type ContinuousBatchAdmissionBudgetSnapshot,
   type ContinuousBatchAdmissionController,

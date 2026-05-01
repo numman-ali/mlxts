@@ -171,9 +171,14 @@ major product-agent focus on package-owned CLIs and future PI-agent integration.
   `@mlxts/transformers` now owns `families/whisper/` config parsing,
   feature-extractor config parsing, Slaney mel filter creation, and channel-last
   log-mel feature preparation from 16 kHz mono audio. This is not yet a
-  transcription claim: the full Whisper encoder-decoder model, tokenizer
-  integration, `examples/whisper`, and real checkpoint decoded-text proof remain
-  next Phase 10 audio work.
+  transcription claim: tokenizer integration, `examples/whisper`, and real
+  checkpoint decoded-text proof remain next Phase 10 audio work.
+- **Phase 10 Whisper encoder-decoder foundation**: `@mlxts/transformers` now
+  owns executable Whisper audio encoder blocks, text decoder blocks,
+  cross-attention, tied decoder-embedding logits projection, local loading, and
+  Hugging Face safetensor weight mapping with Conv1d transposition. Whisper stays
+  outside the CausalLM registry; a real encoder-decoder generation contract,
+  cached decoding, and transcript proof remain future work.
 - **Qwen conditional serving**: top-level Qwen 3.5 / 3.6 conditional
   checkpoints expose the Qwen text batch-cache surface for text-only continuous
   serving. Media/content requests still route as `media_input` and stay off
