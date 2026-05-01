@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 
-import { loadBPEFromTokenizerJson } from "./bpe/bpe";
+import { loadBPEFromTokenizerJson, loadByteLevelBPEFromVocabMerges } from "./bpe/bpe";
 import {
   decodeByteLevelTokens,
   encodeByteLevelSegment,
@@ -11,7 +11,12 @@ import {
 } from "./bpe/byte-level";
 import { CharTokenizer } from "./char";
 import { UnsupportedTokenizerError } from "./errors";
-import { loadSentencePiece, loadTokenizer, loadTokenizerJson } from "./load";
+import {
+  loadByteLevelBPEVocabMerges,
+  loadSentencePiece,
+  loadTokenizer,
+  loadTokenizerJson,
+} from "./load";
 import { SentencePieceTokenizer } from "./sentencepiece";
 import { parseSentencePieceModel } from "./sentencepiece-proto";
 
@@ -247,6 +252,9 @@ describe("tokenizer coverage", () => {
       }),
     ).toThrow("tokenizer_config.json must be an object");
     expect(loadTokenizer({ tokenizerModelPath }).encode("hi!")).toEqual([1, 3, 4, 2]);
+    expect(() => loadByteLevelBPEVocabMerges(directory)).toThrow(
+      "vocab.json and merges.txt were not found",
+    );
 
     const unresolvedSource = join(directory, "remote-like-repo");
     expect(() => loadTokenizer(unresolvedSource)).toThrow(
@@ -556,6 +564,12 @@ describe("tokenizer coverage", () => {
         pre_tokenizer: { type: "ByteLevel" },
       }),
     ).toThrow("tokenizer.model.merges must contain string pairs");
+    expect(() => loadByteLevelBPEFromVocabMerges({ a: "0" }, "#version: 0.2\n")).toThrow(
+      'tokenizer.model.vocab["a"] must be a non-negative integer',
+    );
+    expect(() => loadByteLevelBPEFromVocabMerges({ a: 0 }, "broken\n")).toThrow(
+      "merges.txt line 1 must contain two tokens",
+    );
     expect(() =>
       loadBPEFromTokenizerJson({
         model: {

@@ -18,6 +18,7 @@ const REMOTE_SUPPORTED_FILE_NAMES = new Set([
   "tekken.json",
   "tokenizer_config.json",
   "special_tokens_map.json",
+  "added_tokens.json",
 ]);
 
 function isSupportedRemoteSnapshotFile(path: string): boolean {

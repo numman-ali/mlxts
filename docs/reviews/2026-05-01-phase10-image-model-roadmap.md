@@ -37,8 +37,8 @@ Klein as a separate later family rather than a FLUX.1 variant.
 - Qwen-Image remains architecturally important but heavier. Diffusers exposes
   `QwenImagePipeline`, while `Qwen/Qwen-Image-2512` is the newer forward target
   with improved realism, detail, and text rendering. Its Qwen-specific VAE and
-  text stack now have a package-owned runtime/proof-command path; official full
-  checkpoint evidence remains pending. Sources:
+  text stack now have a package-owned runtime/proof-command path, and official
+  bounded checkpoint evidence has landed. Sources:
   https://huggingface.co/docs/diffusers/api/pipelines/qwenimage and
   https://huggingface.co/Qwen/Qwen-Image-2512
 - FLUX.2 Klein is not a FLUX.1 checkpoint variant. Diffusers exposes
@@ -65,6 +65,25 @@ The support ladder is:
 This is a product support order, not a claim that every listed family has
 runtime tensor execution today.
 
+## Tensor Lifetime Audit
+
+This roadmap artifact changes documentation only. Runtime tensor ownership is
+audited in the paired real-checkpoint proof artifacts for the implemented image
+families.
+
+## Memory / Performance Evidence
+
+This roadmap artifact carries no performance claim. Bounded checkpoint evidence
+for implemented image families is recorded in their dedicated runtime review
+artifacts, and larger/default-step characterization remains follow-up work.
+
+## Independent Review
+
+Hooke performed a read-only product/architecture pass across Phase 10 image
+support and recommended proving Z-Image-Turbo and Qwen-Image-2512 before
+advancing later image families. Galileo later reviewed the Qwen2 tokenizer
+boundary needed by the Qwen-Image proof.
+
 ## Validation
 
 - Documentation-only change.
@@ -75,7 +94,8 @@ runtime tensor execution today.
 - Z-Image-Turbo has bounded official dense checkpoint image evidence, but still
   needs larger/default-step quality and performance characterization before it
   can be called product-complete.
-- Qwen-Image / Qwen-Image-2512 still needs official full checkpoint image
-  evidence before it can be called product-complete.
+- Qwen-Image / Qwen-Image-2512 has bounded official checkpoint image evidence,
+  but still needs larger/default-step quality and performance characterization
+  before it can be called product-complete.
 - Video and audio generation remain Phase 10 work after the first image
   generation surfaces are stable.

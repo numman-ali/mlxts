@@ -1087,9 +1087,8 @@ All diffusion and flow-based generation across modalities: image, video, and aud
    `QwenImageTransformer2DModel`, `AutoencoderKLQwenImage`, and a Qwen2.5-VL
    text encoder. Its VAE is a 3D causal Qwen/Wan-derived autoencoder, so the
    landed implementation path is separate from the Stable Diffusion, FLUX, and
-   Z-Image VAE paths. Runtime tensor execution and the AXI-shaped proof command
-   are implemented; official `Qwen/Qwen-Image-2512` checkpoint evidence remains
-   the next Qwen-Image gate.
+   Z-Image VAE paths. Runtime tensor execution, the AXI-shaped proof command,
+   and official `Qwen/Qwen-Image-2512` bounded checkpoint evidence have landed.
 5. **FLUX.2 Klein 4B**: this is a later separate family, not a FLUX.1 variant.
    It uses Diffusers `Flux2KleinPipeline`, `Flux2Transformer2DModel`,
    `AutoencoderKLFlux2`, and Qwen3 text encoding, so it should land only after

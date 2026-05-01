@@ -116,6 +116,9 @@ function tokenizerFileSet(
   if (inspection.tokenizer.specialTokensMapPath !== undefined) {
     fileSet.specialTokensMapPath = inspection.tokenizer.specialTokensMapPath;
   }
+  if (inspection.tokenizer.addedTokensPath !== undefined) {
+    fileSet.addedTokensPath = inspection.tokenizer.addedTokensPath;
+  }
   if (inspection.tokenizer.vocabJsonPath !== undefined) {
     fileSet.vocabJsonPath = inspection.tokenizer.vocabJsonPath;
   }

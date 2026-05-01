@@ -5,7 +5,11 @@
 
 import { existsSync, readFileSync, statSync } from "fs";
 import { basename, dirname, join } from "path";
-import { type BPETokenizer, loadBPEFromTokenizerJson } from "./bpe/bpe";
+import {
+  type BPETokenizer,
+  loadBPEFromTokenizerJson,
+  loadByteLevelBPEFromVocabMerges,
+} from "./bpe/bpe";
 import { type CLIPTokenizer, loadCLIPTokenizer } from "./bpe/clip";
 import { CharTokenizer } from "./char";
 import { UnsupportedTokenizerError } from "./errors";
@@ -16,6 +20,7 @@ import type { Tokenizer } from "./tokenizer";
 export type TokenizerFormat =
   | "auto"
   | "tokenizer-json"
+  | "bytelevel-vocab-merges"
   | "clip-vocab-merges"
   | "tekken-json"
   | "sentencepiece-model"
@@ -32,8 +37,10 @@ export type TokenizerFileSet = {
   tokenizerModelPath?: string;
   tokenizerConfigPath?: string;
   specialTokensMapPath?: string;
+  addedTokensPath?: string;
   tokenizerConfigData?: Record<string, unknown>;
   specialTokensMapData?: Record<string, unknown>;
+  addedTokensData?: Record<string, unknown>;
   vocabJsonPath?: string;
   mergesTextPath?: string;
   vocabTextPath?: string;
@@ -85,6 +92,7 @@ function resolveFileSet(source: string | TokenizerFileSet): TokenizerFileSet {
       tokenizerModelPath: existsSync(tokenizerModelPath) ? tokenizerModelPath : spieceModelPath,
       tokenizerConfigPath: join(source, "tokenizer_config.json"),
       specialTokensMapPath: join(source, "special_tokens_map.json"),
+      addedTokensPath: join(source, "added_tokens.json"),
       vocabJsonPath: join(source, "vocab.json"),
       mergesTextPath: join(source, "merges.txt"),
     };
@@ -97,6 +105,7 @@ function resolveFileSet(source: string | TokenizerFileSet): TokenizerFileSet {
       mergesTextPath: join(dirname(source), "merges.txt"),
       tokenizerConfigPath: join(dirname(source), "tokenizer_config.json"),
       specialTokensMapPath: join(dirname(source), "special_tokens_map.json"),
+      addedTokensPath: join(dirname(source), "added_tokens.json"),
     };
   }
   if (name === "merges.txt") {
@@ -105,6 +114,7 @@ function resolveFileSet(source: string | TokenizerFileSet): TokenizerFileSet {
       vocabJsonPath: join(dirname(source), "vocab.json"),
       tokenizerConfigPath: join(dirname(source), "tokenizer_config.json"),
       specialTokensMapPath: join(dirname(source), "special_tokens_map.json"),
+      addedTokensPath: join(dirname(source), "added_tokens.json"),
     };
   }
 
@@ -127,6 +137,7 @@ function resolveFileSet(source: string | TokenizerFileSet): TokenizerFileSet {
     tokenizerModelPath: join(source, "tokenizer.model"),
     tokenizerConfigPath: join(source, "tokenizer_config.json"),
     specialTokensMapPath: join(source, "special_tokens_map.json"),
+    addedTokensPath: join(source, "added_tokens.json"),
     vocabJsonPath: join(source, "vocab.json"),
     mergesTextPath: join(source, "merges.txt"),
   };
@@ -153,6 +164,16 @@ function isConfiguredCLIPTokenizer(fileSet: TokenizerFileSet): boolean {
   return tokenizerClass === "CLIPTokenizer" || tokenizerClass === "CLIPTokenizerFast";
 }
 
+function isConfiguredByteLevelBPEVocabMergesTokenizer(fileSet: TokenizerFileSet): boolean {
+  const tokenizerConfig = readMergedJsonFile(
+    fileSet.tokenizerConfigPath,
+    fileSet.tokenizerConfigData,
+    "tokenizer_config.json",
+  );
+  const tokenizerClass = tokenizerConfig.tokenizer_class;
+  return tokenizerClass === "Qwen2Tokenizer" || tokenizerClass === "Qwen2TokenizerFast";
+}
+
 function loadCharTokenizer(fileSet: TokenizerFileSet): CharTokenizer {
   const vocabPath = existingPath(fileSet.vocabTextPath) ?? existingPath(fileSet.tokenizerJsonPath);
   if (vocabPath === undefined) {
@@ -161,9 +182,23 @@ function loadCharTokenizer(fileSet: TokenizerFileSet): CharTokenizer {
   return CharTokenizer.fromText(readFileSync(vocabPath, "utf8"));
 }
 
-function loadAutoTokenizer(fileSet: TokenizerFileSet): Tokenizer {
-  if (hasCLIPTokenizerFiles(fileSet) && isConfiguredCLIPTokenizer(fileSet)) {
+function loadConfiguredVocabMergesTokenizer(fileSet: TokenizerFileSet): Tokenizer | null {
+  if (!hasCLIPTokenizerFiles(fileSet)) {
+    return null;
+  }
+  if (isConfiguredCLIPTokenizer(fileSet)) {
     return loadCLIP(fileSet);
+  }
+  if (isConfiguredByteLevelBPEVocabMergesTokenizer(fileSet)) {
+    return loadByteLevelBPEVocabMerges(fileSet);
+  }
+  return null;
+}
+
+function loadAutoTokenizer(fileSet: TokenizerFileSet): Tokenizer {
+  const configuredVocabMerges = loadConfiguredVocabMergesTokenizer(fileSet);
+  if (configuredVocabMerges !== null) {
+    return configuredVocabMerges;
   }
 
   const tokenizerJsonPath = existingPath(fileSet.tokenizerJsonPath);
@@ -212,6 +247,8 @@ export function loadTokenizer(
       return loadCharTokenizer(fileSet);
     case "tokenizer-json":
       return loadTokenizerJson(fileSet);
+    case "bytelevel-vocab-merges":
+      return loadByteLevelBPEVocabMerges(fileSet);
     case "clip-vocab-merges":
       return loadCLIP(fileSet);
     case "tekken-json":
@@ -221,6 +258,46 @@ export function loadTokenizer(
     case "auto":
       return loadAutoTokenizer(fileSet);
   }
+}
+
+/** Load a generic byte-level BPE tokenizer from `vocab.json` and `merges.txt`. */
+export function loadByteLevelBPEVocabMerges(source: string | TokenizerFileSet): BPETokenizer {
+  const fileSet = resolveFileSet(source);
+  const vocabJsonPath = fileSet.vocabJsonPath;
+  const mergesTextPath = fileSet.mergesTextPath;
+  if (
+    vocabJsonPath === undefined ||
+    mergesTextPath === undefined ||
+    !existsSync(vocabJsonPath) ||
+    !existsSync(mergesTextPath)
+  ) {
+    throw new Error("loadByteLevelBPEVocabMerges: vocab.json and merges.txt were not found");
+  }
+
+  const tokenizerConfig = readMergedJsonFile(
+    fileSet.tokenizerConfigPath,
+    fileSet.tokenizerConfigData,
+    "tokenizer_config.json",
+  );
+  const specialTokensMap = readMergedJsonFile(
+    fileSet.specialTokensMapPath,
+    fileSet.specialTokensMapData,
+    "special_tokens_map.json",
+  );
+  const addedTokens = readMergedJsonFile(
+    fileSet.addedTokensPath,
+    fileSet.addedTokensData,
+    "added_tokens.json",
+  );
+  return loadByteLevelBPEFromVocabMerges(
+    readJsonFile(vocabJsonPath, "vocab.json"),
+    readFileSync(mergesTextPath, "utf8"),
+    {
+      tokenizerConfig,
+      specialTokensMap,
+      addedTokens,
+    },
+  );
 }
 
 /** Load a CLIP vocab/merges tokenizer. */

@@ -9,6 +9,7 @@ export {
   CLIPTokenizer,
   encodeCLIPTextInput,
   loadBPEFromTokenizerJson,
+  loadByteLevelBPEFromVocabMerges,
   loadCLIPTokenizer,
   parseCLIPMergesText,
   parseCLIPVocabJson,

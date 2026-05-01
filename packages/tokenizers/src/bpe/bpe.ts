@@ -19,3 +19,7 @@ export {
   parseCLIPMergesText,
   parseCLIPVocabJson,
 } from "./clip";
+export {
+  type ByteLevelBPEVocabMergesLoadOptions,
+  loadByteLevelBPEFromVocabMerges,
+} from "./vocab-merges";

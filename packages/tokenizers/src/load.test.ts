@@ -134,4 +134,60 @@ describe("loadTokenizer", () => {
     const tokenizer = loadTokenizer(directory);
     expect(tokenizer.encode("hi")).toEqual([3, 1]);
   });
+
+  test("auto-detects Qwen2 vocab and merges tokenizers without CLIP fallback", () => {
+    const directory = createTempDir("qwen2-vocab-merges");
+    writeFileSync(
+      join(directory, "vocab.json"),
+      JSON.stringify({
+        a: 0,
+        Ġtable: 1,
+        "1": 2,
+        "2": 3,
+        "12": 4,
+        "<|endoftext|>": 151643,
+      }),
+    );
+    writeFileSync(join(directory, "merges.txt"), "#version: 0.2\n");
+    writeFileSync(
+      join(directory, "tokenizer_config.json"),
+      JSON.stringify({
+        tokenizer_class: "Qwen2Tokenizer",
+        eos_token: "<|im_end|>",
+        pad_token: "<|endoftext|>",
+        additional_special_tokens: ["<|im_start|>", "<|im_end|>"],
+        add_bos_token: false,
+        added_tokens_decoder: {
+          151643: { content: "<|endoftext|>", special: true },
+          151644: { content: "<|im_start|>", special: true },
+          151645: { content: "<|im_end|>", special: true },
+          151646: { content: "<tool_call>", special: false },
+        },
+      }),
+    );
+    writeFileSync(
+      join(directory, "special_tokens_map.json"),
+      JSON.stringify({
+        eos_token: { content: "<|im_end|>" },
+        pad_token: { content: "<|endoftext|>" },
+        additional_special_tokens: ["<|im_start|>", "<|im_end|>"],
+      }),
+    );
+    writeFileSync(
+      join(directory, "added_tokens.json"),
+      JSON.stringify({
+        "<|im_start|>": 151644,
+        "<|im_end|>": 151645,
+        "<tool_call>": 151646,
+      }),
+    );
+
+    const tokenizer = loadTokenizer(directory);
+    expect(tokenizer.padTokenId).toBe(151643);
+    expect(tokenizer.eosTokenIds).toEqual([151645]);
+    expect(tokenizer.encode("<|im_start|>a table<|im_end|>")).toEqual([151644, 0, 1, 151645]);
+    expect(tokenizer.encode("12", { addSpecialTokens: false })).toEqual([2, 3]);
+    expect(tokenizer.decode([151644, 0, 1, 151645], { skipSpecialTokens: true })).toBe("a table");
+    expect(tokenizer.decode([151646], { skipSpecialTokens: true })).toBe("<tool_call>");
+  });
 });

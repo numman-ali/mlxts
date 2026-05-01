@@ -26,5 +26,23 @@ Qwen-Image true classifier-free guidance with `--true-cfg-scale 4` and a single
 space negative prompt, matching the upstream Diffusers guidance path. Increase
 `--steps` for quality-oriented manual runs.
 
+The official checkpoint has passed a bounded capability proof:
+
+```bash
+bun run examples/qwen-image/index.ts Qwen/Qwen-Image-2512 \
+  --cache-dir .tmp/hf-diffusion-proof-cache \
+  --local-files-only \
+  --prompt "a small red apple on a white table, product photo" \
+  --negative-prompt " " \
+  --output .tmp/qwen-image/qwen-image-2512-official-proof.bmp \
+  --steps 2 \
+  --height 256 \
+  --width 256 \
+  --true-cfg-scale 4 \
+  --seed 7 \
+  --dtype bfloat16 \
+  --json
+```
+
 The command uses the shared runtime lock because it loads local MLX model
 weights. The default tests are fixture-backed and do not require a checkpoint.

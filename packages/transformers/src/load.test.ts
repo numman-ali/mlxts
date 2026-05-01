@@ -1688,6 +1688,69 @@ describe("pretrained loading", () => {
     expect(tokenizer.encode("Hi")).toEqual([0, 2, 3, 1]);
   });
 
+  test("loadPretrainedTokenizer reads Qwen2 vocab and added-token sidecars", async () => {
+    const directory = createTempDir("mlxts-transformers-qwen2-tokenizer-");
+    await Bun.write(
+      join(directory, "vocab.json"),
+      `${JSON.stringify(
+        { a: 0, Ġtable: 1, "1": 2, "2": 3, "12": 4, "<|endoftext|>": 151643 },
+        null,
+        2,
+      )}\n`,
+    );
+    await Bun.write(join(directory, "merges.txt"), "#version: 0.2\n");
+    await Bun.write(
+      join(directory, "tokenizer_config.json"),
+      `${JSON.stringify(
+        {
+          tokenizer_class: "Qwen2Tokenizer",
+          eos_token: "<|im_end|>",
+          pad_token: "<|endoftext|>",
+          additional_special_tokens: ["<|im_start|>", "<|im_end|>"],
+          add_bos_token: false,
+          added_tokens_decoder: {
+            151643: { content: "<|endoftext|>", special: true },
+            151644: { content: "<|im_start|>", special: true },
+            151645: { content: "<|im_end|>", special: true },
+            151646: { content: "<tool_call>", special: false },
+          },
+        },
+        null,
+        2,
+      )}\n`,
+    );
+    await Bun.write(
+      join(directory, "special_tokens_map.json"),
+      `${JSON.stringify(
+        {
+          eos_token: { content: "<|im_end|>" },
+          pad_token: { content: "<|endoftext|>" },
+          additional_special_tokens: ["<|im_start|>", "<|im_end|>"],
+        },
+        null,
+        2,
+      )}\n`,
+    );
+    await Bun.write(
+      join(directory, "added_tokens.json"),
+      `${JSON.stringify(
+        { "<|im_start|>": 151644, "<|im_end|>": 151645, "<tool_call>": 151646 },
+        null,
+        2,
+      )}\n`,
+    );
+
+    const tokenizer = await loadPretrainedTokenizer(directory);
+
+    expect(tokenizer.padTokenId).toBe(151643);
+    expect(tokenizer.eosTokenIds).toEqual([151645]);
+    expect(tokenizer.encode("<|im_start|>a table<|im_end|>")).toEqual([151644, 0, 1, 151645]);
+    expect(tokenizer.encode("12", { addSpecialTokens: false })).toEqual([2, 3]);
+    expect(tokenizer.decode([151644, 0, 1, 151645, 151646], { skipSpecialTokens: true })).toBe(
+      "a table<tool_call>",
+    );
+  });
+
   test("AutoModel loads the same snapshot contract as loadCausalLM", async () => {
     const { directory, model } = await createTinySnapshot("llama");
     using loadedModel = await AutoModel.fromPretrained(directory);

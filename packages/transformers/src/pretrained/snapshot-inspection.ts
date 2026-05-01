@@ -83,6 +83,10 @@ function collectTokenizerArtifacts(snapshot: ResolvedSnapshot): TokenizerArtifac
   if (specialTokensMapPath !== undefined) {
     artifacts.specialTokensMapPath = specialTokensMapPath;
   }
+  const addedTokensPath = findSnapshotFile(snapshot, "added_tokens.json");
+  if (addedTokensPath !== undefined) {
+    artifacts.addedTokensPath = addedTokensPath;
+  }
   const vocabJsonPath = findSnapshotFile(snapshot, "vocab.json");
   if (vocabJsonPath !== undefined) {
     artifacts.vocabJsonPath = vocabJsonPath;
