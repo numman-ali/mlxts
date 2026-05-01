@@ -93,32 +93,32 @@ major product-agent focus on package-owned CLIs and future PI-agent integration.
   configures `localImageRoots` / `--local-image-root`; they resolve as relative
   image paths under those roots and do not create a general files API.
 - **Phase 10 diffusion**: `@mlxts/diffusion` now parses local Diffusers
-  snapshot manifests, scheduler configs, Stable Diffusion VAE/UNet configs, and
-  constructs the Stable Diffusion AutoencoderKL VAE and conditional UNet. VAE
-  safetensor loading is package-owned: Diffusers names map into the camelCase
-  module tree, Conv2d weights transpose from PyTorch kernel layout to MLX
-  channel-last layout, and single-shard plus index-sharded VAE weights are
-  covered by synthetic safetensor tests. UNet loading is also package-owned:
-  Diffusers block, mid-block, timestep, transformer, fused GEGLU, SDXL
-  `text_time`, Conv2d projection, and linear projection names map into the
-  module tree without reversing up-block indices. Pipeline assembly over
-  supplied conditioning tensors is now package-owned too: NHWC latent shape,
-  initial noise, DDIM/Euler denoising, negative-first classifier-free guidance,
-  VAE unscale, and 0..1 postprocessing live in `@mlxts/diffusion`. A local
-  snapshot now loads into one disposable Stable Diffusion runtime bundle with
-  VAE, UNet, scheduler, parsed manifest/configs, thin sampling methods, and
-  explicit rejection for required/enabled safety-checker semantics.
+  snapshot manifests, scheduler configs, Stable Diffusion VAE/UNet configs,
+  and FLUX transformer/VAE configs. Stable Diffusion VAE/UNet loading is
+  package-owned: Diffusers names map into the camelCase module tree, Conv2d
+  weights transpose from PyTorch kernel layout to MLX channel-last layout, and
+  single-shard plus index-sharded weights are covered by synthetic safetensor
+  tests. Stable Diffusion pipeline assembly over supplied conditioning tensors
+  is package-owned too: NHWC latent shape, initial noise, DDIM/Euler denoising,
+  negative-first classifier-free guidance, VAE unscale, and 0..1
+  postprocessing live in `@mlxts/diffusion`. A local snapshot now loads into
+  one disposable Stable Diffusion runtime bundle with VAE, UNet, scheduler,
+  parsed manifest/configs, thin sampling methods, and explicit rejection for
+  required/enabled safety-checker semantics. FLUX now has package-owned
+  FlowMatch Euler scheduling, transformer config/backbone/weight loading, VAE
+  config/loading/decoding, latent packing, and sampling for finite proof use.
   `examples/stable-diffusion` now owns the application-layer prompt
   conditioner that composes CLIP tokenizers, CLIP text encoders, and diffusion
   tensor conditioning while preserving package dependencies. It also has a
   finite AXI-shaped image proof command that loads a local Diffusers snapshot,
   acquires the runtime lock, samples one image, and writes an uncompressed BMP
-  artifact from the returned NHWC image tensor. The image-generation support
-  ladder is now explicit: Stable Diffusion / SDXL baseline first, then FLUX.1,
-  then Qwen-Image, then Z-Image-Turbo, with Stable Diffusion 3 / 3.5 and
-  distilled variants following when they reuse the base flow/DiT
-  infrastructure. Real checkpoint quality/parity evidence remains separate from
-  the command surface.
+  artifact from the returned NHWC image tensor. `examples/flux` owns the
+  analogous FLUX application layer for T5/CLIP prompt conditioning and BMP
+  output. The image-generation support ladder is now explicit: Stable Diffusion
+  / SDXL baseline first, then FLUX.1, then Qwen-Image, then Z-Image-Turbo, with
+  Stable Diffusion 3 / 3.5 and distilled variants following when they reuse the
+  base flow/DiT infrastructure. Real checkpoint quality/parity evidence remains
+  separate from the command surface.
 - **Phase 10 CLIP conditioning**: `@mlxts/transformers` now owns a
   `families/clip/` text encoder surface with CLIP text config parsing, causal
   text attention, quick GELU, EOS pooling, projected text features, and retained

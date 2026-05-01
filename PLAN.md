@@ -990,8 +990,12 @@ protocol media transport and scheduling, and `examples/qwen3_5-image` is the
 direct workbook. `@mlxts/diffusion` now owns Stable Diffusion / SDXL package
 surfaces through local Diffusers snapshot inspection, scheduler/config loading,
 VAE/UNet construction and loading, sampling, pipeline loading, and an
-AXI-shaped example proof command; real checkpoint image evidence is still
-pending. Broader VLM families, audio encoder/decoder families, and additional
+AXI-shaped example proof command. It also owns the first FLUX.1 package path:
+FlowMatch Euler scheduling, FLUX transformer config/backbone/weights, FLUX VAE
+config/loading/decoding, latent packing, sampling, and an AXI-shaped
+`examples/flux` proof command. Real checkpoint image evidence is still pending
+for both SD/SDXL and FLUX before either becomes a product-complete generation
+claim. Broader VLM families, audio encoder/decoder families, and additional
 diffusion/flow families remain Phase 10 work.
 
 **What this phase covers**:
@@ -1030,20 +1034,30 @@ All diffusion and flow-based generation across modalities: image, video, and aud
    before this becomes a product-complete image generation claim.
 2. **FLUX.1 family**: this is the first modern flow-matching target after the
    Stable Diffusion baseline because it moves `@mlxts/diffusion` from UNet2D
-   pipelines into DiT/flow-style backbones. `FLUX.1-schnell` is the first local
-   proof target; gated or non-commercial variants require explicit operator and
-   license handling before they are advertised.
+   pipelines into DiT/flow-style backbones. The local `FLUX.1-schnell` proof
+   path is implemented, with its timestep-distilled constraints kept explicit:
+   short prompt sequence length, guidance disabled, and few-step sampling.
+   Gated or non-commercial variants require explicit operator and license
+   handling before they are advertised.
 3. **Qwen-Image family**: this is the Qwen text-to-image generation track, not
-   the already-landed Qwen 3.5 / Qwen 3.6 image-understanding route. It requires
-   a separate checkpoint/config audit for its text encoder, image transformer,
-   VAE, scheduler, and edit variants before implementation.
-4. **Z-Image-Turbo**: this is an on-device speed target after the FLUX/Qwen
-   primitives are represented cleanly. Its efficient step count makes it
-   attractive for local product loops, but it must not bypass the reference
-   audit or real-checkpoint proof ladder.
+   the already-landed Qwen 3.5 / Qwen 3.6 image-understanding route. Diffusers
+   exposes it as `QwenImagePipeline` over FlowMatch Euler,
+   `QwenImageTransformer2DModel`, `AutoencoderKLQwenImage`, and a Qwen2.5-VL
+   text encoder. Its VAE is a 3D causal Qwen/Wan-derived autoencoder, so the
+   first implementation tranche is a reference audit and config/model-index
+   parser, not reuse of the Stable Diffusion or FLUX VAE path.
+4. **Z-Image-Turbo**: this is the first speed-first modern image target after
+   Qwen-Image is represented cleanly. Diffusers exposes a 6B
+   `ZImageTransformer2DModel` pipeline using FlowMatch Euler, standard
+   `AutoencoderKL`, and chat-template prompt encoding; the Turbo checkpoint is
+   attractive for local product loops because it targets eight denoising
+   evaluations, but it still needs its own reference audit and finite proof
+   command.
 5. **Stable Diffusion 3 / 3.5 and distilled variants**: these become follow-on
-   targets when their MMDiT/flow components can reuse the FLUX/Qwen
-   infrastructure without creating a parallel package shape.
+   targets when their MMDiT/flow components can reuse the FLUX/Qwen/Z-Image
+   infrastructure without creating a parallel package shape. SD3 has its own
+   product cost because it combines `SD3Transformer2DModel`, FlowMatch Euler,
+   AutoencoderKL, and three text encoders including T5-XXL.
 
 ### 10c. Examples
 
