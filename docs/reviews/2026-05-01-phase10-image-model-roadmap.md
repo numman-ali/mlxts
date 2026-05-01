@@ -72,7 +72,8 @@ runtime tensor execution today.
 
 ## Remaining Risks / Follow-ups
 
-- Z-Image-Turbo still needs official dense checkpoint image evidence before it
+- Z-Image-Turbo has bounded official dense checkpoint image evidence, but still
+  needs larger/default-step quality and performance characterization before it
   can be called product-complete.
 - Qwen-Image / Qwen-Image-2512 still needs official full checkpoint image
   evidence before it can be called product-complete.

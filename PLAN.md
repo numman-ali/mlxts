@@ -1020,9 +1020,8 @@ Z-Image tensor execution now has a package-owned foundation for dense
 Diffusers snapshots: latent patching, Z RoPE, single-stream transformer blocks,
 FlowMatch denoising over prepared Qwen caption embeddings, VAE decode layout,
 transformer weight mapping/loading, and an AXI-shaped finite proof command in
-`examples/z-image`. Official `Tongyi-MAI/Z-Image-Turbo` checkpoint evidence
-remains follow-on work because the dense official snapshot is heavyweight and
-not cached by default.
+`examples/z-image`. Official `Tongyi-MAI/Z-Image-Turbo` has passed a bounded
+real checkpoint proof through that path.
 Broader VLM families, audio encoder/decoder families, and additional
 diffusion/flow families remain Phase 10 work.
 
@@ -1078,8 +1077,8 @@ All diffusion and flow-based generation across modalities: image, video, and aud
    prompt encoding. The reference-audited snapshot/config skeleton has landed,
    and the base package runtime now owns patching, RoPE, single-stream
    denoising, VAE decode layout, and dense transformer weight mapping. The
-   finite proof command is implemented in `examples/z-image`; official dense
-   checkpoint evidence remains the next Z-Image gate.
+   finite proof command is implemented in `examples/z-image`, and official
+   dense checkpoint evidence has passed as a bounded 256px capability proof.
 4. **Qwen-Image family**: this is the Qwen text-to-image generation track, not
    the already-landed Qwen 3.5 / Qwen 3.6 image-understanding route.
    `Qwen/Qwen-Image-2512` is the primary forward target once runtime execution

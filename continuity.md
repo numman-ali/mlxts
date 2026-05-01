@@ -149,8 +149,10 @@ major product-agent focus on package-owned CLIs and future PI-agent integration.
   forward runtime target, then FLUX.2 Klein as a separate later family, with
   Stable Diffusion 3 / 3.5 and distilled variants following when they reuse the
   base flow/DiT infrastructure. Z-Image and Qwen-Image now both have finite
-  AXI-shaped proof commands over package-owned runtime paths; official
-  checkpoint image evidence remains the next gate for those two families.
+  AXI-shaped proof commands over package-owned runtime paths. Official
+  `Tongyi-MAI/Z-Image-Turbo` has passed a bounded checkpoint image proof;
+  official `Qwen/Qwen-Image-2512` checkpoint evidence remains the next Qwen
+  image-generation gate.
 - **Phase 10 CLIP conditioning**: `@mlxts/transformers` now owns a
   `families/clip/` text encoder surface with CLIP text config parsing, causal
   text attention, quick GELU, EOS pooling, projected text features, and retained
