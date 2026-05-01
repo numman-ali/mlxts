@@ -77,6 +77,33 @@ function metricPairIsImproved(metric: MetricPair): boolean {
   return metric.after <= metric.before;
 }
 
+function numbersAreClose(left: number, right: number): boolean {
+  return Math.abs(left - right) <= 1e-9;
+}
+
+function trainingStepLossesAreSequential(report: StageReport): boolean {
+  return report.trainingStepLosses?.every((entry, index) => entry.step === index + 1) === true;
+}
+
+function trainingStepLossesAreFinite(report: StageReport): boolean {
+  return (
+    report.trainingStepLosses?.every((entry) => Number.isFinite(entry.loss) && entry.loss >= 0) ===
+    true
+  );
+}
+
+function averageMatchesTrainingTrace(report: StageReport): boolean {
+  if (
+    report.averageTrainingLoss === undefined ||
+    report.trainingStepLosses === undefined ||
+    report.trainingStepLosses.length === 0
+  ) {
+    return false;
+  }
+  const total = report.trainingStepLosses.reduce((sum, entry) => sum + entry.loss, 0);
+  return numbersAreClose(report.averageTrainingLoss, total / report.trainingStepLosses.length);
+}
+
 function isMetricPair(value: unknown): value is MetricPair {
   return (
     typeof value === "object" &&
@@ -121,6 +148,7 @@ function checkStageCommon(
   checks: TrainingProofVerificationCheck[],
   report: StageReport,
   options: TrainingProofVerificationOptions,
+  reportSteps: number,
 ): void {
   check(
     checks,
@@ -142,6 +170,36 @@ function checkStageCommon(
     `${report.stage}.training_loss`,
     report.averageTrainingLoss !== undefined && report.averageTrainingLoss > 0,
     `${report.stage} records a positive average training loss.`,
+  );
+  check(
+    checks,
+    `${report.stage}.training_step_losses`,
+    report.trainingStepLosses !== undefined && report.trainingStepLosses.length === reportSteps,
+    `${report.stage} records one training loss per configured optimizer step.`,
+  );
+  check(
+    checks,
+    `${report.stage}.training_step_sequence`,
+    trainingStepLossesAreSequential(report),
+    `${report.stage} records step losses in one-based optimizer-step order.`,
+  );
+  check(
+    checks,
+    `${report.stage}.training_step_loss_values`,
+    trainingStepLossesAreFinite(report),
+    `${report.stage} records finite non-negative step losses.`,
+  );
+  check(
+    checks,
+    `${report.stage}.training_loss_average`,
+    averageMatchesTrainingTrace(report),
+    `${report.stage} average training loss matches the step-loss trace.`,
+  );
+  check(
+    checks,
+    `${report.stage}.training_steps_note`,
+    readPositiveNote(report, "training_steps") === reportSteps,
+    `${report.stage} notes record the configured optimizer-step count.`,
   );
   check(
     checks,
@@ -454,7 +512,7 @@ export function verifyTrainingProofReport(
   const checks: TrainingProofVerificationCheck[] = [];
   checkReportShape(checks, report, options);
   for (const stage of report.stages) {
-    checkStageCommon(checks, stage, options);
+    checkStageCommon(checks, stage, options, report.steps);
     checkStageSpecific(checks, stage, options);
   }
   return {

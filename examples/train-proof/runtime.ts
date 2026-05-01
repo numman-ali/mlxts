@@ -5,6 +5,7 @@ import {
   runPreferenceTrainingSteps as alignRunPreferenceTrainingSteps,
   runSupervisionTrainingSteps as alignRunSupervisionTrainingSteps,
   type PreferenceEvalMetrics,
+  type TrainingStepsResult,
 } from "@mlxts/align";
 import type { ChatMessage, PreferenceExample, TokenSupervisionExample } from "@mlxts/data";
 import { Adam } from "@mlxts/optimizers";
@@ -167,7 +168,7 @@ export function runSupervisionTrainingSteps(
   steps: number,
   seed: number,
   learningRate: number,
-): number {
+): TrainingStepsResult {
   const optimizer = new Adam({ learningRate });
   return alignRunSupervisionTrainingSteps(model, {
     optimizer,
@@ -177,7 +178,7 @@ export function runSupervisionTrainingSteps(
     steps,
     seed,
     learningRate,
-  }).averageLoss;
+  });
 }
 
 export function runPreferenceTrainingSteps(
@@ -190,7 +191,7 @@ export function runPreferenceTrainingSteps(
   seed: number,
   learningRate: number,
   beta = DEFAULT_DPO_BETA,
-): number {
+): TrainingStepsResult {
   const optimizer = new Adam({ learningRate });
   return alignRunPreferenceTrainingSteps(policyModel, {
     referenceModel,
@@ -202,5 +203,5 @@ export function runPreferenceTrainingSteps(
     seed,
     beta,
     learningRate,
-  }).averageLoss;
+  });
 }

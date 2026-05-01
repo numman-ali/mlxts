@@ -41,6 +41,16 @@ export type PreferenceTrainingStepsOptions = PreferenceDatasetOptions & {
   maxGradNorm?: number | null;
 };
 
+export type TrainingStepLoss = {
+  step: number;
+  loss: number;
+};
+
+export type TrainingStepsResult = {
+  averageLoss: number;
+  stepLosses: readonly TrainingStepLoss[];
+};
+
 function expectExamples<T>(examples: readonly T[], context: string): void {
   if (examples.length === 0) {
     throw new Error(`${context}: expected at least one example.`);
@@ -99,7 +109,7 @@ function createBatchPicker<T>(
 export function runSupervisionTrainingSteps(
   model: CausalLM,
   options: SupervisionTrainingStepsOptions,
-): { averageLoss: number } {
+): TrainingStepsResult {
   expectExamples(options.examples, "align.runSupervisionTrainingSteps");
   expectPositiveInteger(options.batchSize, "batchSize", "align.runSupervisionTrainingSteps");
   expectPositiveInteger(options.steps, "steps", "align.runSupervisionTrainingSteps");
@@ -111,6 +121,7 @@ export function runSupervisionTrainingSteps(
     "align.runSupervisionTrainingSteps",
   );
   let totalTrainingLoss = 0;
+  const stepLosses: TrainingStepLoss[] = [];
   for (let step = 0; step < options.steps; step += 1) {
     const trainOptions: {
       optimizer: OptimizerLike;
@@ -129,10 +140,12 @@ export function runSupervisionTrainingSteps(
     }
     const result = sftTrain(model, trainOptions);
     totalTrainingLoss += result.averageLoss;
+    stepLosses.push({ step: step + 1, loss: result.averageLoss });
   }
 
   return {
     averageLoss: totalTrainingLoss / options.steps,
+    stepLosses,
   };
 }
 
@@ -140,7 +153,7 @@ export function runSupervisionTrainingSteps(
 export function runPreferenceTrainingSteps(
   policyModel: CausalLM,
   options: PreferenceTrainingStepsOptions,
-): { averageLoss: number } {
+): TrainingStepsResult {
   expectExamples(options.examples, "align.runPreferenceTrainingSteps");
   expectPositiveInteger(options.batchSize, "batchSize", "align.runPreferenceTrainingSteps");
   expectPositiveInteger(options.steps, "steps", "align.runPreferenceTrainingSteps");
@@ -152,6 +165,7 @@ export function runPreferenceTrainingSteps(
     "align.runPreferenceTrainingSteps",
   );
   let totalTrainingLoss = 0;
+  const stepLosses: TrainingStepLoss[] = [];
   for (let step = 0; step < options.steps; step += 1) {
     const trainOptions: {
       referenceModel: CausalLM;
@@ -176,9 +190,11 @@ export function runPreferenceTrainingSteps(
     }
     const result = dpoTrain(policyModel, trainOptions);
     totalTrainingLoss += result.averageLoss;
+    stepLosses.push({ step: step + 1, loss: result.averageLoss });
   }
 
   return {
     averageLoss: totalTrainingLoss / options.steps,
+    stepLosses,
   };
 }

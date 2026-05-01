@@ -182,7 +182,8 @@ major product-agent focus on package-owned CLIs and future PI-agent integration.
   entrypoint for the canonical official-model proof. Reports now record adapter
   output location, selected LoRA target paths, trainable/total parameter counts,
   peak MLX memory, adapter save/reload/merge greedy-output equality for
-  adapter-backed stages, and DPO profile-specific recipe knobs.
+  adapter-backed stages, per-step training loss traces with average-loss
+  consistency checks, and DPO profile-specific recipe knobs.
 
 ## Latest Evidence
 
@@ -368,8 +369,9 @@ Full evidence ladder lives in
   visible when tools are inactive.
 - Phase 8 proof surfaces now have a cheap static gate. `bun run check:training-proofs`
   typechecks `examples/train-proof` and `examples/lora-finetune`, then runs
-  helper/report-verifier tests (`17 pass`). The canonical training proof report
-  carries machine-checkable verification evidence, and
+  helper/report-verifier tests. The canonical training proof report carries
+  machine-checkable verification evidence, including per-step training loss
+  traces that are checked against each stage's average training loss, and
   `examples/train-proof/verify-report.ts` can check an existing report without
   rerunning training. Tiny live official-model smokes passed individually for
   LoRA, QLoRA, SFT, and DPO; DPO verifier output now includes 41 checks in the

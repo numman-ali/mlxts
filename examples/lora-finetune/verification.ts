@@ -117,6 +117,22 @@ function readStringArray(value: unknown, path: string): readonly string[] {
   return value.map((item, index) => readString(item, `${path}[${index}]`));
 }
 
+function readTrainingStepLosses(
+  value: unknown,
+  path: string,
+): FinetuneReport["metrics"]["trainingStepLosses"] {
+  if (!Array.isArray(value) || value.length === 0) {
+    fail(`${path} expected a non-empty step-loss array.`);
+  }
+  return value.map((entry, index) => {
+    const record = readRecord(entry, `${path}[${index}]`);
+    return {
+      step: readPositiveInteger(field(record, "step"), `${path}[${index}].step`),
+      loss: readFiniteNumber(field(record, "loss"), `${path}[${index}].loss`),
+    };
+  });
+}
+
 function readParameterCounts(value: unknown, path: string): FinetuneReport["parameterCounts"] {
   const record = readRecord(value, path);
   return {
@@ -160,6 +176,10 @@ function readMetrics(value: unknown, path: string): FinetuneReport["metrics"] {
     averageTrainingLoss: readFiniteNumber(
       field(record, "averageTrainingLoss"),
       `${path}.averageTrainingLoss`,
+    ),
+    trainingStepLosses: readTrainingStepLosses(
+      field(record, "trainingStepLosses"),
+      `${path}.trainingStepLosses`,
     ),
     targetCount: readPositiveInteger(field(record, "targetCount"), `${path}.targetCount`),
   };
@@ -257,6 +277,27 @@ export function assertFinetuneReport(
   check(report.metrics.evalLossBefore >= 0, "held-out loss before training is non-negative.");
   check(report.metrics.evalLossAfter >= 0, "held-out loss after training is non-negative.");
   check(report.metrics.averageTrainingLoss >= 0, "average training loss is non-negative.");
+  check(
+    report.metrics.trainingStepLosses.length === report.steps,
+    "training loss trace records one entry per optimizer step.",
+  );
+  check(
+    report.metrics.trainingStepLosses.every((entry, index) => entry.step === index + 1),
+    "training loss trace uses one-based optimizer-step order.",
+  );
+  check(
+    report.metrics.trainingStepLosses.every(
+      (entry) => Number.isFinite(entry.loss) && entry.loss >= 0,
+    ),
+    "training loss trace records finite non-negative losses.",
+  );
+  const averageTraceLoss =
+    report.metrics.trainingStepLosses.reduce((sum, entry) => sum + entry.loss, 0) /
+    report.metrics.trainingStepLosses.length;
+  check(
+    Math.abs(report.metrics.averageTrainingLoss - averageTraceLoss) <= 1e-9,
+    "average training loss matches the step-loss trace.",
+  );
   check(report.sampleText.trained.length > 0, "trained sample text is non-empty.");
   check(report.sampleText.reloaded.length > 0, "reloaded sample text is non-empty.");
   check(report.sampleText.merged.length > 0, "merged sample text is non-empty.");

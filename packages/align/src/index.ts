@@ -27,6 +27,8 @@ export type {
   PreferenceTrainingStepsOptions,
   SupervisionDatasetOptions,
   SupervisionTrainingStepsOptions,
+  TrainingStepLoss,
+  TrainingStepsResult,
 } from "./recipes";
 export { runPreferenceTrainingSteps, runSupervisionTrainingSteps } from "./recipes";
 export { sftLoss, sftTrain } from "./sft";

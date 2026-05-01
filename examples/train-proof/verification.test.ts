@@ -28,6 +28,13 @@ function memory() {
   };
 }
 
+function stepLosses(first: number, second: number) {
+  return [
+    { step: 1, loss: first },
+    { step: 2, loss: second },
+  ];
+}
+
 function targetPaths(count: number): string[] {
   return Array.from({ length: count }, (_, index) => `layers.${index}.self_attn.q_proj`);
 }
@@ -61,6 +68,7 @@ function completeReport(): TrainingProofReport {
         stage: "lora",
         evalLoss: metric(4, 3.8),
         averageTrainingLoss: 3.9,
+        trainingStepLosses: stepLosses(3.8, 4),
         sampleText: "hello",
         targets: targetPaths(8),
         parameterCounts: parameterCounts(),
@@ -71,6 +79,7 @@ function completeReport(): TrainingProofReport {
           "target_count=8",
           "merged_targets=8",
           "adapter_reloaded_targets=8",
+          "training_steps=2",
           "trainable_parameters=8",
           "total_parameters=32",
           "peak_memory_bytes=1024",
@@ -82,6 +91,7 @@ function completeReport(): TrainingProofReport {
         stage: "qlora",
         evalLoss: metric(4.1, 4),
         averageTrainingLoss: 4.05,
+        trainingStepLosses: stepLosses(4, 4.1),
         sampleText: "hello",
         targets: targetPaths(16),
         parameterCounts: parameterCounts(16),
@@ -93,6 +103,7 @@ function completeReport(): TrainingProofReport {
           "merged_targets=16",
           "adapter_reloaded_targets=16",
           "quantized_base_preserved=true",
+          "training_steps=2",
           "trainable_parameters=16",
           "total_parameters=32",
           "peak_memory_bytes=1024",
@@ -104,11 +115,13 @@ function completeReport(): TrainingProofReport {
         stage: "sft",
         evalLoss: metric(4.2, 4.1),
         averageTrainingLoss: 4.15,
+        trainingStepLosses: stepLosses(4.1, 4.2),
         sampleText: "hello",
         parameterCounts: parameterCounts(32),
         memory: memory(),
         notes: [
           "dense_model=true",
+          "training_steps=2",
           "trainable_parameters=32",
           "total_parameters=32",
           "peak_memory_bytes=1024",
@@ -127,6 +140,7 @@ function completeReport(): TrainingProofReport {
         rejectedLogProb: metric(-11, -12),
         rawPreferenceAccuracy: metric(0.5, 1),
         averageTrainingLoss: 0.65,
+        trainingStepLosses: stepLosses(0.6, 0.7),
         sampleText: "hello",
         targets: targetPaths(8),
         parameterCounts: parameterCounts(),
@@ -145,6 +159,7 @@ function completeReport(): TrainingProofReport {
           "learning_rate=0.00005",
           "beta=0.1",
           "last_layers=2",
+          "training_steps=2",
           "trainable_parameters=8",
           "total_parameters=32",
           "peak_memory_bytes=1024",
@@ -258,6 +273,27 @@ describe("training proof report verification", () => {
     expect(verification.passed).toBe(false);
     expect(verification.checks.some((entry) => entry.id === "sft.parameter_counts")).toBe(true);
     expect(verification.checks.some((entry) => entry.id === "sft.memory_peak")).toBe(true);
+  });
+
+  test("rejects stages without a complete step-loss trace", () => {
+    const report = completeReport();
+    const lora = report.stages.find((stage) => stage.stage === "lora");
+    if (lora === undefined) {
+      throw new Error("test report must include lora.");
+    }
+    lora.trainingStepLosses = [{ step: 2, loss: 3.9 }];
+
+    const verification = verifyTrainingProofReport(report, {
+      requiredStages: ["lora", "qlora", "sft", "dpo"],
+    });
+
+    expect(verification.passed).toBe(false);
+    expect(verification.checks.some((entry) => entry.id === "lora.training_step_losses")).toBe(
+      true,
+    );
+    expect(verification.checks.some((entry) => entry.id === "lora.training_step_sequence")).toBe(
+      true,
+    );
   });
 
   test("parses JSON-compatible report data and rejects malformed metrics", () => {

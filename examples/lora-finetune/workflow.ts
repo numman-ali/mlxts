@@ -54,7 +54,10 @@ function buildReport(
   adapterCheck: FinetuneReport["adapterCheck"],
   evalLossBefore: number,
   evalLossAfter: number,
-  averageTrainingLoss: number,
+  training: {
+    averageLoss: number;
+    stepLosses: FinetuneReport["metrics"]["trainingStepLosses"];
+  },
   samplePrompt: readonly ChatMessage[],
   trainedSample: string,
   reloadedSample: string,
@@ -76,7 +79,8 @@ function buildReport(
     metrics: {
       evalLossBefore,
       evalLossAfter,
-      averageTrainingLoss,
+      averageTrainingLoss: training.averageLoss,
+      trainingStepLosses: training.stepLosses,
       targetCount: targetPaths.length,
     },
     targetPaths,
@@ -219,7 +223,7 @@ export async function runLoRAFinetune(
     padTokenId,
     args.batchSize,
   );
-  const averageTrainingLoss = runTrainingSteps(
+  const training = runTrainingSteps(
     trainedModel,
     trainExamples,
     padTokenId,
@@ -263,7 +267,7 @@ export async function runLoRAFinetune(
     adapterCheck,
     evalLossBefore,
     evalLossAfter,
-    averageTrainingLoss,
+    training,
     rawMessages.samplePrompt,
     trainedSample,
     reloadedSample,

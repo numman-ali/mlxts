@@ -1,4 +1,8 @@
-import { evaluateSupervisionDatasetLoss, runSupervisionTrainingSteps } from "@mlxts/align";
+import {
+  evaluateSupervisionDatasetLoss,
+  runSupervisionTrainingSteps,
+  type TrainingStepsResult,
+} from "@mlxts/align";
 import type { ChatMessage, TokenSupervisionExample } from "@mlxts/data";
 import { Adam } from "@mlxts/optimizers";
 import {
@@ -112,7 +116,7 @@ export function runTrainingSteps(
   steps: number,
   seed: number,
   learningRate: number,
-): number {
+): TrainingStepsResult {
   const optimizer = new Adam({ learningRate });
   return runSupervisionTrainingSteps(model, {
     optimizer,
@@ -122,5 +126,5 @@ export function runTrainingSteps(
     steps,
     seed,
     learningRate,
-  }).averageLoss;
+  });
 }

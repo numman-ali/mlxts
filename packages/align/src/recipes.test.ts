@@ -64,6 +64,11 @@ describe("align recipes", () => {
 
     expect(evalLoss).toBeGreaterThan(0);
     expect(result.averageLoss).toBeGreaterThan(0);
+    expect(result.stepLosses).toHaveLength(2);
+    expect(result.stepLosses.map((entry) => entry.step)).toEqual([1, 2]);
+    expect(result.averageLoss).toBe(
+      result.stepLosses.reduce((total, entry) => total + entry.loss, 0) / result.stepLosses.length,
+    );
   });
 
   test("evaluates preference metrics with a reference-aware zero point", () => {
@@ -138,6 +143,11 @@ describe("align recipes", () => {
     expect(evalLoss).toBeGreaterThan(0);
     expect(widerBetaLoss).not.toBe(evalLoss);
     expect(result.averageLoss).toBeGreaterThan(0);
+    expect(result.stepLosses).toHaveLength(2);
+    expect(result.stepLosses.map((entry) => entry.step)).toEqual([1, 2]);
+    expect(result.averageLoss).toBe(
+      result.stepLosses.reduce((total, entry) => total + entry.loss, 0) / result.stepLosses.length,
+    );
   });
 
   test("rejects empty supervision datasets", () => {

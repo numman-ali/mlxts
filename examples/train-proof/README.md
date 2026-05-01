@@ -85,6 +85,7 @@ The proof report records:
 
 - dataset source and filtering notes
 - held-out evaluation loss before and after each stage
+- one per-step training loss entry for each configured optimizer step
 - resolved LoRA preset, target counts, and selected target paths for adapter-backed stages
 - trainable and total parameter counts for every stage
 - peak MLX memory evidence for every stage

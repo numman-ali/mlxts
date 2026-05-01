@@ -27,6 +27,10 @@ function completeReport(): TrainingProofReport {
         stage: "lora",
         evalLoss: { before: 4, after: 3.8, delta: -0.2 },
         averageTrainingLoss: 3.9,
+        trainingStepLosses: [
+          { step: 1, loss: 3.8 },
+          { step: 2, loss: 4 },
+        ],
         sampleText: "hello",
         targets: ["layers.0.self_attn.q_proj"],
         parameterCounts: { total: 32, trainable: 8 },
@@ -43,6 +47,7 @@ function completeReport(): TrainingProofReport {
           "target_count=1",
           "merged_targets=1",
           "adapter_reloaded_targets=1",
+          "training_steps=2",
           "trainable_parameters=8",
           "total_parameters=32",
           "peak_memory_bytes=1024",

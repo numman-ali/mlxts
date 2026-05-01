@@ -1,3 +1,4 @@
+import type { TrainingStepLoss } from "@mlxts/align";
 import type { ChatMessage, PreferenceExample, TokenSupervisionExample } from "@mlxts/data";
 import type { InteractionProfile, loadPretrainedTokenizer } from "@mlxts/transformers";
 
@@ -20,6 +21,7 @@ export type StageReport = {
   rejectedLogProb?: MetricPair;
   rawPreferenceAccuracy?: MetricPair;
   averageTrainingLoss?: number;
+  trainingStepLosses?: readonly TrainingStepLoss[];
   sampleText?: string;
   targets?: string[];
   parameterCounts?: {

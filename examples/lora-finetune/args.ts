@@ -1,3 +1,4 @@
+import type { TrainingStepLoss } from "@mlxts/align";
 import type { CausalLMAdapterFormat, LoRATargetPreset } from "@mlxts/transformers";
 import { join } from "path";
 
@@ -56,6 +57,7 @@ export type FinetuneReport = {
     evalLossBefore: number;
     evalLossAfter: number;
     averageTrainingLoss: number;
+    trainingStepLosses: readonly TrainingStepLoss[];
     targetCount: number;
   };
   targetPaths: readonly string[];

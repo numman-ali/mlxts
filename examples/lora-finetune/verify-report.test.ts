@@ -27,6 +27,10 @@ function reportFixture(overrides: Partial<FinetuneReport> = {}): FinetuneReport 
       evalLossBefore: 2.5,
       evalLossAfter: 2.25,
       averageTrainingLoss: 2.4,
+      trainingStepLosses: [
+        { step: 1, loss: 2.3 },
+        { step: 2, loss: 2.5 },
+      ],
       targetCount: 4,
     },
     targetPaths: [
@@ -107,6 +111,19 @@ describe("lora finetune report verification", () => {
         expectedMode: "qlora",
       }),
     ).toThrow("mode is qlora");
+  });
+
+  test("rejects incomplete step-loss traces", () => {
+    const report = parseFinetuneReport(
+      reportFixture({
+        metrics: {
+          ...reportFixture().metrics,
+          trainingStepLosses: [{ step: 2, loss: 2.4 }],
+        },
+      }),
+    );
+
+    expect(() => assertFinetuneReport(report)).toThrow("one entry per optimizer step");
   });
 });
 

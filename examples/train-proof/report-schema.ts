@@ -59,6 +59,27 @@ function readOptionalStringArray(value: unknown, context: string): string[] | un
   return value === undefined ? undefined : readStringArray(value, context);
 }
 
+function readTrainingStepLosses(
+  value: unknown,
+  context: string,
+): StageReport["trainingStepLosses"] | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+  if (!Array.isArray(value)) {
+    throw new Error(`${context}: expected a step-loss array.`);
+  }
+  return value.map((entry, index) => {
+    if (!isRecord(entry)) {
+      throw new Error(`${context}[${index}]: expected a step-loss object.`);
+    }
+    return {
+      step: readPositiveInteger(entry.step, `${context}[${index}].step`),
+      loss: readNumber(entry.loss, `${context}[${index}].loss`),
+    };
+  });
+}
+
 function readNonNegativeInteger(value: unknown, context: string): number {
   const parsed = readNumber(value, context);
   if (!Number.isInteger(parsed) || parsed < 0) {
@@ -168,6 +189,13 @@ function readStageReport(value: unknown, context: string): StageReport {
       value.averageTrainingLoss,
       `${context}.averageTrainingLoss`,
     );
+  }
+  const trainingStepLosses = readTrainingStepLosses(
+    value.trainingStepLosses,
+    `${context}.trainingStepLosses`,
+  );
+  if (trainingStepLosses !== undefined) {
+    report.trainingStepLosses = trainingStepLosses;
   }
   if (value.sampleText !== undefined) {
     report.sampleText = readString(value.sampleText, `${context}.sampleText`);

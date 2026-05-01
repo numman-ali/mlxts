@@ -203,7 +203,7 @@ And it works. On their Mac. From TypeScript.
 | `@mlxts/data` supports HuggingFace datasets format | Test: load a dataset from Hub |
 | Chat template support for instruction tuning | Test: format conversations correctly |
 | Canonical proof uses pinned real-data subsets | Test: short runs on `HuggingFaceH4/ultrachat_200k` and `HuggingFaceH4/ultrafeedback_binarized` produce held-out metrics |
-| Canonical proof reports are machine-checkable | `bun run check:training-proofs` plus `examples/train-proof/verify-report.ts <report.json>` |
+| Canonical proof reports are machine-checkable | `bun run check:training-proofs` plus `examples/train-proof/verify-report.ts <report.json>`; verifiers require per-step training loss traces and average-loss consistency |
 | Canonical training proof is runnable on self-hosted Apple Silicon | Manual `Training Proof` workflow or local `bun run examples/train-proof/index.ts` succeeds on the official anchor |
 | `examples/lora-finetune/` runs end-to-end | Fine-tune, merge, generate |
 | Memory fits within 64GB for 1B-3B parameter models with LoRA | Measure peak memory |

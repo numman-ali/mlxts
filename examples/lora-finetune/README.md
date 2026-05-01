@@ -68,6 +68,7 @@ The report JSON records:
 
 - the selected source, mode, preset, and adapter format
 - held-out loss before and after training
+- one per-step training loss entry for each configured optimizer step
 - target count and selected target paths for the resolved preset
 - trainable/total parameter counts and peak MLX memory
 - train/eval data preparation stats
@@ -75,10 +76,11 @@ The report JSON records:
 - adapter reload equality and QLoRA quantized-base preservation evidence
 - deterministic sample text from the trained, reloaded, and merged models
 
-The verifier checks report shape, finite loss metrics, a positive target count,
-parameter/memory evidence, data preparation counts, non-empty sample text,
-exact trained/reloaded deterministic sample equality, and QLoRA base
-preservation when `--mode qlora` produced the report.
+The verifier checks report shape, finite loss metrics, per-step loss trace
+shape and mean consistency, a positive target count, parameter/memory evidence,
+data preparation counts, non-empty sample text, exact trained/reloaded
+deterministic sample equality, and QLoRA base preservation when `--mode qlora`
+produced the report.
 
 When `--adapter-format peft` is used, the example writes first-pass PEFT-compatible causal LM LoRA checkpoints:
 

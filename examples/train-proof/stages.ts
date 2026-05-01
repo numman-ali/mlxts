@@ -216,7 +216,7 @@ export async function runLoRAStage(
   const appliedLoRA = applyTrainingLoRA(model, "lora");
   const trainableModule = expectTrainableModule(model);
   const parameterCounts = countParameterElements(trainableModule);
-  const averageTrainingLoss = runSupervisionTrainingSteps(
+  const training = runSupervisionTrainingSteps(
     model,
     data.supervisionTrain,
     padTokenId,
@@ -248,7 +248,8 @@ export async function runLoRAStage(
   return {
     stage: "lora",
     evalLoss: summarizeMetric(before, after),
-    averageTrainingLoss,
+    averageTrainingLoss: training.averageLoss,
+    trainingStepLosses: training.stepLosses,
     sampleText: sample,
     targets: appliedLoRA.targets,
     parameterCounts,
@@ -260,6 +261,7 @@ export async function runLoRAStage(
       `merged_targets=${merged.targets.length}`,
       `skipped=${merged.skipped.length}`,
       `adapter_reloaded_targets=${adapterCheck.reloadedMergeTargets.length}`,
+      `training_steps=${training.stepLosses.length}`,
       `trainable_parameters=${parameterCounts.trainable}`,
       `total_parameters=${parameterCounts.total}`,
       `peak_memory_bytes=${memory.peakBytes}`,
@@ -290,7 +292,7 @@ export async function runQLoRAStage(
   const appliedLoRA = applyTrainingLoRA(model, "qlora");
   const trainableModule = expectTrainableModule(model);
   const parameterCounts = countParameterElements(trainableModule);
-  const averageTrainingLoss = runSupervisionTrainingSteps(
+  const training = runSupervisionTrainingSteps(
     model,
     data.supervisionTrain,
     padTokenId,
@@ -325,7 +327,8 @@ export async function runQLoRAStage(
   return {
     stage: "qlora",
     evalLoss: summarizeMetric(before, after),
-    averageTrainingLoss,
+    averageTrainingLoss: training.averageLoss,
+    trainingStepLosses: training.stepLosses,
     sampleText: sample,
     targets: appliedLoRA.targets,
     parameterCounts,
@@ -337,6 +340,7 @@ export async function runQLoRAStage(
       `merged_targets=${merged.targets.length}`,
       `adapter_reloaded_targets=${adapterCheck.reloadedMergeTargets.length}`,
       "quantized_base_preserved=true",
+      `training_steps=${training.stepLosses.length}`,
       `trainable_parameters=${parameterCounts.trainable}`,
       `total_parameters=${parameterCounts.total}`,
       `peak_memory_bytes=${memory.peakBytes}`,
@@ -364,7 +368,7 @@ export async function runSFTStage(
     padTokenId,
     args.batchSize,
   );
-  const averageTrainingLoss = runSupervisionTrainingSteps(
+  const training = runSupervisionTrainingSteps(
     model,
     data.supervisionTrain,
     padTokenId,
@@ -385,12 +389,14 @@ export async function runSFTStage(
   return {
     stage: "sft",
     evalLoss: summarizeMetric(before, after),
-    averageTrainingLoss,
+    averageTrainingLoss: training.averageLoss,
+    trainingStepLosses: training.stepLosses,
     sampleText: sample,
     parameterCounts,
     memory,
     notes: [
       "dense_model=true",
+      `training_steps=${training.stepLosses.length}`,
       `trainable_parameters=${parameterCounts.trainable}`,
       `total_parameters=${parameterCounts.total}`,
       `peak_memory_bytes=${memory.peakBytes}`,
@@ -432,7 +438,7 @@ export async function runDPOStage(
     const appliedLoRA = applyDPOTrainingLoRA(policyModel, args.dpoProfile);
     const trainableModule = expectTrainableModule(policyModel);
     const parameterCounts = countParameterElements(trainableModule);
-    const averageTrainingLoss = runPreferenceTrainingSteps(
+    const training = runPreferenceTrainingSteps(
       policyModel,
       referenceModel,
       data.preferenceTrain,
@@ -475,7 +481,7 @@ export async function runDPOStage(
       beforeMetrics,
       appliedLoRA,
       parameterCounts,
-      averageTrainingLoss,
+      training,
       savedAdapterCheck,
       merged,
       afterLoss,
@@ -523,7 +529,8 @@ export async function runDPOStage(
       trained.beforeMetrics.rawPreferenceAccuracy,
       trained.afterMetrics.rawPreferenceAccuracy,
     ),
-    averageTrainingLoss: trained.averageTrainingLoss,
+    averageTrainingLoss: trained.training.averageLoss,
+    trainingStepLosses: trained.training.stepLosses,
     sampleText: trained.sample,
     targets: trained.appliedLoRA.targets,
     parameterCounts: trained.parameterCounts,
@@ -542,6 +549,7 @@ export async function runDPOStage(
       `learning_rate=${dpoConfig.learningRate}`,
       `beta=${dpoConfig.beta}`,
       dpoConfig.lastLayers === null ? "last_layers=all" : `last_layers=${dpoConfig.lastLayers}`,
+      `training_steps=${trained.training.stepLosses.length}`,
       `trainable_parameters=${trained.parameterCounts.trainable}`,
       `total_parameters=${trained.parameterCounts.total}`,
       `peak_memory_bytes=${memory.peakBytes}`,

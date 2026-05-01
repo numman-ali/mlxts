@@ -784,6 +784,9 @@ and minimal serving are in place.
   - `meta-llama/Llama-3.2-1B-Instruct` as the training anchor
   - `HuggingFaceH4/ultrachat_200k` subsets for LoRA / QLoRA / SFT
   - `HuggingFaceH4/ultrafeedback_binarized` subsets for DPO
+- `@mlxts/align` recipe runners report per-step training loss traces alongside
+  average loss; Phase 8 proof verifiers require trace length and mean
+  consistency without requiring monotonic loss.
 - This proof path should eventually become a CI-gated regression. Until then,
   keep `bun run examples/train-proof/index.ts` as the canonical Apple Silicon
   proof surface.

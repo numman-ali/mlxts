@@ -25,9 +25,10 @@ function proofReport(): TrainingProofReport {
         stage: "lora",
         evalLoss: { before: 2.5, after: 2.25, delta: -0.25 },
         averageTrainingLoss: 2.4,
+        trainingStepLosses: [{ step: 1, loss: 2.4 }],
         parameterCounts: { total: 100, trainable: 8 },
         memory: { peakBytes: 1024 },
-        notes: ["target_count=2"],
+        notes: ["target_count=2", "training_steps=1"],
       },
     ],
     verification: {

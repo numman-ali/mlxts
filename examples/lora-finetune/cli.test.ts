@@ -20,6 +20,7 @@ function finetuneReport(): FinetuneReport {
       evalLossBefore: 2.5,
       evalLossAfter: 2.25,
       averageTrainingLoss: 2.4,
+      trainingStepLosses: [{ step: 1, loss: 2.4 }],
       targetCount: 4,
     },
     targetPaths: [
