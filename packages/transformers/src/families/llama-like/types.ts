@@ -30,6 +30,7 @@ export type LlamaLikeConfig = BaseModelConfig & {
   rmsNormEps: number;
   tieWordEmbeddings: boolean;
   attentionBias: boolean;
+  attentionOutputBias?: boolean;
   slidingWindow?: number;
   embeddingScale?: number;
   normWeightOffset?: boolean;
@@ -42,6 +43,20 @@ export type LlamaLikeConfig = BaseModelConfig & {
 
 function layerPath(layerIndex: string, suffix: readonly string[]): string {
   return ["model", "layers", layerIndex, ...suffix].join(".");
+}
+
+function attentionProjectionBiasPath(
+  config: LlamaLikeConfig,
+  layerIndex: string,
+  projection: string,
+): string | null {
+  return config.attentionBias ? layerPath(layerIndex, ["selfAttention", projection, "bias"]) : null;
+}
+
+function outputProjectionBiasPath(config: LlamaLikeConfig, layerIndex: string): string | null {
+  return (config.attentionOutputBias ?? config.attentionBias)
+    ? layerPath(layerIndex, ["selfAttention", "outputProjection", "bias"])
+    : null;
 }
 
 export function sanitizeLlamaLikeWeight(
@@ -69,9 +84,6 @@ export function sanitizeLlamaLikeWeight(
     return null;
   }
 
-  const biasPath = (projection: string) =>
-    config.attentionBias ? layerPath(layerIndex, ["selfAttention", projection, "bias"]) : null;
-
   const mapping: Record<string, string | null> = {
     "input_layernorm.weight": layerPath(layerIndex, ["inputLayerNorm", "weight"]),
     "post_attention_layernorm.weight": layerPath(layerIndex, ["postAttentionLayerNorm", "weight"]),
@@ -80,7 +92,7 @@ export function sanitizeLlamaLikeWeight(
       "outputProjection",
       "weight",
     ]),
-    "self_attn.o_proj.bias": biasPath("outputProjection"),
+    "self_attn.o_proj.bias": outputProjectionBiasPath(config, layerIndex),
     "mlp.down_proj.weight": layerPath(layerIndex, ["mlp", "downProjection", "weight"]),
   };
 
@@ -103,26 +115,42 @@ export function sanitizeLlamaLikeWeight(
       "qkvProjection",
       "weight",
     ]);
-    mapping["self_attn.qkv_proj.bias"] = biasPath("qkvProjection");
+    mapping["self_attn.qkv_proj.bias"] = attentionProjectionBiasPath(
+      config,
+      layerIndex,
+      "qkvProjection",
+    );
   } else {
     mapping["self_attn.q_proj.weight"] = layerPath(layerIndex, [
       "selfAttention",
       "qProjection",
       "weight",
     ]);
-    mapping["self_attn.q_proj.bias"] = biasPath("qProjection");
+    mapping["self_attn.q_proj.bias"] = attentionProjectionBiasPath(
+      config,
+      layerIndex,
+      "qProjection",
+    );
     mapping["self_attn.k_proj.weight"] = layerPath(layerIndex, [
       "selfAttention",
       "kProjection",
       "weight",
     ]);
-    mapping["self_attn.k_proj.bias"] = biasPath("kProjection");
+    mapping["self_attn.k_proj.bias"] = attentionProjectionBiasPath(
+      config,
+      layerIndex,
+      "kProjection",
+    );
     mapping["self_attn.v_proj.weight"] = layerPath(layerIndex, [
       "selfAttention",
       "vProjection",
       "weight",
     ]);
-    mapping["self_attn.v_proj.bias"] = biasPath("vProjection");
+    mapping["self_attn.v_proj.bias"] = attentionProjectionBiasPath(
+      config,
+      layerIndex,
+      "vProjection",
+    );
   }
 
   if (config.mlpProjectionLayout === "packed_gate_up") {

@@ -39,6 +39,12 @@ export {
   clipTextWeightPath,
   loadCLIPTextWeights,
 } from "./families/clip/weights";
+export { parseQwen2Config } from "./families/qwen2/config";
+export {
+  loadQwen2_5VLTextEncoder,
+  loadQwen2CausalLM,
+  type Qwen2TextCausalLM,
+} from "./families/qwen2/load";
 export { parseQwen3Config } from "./families/qwen3/config";
 export { loadQwen3CausalLM, type Qwen3TextCausalLM } from "./families/qwen3/load";
 export {

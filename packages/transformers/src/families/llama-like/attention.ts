@@ -138,7 +138,7 @@ export class LlamaLikeAttention extends Module {
     this.outputProjection = new Linear(
       config.numAttentionHeads * config.headDim,
       config.hiddenSize,
-      config.attentionBias,
+      config.attentionOutputBias ?? config.attentionBias,
     );
     this.rope = new RoPE(config.rotaryDimensions ?? config.headDim, false, config.ropeTheta);
   }

@@ -10,6 +10,7 @@ import { llamaFamily } from "./families/llama/config";
 import { mistralFamily } from "./families/mistral/config";
 import { mistral3Family } from "./families/mistral3/config";
 import { phiFamily } from "./families/phi/config";
+import { qwen2Family } from "./families/qwen2/config";
 import { qwen3Family } from "./families/qwen3/config";
 import { qwen3_5Family, qwen3_5TextFamily } from "./families/qwen3_5/config";
 import type { FamilyRegistration } from "./types";
@@ -24,6 +25,7 @@ const REGISTRATIONS = [
   gemma4TextFamily,
   gemma4Family,
   phiFamily,
+  qwen2Family,
   qwen3Family,
   qwen3_5Family,
   qwen3_5TextFamily,
