@@ -217,10 +217,12 @@ major product-agent focus on package-owned CLIs and future PI-agent integration.
   execution, prepared-conditioning FlowMatch denoising, and the SD3 VAE
   shift/scale decode boundary. Transformer and VAE safetensor loading now
   works for generated local snapshots, covering base SD3 and SD3.5-style
-  q/k norm plus dual-attention shapes. The SD3 triple text-encoder/tokenizer
-  stack remains manifest metadata outside `@mlxts/diffusion`; prompt encoding
-  and authenticated proof against gated Stability checkpoints remain future
-  work.
+  q/k norm plus dual-attention shapes. `examples/stable-diffusion-3` now owns
+  the application-layer CLIP/T5 prompt-conditioning bridge: CLIP hidden-state
+  selection, pooled projection embeddings, T5 padding/sequence concatenation,
+  and classifier-free guidance prompt rules stay outside `@mlxts/diffusion`.
+  The finite proof command and authenticated proof against gated Stability
+  checkpoints remain future work.
 - **Qwen conditional serving**: top-level Qwen 3.5 / 3.6 conditional
   checkpoints expose the Qwen text batch-cache surface for text-only continuous
   serving. Media/content requests still route as `media_input` and stay off
