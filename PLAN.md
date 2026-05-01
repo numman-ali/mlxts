@@ -1021,7 +1021,10 @@ Diffusers snapshots: latent patching, Z RoPE, single-stream transformer blocks,
 FlowMatch denoising over prepared Qwen caption embeddings, VAE decode layout,
 transformer weight mapping/loading, and an AXI-shaped finite proof command in
 `examples/z-image`. Official `Tongyi-MAI/Z-Image-Turbo` has passed a bounded
-real checkpoint proof through that path.
+real checkpoint proof through that path. Phase 10 image proof commands now
+write machine-checkable artifact evidence in JSON output, and
+`examples/image-proof/verify-report.ts` verifies saved reports against the BMP
+bytes on disk without rerunning generation.
 Broader VLM families, audio encoder/decoder families, and additional
 diffusion/flow families remain Phase 10 work.
 
@@ -1120,6 +1123,8 @@ proofs:
 - At least one diffusion/flow pipeline generates an image through
   `@mlxts/diffusion`, with scheduler, VAE/backbone, conditioning, and sampling
   owned by the package.
+- Image-generation proof artifacts are machine-checkable from saved JSON and
+  BMP files without rerunning model generation.
 - Media transport, file-store, remote-fetch, preprocessing, cache, and serving
   ownership boundaries are documented before each capability is advertised.
 - Finite Phase 10 CLI/proof commands are AXI-shaped from day one.

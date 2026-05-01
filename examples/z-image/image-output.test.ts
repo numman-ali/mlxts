@@ -38,18 +38,28 @@ describe("Z-Image output", () => {
   test("writes BMP files and creates parent directories", () => {
     const directory = temporaryDirectory();
     try {
-      using image = array([[[[0, 0, 1]]]], "float32");
+      using image = array(
+        [
+          [
+            [
+              [0, 0, 1],
+              [1, 0, 0],
+            ],
+          ],
+        ],
+        "float32",
+      );
       const outputPath = join(directory, "nested", "sample.bmp");
 
       const result = writeZImageBmp(image, outputPath);
 
-      expect(result).toEqual({
-        path: outputPath,
-        width: 1,
-        height: 1,
-        bytes: 58,
-      });
-      expect(readFileSync(outputPath).byteLength).toBe(58);
+      expect(result.path).toBe(outputPath);
+      expect(result.width).toBe(2);
+      expect(result.height).toBe(1);
+      expect(result.bytes).toBe(62);
+      expect(result.sha256).toHaveLength(64);
+      expect(result.status).toBe("passed");
+      expect(readFileSync(outputPath).byteLength).toBe(62);
     } finally {
       rmSync(directory, { force: true, recursive: true });
     }

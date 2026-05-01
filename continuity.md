@@ -151,7 +151,10 @@ major product-agent focus on package-owned CLIs and future PI-agent integration.
   base flow/DiT infrastructure. Z-Image and Qwen-Image now both have finite
   AXI-shaped proof commands over package-owned runtime paths. Official
   `Tongyi-MAI/Z-Image-Turbo` and `Qwen/Qwen-Image-2512` have both passed
-  bounded checkpoint image proofs.
+  bounded checkpoint image proofs. Phase 10 image proof JSON now includes
+  machine-checkable BMP artifact evidence, and
+  `examples/image-proof/verify-report.ts` verifies saved reports against the
+  referenced BMP file without rerunning generation.
 - **Phase 10 CLIP conditioning**: `@mlxts/transformers` now owns a
   `families/clip/` text encoder surface with CLIP text config parsing, causal
   text attention, quick GELU, EOS pooling, projected text features, and retained

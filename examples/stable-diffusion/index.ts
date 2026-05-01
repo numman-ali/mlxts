@@ -14,7 +14,7 @@ import {
   loadStableDiffusionPromptConditionerFromSnapshot,
   type StableDiffusionPromptConditioningOptions,
 } from "./conditioning";
-import { writeStableDiffusionBmp } from "./image-output";
+import { type StableDiffusionBmpWriteResult, writeStableDiffusionBmp } from "./image-output";
 
 type CliOptions = {
   source: string;
@@ -70,6 +70,7 @@ type StableDiffusionExampleResult = {
   outputPath: string;
   imageSize: { width: number; height: number };
   outputBytes: number;
+  artifact: StableDiffusionBmpWriteResult;
   steps: number;
   guidanceScale: number;
   seed: number;
@@ -491,6 +492,7 @@ export async function runStableDiffusionExample(
       height: artifact.height,
     },
     outputBytes: artifact.bytes,
+    artifact,
     steps: cli.steps,
     guidanceScale: cli.guidanceScale,
     seed: cli.seed,
@@ -517,6 +519,10 @@ export function formatSuccess(report: StableDiffusionExampleResult): string {
     `  output_path: ${quoteScalar(report.outputPath)}`,
     `  image_size: ${quoteScalar(`${report.imageSize.width}x${report.imageSize.height}`)}`,
     `  output_bytes: ${report.outputBytes}`,
+    `  artifact_sha256: ${quoteScalar(report.artifact.sha256)}`,
+    `  artifact_checks: ${quoteScalar(report.artifact.status)}`,
+    `  artifact_unique_byte_values: ${report.artifact.tensor.uniqueByteValues}`,
+    `  artifact_channel_stddev_max: ${report.artifact.tensor.maxChannelStddev}`,
     `  steps: ${report.steps}`,
     `  guidance_scale: ${report.guidanceScale}`,
     `  seed: ${report.seed}`,

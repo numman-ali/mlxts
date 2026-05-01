@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
+import { exampleImageProofArtifactReport } from "../image-proof/test-fixtures";
 import {
   formatSuccess,
   formatUsage,
@@ -130,6 +131,12 @@ describe("Z-Image example command", () => {
             outputPath: cli.outputPath,
             imageSize: { width: 64, height: 64 },
             outputBytes: 123,
+            artifact: exampleImageProofArtifactReport({
+              path: cli.outputPath,
+              width: 64,
+              height: 64,
+              bytes: 123,
+            }),
             steps: cli.steps,
             guidanceScale: cli.guidanceScale,
             maxSequenceLength: cli.maxSequenceLength,
@@ -196,6 +203,12 @@ describe("Z-Image example command", () => {
       outputPath: ".tmp/out.bmp",
       imageSize: { width: 1024, height: 1024 },
       outputBytes: 3_145_782,
+      artifact: exampleImageProofArtifactReport({
+        path: ".tmp/out.bmp",
+        width: 1024,
+        height: 1024,
+        bytes: 3_145_782,
+      }),
       steps: 9,
       guidanceScale: 0,
       maxSequenceLength: 512,
@@ -207,6 +220,7 @@ describe("Z-Image example command", () => {
 
     expect(formatted).toContain('pipeline: "z-image"');
     expect(formatted).toContain('image_size: "1024x1024"');
+    expect(formatted).toContain("artifact_sha256");
     expect(formatted).toContain("prompt_truncated: true");
     expect(formatted).toContain("guidance_scale: 0");
   });

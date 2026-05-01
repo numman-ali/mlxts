@@ -22,7 +22,7 @@ import {
   QWEN_IMAGE_MAX_SEQUENCE_LENGTH,
 } from "./conditioning-runtime";
 import type { QwenImagePromptConditioningOptions } from "./conditioning-types";
-import { writeQwenImageBmp } from "./image-output";
+import { type QwenImageBmpWriteResult, writeQwenImageBmp } from "./image-output";
 
 type CliOptions = {
   source: string;
@@ -76,6 +76,7 @@ type QwenImageExampleResult = {
   outputPath: string;
   imageSize: { width: number; height: number };
   outputBytes: number;
+  artifact: QwenImageBmpWriteResult;
   steps: number;
   trueCfgScale: number;
   maxSequenceLength: number;
@@ -482,6 +483,7 @@ export async function runQwenImageExample(
       height: artifact.height,
     },
     outputBytes: artifact.bytes,
+    artifact,
     steps: cli.steps,
     trueCfgScale: cli.trueCfgScale,
     maxSequenceLength: cli.maxSequenceLength,
@@ -509,6 +511,10 @@ export function formatSuccess(report: QwenImageExampleResult): string {
     `  output_path: ${quoteScalar(report.outputPath)}`,
     `  image_size: ${quoteScalar(`${report.imageSize.width}x${report.imageSize.height}`)}`,
     `  output_bytes: ${report.outputBytes}`,
+    `  artifact_sha256: ${quoteScalar(report.artifact.sha256)}`,
+    `  artifact_checks: ${quoteScalar(report.artifact.status)}`,
+    `  artifact_unique_byte_values: ${report.artifact.tensor.uniqueByteValues}`,
+    `  artifact_channel_stddev_max: ${report.artifact.tensor.maxChannelStddev}`,
     `  steps: ${report.steps}`,
     `  true_cfg_scale: ${report.trueCfgScale}`,
     `  max_sequence_length: ${report.maxSequenceLength}`,

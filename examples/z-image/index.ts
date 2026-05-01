@@ -17,7 +17,7 @@ import {
 import { acquireRuntimeCommandLock } from "../../scripts/runtime-command-lock";
 import { loadZImagePromptConditionerFromSnapshot } from "./conditioning";
 import type { ZImagePromptConditioningOptions } from "./conditioning-types";
-import { writeZImageBmp } from "./image-output";
+import { writeZImageBmp, type ZImageBmpWriteResult } from "./image-output";
 
 type CliOptions = {
   source: string;
@@ -68,6 +68,7 @@ type ZImageExampleResult = {
   outputPath: string;
   imageSize: { width: number; height: number };
   outputBytes: number;
+  artifact: ZImageBmpWriteResult;
   steps: number;
   guidanceScale: number;
   maxSequenceLength: number;
@@ -440,6 +441,7 @@ export async function runZImageExample(
       height: artifact.height,
     },
     outputBytes: artifact.bytes,
+    artifact,
     steps: cli.steps,
     guidanceScale,
     maxSequenceLength: cli.maxSequenceLength,
@@ -466,6 +468,10 @@ export function formatSuccess(report: ZImageExampleResult): string {
     `  output_path: ${quoteScalar(report.outputPath)}`,
     `  image_size: ${quoteScalar(`${report.imageSize.width}x${report.imageSize.height}`)}`,
     `  output_bytes: ${report.outputBytes}`,
+    `  artifact_sha256: ${quoteScalar(report.artifact.sha256)}`,
+    `  artifact_checks: ${quoteScalar(report.artifact.status)}`,
+    `  artifact_unique_byte_values: ${report.artifact.tensor.uniqueByteValues}`,
+    `  artifact_channel_stddev_max: ${report.artifact.tensor.maxChannelStddev}`,
     `  steps: ${report.steps}`,
     `  guidance_scale: ${report.guidanceScale}`,
     `  max_sequence_length: ${report.maxSequenceLength}`,

@@ -32,3 +32,10 @@ bun run examples/stable-diffusion/index.ts /models/stable-diffusion \
 The command acquires the shared runtime lock, creates prompt conditioning,
 samples one image through `@mlxts/diffusion`, and writes an uncompressed BMP
 artifact. Progress goes to stderr; stdout is AXI-shaped structured output.
+JSON output includes artifact SHA-256, BMP geometry, and non-uniform pixel
+evidence. Verify a saved JSON report with:
+
+```bash
+bun run examples/image-proof/verify-report.ts .tmp/stable-diffusion/report.json \
+  --expect-pipeline stable-diffusion-xl
+```

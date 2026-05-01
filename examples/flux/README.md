@@ -35,3 +35,10 @@ sets another non-negative value.
 
 The command uses the shared runtime lock because it loads local MLX model
 weights. The default tests are fixture-backed and do not require a checkpoint.
+JSON output includes artifact SHA-256, BMP geometry, and non-uniform pixel
+evidence. Verify a saved JSON report with:
+
+```bash
+bun run examples/image-proof/verify-report.ts .tmp/flux/report.json \
+  --expect-pipeline flux
+```

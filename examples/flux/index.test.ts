@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
+import { exampleImageProofArtifactReport } from "../image-proof/test-fixtures";
 import {
   formatSuccess,
   formatUsage,
@@ -134,6 +135,12 @@ describe("FLUX example command", () => {
             outputPath: cli.outputPath,
             imageSize: { width: 64, height: 64 },
             outputBytes: 123,
+            artifact: exampleImageProofArtifactReport({
+              path: cli.outputPath,
+              width: 64,
+              height: 64,
+              bytes: 123,
+            }),
             steps: cli.steps,
             guidanceScale: null,
             maxSequenceLength: cli.maxSequenceLength,
@@ -199,6 +206,12 @@ describe("FLUX example command", () => {
       outputPath: ".tmp/out.bmp",
       imageSize: { width: 1024, height: 1024 },
       outputBytes: 3_145_782,
+      artifact: exampleImageProofArtifactReport({
+        path: ".tmp/out.bmp",
+        width: 1024,
+        height: 1024,
+        bytes: 3_145_782,
+      }),
       steps: 4,
       guidanceScale: 3.5,
       maxSequenceLength: 512,
@@ -211,6 +224,7 @@ describe("FLUX example command", () => {
 
     expect(formatted).toContain('pipeline: "flux"');
     expect(formatted).toContain('image_size: "1024x1024"');
+    expect(formatted).toContain("artifact_sha256");
     expect(formatted).toContain("prompt_2_truncated: true");
     expect(formatted).toContain("guidance_scale: 3.5");
   });
