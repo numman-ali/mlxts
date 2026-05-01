@@ -190,6 +190,14 @@ export {
 export { LtxVideoTransformer3DModel } from "./transformer";
 export { Ltx2VideoTransformer3DModel } from "./transformer-ltx2";
 export {
+  type Ltx2VideoTransformerWeightLoadOptions,
+  type Ltx2VideoTransformerWeightLoadResult,
+  loadLtx2VideoTransformerFromSnapshot,
+  loadLtx2VideoTransformerWeights,
+  ltx2VideoTransformerWeightPath,
+  transformLtx2VideoTransformerWeight,
+} from "./transformer-ltx2-weights";
+export {
   type LtxVideoTransformerWeightLoadOptions,
   type LtxVideoTransformerWeightLoadResult,
   loadLtxVideoTransformerFromSnapshot,
