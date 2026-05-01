@@ -271,8 +271,8 @@ Stable Diffusion 3 / 3.5 and distilled or turbo variants now have manifest and
 component-config skeleton support; runtime/proof work follows only through the
 base family infrastructure or with a documented architecture delta.
 LTX-Video and LTX-2 now have snapshot recognition and typed component config
-parsing for current Diffusers `LTXPipeline`, `LTXConditionPipeline`, and
-`LTX2Pipeline` layouts. Package-owned latent geometry helpers now cover
+parsing for current Diffusers `LTXPipeline`, `LTXConditionPipeline`,
+`LTXLatentUpsamplePipeline`, and `LTX2Pipeline` layouts. Package-owned latent geometry helpers now cover
 Diffusers-compatible LTX video BCFHW token packing and LTX-2 audio BCLM token
 packing, plus classic LTX and LTX-2 video/audio RoPE coordinate geometry.
 Classic LTX-Video prepared-tensor denoising now covers packed video latents,
@@ -283,8 +283,10 @@ AdaLayerNormSingle timestep modulation, PixArt caption projection,
 RMS-normalized attention, and transformer weight mapping/loading. Classic
 LTX-Video VAE decode now covers decoder-only `AutoencoderKLLTXVideo`
 execution, Diffusers latent denormalization, decoder safetensor loading, and
-BFHWC `0..1` video tensors. LTX-2 denoising, latent upsampling, and artifact
-output remain future Phase 10 tranches.
+BFHWC `0..1` video tensors. Classic LTX sidecar latent upsampling now covers
+`LTXLatentUpsamplerModel` config parsing, safetensor loading, normalized BCFHW
+upsampling, and packed-latent unpack/repack boundaries. LTX-2 denoising,
+LTX-2 latent upsampling, and artifact output remain future Phase 10 tranches.
 
 **Architecture pattern:** Mirrors `@mlxts/transformers` — explicit family
 registry, config-driven model construction, and official Hugging Face JS-backed snapshot loading.

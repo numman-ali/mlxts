@@ -12,6 +12,7 @@ export type DiffusersPipelineClassName =
   | "ZImagePipeline"
   | "LTXPipeline"
   | "LTXConditionPipeline"
+  | "LTXLatentUpsamplePipeline"
   | "LTX2Pipeline";
 
 /** Pipeline family represented by a supported Diffusers `model_index.json`. */
@@ -24,6 +25,7 @@ export type DiffusionPipelineKind =
   | "qwen-image"
   | "z-image"
   | "ltx-video"
+  | "ltx-video-latent-upsample"
   | "ltx2";
 
 /** Component folders recognized in Diffusers generative-media snapshots. */
@@ -42,6 +44,7 @@ export type DiffusionComponentName =
   | "safety_checker"
   | "feature_extractor"
   | "image_encoder"
+  | "latent_upsampler"
   | "connectors"
   | "vocoder";
 
@@ -56,6 +59,7 @@ export type DiffusionComponentRole =
   | "safety"
   | "image-processor"
   | "image-encoder"
+  | "latent-upsampler"
   | "connector"
   | "vocoder";
 
@@ -159,6 +163,7 @@ function parsePipelineClassName(
     className === "ZImagePipeline" ||
     className === "LTXPipeline" ||
     className === "LTXConditionPipeline" ||
+    className === "LTXLatentUpsamplePipeline" ||
     className === "LTX2Pipeline"
   ) {
     return className;

@@ -73,6 +73,33 @@ export {
   type LtxVideoRotaryEmbeddingOptions,
 } from "./embeddings";
 export {
+  type LtxVideoLatentNormalizer,
+  upsampleLtxVideoLatents,
+  upsamplePackedLtxVideoLatents,
+} from "./latent-upsample";
+export {
+  LtxVideoLatentSpatialUpsampler,
+  LtxVideoLatentTemporalUpsampler,
+  type LtxVideoLatentUpsamplerConfig,
+  type LtxVideoLatentUpsamplerDims,
+  LtxVideoLatentUpsamplerModel,
+  LtxVideoLatentUpsamplerResBlock2d,
+  LtxVideoLatentUpsamplerResBlock3d,
+  parseLtxVideoLatentUpsamplerConfig,
+  pixelShuffleLtxLatents1d,
+  pixelShuffleLtxLatents2d,
+  pixelShuffleLtxLatents3d,
+} from "./latent-upsampler";
+export {
+  type LtxVideoLatentUpsamplerWeightLoadOptions,
+  type LtxVideoLatentUpsamplerWeightLoadResult,
+  loadLtxVideoLatentUpsamplerFromDirectory,
+  loadLtxVideoLatentUpsamplerFromSnapshot,
+  loadLtxVideoLatentUpsamplerWeights,
+  ltxVideoLatentUpsamplerWeightPath,
+  transformLtxVideoLatentUpsamplerWeight,
+} from "./latent-upsampler-weights";
+export {
   createLtx2AudioInitialLatents,
   createLtxVideoInitialLatents,
   type Ltx2AudioInitialLatentOptions,

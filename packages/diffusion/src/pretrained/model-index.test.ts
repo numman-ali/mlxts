@@ -127,6 +127,22 @@ function writeLtxVideoSnapshot(snapshot: string): void {
   writeComponentFiles(snapshot, "tokenizer", ["spiece.model"]);
 }
 
+function writeLtxLatentUpsampleSnapshot(snapshot: string): void {
+  writeJson(join(snapshot, "model_index.json"), {
+    _class_name: "LTXLatentUpsamplePipeline",
+    _diffusers_version: "0.34.0.dev0",
+    latent_upsampler: ["ltx", "LTXLatentUpsamplerModel"],
+    vae: ["diffusers", "AutoencoderKLLTXVideo"],
+  });
+  writeComponentFiles(
+    snapshot,
+    "latent_upsampler",
+    ["config.json"],
+    ["diffusion_pytorch_model.safetensors"],
+  );
+  writeComponentFiles(snapshot, "vae", ["config.json"], ["diffusion_pytorch_model.safetensors"]);
+}
+
 function writeLtx2Snapshot(snapshot: string): void {
   writeJson(join(snapshot, "model_index.json"), {
     _class_name: "LTX2Pipeline",
@@ -421,6 +437,28 @@ describe("diffusion model index loading", () => {
     ).toBe("ltx-video");
   });
 
+  test("parses LTX-Video latent upsample sidecar model_index components", () => {
+    const parsed = parseDiffusionModelIndex({
+      _class_name: "LTXLatentUpsamplePipeline",
+      _diffusers_version: "0.34.0.dev0",
+      latent_upsampler: ["ltx", "LTXLatentUpsamplerModel"],
+      vae: ["diffusers", "AutoencoderKLLTXVideo"],
+    });
+
+    expect(parsed.kind).toBe("ltx-video-latent-upsample");
+    expect(parsed.components.map((component) => component.name)).toEqual([
+      "vae",
+      "latent_upsampler",
+    ]);
+    expect(
+      parsed.components.find((component) => component.name === "latent_upsampler"),
+    ).toMatchObject({
+      role: "latent-upsampler",
+      library: "ltx",
+      className: "LTXLatentUpsamplerModel",
+    });
+  });
+
   test("parses LTX-2 audio-video model_index components", () => {
     const parsed = parseDiffusionModelIndex({
       _class_name: "LTX2Pipeline",
@@ -466,7 +504,7 @@ describe("diffusion model index loading", () => {
       const tokenizer = manifest.components.find((component) => component.name === "tokenizer");
 
       expect(manifest.modelIndex.className).toBe("StableDiffusionPipeline");
-      expect(manifest.schedulerConfig.kind).toBe("ddim");
+      expect(manifest.schedulerConfig).toMatchObject({ kind: "ddim" });
       expect(unet?.weightPaths).toEqual([
         join(directory, "unet", "diffusion_pytorch_model.safetensors"),
       ]);
@@ -484,7 +522,7 @@ describe("diffusion model index loading", () => {
 
       expect(manifest.modelIndex.className).toBe("StableDiffusion3Pipeline");
       expect(manifest.modelIndex.kind).toBe("stable-diffusion-3");
-      expect(manifest.schedulerConfig.kind).toBe("flow-match-euler");
+      expect(manifest.schedulerConfig).toMatchObject({ kind: "flow-match-euler" });
       expect(transformer?.weightPaths).toEqual([
         join(directory, "transformer", "diffusion_pytorch_model.safetensors"),
       ]);
@@ -500,10 +538,29 @@ describe("diffusion model index loading", () => {
 
       expect(manifest.modelIndex.className).toBe("LTXPipeline");
       expect(manifest.modelIndex.kind).toBe("ltx-video");
-      expect(manifest.schedulerConfig.kind).toBe("flow-match-euler");
+      expect(manifest.schedulerConfig).toMatchObject({ kind: "flow-match-euler" });
       expect(
         manifest.components.find((component) => component.name === "tokenizer")?.metadataPaths,
       ).toEqual([join(directory, "tokenizer", "spiece.model")]);
+    });
+
+    await withTempDirectory("mlxts-diffusion-ltx-upsample-model-index-", async (directory) => {
+      writeLtxLatentUpsampleSnapshot(directory);
+
+      const manifest = await loadDiffusionSnapshotManifest(directory);
+      const upsampler = manifest.components.find(
+        (component) => component.name === "latent_upsampler",
+      );
+
+      expect(manifest.modelIndex.className).toBe("LTXLatentUpsamplePipeline");
+      expect(manifest.modelIndex.kind).toBe("ltx-video-latent-upsample");
+      expect(manifest.schedulerConfig).toBeNull();
+      expect(upsampler?.metadataPaths).toEqual([
+        join(directory, "latent_upsampler", "config.json"),
+      ]);
+      expect(upsampler?.weightPaths).toEqual([
+        join(directory, "latent_upsampler", "diffusion_pytorch_model.safetensors"),
+      ]);
     });
 
     await withTempDirectory("mlxts-diffusion-ltx2-model-index-", async (directory) => {
@@ -515,7 +572,7 @@ describe("diffusion model index loading", () => {
 
       expect(manifest.modelIndex.className).toBe("LTX2Pipeline");
       expect(manifest.modelIndex.kind).toBe("ltx2");
-      expect(manifest.schedulerConfig.kind).toBe("flow-match-euler");
+      expect(manifest.schedulerConfig).toMatchObject({ kind: "flow-match-euler" });
       expect(audioVae?.weightPaths).toEqual([
         join(directory, "audio_vae", "diffusion_pytorch_model.safetensors"),
       ]);
@@ -581,9 +638,6 @@ describe("diffusion model index loading", () => {
       "not supported",
     );
     expect(() => parseDiffusionModelIndex({ _class_name: "LTXImageToVideoPipeline" })).toThrow(
-      "not supported",
-    );
-    expect(() => parseDiffusionModelIndex({ _class_name: "LTXLatentUpsamplePipeline" })).toThrow(
       "not supported",
     );
     expect(() => parseDiffusionModelIndex({ _class_name: "LTX2ImageToVideoPipeline" })).toThrow(
@@ -718,7 +772,7 @@ describe("diffusion model index loading", () => {
       const manifest = await loadDiffusionSnapshotManifest(directory);
 
       expect(manifest.modelIndex.kind).toBe("flux");
-      expect(manifest.schedulerConfig.kind).toBe("flow-match-euler");
+      expect(manifest.schedulerConfig).toMatchObject({ kind: "flow-match-euler" });
     });
 
     await withTempDirectory("mlxts-diffusion-qwen-image-manifest-", async (directory) => {
@@ -753,8 +807,10 @@ describe("diffusion model index loading", () => {
       const manifest = await loadDiffusionSnapshotManifest(directory);
 
       expect(manifest.modelIndex.kind).toBe("qwen-image");
-      expect(manifest.schedulerConfig.kind).toBe("flow-match-euler");
-      expect(manifest.schedulerConfig.config).toMatchObject({ shiftTerminal: 0.02 });
+      expect(manifest.schedulerConfig).toMatchObject({
+        kind: "flow-match-euler",
+        config: { shiftTerminal: 0.02 },
+      });
       expect(
         manifest.components.find((component) => component.name === "tokenizer")?.metadataPaths,
       ).toEqual([join(directory, "tokenizer", "tokenizer.json")]);
@@ -794,10 +850,12 @@ describe("diffusion model index loading", () => {
       const manifest = await loadDiffusionSnapshotManifest(directory);
 
       expect(manifest.modelIndex.kind).toBe("flux2-klein");
-      expect(manifest.schedulerConfig.kind).toBe("flow-match-euler");
-      expect(manifest.schedulerConfig.config).toMatchObject({
-        timeShiftType: "exponential",
-        useDynamicShifting: true,
+      expect(manifest.schedulerConfig).toMatchObject({
+        kind: "flow-match-euler",
+        config: {
+          timeShiftType: "exponential",
+          useDynamicShifting: true,
+        },
       });
     });
 
@@ -834,8 +892,10 @@ describe("diffusion model index loading", () => {
       const manifest = await loadDiffusionSnapshotManifest(directory);
 
       expect(manifest.modelIndex.kind).toBe("z-image");
-      expect(manifest.schedulerConfig.kind).toBe("flow-match-euler");
-      expect(manifest.schedulerConfig.config).toMatchObject({ shift: 3 });
+      expect(manifest.schedulerConfig).toMatchObject({
+        kind: "flow-match-euler",
+        config: { shift: 3 },
+      });
       expect(
         manifest.components.find((component) => component.name === "tokenizer")?.metadataPaths,
       ).toEqual([join(directory, "tokenizer", "tokenizer.json")]);

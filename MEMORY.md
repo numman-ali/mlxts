@@ -48,13 +48,15 @@ This file captures durable cross-session learnings for `mlxts` so future agent s
   Diffusers LTX video/audio snapshot manifests without importing transformer
   encoders or claiming runtime generation. `LTXPipeline` and
   `LTXConditionPipeline` map to `ltx-video` with FlowMatch Euler, T5 text
-  metadata, `LTXVideoTransformer3DModel`, and `AutoencoderKLLTXVideo`.
+  metadata, `LTXVideoTransformer3DModel`, and `AutoencoderKLLTXVideo`;
+  `LTXLatentUpsamplePipeline` maps to `ltx-video-latent-upsample` with
+  `LTXLatentUpsamplerModel`.
   `LTX2Pipeline` maps to `ltx2` with Gemma3 text metadata,
   `LTX2VideoTransformer3DModel`, `AutoencoderKLLTX2Video`,
   `AutoencoderKLLTX2Audio`, `LTX2TextConnectors`, and `LTX2Vocoder`. Remote
   snapshot selection keeps those LTX-2 component folders plus tokenizer
-  `processor_config.json`; root monolith exports and latent upsampler sidecars
-  still stay out of the selected manifest path. Component config parsing now
+  `processor_config.json`; root monolith exports still stay out of the selected
+  manifest path. Component config parsing now
   exists for LTX-Video and LTX-2, including LTX-2 video/audio/connector/vocoder
   cross-component checks. Latent geometry helpers now match Diffusers video
   BCFHW packing and LTX-2 audio BCLM packing, including audio duration/mel
@@ -71,9 +73,12 @@ This file captures durable cross-session learnings for `mlxts` so future agent s
   and synthetic denoising-loop coverage. Classic LTX-Video VAE decode now has
   decoder-only `AutoencoderKLLTXVideo` execution, channelwise latent
   denormalization, Diffusers Conv3d kernel translation, decoder safetensor
-  loading, and BFHWC `0..1` video output. LTX-2 denoising, latent upsampling,
-  audio/video artifact output, and finite proof commands remain future
-  tranches. — refs:
+  loading, and BFHWC `0..1` video output. Classic LTX sidecar latent upsampling
+  now has `LtxVideoLatentUpsamplerModel`, normalized BCFHW and packed-token
+  helpers, standalone/component safetensor loading, and sidecar
+  `LTXLatentUpsamplePipeline` manifest recognition. LTX-2 denoising, LTX-2
+  latent upsampling, audio/video artifact output, and finite proof commands
+  remain future tranches. — refs:
   `packages/diffusion/src/pretrained/model-index.ts`,
   `packages/diffusion/src/pretrained/ltx-pipeline-specs.ts`,
   `packages/diffusion/src/pretrained/snapshot-file-selection.ts`,
@@ -86,13 +91,17 @@ This file captures durable cross-session learnings for `mlxts` so future agent s
   `packages/diffusion/src/families/ltx/autoencoder.ts`,
   `packages/diffusion/src/families/ltx/autoencoder-weights.ts`,
   `packages/diffusion/src/families/ltx/decoding.ts`,
+  `packages/diffusion/src/families/ltx/latent-upsampler.ts`,
+  `packages/diffusion/src/families/ltx/latent-upsample.ts`,
+  `packages/diffusion/src/families/ltx/latent-upsampler-weights.ts`,
   `docs/reviews/2026-05-01-ltx-video-snapshot-skeleton.md`,
   `docs/reviews/2026-05-01-ltx-video-component-configs.md`,
   `docs/reviews/2026-05-01-ltx-latent-geometry.md`,
   `docs/reviews/2026-05-01-ltx-rope-geometry.md`,
   `docs/reviews/2026-05-01-ltx-video-denoising-runtime.md`,
   `docs/reviews/2026-05-01-ltx-video-transformer-runtime.md`,
-  `docs/reviews/2026-05-01-ltx-video-vae-runtime.md`
+  `docs/reviews/2026-05-01-ltx-video-vae-runtime.md`,
+  `docs/reviews/2026-05-01-ltx-latent-upsampler-runtime.md`
 
 - (2026-05-01) [DIFFUSION/SD3] `@mlxts/diffusion` recognizes Diffusers
   `StableDiffusion3Pipeline` snapshots and parses `SD3Transformer2DModel` plus

@@ -154,6 +154,9 @@ export async function loadStableDiffusionPipelineFromSnapshot(
   try {
     vae = await loadStableDiffusionAutoencoderFromSnapshot(manifest, options.autoencoder);
     unet = await loadStableDiffusionUNetFromSnapshot(manifest, options.unet);
+    if (manifest.schedulerConfig === null) {
+      throw new DiffusionConfigError("Stable Diffusion snapshot is missing a scheduler.");
+    }
     return new LoadedStableDiffusionPipelineBundle(
       snapshotDirectory,
       manifest,

@@ -227,10 +227,12 @@ major product-agent focus on package-owned CLIs and future PI-agent integration.
   proof attempt reached Hub snapshot resolution but was blocked because the
   configured token is not authorized for the gated repo.
 - **Phase 10 LTX video/audio snapshot entry point**: `@mlxts/diffusion` now
-  recognizes Diffusers `LTXPipeline`, `LTXConditionPipeline`, and `LTX2Pipeline`
-  snapshots. LTX-Video maps FlowMatch Euler, T5 text metadata,
-  `LTXVideoTransformer3DModel`, and `AutoencoderKLLTXVideo`; LTX-2 maps Gemma3
-  text metadata, `LTX2VideoTransformer3DModel`, `AutoencoderKLLTX2Video`,
+  recognizes Diffusers `LTXPipeline`, `LTXConditionPipeline`,
+  `LTXLatentUpsamplePipeline`, and `LTX2Pipeline` snapshots. LTX-Video maps
+  FlowMatch Euler, T5 text metadata, `LTXVideoTransformer3DModel`, and
+  `AutoencoderKLLTXVideo`; classic LTX sidecar upscalers map
+  `LTXLatentUpsamplerModel`; LTX-2 maps Gemma3 text metadata,
+  `LTX2VideoTransformer3DModel`, `AutoencoderKLLTX2Video`,
   `AutoencoderKLLTX2Audio`, `LTX2TextConnectors`, and `LTX2Vocoder`. Typed
   component config parsing now covers both LTX-Video and LTX-2, including
   LTX-2 video/audio/connector/vocoder cross-component checks. Package-owned
@@ -247,9 +249,12 @@ major product-agent focus on package-owned CLIs and future PI-agent integration.
   projection, RMS-normalized self/cross attention, and Diffusers transformer
   weight mapping/loading. Classic LTX-Video VAE decode now covers decoder-only
   `AutoencoderKLLTXVideo` execution, channelwise latent denormalization,
-  decoder safetensor loading, and BFHWC `0..1` video tensors. Latent
-  upsampling, audio/video artifact writing, LTX-2 denoising, and proof commands
-  remain future Phase 10 tranches.
+  decoder safetensor loading, and BFHWC `0..1` video tensors. Classic LTX
+  sidecar latent upsampling now covers normalized BCFHW latent upsampling,
+  standalone/component safetensor loading, sidecar snapshot manifests, and
+  packed-token unpack/repack helpers. Audio/video artifact writing, LTX-2
+  denoising, LTX-2 latent upsampling, and proof commands remain future Phase 10
+  tranches.
 - **Qwen conditional serving**: top-level Qwen 3.5 / 3.6 conditional
   checkpoints expose the Qwen text batch-cache surface for text-only continuous
   serving. Media/content requests still route as `media_input` and stay off

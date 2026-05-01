@@ -1065,9 +1065,9 @@ Authenticated gated checkpoint proof remains a separate tranche. Reference-image
 / KV variants, broader VLM families, audio encoder/decoder families, and
 additional diffusion/flow families remain Phase 10 work. LTX-Video and LTX-2
 now have a package-owned Diffusers manifest entry point: current
-`LTXPipeline`, `LTXConditionPipeline`, and `LTX2Pipeline` snapshots parse into
-video/audio component roles and typed component configs without importing
-transformer encoders or claiming runtime generation. Package-owned LTX latent
+`LTXPipeline`, `LTXConditionPipeline`, `LTXLatentUpsamplePipeline`, and
+`LTX2Pipeline` snapshots parse into video/audio component roles and typed
+component configs without importing transformer encoders or claiming runtime generation. Package-owned LTX latent
 geometry now covers Diffusers-compatible video BCFHW packing and LTX-2 audio
 BCLM packing, and package-owned RoPE geometry now covers classic LTX video
 coordinate scaling plus LTX-2 video/audio patch-boundary coordinates. Classic
@@ -1079,8 +1079,10 @@ modulation, PixArt caption projection, RMS-normalized self/cross attention, and
 Diffusers transformer weight mapping/loading. Classic LTX-Video VAE decode now
 covers decoder-only `AutoencoderKLLTXVideo` execution, Diffusers latent
 denormalization, decoder safetensor loading, and BFHWC `0..1` video tensors.
-Latent upsampling, audio-video output encoding, LTX-2 denoising, and finite
-proof commands remain future tranches.
+Classic LTX sidecar latent upsampling now covers `LTXLatentUpsamplerModel`
+config parsing, safetensor loading, normalized latent upsampling, and packed
+latent repacking. Audio-video output encoding, LTX-2 denoising, LTX-2 latent
+upsampling, and finite proof commands remain future tranches.
 
 **What this phase covers**:
 
@@ -1181,8 +1183,9 @@ All diffusion and flow-based generation across modalities: image, video, and aud
 7. **LTX-Video / LTX-2**: these open the video and audio-video diffusion track.
    Current Diffusers LTX-Video snapshots expose `LTXPipeline` or
    `LTXConditionPipeline` over FlowMatch Euler, T5 text metadata,
-   `LTXVideoTransformer3DModel`, and `AutoencoderKLLTXVideo`. Current LTX-2
-   snapshots expose `LTX2Pipeline` over Gemma3 text metadata,
+   `LTXVideoTransformer3DModel`, and `AutoencoderKLLTXVideo`; classic LTX
+   sidecar upscalers expose `LTXLatentUpsamplePipeline` with
+   `LTXLatentUpsamplerModel`. Current LTX-2 snapshots expose `LTX2Pipeline` over Gemma3 text metadata,
    `LTX2VideoTransformer3DModel`, `AutoencoderKLLTX2Video`,
    `AutoencoderKLLTX2Audio`, `LTX2TextConnectors`, and `LTX2Vocoder`. Snapshot
    recognition and component config parsing have landed as the entry point.
@@ -1197,9 +1200,11 @@ All diffusion and flow-based generation across modalities: image, video, and aud
    modulation, caption projection, and transformer weight mapping. Classic
    LTX-Video VAE decode now matches the Diffusers decoder-side boundary for
    packed-latent unpacking, channelwise denormalization, Conv3d kernel layout,
-   decoder safetensor loading, and BFHWC `0..1` output tensors. Latent
-   upsampling, audio/video artifact output, LTX-2 denoising, and proof commands
-   remain separate tranches.
+   decoder safetensor loading, and BFHWC `0..1` output tensors. Classic LTX
+   sidecar latent upsampling now loads and runs over normalized BCFHW latents
+   with packed-token unpack/repack helpers. Audio/video artifact output,
+   LTX-2 denoising, LTX-2 latent upsampling, and proof commands remain separate
+   tranches.
 
 ### 10c. Examples
 

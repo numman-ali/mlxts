@@ -25,7 +25,7 @@ export type DiffusionSnapshotManifest = {
   directory: string;
   modelIndexPath: string;
   modelIndex: ParsedDiffusionModelIndex;
-  schedulerConfig: ParsedDiffusionSchedulerConfig;
+  schedulerConfig: ParsedDiffusionSchedulerConfig | null;
   components: readonly DiffusionSnapshotComponent[];
 };
 
@@ -161,7 +161,12 @@ export async function loadDiffusionSnapshotManifest(
   requireDirectory(snapshotDirectory, "loadDiffusionSnapshotManifest");
   const loaded = await readModelIndex(snapshotDirectory);
   const modelIndex = parseDiffusionModelIndex(loaded.rawConfig);
-  const schedulerConfig = await loadDiffusionSchedulerConfig(snapshotDirectory);
+  const hasScheduler = modelIndex.components.some(
+    (component) => component.enabled && component.role === "scheduler",
+  );
+  const schedulerConfig = hasScheduler
+    ? await loadDiffusionSchedulerConfig(snapshotDirectory)
+    : null;
   return {
     directory: snapshotDirectory,
     modelIndexPath: loaded.modelIndexPath,
