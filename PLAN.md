@@ -988,12 +988,15 @@ reference work from Hugging Face Diffusers. Refresh and audit
 `@mlxts/transformers` owns Qwen media prompt preparation, `@mlxts/serve` owns
 protocol media transport and scheduling, and `examples/qwen3_5-image` is the
 direct workbook. `@mlxts/diffusion` now owns Stable Diffusion / SDXL package
-surfaces through local Diffusers snapshot inspection, scheduler/config loading,
-VAE/UNet construction and loading, sampling, pipeline loading, and an
-AXI-shaped example proof command. It also owns the first FLUX.1 package path:
-FlowMatch Euler scheduling, FLUX transformer config/backbone/weights, FLUX VAE
-config/loading/decoding, latent packing, sampling, and an AXI-shaped
-`examples/flux` proof command. Base Qwen-Image snapshot recognition and config
+surfaces through Diffusers snapshot source resolution, local manifest
+inspection, scheduler/config loading, VAE/UNet construction and loading,
+sampling, pipeline loading, and an AXI-shaped example proof command. It also
+owns the first FLUX.1 package path: FlowMatch Euler scheduling, FLUX
+transformer config/backbone/weights, FLUX VAE config/loading/decoding, latent
+packing, sampling, and an AXI-shaped `examples/flux` proof command. Both image
+proof commands accept a local directory or Hugging Face model id and resolve it
+to a concrete local snapshot before generation. Base Qwen-Image snapshot
+recognition and config
 parsing has landed, including the Qwen-specific 3D causal VAE metadata and
 FlowMatch `shift_terminal` scheduler field, but Qwen-Image tensor execution is
 not implemented yet. Base Z-Image snapshot recognition and config parsing has
@@ -1037,16 +1040,17 @@ All diffusion and flow-based generation across modalities: image, video, and aud
 
 1. **Stable Diffusion / SDXL baseline**: this remains first because it proves
    the reusable package surface end to end: VAE, UNet2D, scheduler, CLIP
-   conditioning, local Diffusers snapshot loading, sampling, and an
+   conditioning, Diffusers local-or-Hub snapshot loading, sampling, and an
    AXI-shaped proof command. Real checkpoint image evidence is still required
    before this becomes a product-complete image generation claim.
 2. **FLUX.1 family**: this is the first modern flow-matching target after the
    Stable Diffusion baseline because it moves `@mlxts/diffusion` from UNet2D
    pipelines into DiT/flow-style backbones. The local `FLUX.1-schnell` proof
-   path is implemented, with its timestep-distilled constraints kept explicit:
-   short prompt sequence length, guidance disabled, and few-step sampling.
-   Gated or non-commercial variants require explicit operator and license
-   handling before they are advertised.
+   path is implemented and now accepts Hub model ids through the package-owned
+   Diffusers snapshot resolver, with its timestep-distilled constraints kept
+   explicit: short prompt sequence length, guidance disabled, and few-step
+   sampling. Gated or non-commercial variants require explicit operator and
+   license handling before they are advertised.
 3. **Qwen-Image family**: this is the Qwen text-to-image generation track, not
    the already-landed Qwen 3.5 / Qwen 3.6 image-understanding route. Diffusers
    exposes it as `QwenImagePipeline` over FlowMatch Euler,

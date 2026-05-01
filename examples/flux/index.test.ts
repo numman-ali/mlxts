@@ -24,6 +24,13 @@ describe("FLUX example command", () => {
       "a red apple",
       "--prompt-2",
       "a painted apple",
+      "--revision",
+      "refs/pr/1",
+      "--cache-dir",
+      "~/.cache/huggingface/hub",
+      "--hf-token",
+      "hf_test",
+      "--local-files-only",
       "--output",
       ".tmp/out.bmp",
       "--steps",
@@ -44,7 +51,11 @@ describe("FLUX example command", () => {
     ]);
 
     expect(parsed).toEqual({
-      snapshotPath: "/models/flux",
+      source: "/models/flux",
+      revision: "refs/pr/1",
+      cacheDir: "~/.cache/huggingface/hub",
+      hfToken: "hf_test",
+      localFilesOnly: true,
       prompt: "a red apple",
       prompt2: "a painted apple",
       outputPath: ".tmp/out.bmp",
@@ -112,7 +123,8 @@ describe("FLUX example command", () => {
         runExample: async (cli, progress) => {
           progress("fake progress");
           return {
-            snapshotPath: cli.snapshotPath,
+            source: cli.source,
+            snapshotPath: "/resolved/flux",
             pipeline: "flux",
             prompt: cli.prompt,
             prompt2: cli.prompt2 ?? cli.prompt,
@@ -177,6 +189,7 @@ describe("FLUX example command", () => {
   test("formats default success as compact structured output", () => {
     const formatted = formatSuccess({
       snapshotPath: "/models/flux",
+      source: "/models/flux",
       pipeline: "flux",
       prompt: "a small robot",
       prompt2: "a painted robot",

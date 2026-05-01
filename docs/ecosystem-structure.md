@@ -218,25 +218,25 @@ All diffusion and flow-based generation across modalities: image, video, and aud
 | Sampling | Classifier-free guidance, negative prompts |
 | Fine-tuning support | DreamBooth, textual inversion (LoRA via `@mlxts/lora` works on any Linear) |
 
-**Dependencies:** `@mlxts/core`, `@mlxts/nn`
+**Dependencies:** `@mlxts/core`, `@mlxts/nn`, `@huggingface/hub`
 
-**Current state:** Scheduler infrastructure, local scheduler-config loading,
-Diffusers `model_index.json` snapshot inspection, and Stable Diffusion VAE/UNet
-config translation exist. Stable Diffusion VAE and conditional UNet module
+**Current state:** Scheduler infrastructure, Hugging Face Hub-backed Diffusers
+snapshot source resolution, local scheduler-config loading, Diffusers
+`model_index.json` snapshot inspection, and Stable Diffusion VAE/UNet config
+translation exist. Stable Diffusion VAE and conditional UNet module
 construction exists, with VAE and UNet safetensor loading in place. Stable
 Diffusion pipeline assembly over supplied conditioning tensors owns NHWC latent
 shape, DDIM/Euler denoising, classifier-free guidance, VAE unscale, and
-postprocessing. Local snapshots now load into a disposable Stable Diffusion
-runtime bundle with VAE, UNet, scheduler, parsed manifest/configs, and thin
-sampling methods. FLUX.1 owns FlowMatch scheduling, transformer
+postprocessing. Resolved local snapshots now load into a disposable Stable
+Diffusion runtime bundle with VAE, UNet, scheduler, parsed manifest/configs,
+and thin sampling methods. FLUX.1 owns FlowMatch scheduling, transformer
 config/backbone/weights, VAE loading/decoding, latent packing, and sampling.
 Base Qwen-Image and Z-Image snapshots are recognized and parsed at the
 package-owned metadata boundary while their runtime tensor execution remains
 follow-on work. `examples/stable-diffusion` and `examples/flux` own
 application-layer prompt-conditioning composition and finite BMP image proof
-commands over package surfaces. Hugging Face Hub-backed Diffusers root loading,
-real checkpoint evidence, and broader image output formats remain follow-on
-Phase 10 tranches.
+commands over package surfaces. Real checkpoint evidence and broader image
+output formats remain follow-on Phase 10 tranches.
 
 **Image-generation support order:** Stable Diffusion / SDXL is the baseline
 pipeline family. FLUX.1 is the next flow-matching target. Qwen-Image is the

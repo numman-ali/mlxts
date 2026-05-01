@@ -3,7 +3,9 @@
 import type { DType } from "@mlxts/core";
 import { random } from "@mlxts/core";
 import {
+  type DiffusionSnapshotResolveProgressEvent,
   loadStableDiffusionPipelineFromSnapshot,
+  resolveDiffusionSnapshot,
   type StableDiffusionImageGenerationOptions,
 } from "@mlxts/diffusion";
 
@@ -15,7 +17,11 @@ import {
 import { writeStableDiffusionBmp } from "./image-output";
 
 type CliOptions = {
-  snapshotPath: string;
+  source: string;
+  revision?: string;
+  cacheDir?: string;
+  hfToken?: string;
+  localFilesOnly: boolean;
   prompt: string;
   prompt2?: string;
   negativePrompt?: string;
@@ -33,6 +39,10 @@ type CliOptions = {
 type CliCommand = { kind: "help" } | { kind: "run"; options: CliOptions };
 
 type CliOptionsDraft = {
+  revision?: string;
+  cacheDir?: string;
+  hfToken?: string;
+  localFilesOnly: boolean;
   prompt?: string;
   prompt2?: string;
   negativePrompt?: string;
@@ -48,7 +58,10 @@ type CliOptionsDraft = {
 };
 
 type StableDiffusionExampleResult = {
+  source: string;
   snapshotPath: string;
+  requestedRevision?: string;
+  resolvedRevision?: string;
   pipeline: "stable-diffusion" | "stable-diffusion-xl";
   prompt: string;
   negativePrompt: string;
@@ -86,13 +99,17 @@ function quoteScalar(value: string | number | boolean | null): string {
 
 export function formatUsage(): string {
   return [
-    "description: Run one local Stable Diffusion text-to-image proof and write a BMP artifact",
+    "description: Run one Stable Diffusion text-to-image proof and write a BMP artifact",
     "usage[2]:",
-    '  bun run examples/stable-diffusion/index.ts <snapshot-path> --prompt "a red apple"',
-    '  bun run examples/stable-diffusion/index.ts /models/sdxl --prompt "a quiet library" --output .tmp/sd.bmp --steps 20',
+    '  bun run examples/stable-diffusion/index.ts <snapshot-source> --prompt "a red apple"',
+    '  bun run examples/stable-diffusion/index.ts runwayml/stable-diffusion-v1-5 --local-files-only --prompt "a quiet library" --output .tmp/sd.bmp --steps 20',
     "arguments[1]{name,description}:",
-    '  "snapshot-path","Local Diffusers Stable Diffusion or SDXL snapshot directory"',
-    "options[13]{flag,description}:",
+    '  "snapshot-source","Local Diffusers snapshot directory or Hugging Face model id"',
+    "options[17]{flag,description}:",
+    '  "--revision <rev>","Hub revision; default main"',
+    '  "--cache-dir <path>","Hub cache directory; default Hugging Face cache"',
+    '  "--hf-token <token>","Hub access token; defaults to HF token environment or cache file"',
+    '  "--local-files-only","Use only an already-cached Hub snapshot"',
     '  "--prompt <text>","Required positive prompt"',
     '  "--prompt-2 <text>","Optional SDXL second-encoder prompt"',
     '  "--negative-prompt <text>","Negative prompt; default empty when CFG is active"',
@@ -178,6 +195,18 @@ function applyFlag(argv: readonly string[], index: number, draft: CliOptionsDraf
     case "--negative-prompt-2":
       draft.negativePrompt2 = readStringFlag(arg, argv[index + 1]);
       return index + 1;
+    case "--revision":
+      draft.revision = readStringFlag(arg, argv[index + 1]);
+      return index + 1;
+    case "--cache-dir":
+      draft.cacheDir = readStringFlag(arg, argv[index + 1]);
+      return index + 1;
+    case "--hf-token":
+      draft.hfToken = readStringFlag(arg, argv[index + 1]);
+      return index + 1;
+    case "--local-files-only":
+      draft.localFilesOnly = true;
+      return index;
     case "--output":
       draft.outputPath = readStringFlag(arg, argv[index + 1]);
       return index + 1;
@@ -209,17 +238,45 @@ function applyFlag(argv: readonly string[], index: number, draft: CliOptionsDraf
   }
 }
 
+function applyOptionalCliOptions(options: CliOptions, draft: CliOptionsDraft): void {
+  if (draft.prompt2 !== undefined) {
+    options.prompt2 = draft.prompt2;
+  }
+  if (draft.revision !== undefined) {
+    options.revision = draft.revision;
+  }
+  if (draft.cacheDir !== undefined) {
+    options.cacheDir = draft.cacheDir;
+  }
+  if (draft.hfToken !== undefined) {
+    options.hfToken = draft.hfToken;
+  }
+  if (draft.negativePrompt !== undefined) {
+    options.negativePrompt = draft.negativePrompt;
+  }
+  if (draft.negativePrompt2 !== undefined) {
+    options.negativePrompt2 = draft.negativePrompt2;
+  }
+  if (draft.height !== undefined) {
+    options.height = draft.height;
+  }
+  if (draft.width !== undefined) {
+    options.width = draft.width;
+  }
+}
+
 export function parseCommand(argv: readonly string[]): CliCommand {
   if (argv.some((arg) => arg === "--help" || arg === "-h")) {
     return { kind: "help" };
   }
 
-  const snapshotPath = argv[0];
-  if (snapshotPath === undefined || snapshotPath.trim() === "" || snapshotPath.startsWith("--")) {
-    throw new StableDiffusionExampleUsageError("Missing snapshot path.");
+  const source = argv[0];
+  if (source === undefined || source.trim() === "" || source.startsWith("--")) {
+    throw new StableDiffusionExampleUsageError("Missing snapshot source.");
   }
 
   const draft: CliOptionsDraft = {
+    localFilesOnly: false,
     outputPath: ".tmp/stable-diffusion/sample.bmp",
     steps: 20,
     guidanceScale: 7.5,
@@ -243,7 +300,8 @@ export function parseCommand(argv: readonly string[]): CliCommand {
   }
 
   const options: CliOptions = {
-    snapshotPath,
+    source,
+    localFilesOnly: draft.localFilesOnly,
     prompt: draft.prompt,
     outputPath: draft.outputPath,
     steps: draft.steps,
@@ -252,21 +310,7 @@ export function parseCommand(argv: readonly string[]): CliCommand {
     dtype: draft.dtype,
     json: draft.json,
   };
-  if (draft.prompt2 !== undefined) {
-    options.prompt2 = draft.prompt2;
-  }
-  if (draft.negativePrompt !== undefined) {
-    options.negativePrompt = draft.negativePrompt;
-  }
-  if (draft.negativePrompt2 !== undefined) {
-    options.negativePrompt2 = draft.negativePrompt2;
-  }
-  if (draft.height !== undefined) {
-    options.height = draft.height;
-  }
-  if (draft.width !== undefined) {
-    options.width = draft.width;
-  }
+  applyOptionalCliOptions(options, draft);
   return { kind: "run", options };
 }
 
@@ -309,7 +353,13 @@ function defaultImageSize(
 }
 
 function printRunIntro(cli: CliOptions, writeLine: (line: string) => void): void {
-  writeLine(`Snapshot: ${cli.snapshotPath}`);
+  writeLine(`Snapshot source: ${cli.source}`);
+  if (cli.revision !== undefined) {
+    writeLine(`Snapshot revision: ${cli.revision}`);
+  }
+  if (cli.localFilesOnly) {
+    writeLine("Local files only: true");
+  }
   writeLine(`Prompt: ${cli.prompt}`);
   writeLine(`Output: ${cli.outputPath}`);
   writeLine(`Steps: ${cli.steps}`);
@@ -319,15 +369,35 @@ function printRunIntro(cli: CliOptions, writeLine: (line: string) => void): void
   writeLine("");
 }
 
+function formatSnapshotResolveProgress(event: DiffusionSnapshotResolveProgressEvent): string {
+  if (event.stage === "resolve" && event.status === "start") {
+    return `Resolving snapshot source: ${event.source}`;
+  }
+  if (event.stage === "resolve") {
+    return `Resolved ${event.sourceKind} snapshot: ${event.directory} (${event.fileCount} files, ${event.totalBytes} bytes)`;
+  }
+  return `Snapshot ${event.status} ${event.index}/${event.totalFiles}: ${event.relativePath}`;
+}
+
 export async function runStableDiffusionExample(
   cli: CliOptions,
   progress: (line: string) => void,
 ): Promise<StableDiffusionExampleResult> {
   const startedAt = performance.now();
   printRunIntro(cli, progress);
+  const snapshot = await resolveDiffusionSnapshot(cli.source, {
+    ...(cli.revision === undefined ? {} : { revision: cli.revision }),
+    ...(cli.cacheDir === undefined ? {} : { cacheDir: cli.cacheDir }),
+    ...(cli.hfToken === undefined ? {} : { accessToken: cli.hfToken }),
+    localFilesOnly: cli.localFilesOnly,
+    onProgress: (event) => {
+      progress(formatSnapshotResolveProgress(event));
+    },
+  });
+  const snapshotPath = snapshot.directory;
 
   progress("Loading Stable Diffusion pipeline...");
-  using pipeline = await loadStableDiffusionPipelineFromSnapshot(cli.snapshotPath);
+  using pipeline = await loadStableDiffusionPipelineFromSnapshot(snapshotPath);
   if (
     pipeline.manifest.modelIndex.kind !== "stable-diffusion" &&
     pipeline.manifest.modelIndex.kind !== "stable-diffusion-xl"
@@ -346,7 +416,7 @@ export async function runStableDiffusionExample(
   const width = cli.width ?? defaultSize.width;
 
   progress("Loading prompt conditioner...");
-  using conditioner = await loadStableDiffusionPromptConditionerFromSnapshot(cli.snapshotPath);
+  using conditioner = await loadStableDiffusionPromptConditionerFromSnapshot(snapshotPath);
   const promptOptions: StableDiffusionPromptConditioningOptions = {
     prompt: cli.prompt,
     guidanceScale: cli.guidanceScale,
@@ -391,7 +461,14 @@ export async function runStableDiffusionExample(
 
   const artifact = writeStableDiffusionBmp(image, cli.outputPath);
   return {
-    snapshotPath: cli.snapshotPath,
+    source: cli.source,
+    snapshotPath,
+    ...(snapshot.requestedRevision === undefined
+      ? {}
+      : { requestedRevision: snapshot.requestedRevision }),
+    ...(snapshot.resolvedRevision === undefined
+      ? {}
+      : { resolvedRevision: snapshot.resolvedRevision }),
     pipeline: pipelineKind,
     prompt: cli.prompt,
     negativePrompt: cli.negativePrompt ?? "",
@@ -415,7 +492,14 @@ export function formatSuccess(report: StableDiffusionExampleResult): string {
   return [
     "stable_diffusion_example:",
     "  status: passed",
+    `  source: ${quoteScalar(report.source)}`,
     `  snapshot_path: ${quoteScalar(report.snapshotPath)}`,
+    ...(report.requestedRevision === undefined
+      ? []
+      : [`  requested_revision: ${quoteScalar(report.requestedRevision)}`]),
+    ...(report.resolvedRevision === undefined
+      ? []
+      : [`  resolved_revision: ${quoteScalar(report.resolvedRevision)}`]),
     `  pipeline: ${quoteScalar(report.pipeline)}`,
     `  output_path: ${quoteScalar(report.outputPath)}`,
     `  image_size: ${quoteScalar(`${report.imageSize.width}x${report.imageSize.height}`)}`,

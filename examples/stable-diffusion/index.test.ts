@@ -22,6 +22,13 @@ describe("Stable Diffusion example command", () => {
       "blur",
       "--negative-prompt-2",
       "low detail",
+      "--revision",
+      "refs/pr/1",
+      "--cache-dir",
+      "~/.cache/huggingface/hub",
+      "--hf-token",
+      "hf_test",
+      "--local-files-only",
       "--output",
       ".tmp/out.bmp",
       "--steps",
@@ -40,7 +47,11 @@ describe("Stable Diffusion example command", () => {
     ]);
 
     expect(parsed).toEqual({
-      snapshotPath: "/models/sd",
+      source: "/models/sd",
+      revision: "refs/pr/1",
+      cacheDir: "~/.cache/huggingface/hub",
+      hfToken: "hf_test",
+      localFilesOnly: true,
       prompt: "a red apple",
       prompt2: "a painted apple",
       negativePrompt: "blur",
@@ -109,7 +120,8 @@ describe("Stable Diffusion example command", () => {
         runExample: async (cli, progress) => {
           progress("fake progress");
           return {
-            snapshotPath: cli.snapshotPath,
+            source: cli.source,
+            snapshotPath: "/resolved/sd",
             pipeline: "stable-diffusion",
             prompt: cli.prompt,
             negativePrompt: "",
@@ -161,6 +173,7 @@ describe("Stable Diffusion example command", () => {
   test("formats default success as compact structured output", () => {
     const formatted = formatSuccess({
       snapshotPath: "/models/sd",
+      source: "/models/sd",
       pipeline: "stable-diffusion-xl",
       prompt: "a small robot",
       negativePrompt: "blur",

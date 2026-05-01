@@ -61,6 +61,15 @@
         "@mlxts/core": "workspace:*",
       },
     },
+    "packages/diffusion": {
+      "name": "@mlxts/diffusion",
+      "version": "0.0.1",
+      "dependencies": {
+        "@huggingface/hub": "^2.6.0",
+        "@mlxts/core": "workspace:*",
+        "@mlxts/nn": "workspace:*",
+      },
+    },
     "packages/lora": {
       "name": "@mlxts/lora",
       "version": "0.0.1",
@@ -212,6 +221,8 @@
     "@mlxts/core": ["@mlxts/core@workspace:packages/core"],
 
     "@mlxts/data": ["@mlxts/data@workspace:packages/data"],
+
+    "@mlxts/diffusion": ["@mlxts/diffusion@workspace:packages/diffusion"],
 
     "@mlxts/lora": ["@mlxts/lora@workspace:packages/lora"],
 

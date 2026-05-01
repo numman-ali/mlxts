@@ -189,6 +189,14 @@ export {
   loadDiffusionSnapshotManifest,
 } from "./pretrained/snapshot-manifest";
 export {
+  type DiffusionSnapshotResolveProgressEvent,
+  type ResolveDiffusionSnapshotOptions,
+  type ResolvedDiffusionSnapshot,
+  type ResolvedDiffusionSnapshotFile,
+  resolveDiffusionSnapshot,
+  resolveDiffusionSnapshotDirectory,
+} from "./pretrained/snapshot-source";
+export {
   DDIMScheduler,
   type DDIMSchedulerConfig,
   type DDIMSchedulerStep,

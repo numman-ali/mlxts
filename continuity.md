@@ -92,7 +92,8 @@ major product-agent focus on package-owned CLIs and future PI-agent integration.
   lookup. Local image `file_id` values are enabled only when the operator
   configures `localImageRoots` / `--local-image-root`; they resolve as relative
   image paths under those roots and do not create a general files API.
-- **Phase 10 diffusion**: `@mlxts/diffusion` now parses local Diffusers
+- **Phase 10 diffusion**: `@mlxts/diffusion` now resolves Diffusers snapshot
+  sources from local directories or Hugging Face model ids, then parses local
   snapshot manifests, scheduler configs, Stable Diffusion VAE/UNet configs,
   and FLUX transformer/VAE configs. Stable Diffusion VAE/UNet loading is
   package-owned: Diffusers names map into the camelCase module tree, Conv2d
@@ -121,12 +122,14 @@ major product-agent focus on package-owned CLIs and future PI-agent integration.
   `examples/stable-diffusion` now owns the application-layer prompt
   conditioner that composes CLIP tokenizers, CLIP text encoders, and diffusion
   tensor conditioning while preserving package dependencies. It also has a
-  finite AXI-shaped image proof command that loads a local Diffusers snapshot,
-  acquires the runtime lock, samples one image, and writes an uncompressed BMP
-  artifact from the returned NHWC image tensor. `examples/flux` owns the
-  analogous FLUX application layer for T5/CLIP prompt conditioning and BMP
-  output. The image-generation support ladder is now explicit: Stable Diffusion
-  / SDXL baseline first, then FLUX.1, then Qwen-Image, then Z-Image-Turbo, with
+  finite AXI-shaped image proof command that accepts a local Diffusers snapshot
+  or Hugging Face model id, resolves it to a local directory, acquires the
+  runtime lock, samples one image, and writes an uncompressed BMP artifact from
+  the returned NHWC image tensor. `examples/flux` owns the analogous FLUX
+  application layer for T5/CLIP prompt conditioning and BMP output, with the
+  same local-or-Hub snapshot source ergonomics. The image-generation support
+  ladder is now explicit: Stable Diffusion / SDXL baseline first, then FLUX.1,
+  then Qwen-Image, then Z-Image-Turbo, with
   Stable Diffusion 3 / 3.5 and distilled variants following when they reuse the
   base flow/DiT infrastructure. Real checkpoint quality/parity evidence and
   Z-Image runtime execution remain separate from the command/snapshot surfaces.
