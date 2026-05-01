@@ -245,9 +245,11 @@ major product-agent focus on package-owned CLIs and future PI-agent integration.
   LTX-Video transformer execution now runs over packed video tokens with cached
   classic RoPE, AdaLayerNormSingle timestep modulation, PixArt caption
   projection, RMS-normalized self/cross attention, and Diffusers transformer
-  weight mapping/loading. VAE decode/denormalization, latent upsampling,
-  audio/video artifact writing, LTX-2 denoising, and proof commands remain
-  future Phase 10 tranches.
+  weight mapping/loading. Classic LTX-Video VAE decode now covers decoder-only
+  `AutoencoderKLLTXVideo` execution, channelwise latent denormalization,
+  decoder safetensor loading, and BFHWC `0..1` video tensors. Latent
+  upsampling, audio/video artifact writing, LTX-2 denoising, and proof commands
+  remain future Phase 10 tranches.
 - **Qwen conditional serving**: top-level Qwen 3.5 / 3.6 conditional
   checkpoints expose the Qwen text batch-cache surface for text-only continuous
   serving. Media/content requests still route as `media_input` and stay off

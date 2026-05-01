@@ -280,9 +280,11 @@ raw FlowMatch timesteps, video-length dynamic shift, prompt attention masks,
 RoPE interpolation scale, and batched CFG. Classic LTX-Video transformer
 execution now covers packed video tokens, cached classic RoPE,
 AdaLayerNormSingle timestep modulation, PixArt caption projection,
-RMS-normalized attention, and transformer weight mapping/loading. VAE
-execution, LTX-2 denoising, latent upsampling, and artifact output remain
-future Phase 10 tranches.
+RMS-normalized attention, and transformer weight mapping/loading. Classic
+LTX-Video VAE decode now covers decoder-only `AutoencoderKLLTXVideo`
+execution, Diffusers latent denormalization, decoder safetensor loading, and
+BFHWC `0..1` video tensors. LTX-2 denoising, latent upsampling, and artifact
+output remain future Phase 10 tranches.
 
 **Architecture pattern:** Mirrors `@mlxts/transformers` — explicit family
 registry, config-driven model construction, and official Hugging Face JS-backed snapshot loading.

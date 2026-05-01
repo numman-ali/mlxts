@@ -1076,8 +1076,10 @@ attention masks, raw FlowMatch timesteps, unpatched video-length dynamic shift,
 and negative-first batched CFG. Classic LTX-Video transformer execution now
 covers packed video tokens, cached classic RoPE, AdaLayerNormSingle timestep
 modulation, PixArt caption projection, RMS-normalized self/cross attention, and
-Diffusers transformer weight mapping/loading. VAE decode/denormalization,
-latent upsampling, audio-video output encoding, LTX-2 denoising, and finite
+Diffusers transformer weight mapping/loading. Classic LTX-Video VAE decode now
+covers decoder-only `AutoencoderKLLTXVideo` execution, Diffusers latent
+denormalization, decoder safetensor loading, and BFHWC `0..1` video tensors.
+Latent upsampling, audio-video output encoding, LTX-2 denoising, and finite
 proof commands remain future tranches.
 
 **What this phase covers**:
@@ -1192,9 +1194,12 @@ All diffusion and flow-based generation across modalities: image, video, and aud
    semantic attention masks, VAE-derived RoPE interpolation scale, and batched
    CFG. Classic LTX-Video transformer execution now matches the packed-token
    Diffusers block shape for self/cross attention, AdaLayerNormSingle
-   modulation, caption projection, and transformer weight mapping. VAE runtime,
-   latent upsampling, audio/video artifact output, LTX-2 denoising, and proof
-   commands remain separate tranches.
+   modulation, caption projection, and transformer weight mapping. Classic
+   LTX-Video VAE decode now matches the Diffusers decoder-side boundary for
+   packed-latent unpacking, channelwise denormalization, Conv3d kernel layout,
+   decoder safetensor loading, and BFHWC `0..1` output tensors. Latent
+   upsampling, audio/video artifact output, LTX-2 denoising, and proof commands
+   remain separate tranches.
 
 ### 10c. Examples
 

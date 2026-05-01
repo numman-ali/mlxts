@@ -68,9 +68,12 @@ This file captures durable cross-session learnings for `mlxts` so future agent s
   a package-owned `LtxVideoTransformer3DModel` over packed video tokens:
   cached classic RoPE, AdaLayerNormSingle timestep modulation, PixArt caption
   projection, RMS-normalized self/cross attention, Diffusers weight mapping,
-  and synthetic denoising-loop coverage. VAE runtime, LTX-2 denoising, latent
-  upsampling, audio/video artifact output, and finite proof commands remain
-  future tranches. — refs:
+  and synthetic denoising-loop coverage. Classic LTX-Video VAE decode now has
+  decoder-only `AutoencoderKLLTXVideo` execution, channelwise latent
+  denormalization, Diffusers Conv3d kernel translation, decoder safetensor
+  loading, and BFHWC `0..1` video output. LTX-2 denoising, latent upsampling,
+  audio/video artifact output, and finite proof commands remain future
+  tranches. — refs:
   `packages/diffusion/src/pretrained/model-index.ts`,
   `packages/diffusion/src/pretrained/ltx-pipeline-specs.ts`,
   `packages/diffusion/src/pretrained/snapshot-file-selection.ts`,
@@ -80,12 +83,16 @@ This file captures durable cross-session learnings for `mlxts` so future agent s
   `packages/diffusion/src/families/ltx/pipeline.ts`,
   `packages/diffusion/src/families/ltx/transformer.ts`,
   `packages/diffusion/src/families/ltx/transformer-weights.ts`,
+  `packages/diffusion/src/families/ltx/autoencoder.ts`,
+  `packages/diffusion/src/families/ltx/autoencoder-weights.ts`,
+  `packages/diffusion/src/families/ltx/decoding.ts`,
   `docs/reviews/2026-05-01-ltx-video-snapshot-skeleton.md`,
   `docs/reviews/2026-05-01-ltx-video-component-configs.md`,
   `docs/reviews/2026-05-01-ltx-latent-geometry.md`,
   `docs/reviews/2026-05-01-ltx-rope-geometry.md`,
   `docs/reviews/2026-05-01-ltx-video-denoising-runtime.md`,
-  `docs/reviews/2026-05-01-ltx-video-transformer-runtime.md`
+  `docs/reviews/2026-05-01-ltx-video-transformer-runtime.md`,
+  `docs/reviews/2026-05-01-ltx-video-vae-runtime.md`
 
 - (2026-05-01) [DIFFUSION/SD3] `@mlxts/diffusion` recognizes Diffusers
   `StableDiffusion3Pipeline` snapshots and parses `SD3Transformer2DModel` plus

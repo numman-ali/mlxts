@@ -1,3 +1,25 @@
+export { LtxVideoAutoencoderKL, LtxVideoDecoder3d } from "./autoencoder";
+export {
+  LtxVideoMidBlock3d,
+  LtxVideoResnetBlock3d,
+  LtxVideoUpBlock3d,
+  LtxVideoUpsampler3d,
+  LtxVideoVaeRMSNorm,
+} from "./autoencoder-blocks";
+export {
+  expectLtxVideoVaeVolume,
+  LtxVideoCausalConv3d,
+  ltxVideoBcfhwToBfhwc,
+  ltxVideoBfhwcToBcfhw,
+} from "./autoencoder-volume";
+export {
+  type LtxVideoAutoencoderWeightLoadOptions,
+  type LtxVideoAutoencoderWeightLoadResult,
+  loadLtxVideoAutoencoderFromSnapshot,
+  loadLtxVideoAutoencoderWeights,
+  ltxVideoAutoencoderWeightPath,
+  transformLtxVideoAutoencoderWeight,
+} from "./autoencoder-weights";
 export {
   type Ltx2AudioAutoencoderConfig,
   type Ltx2AudioCausalityAxis,
@@ -31,6 +53,11 @@ export {
   parseLtxVideoAutoencoderConfig,
   parseLtxVideoTransformerConfig,
 } from "./config";
+export {
+  decodeLtxVideoLatents,
+  denormalizeLtxVideoLatents,
+  type LtxVideoLatentDecoder,
+} from "./decoding";
 export {
   createLtx2AudioCoords,
   createLtx2RotaryEmbeddings,
