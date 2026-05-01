@@ -53,9 +53,11 @@ This file captures durable cross-session learnings for `mlxts` so future agent s
   `LTXLatentUpsamplerModel`.
   `LTX2Pipeline` maps to `ltx2` with Gemma3 text metadata,
   `LTX2VideoTransformer3DModel`, `AutoencoderKLLTX2Video`,
-  `AutoencoderKLLTX2Audio`, `LTX2TextConnectors`, and `LTX2Vocoder`. Remote
-  snapshot selection keeps those LTX-2 component folders plus tokenizer
-  `processor_config.json`; root monolith exports still stay out of the selected
+  `AutoencoderKLLTX2Audio`, `LTX2TextConnectors`, and `LTX2Vocoder`;
+  `LTX2LatentUpsamplePipeline` maps to `ltx2-latent-upsample` with
+  `LTX2LatentUpsamplerModel`. Remote
+  snapshot selection keeps those LTX-2 component folders, `latent_upsampler`,
+  plus tokenizer `processor_config.json`; root monolith exports still stay out of the selected
   manifest path. Component config parsing now
   exists for LTX-Video and LTX-2, including LTX-2 video/audio/connector/vocoder
   cross-component checks. Latent geometry helpers now match Diffusers video
@@ -79,8 +81,10 @@ This file captures durable cross-session learnings for `mlxts` so future agent s
   `LTXLatentUpsamplePipeline` manifest recognition. `examples/ltx-video` now
   has a finite AXI proof command for classic LTX text-to-video with T5 prompt
   conditioning, packed-latent denoising, VAE decode, and BMP preview-sheet
-  artifact output. LTX-2 denoising and LTX-2 latent upsampling remain future
-  tranches. — refs:
+  artifact output. LTX-2 sidecar latent upsampling now has
+  `Ltx2LatentUpsamplerModel`, rational spatial resampling, standalone/sidecar
+  safetensor loading, and packed-token unpack/repack helpers. LTX-2 denoising
+  remains a future tranche. — refs:
   `packages/diffusion/src/pretrained/model-index.ts`,
   `packages/diffusion/src/pretrained/ltx-pipeline-specs.ts`,
   `packages/diffusion/src/pretrained/snapshot-file-selection.ts`,
@@ -96,6 +100,9 @@ This file captures durable cross-session learnings for `mlxts` so future agent s
   `packages/diffusion/src/families/ltx/latent-upsampler.ts`,
   `packages/diffusion/src/families/ltx/latent-upsample.ts`,
   `packages/diffusion/src/families/ltx/latent-upsampler-weights.ts`,
+  `packages/diffusion/src/families/ltx/latent-upsampler-ltx2.ts`,
+  `packages/diffusion/src/families/ltx/latent-upsample-ltx2.ts`,
+  `packages/diffusion/src/families/ltx/latent-upsampler-ltx2-weights.ts`,
   `examples/ltx-video/index.ts`,
   `examples/ltx-video/conditioning.ts`,
   `examples/ltx-video/video-output.ts`,
@@ -108,7 +115,8 @@ This file captures durable cross-session learnings for `mlxts` so future agent s
   `docs/reviews/2026-05-01-ltx-video-transformer-runtime.md`,
   `docs/reviews/2026-05-01-ltx-video-vae-runtime.md`,
   `docs/reviews/2026-05-01-ltx-latent-upsampler-runtime.md`,
-  `docs/reviews/2026-05-01-ltx-video-proof-cli.md`
+  `docs/reviews/2026-05-01-ltx-video-proof-cli.md`,
+  `docs/reviews/2026-05-01-ltx2-latent-upsampler-runtime.md`
 
 - (2026-05-01) [DIFFUSION/SD3] `@mlxts/diffusion` recognizes Diffusers
   `StableDiffusion3Pipeline` snapshots and parses `SD3Transformer2DModel` plus

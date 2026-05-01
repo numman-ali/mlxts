@@ -78,6 +78,13 @@ export {
   upsamplePackedLtxVideoLatents,
 } from "./latent-upsample";
 export {
+  denormalizeLtx2VideoUpsamplerLatents,
+  type Ltx2VideoLatentNormalizer,
+  type Ltx2VideoLatentUpsampleOptions,
+  upsampleLtx2VideoLatents,
+  upsamplePackedLtx2VideoLatents,
+} from "./latent-upsample-ltx2";
+export {
   LtxVideoLatentSpatialUpsampler,
   LtxVideoLatentTemporalUpsampler,
   type LtxVideoLatentUpsamplerConfig,
@@ -90,6 +97,25 @@ export {
   pixelShuffleLtxLatents2d,
   pixelShuffleLtxLatents3d,
 } from "./latent-upsampler";
+export {
+  Ltx2LatentSpatialRationalResampler,
+  Ltx2LatentSpatialUpsampler,
+  Ltx2LatentTemporalUpsampler,
+  type Ltx2LatentUpsamplerConfig,
+  type Ltx2LatentUpsamplerDims,
+  Ltx2LatentUpsamplerModel,
+  parseLtx2LatentUpsamplerConfig,
+  pixelShuffleLtx2Latents2d,
+} from "./latent-upsampler-ltx2";
+export {
+  type Ltx2LatentUpsamplerWeightLoadOptions,
+  type Ltx2LatentUpsamplerWeightLoadResult,
+  loadLtx2LatentUpsamplerFromDirectory,
+  loadLtx2LatentUpsamplerFromSnapshot,
+  loadLtx2LatentUpsamplerWeights,
+  ltx2LatentUpsamplerWeightPath,
+  transformLtx2LatentUpsamplerWeight,
+} from "./latent-upsampler-ltx2-weights";
 export {
   type LtxVideoLatentUpsamplerWeightLoadOptions,
   type LtxVideoLatentUpsamplerWeightLoadResult,

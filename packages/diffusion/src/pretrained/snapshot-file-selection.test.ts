@@ -165,6 +165,8 @@ describe("Diffusers snapshot remote file selection", () => {
       file("audio_vae/diffusion_pytorch_model.safetensors"),
       file("connectors/config.json"),
       file("connectors/diffusion_pytorch_model.safetensors"),
+      file("latent_upsampler/config.json"),
+      file("latent_upsampler/diffusion_pytorch_model.safetensors"),
       file("scheduler/scheduler_config.json"),
       file("text_encoder/config.json"),
       file("text_encoder/generation_config.json"),
@@ -188,6 +190,8 @@ describe("Diffusers snapshot remote file selection", () => {
       "audio_vae/diffusion_pytorch_model.safetensors",
       "connectors/config.json",
       "connectors/diffusion_pytorch_model.safetensors",
+      "latent_upsampler/config.json",
+      "latent_upsampler/diffusion_pytorch_model.safetensors",
       "model_index.json",
       "scheduler/scheduler_config.json",
       "text_encoder/config.json",
@@ -235,6 +239,9 @@ describe("Diffusers snapshot remote file selection", () => {
 
   test("reports only metadata and component-local safetensors as supported remote files", () => {
     expect(isSupportedRemoteFile("model_index.json")).toBe(true);
+    expect(isSupportedRemoteFile("latent_upsampler/diffusion_pytorch_model.safetensors")).toBe(
+      true,
+    );
     expect(isSupportedRemoteFile("tokenizer/added_tokens.json")).toBe(true);
     expect(isSupportedRemoteFile("transformer/diffusion_pytorch_model.safetensors")).toBe(true);
     expect(isSupportedRemoteFile("transformer/config.pb")).toBe(false);

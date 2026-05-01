@@ -56,6 +56,23 @@ export const LTX_VIDEO_LATENT_UPSAMPLE_COMPONENTS: readonly DiffusionModelIndexC
   },
 ];
 
+export const LTX2_LATENT_UPSAMPLE_COMPONENTS: readonly DiffusionModelIndexComponentSpec[] = [
+  {
+    name: "vae",
+    role: "vae",
+    allowed: [["diffusers", "AutoencoderKLLTX2Video"]],
+    requiresConfig: true,
+    requiresWeights: true,
+  },
+  {
+    name: "latent_upsampler",
+    role: "latent-upsampler",
+    allowed: [["ltx2", "LTX2LatentUpsamplerModel"]],
+    requiresConfig: true,
+    requiresWeights: true,
+  },
+];
+
 export const LTX2_COMPONENTS: readonly DiffusionModelIndexComponentSpec[] = [
   {
     name: "transformer",

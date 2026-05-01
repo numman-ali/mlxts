@@ -2,6 +2,7 @@ import {
   LTX_VIDEO_COMPONENTS,
   LTX_VIDEO_LATENT_UPSAMPLE_COMPONENTS,
   LTX2_COMPONENTS,
+  LTX2_LATENT_UPSAMPLE_COMPONENTS,
 } from "./ltx-pipeline-specs";
 import type {
   DiffusersPipelineClassName,
@@ -439,5 +440,9 @@ export const PIPELINE_SPECS: Record<DiffusersPipelineClassName, PipelineSpec> = 
   LTX2Pipeline: {
     kind: "ltx2",
     components: LTX2_COMPONENTS,
+  },
+  LTX2LatentUpsamplePipeline: {
+    kind: "ltx2-latent-upsample",
+    components: LTX2_LATENT_UPSAMPLE_COMPONENTS,
   },
 };

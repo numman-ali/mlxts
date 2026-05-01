@@ -143,6 +143,22 @@ function writeLtxLatentUpsampleSnapshot(snapshot: string): void {
   writeComponentFiles(snapshot, "vae", ["config.json"], ["diffusion_pytorch_model.safetensors"]);
 }
 
+function writeLtx2LatentUpsampleSnapshot(snapshot: string): void {
+  writeJson(join(snapshot, "model_index.json"), {
+    _class_name: "LTX2LatentUpsamplePipeline",
+    _diffusers_version: "0.37.0.dev0",
+    latent_upsampler: ["ltx2", "LTX2LatentUpsamplerModel"],
+    vae: ["diffusers", "AutoencoderKLLTX2Video"],
+  });
+  writeComponentFiles(
+    snapshot,
+    "latent_upsampler",
+    ["config.json"],
+    ["diffusion_pytorch_model.safetensors"],
+  );
+  writeComponentFiles(snapshot, "vae", ["config.json"], ["diffusion_pytorch_model.safetensors"]);
+}
+
 function writeLtx2Snapshot(snapshot: string): void {
   writeJson(join(snapshot, "model_index.json"), {
     _class_name: "LTX2Pipeline",
@@ -495,6 +511,28 @@ describe("diffusion model index loading", () => {
     });
   });
 
+  test("parses LTX-2 latent upsample sidecar model_index components", () => {
+    const parsed = parseDiffusionModelIndex({
+      _class_name: "LTX2LatentUpsamplePipeline",
+      _diffusers_version: "0.37.0.dev0",
+      latent_upsampler: ["ltx2", "LTX2LatentUpsamplerModel"],
+      vae: ["diffusers", "AutoencoderKLLTX2Video"],
+    });
+
+    expect(parsed.kind).toBe("ltx2-latent-upsample");
+    expect(parsed.components.map((component) => component.name)).toEqual([
+      "vae",
+      "latent_upsampler",
+    ]);
+    expect(
+      parsed.components.find((component) => component.name === "latent_upsampler"),
+    ).toMatchObject({
+      role: "latent-upsampler",
+      library: "ltx2",
+      className: "LTX2LatentUpsamplerModel",
+    });
+  });
+
   test("loads a local snapshot manifest without constructing models", async () => {
     await withTempDirectory("mlxts-diffusion-model-index-", async (directory) => {
       writeStableDiffusionSnapshot(directory);
@@ -578,6 +616,25 @@ describe("diffusion model index loading", () => {
       ]);
       expect(connector?.metadataPaths).toEqual([join(directory, "connectors", "config.json")]);
     });
+
+    await withTempDirectory("mlxts-diffusion-ltx2-upsample-model-index-", async (directory) => {
+      writeLtx2LatentUpsampleSnapshot(directory);
+
+      const manifest = await loadDiffusionSnapshotManifest(directory);
+      const upsampler = manifest.components.find(
+        (component) => component.name === "latent_upsampler",
+      );
+
+      expect(manifest.modelIndex.className).toBe("LTX2LatentUpsamplePipeline");
+      expect(manifest.modelIndex.kind).toBe("ltx2-latent-upsample");
+      expect(manifest.schedulerConfig).toBeNull();
+      expect(upsampler?.metadataPaths).toEqual([
+        join(directory, "latent_upsampler", "config.json"),
+      ]);
+      expect(upsampler?.weightPaths).toEqual([
+        join(directory, "latent_upsampler", "diffusion_pytorch_model.safetensors"),
+      ]);
+    });
   });
 
   test("loads symlinked Hub-cache component weights", async () => {
@@ -644,9 +701,6 @@ describe("diffusion model index loading", () => {
       "not supported",
     );
     expect(() => parseDiffusionModelIndex({ _class_name: "LTX2ConditionPipeline" })).toThrow(
-      "not supported",
-    );
-    expect(() => parseDiffusionModelIndex({ _class_name: "LTX2LatentUpsamplePipeline" })).toThrow(
       "not supported",
     );
     expect(() =>

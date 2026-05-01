@@ -38,6 +38,7 @@ const REMOTE_WEIGHT_COMPONENT_FOLDERS = new Set([
   "transformer_2",
   "image_encoder",
   "connectors",
+  "latent_upsampler",
   "vocoder",
 ]);
 

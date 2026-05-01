@@ -228,12 +228,13 @@ major product-agent focus on package-owned CLIs and future PI-agent integration.
   configured token is not authorized for the gated repo.
 - **Phase 10 LTX video/audio snapshot entry point**: `@mlxts/diffusion` now
   recognizes Diffusers `LTXPipeline`, `LTXConditionPipeline`,
-  `LTXLatentUpsamplePipeline`, and `LTX2Pipeline` snapshots. LTX-Video maps
-  FlowMatch Euler, T5 text metadata, `LTXVideoTransformer3DModel`, and
-  `AutoencoderKLLTXVideo`; classic LTX sidecar upscalers map
-  `LTXLatentUpsamplerModel`; LTX-2 maps Gemma3 text metadata,
+  `LTXLatentUpsamplePipeline`, `LTX2Pipeline`, and
+  `LTX2LatentUpsamplePipeline` snapshots. LTX-Video maps FlowMatch Euler, T5
+  text metadata, `LTXVideoTransformer3DModel`, and `AutoencoderKLLTXVideo`;
+  classic LTX sidecar upscalers map `LTXLatentUpsamplerModel`; LTX-2 maps Gemma3 text metadata,
   `LTX2VideoTransformer3DModel`, `AutoencoderKLLTX2Video`,
-  `AutoencoderKLLTX2Audio`, `LTX2TextConnectors`, and `LTX2Vocoder`. Typed
+  `AutoencoderKLLTX2Audio`, `LTX2TextConnectors`, and `LTX2Vocoder`, while
+  LTX-2 sidecar upscalers map `LTX2LatentUpsamplerModel`. Typed
   component config parsing now covers both LTX-Video and LTX-2, including
   LTX-2 video/audio/connector/vocoder cross-component checks. Package-owned
   LTX latent helpers now cover Diffusers-compatible video BCFHW token packing,
@@ -252,11 +253,14 @@ major product-agent focus on package-owned CLIs and future PI-agent integration.
   decoder safetensor loading, and BFHWC `0..1` video tensors. Classic LTX
   sidecar latent upsampling now covers normalized BCFHW latent upsampling,
   standalone/component safetensor loading, sidecar snapshot manifests, and
-  packed-token unpack/repack helpers. `examples/ltx-video` now owns the finite
+  packed-token unpack/repack helpers. LTX-2 sidecar latent upsampling now
+  covers `LTX2LatentUpsamplerModel`, rational spatial resampling, standalone
+  and sidecar safetensor loading, and packed-token unpack/repack helpers.
+  `examples/ltx-video` now owns the finite
   AXI proof command for classic LTX text-to-video: local/Hub snapshot resolve,
   T5 prompt conditioning, packed-latent denoising, VAE decode, and BMP
-  preview-sheet artifact output. LTX-2 denoising and LTX-2 latent upsampling
-  remain future Phase 10 tranches.
+  preview-sheet artifact output. LTX-2 denoising remains a future Phase 10
+  tranche.
 - **Qwen conditional serving**: top-level Qwen 3.5 / 3.6 conditional
   checkpoints expose the Qwen text batch-cache surface for text-only continuous
   serving. Media/content requests still route as `media_input` and stay off

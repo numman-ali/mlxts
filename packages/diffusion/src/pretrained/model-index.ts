@@ -13,7 +13,8 @@ export type DiffusersPipelineClassName =
   | "LTXPipeline"
   | "LTXConditionPipeline"
   | "LTXLatentUpsamplePipeline"
-  | "LTX2Pipeline";
+  | "LTX2Pipeline"
+  | "LTX2LatentUpsamplePipeline";
 
 /** Pipeline family represented by a supported Diffusers `model_index.json`. */
 export type DiffusionPipelineKind =
@@ -26,7 +27,8 @@ export type DiffusionPipelineKind =
   | "z-image"
   | "ltx-video"
   | "ltx-video-latent-upsample"
-  | "ltx2";
+  | "ltx2"
+  | "ltx2-latent-upsample";
 
 /** Component folders recognized in Diffusers generative-media snapshots. */
 export type DiffusionComponentName =
@@ -164,7 +166,8 @@ function parsePipelineClassName(
     className === "LTXPipeline" ||
     className === "LTXConditionPipeline" ||
     className === "LTXLatentUpsamplePipeline" ||
-    className === "LTX2Pipeline"
+    className === "LTX2Pipeline" ||
+    className === "LTX2LatentUpsamplePipeline"
   ) {
     return className;
   }
