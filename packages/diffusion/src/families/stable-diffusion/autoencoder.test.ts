@@ -17,6 +17,8 @@ const tinyConfig: StableDiffusionAutoencoderConfig = {
   outChannels: 3,
   latentChannels: 2,
   latentChannelsOut: 4,
+  useQuantConv: true,
+  usePostQuantConv: true,
   blockOutChannels: [4, 8],
   layersPerBlock: 1,
   normNumGroups: 2,
@@ -80,6 +82,29 @@ describe("StableDiffusionAutoencoderKL", () => {
     expect(paths.some((path) => path.includes("scalingFactor"))).toBe(false);
     expect(paths.some((path) => path.includes("latentChannels"))).toBe(false);
     expect(paths.some((path) => path.includes("vaeScaleFactor"))).toBe(false);
+  });
+
+  test("omits quantization projections when the checkpoint config disables them", () => {
+    const noQuantConfig = {
+      ...tinyConfig,
+      useQuantConv: false,
+      usePostQuantConv: false,
+    } satisfies StableDiffusionAutoencoderConfig;
+    using autoencoder = new StableDiffusionAutoencoderKL(noQuantConfig);
+    const paths = treeFlatten(autoencoder.parameters()).map(([path]) => path.join("."));
+
+    expect(paths).not.toContain("quantConv.weight");
+    expect(paths).not.toContain("postQuantConv.weight");
+
+    using image = random.normal([1, 8, 8, 3]);
+    using moments = autoencoder.encodeMoments(image);
+    mxEval(moments);
+    expect(moments.shape).toEqual([1, 4, 4, 4]);
+
+    using latent = random.normal([1, 4, 4, 2]);
+    using decoded = autoencoder.decode(latent);
+    mxEval(decoded);
+    expect(decoded.shape).toEqual([1, 8, 8, 3]);
   });
 
   test("exposes the VAE scale factor derived from downsampling depth", () => {

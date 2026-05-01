@@ -87,6 +87,8 @@ function fluxVaeConfig(): Record<string, unknown> {
       "UpDecoderBlock2D",
       "UpDecoderBlock2D",
     ],
+    use_post_quant_conv: false,
+    use_quant_conv: false,
   };
 }
 
@@ -151,6 +153,8 @@ describe("Flux component config parsing", () => {
       "UpDecoderBlock2D",
     ]);
     expect(vae.forceUpcast).toBe(false);
+    expect(vae.useQuantConv).toBe(true);
+    expect(vae.usePostQuantConv).toBe(true);
     expect(transformer.inChannels).toBe(64);
     expect(transformer.guidanceEmbeds).toBe(false);
     expect(transformer.axesDimsRope).toEqual([16, 56, 56]);
@@ -163,6 +167,8 @@ describe("Flux component config parsing", () => {
     expect(parsed.outChannels).toBe(3);
     expect(parsed.latentChannels).toBe(16);
     expect(parsed.latentChannelsOut).toBe(32);
+    expect(parsed.useQuantConv).toBe(false);
+    expect(parsed.usePostQuantConv).toBe(false);
     expect(parsed.blockOutChannels).toEqual([128, 256, 512, 512]);
     expect(parsed.layersPerBlock).toBe(2);
     expect(parsed.normNumGroups).toBe(32);
@@ -246,6 +252,18 @@ describe("Flux component config parsing", () => {
         force_upcast: "false",
       }),
     ).toThrow("force_upcast");
+    expect(() =>
+      parseFluxAutoencoderConfig({
+        ...fluxVaeConfig(),
+        use_quant_conv: "false",
+      }),
+    ).toThrow("use_quant_conv");
+    expect(() =>
+      parseFluxAutoencoderConfig({
+        ...fluxVaeConfig(),
+        use_post_quant_conv: "false",
+      }),
+    ).toThrow("use_post_quant_conv");
     expect(() =>
       parseFluxAutoencoderConfig({
         ...fluxVaeConfig(),

@@ -32,6 +32,8 @@ function stableConfigForFluxAutoencoder(
     outChannels: config.outChannels,
     latentChannels: config.latentChannels,
     latentChannelsOut: config.latentChannelsOut,
+    useQuantConv: config.useQuantConv,
+    usePostQuantConv: config.usePostQuantConv,
     blockOutChannels: config.blockOutChannels,
     layersPerBlock: config.layersPerBlock,
     normNumGroups: config.normNumGroups,

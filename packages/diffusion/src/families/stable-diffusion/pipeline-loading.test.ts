@@ -33,6 +33,8 @@ function tinyVaeConfig(): StableDiffusionAutoencoderConfig {
     outChannels: 3,
     latentChannels: 4,
     latentChannelsOut: 8,
+    useQuantConv: true,
+    usePostQuantConv: true,
     blockOutChannels: [4, 8],
     layersPerBlock: 1,
     normNumGroups: 4,

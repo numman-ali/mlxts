@@ -38,6 +38,8 @@ export type FluxAutoencoderConfig = {
   outChannels: number;
   latentChannels: number;
   latentChannelsOut: number;
+  useQuantConv: boolean;
+  usePostQuantConv: boolean;
   blockOutChannels: readonly number[];
   layersPerBlock: number;
   normNumGroups: number;
@@ -386,6 +388,8 @@ export function parseFluxAutoencoderConfig(rawConfig: unknown): FluxAutoencoderC
     outChannels: optionalExactPositiveInteger(record, "out_channels", context, 3),
     latentChannels,
     latentChannelsOut: 2 * latentChannels,
+    useQuantConv: optionalBoolean(record, "use_quant_conv", context, true),
+    usePostQuantConv: optionalBoolean(record, "use_post_quant_conv", context, true),
     blockOutChannels,
     layersPerBlock: optionalExactPositiveInteger(record, "layers_per_block", context, 2),
     normNumGroups: requiredPositiveInteger(record, "norm_num_groups", context),

@@ -1002,7 +1002,11 @@ component-local Diffusers weights and supports an explicit filename variant such
 as `fp16` so proof runs do not download root monolith exports or duplicate
 weight variants. The official SDXL base fp16 checkpoint has passed a bounded
 real image proof through this path, loading the Hub snapshot, encoding prompt
-conditioning, running denoising, and writing a BMP artifact. Base Qwen-Image
+conditioning, running denoising, and writing a BMP artifact. Official
+`black-forest-labs/FLUX.1-schnell` has also passed a bounded real image proof
+through `examples/flux`, including Hub snapshot resolution, FLUX transformer
+and no-quant VAE loading, CLIP/T5 prompt conditioning, two denoise steps, and
+BMP output. Base Qwen-Image
 snapshot recognition and config parsing has landed, including the
 Qwen-specific 3D causal VAE metadata and FlowMatch `shift_terminal` scheduler
 field, but Qwen-Image tensor execution is not implemented yet. Base Z-Image
@@ -1010,9 +1014,7 @@ snapshot recognition and config parsing has
 also landed for current Diffusers `ZImagePipeline` snapshots, including
 `ZImageTransformer2DModel` geometry, RoPE axes, padding constants, standard
 AutoencoderKL metadata, and the Qwen3 text-encoder manifest boundary. Z-Image
-tensor execution is not implemented yet. Real checkpoint image evidence is
-still pending for FLUX before that path becomes a product-complete generation
-claim.
+tensor execution is not implemented yet.
 Broader VLM families, audio encoder/decoder families, and additional
 diffusion/flow families remain Phase 10 work.
 
@@ -1057,8 +1059,10 @@ All diffusion and flow-based generation across modalities: image, video, and aud
    path is implemented and now accepts Hub model ids through the package-owned
    Diffusers snapshot resolver, with its timestep-distilled constraints kept
    explicit: short prompt sequence length, guidance disabled, and few-step
-   sampling. Gated or non-commercial variants require explicit operator and
-   license handling before they are advertised.
+   sampling. Official `black-forest-labs/FLUX.1-schnell` has passed a bounded
+   real checkpoint image proof through that path. Gated or non-commercial
+   variants require explicit operator and license handling before they are
+   advertised.
 3. **Z-Image-Turbo**: this is the first speed-first modern image target after
    FLUX.1 because it keeps the next runtime tranche focused: Diffusers exposes
    base `ZImagePipeline` snapshots as FlowMatch Euler plus a 6B

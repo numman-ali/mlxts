@@ -228,8 +228,8 @@ export class StableDiffusionVaeDecoder extends Module {
 export class StableDiffusionAutoencoderKL extends Module {
   encoder: StableDiffusionVaeEncoder;
   decoder: StableDiffusionVaeDecoder;
-  quantConv: Conv2d;
-  postQuantConv: Conv2d;
+  quantConv: Conv2d | null;
+  postQuantConv: Conv2d | null;
   #scalingFactor: number;
   #latentChannels: number;
   #vaeScaleFactor: number;
@@ -239,8 +239,12 @@ export class StableDiffusionAutoencoderKL extends Module {
     validateAutoencoderConfig(config);
     this.encoder = new StableDiffusionVaeEncoder(config);
     this.decoder = new StableDiffusionVaeDecoder(config);
-    this.quantConv = new Conv2d(config.latentChannelsOut, config.latentChannelsOut, 1, 1, 0);
-    this.postQuantConv = new Conv2d(config.latentChannels, config.latentChannels, 1, 1, 0);
+    this.quantConv = config.useQuantConv
+      ? new Conv2d(config.latentChannelsOut, config.latentChannelsOut, 1, 1, 0)
+      : null;
+    this.postQuantConv = config.usePostQuantConv
+      ? new Conv2d(config.latentChannels, config.latentChannels, 1, 1, 0)
+      : null;
     this.#scalingFactor = config.scalingFactor;
     this.#latentChannels = config.latentChannels;
     this.#vaeScaleFactor = 2 ** (config.blockOutChannels.length - 1);
@@ -260,8 +264,19 @@ export class StableDiffusionAutoencoderKL extends Module {
 
   /** Encode an NHWC image tensor into the raw posterior moment tensor. */
   encodeMoments(x: MxArray): MxArray {
-    using encoded = this.encoder.forward(x);
-    return this.quantConv.forward(encoded);
+    const encoded = this.encoder.forward(x);
+    let ownsEncoded = true;
+    try {
+      if (this.quantConv === null) {
+        ownsEncoded = false;
+        return encoded;
+      }
+      return this.quantConv.forward(encoded);
+    } finally {
+      if (ownsEncoded) {
+        encoded.free();
+      }
+    }
   }
 
   /** Split the raw posterior moment tensor into mean and log-variance tensors. */
@@ -298,6 +313,9 @@ export class StableDiffusionAutoencoderKL extends Module {
 
   /** Decode a raw NHWC latent tensor into an NHWC image tensor. */
   decode(z: MxArray): MxArray {
+    if (this.postQuantConv === null) {
+      return this.decoder.forward(z);
+    }
     using projected = this.postQuantConv.forward(z);
     return this.decoder.forward(projected);
   }

@@ -14,6 +14,21 @@ bun run examples/flux/index.ts /models/flux-schnell \
   --steps 4
 ```
 
+The current real-checkpoint proof target is:
+
+```bash
+bun run examples/flux/index.ts black-forest-labs/FLUX.1-schnell \
+  --local-files-only \
+  --prompt "a small red apple on a white table, product photo" \
+  --output .tmp/flux/flux1-schnell-proof.bmp \
+  --steps 2 \
+  --height 256 \
+  --width 256 \
+  --max-sequence-length 128 \
+  --dtype float16 \
+  --json
+```
+
 `FLUX.1-schnell` runs without guidance. Dev-style checkpoints with guidance
 embeddings receive a default `--guidance-scale` of `3.5` unless the command
 sets another non-negative value.

@@ -148,6 +148,8 @@ describe("Stable Diffusion component config parsing", () => {
     expect(parsed.outChannels).toBe(3);
     expect(parsed.latentChannels).toBe(4);
     expect(parsed.latentChannelsOut).toBe(8);
+    expect(parsed.useQuantConv).toBe(true);
+    expect(parsed.usePostQuantConv).toBe(true);
     expect(parsed.blockOutChannels).toEqual([128, 256, 512, 512]);
     expect(parsed.downBlockTypes).toEqual([
       "DownEncoderBlock2D",

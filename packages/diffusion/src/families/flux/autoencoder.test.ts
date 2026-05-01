@@ -21,12 +21,14 @@ async function withTempDirectory<T>(
   }
 }
 
-function tinyFluxVaeConfig(): FluxAutoencoderConfig {
+function tinyFluxVaeConfig(overrides: Partial<FluxAutoencoderConfig> = {}): FluxAutoencoderConfig {
   return {
     inChannels: 3,
     outChannels: 3,
     latentChannels: 2,
     latentChannelsOut: 4,
+    useQuantConv: true,
+    usePostQuantConv: true,
     blockOutChannels: [4, 8],
     layersPerBlock: 1,
     normNumGroups: 1,
@@ -37,6 +39,7 @@ function tinyFluxVaeConfig(): FluxAutoencoderConfig {
     upBlockTypes: ["UpDecoderBlock2D", "UpDecoderBlock2D"],
     forceUpcast: false,
     rawConfig: {},
+    ...overrides,
   };
 }
 
@@ -189,8 +192,36 @@ describe("FluxAutoencoderKL", () => {
           .map(([path]) => path.join("."))
           .toSorted((left, right) => left.localeCompare(right)),
       );
+      if (target.quantConv === null || target.postQuantConv === null) {
+        throw new Error("Expected tiny FLUX VAE config to create quant projections.");
+      }
       expect(target.quantConv.weight.shape).toEqual([4, 1, 1, 4]);
       expect(target.postQuantConv.weight.shape).toEqual([2, 1, 1, 2]);
+    });
+  });
+
+  test("loads FLUX VAE weights when Diffusers disables quant projections", async () => {
+    await withTempDirectory("mlxts-flux-vae-no-quant-", async (directory) => {
+      const config = tinyFluxVaeConfig({
+        useQuantConv: false,
+        usePostQuantConv: false,
+      });
+      using source = new FluxAutoencoderKL(config);
+      const checkpointPath = join(directory, "diffusion_pytorch_model.safetensors");
+      await writeCheckpoint(
+        checkpointPath,
+        checkpointTensorsForFluxVaeParameters(source.parameters()),
+      );
+      using target = new FluxAutoencoderKL(config);
+
+      const result = await loadFluxAutoencoderWeights(target, vaeComponent([checkpointPath]));
+
+      expect(result.shardCount).toBe(1);
+      expect(result.unexpectedWeights).toEqual([]);
+      expect(result.assignedPaths).not.toContain("quantConv.weight");
+      expect(result.assignedPaths).not.toContain("postQuantConv.weight");
+      expect(target.quantConv).toBeNull();
+      expect(target.postQuantConv).toBeNull();
     });
   });
 

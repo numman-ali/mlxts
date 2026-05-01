@@ -43,6 +43,8 @@ export type StableDiffusionAutoencoderConfig = {
   outChannels: number;
   latentChannels: number;
   latentChannelsOut: number;
+  useQuantConv: boolean;
+  usePostQuantConv: boolean;
   blockOutChannels: readonly number[];
   layersPerBlock: number;
   normNumGroups: number;
@@ -236,6 +238,8 @@ export function parseStableDiffusionAutoencoderConfig(
     outChannels: requiredPositiveInteger(record, "out_channels", context),
     latentChannels,
     latentChannelsOut: 2 * latentChannels,
+    useQuantConv: true,
+    usePostQuantConv: true,
     blockOutChannels,
     layersPerBlock: requiredPositiveInteger(record, "layers_per_block", context),
     normNumGroups: requiredPositiveInteger(record, "norm_num_groups", context),

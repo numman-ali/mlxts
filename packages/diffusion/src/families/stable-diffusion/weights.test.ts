@@ -43,6 +43,8 @@ function tinyVaeConfig(): StableDiffusionAutoencoderConfig {
     outChannels: 3,
     latentChannels: 2,
     latentChannelsOut: 4,
+    useQuantConv: true,
+    usePostQuantConv: true,
     blockOutChannels: [4, 8],
     layersPerBlock: 1,
     normNumGroups: 4,
@@ -402,6 +404,9 @@ describe("Stable Diffusion VAE weight loading", () => {
           .map(([path]) => path.join("."))
           .toSorted((left, right) => left.localeCompare(right)),
       );
+      if (target.quantConv === null) {
+        throw new Error("Expected tiny VAE config to create quantConv.");
+      }
       expect(target.quantConv.weight.shape).toEqual([4, 1, 1, 4]);
       expect(target.decoder.upBlocks[1]?.resnets[0]?.convShortcut?.weight.shape).toEqual([
         4, 1, 1, 8,
