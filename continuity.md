@@ -240,6 +240,14 @@ Full evidence ladder lives in
   also passed across Qwen dense, Gemma dense, same-server multi-dense, Qwen MoE,
   Gemma MoE, and same-server multi-MoE after the harness began reporting
   concurrency and prompt-prefix retention shape.
+- Agent-cache QA rerun on 2026-05-01 passed on the current tree with
+  `max_concurrent_requests=2`: the targeted Gemma MoE proof again recorded warm
+  hits `2`, server read tokens `618`, client cached tokens `309`, and exact
+  replay cached tokens `167`; the full concurrent dense/MoE matrix passed
+  across Qwen dense, Gemma dense, same-server dense, Qwen MoE, Gemma MoE, and
+  same-server MoE. This rules out a current warm-retention server regression;
+  cold-concurrent misses before any completed retained snapshot still remain
+  expected.
 - Repo-local skills now have a validation gate:
   `bun run check:skills` validates `.agents/skills/*/SKILL.md` frontmatter,
   catches malformed YAML/description shapes before auto-loader skips, and is
