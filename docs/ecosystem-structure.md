@@ -235,6 +235,9 @@ Qwen-Image owns Qwen-specific FlowMatch scheduling, transformer execution, 3D
 causal VAE loading/decoding, true-CFG denoising, and weight loading. Z-Image
 owns the dense base transformer path, prepared Qwen caption conditioning
 contract, FlowMatch denoising, VAE decode layout, and weight loading.
+FLUX.2 Klein snapshot and component config parsing exists as a separate family
+contract over `Flux2KleinPipeline`, `Flux2Transformer2DModel`, and
+`AutoencoderKLFlux2`; runtime tensor execution remains future work.
 `examples/stable-diffusion`, `examples/flux`, `examples/z-image`, and
 `examples/qwen-image` own application-layer prompt-conditioning composition and
 finite BMP image proof commands over package surfaces. Official SDXL,
@@ -638,11 +641,11 @@ work is deferred unless a row says otherwise.
 - **Phase 10 creates:** `diffusion`. Scheduler infrastructure, Stable
   Diffusion / SDXL, FLUX.1, Z-Image-Turbo, and Qwen-Image/Qwen-Image-2512
   runtime paths plus example proof commands are in place with bounded real
-  checkpoint evidence. FLUX.2 Klein, Stable Diffusion 3 / 3.5,
-  image-to-image, inpainting, ControlNet, video, and audio generation remain
-  Phase 10 work. Vision/audio encoders extend `transformers`, not a separate
-  package. Generative media (image/video/audio) uses diffusion/flow →
-  `@mlxts/diffusion`.
+  checkpoint evidence. FLUX.2 Klein has snapshot/config recognition only;
+  tensor execution, Stable Diffusion 3 / 3.5, image-to-image, inpainting,
+  ControlNet, video, and audio generation remain Phase 10 work. Vision/audio
+  encoders extend `transformers`, not a separate package. Generative media
+  (image/video/audio) uses diffusion/flow → `@mlxts/diffusion`.
 - **Phase 12 creates:** `eval`. This appears when benchmark evaluation lands.
 - **`cli` grows incrementally** — subcommands arrive as their backing packages ship, after finite command contracts are already AXI-shaped at the package-owned boundary.
 

@@ -338,7 +338,7 @@ safe to drive through shell tools.
 | FLUX.1 has a real checkpoint proof | `examples/flux/` loads `black-forest-labs/FLUX.1-schnell` or an equivalent local Diffusers snapshot, runs the package-owned FLUX path, and writes an image artifact |
 | Z-Image-Turbo is the next speed-first runtime target after FLUX.1 | Base `ZImagePipeline` snapshots are recognized, configs parse, the package-owned base runtime covers latent patching, Z RoPE, single-stream transformer denoising, VAE decode layout, and dense weight mapping, `examples/z-image` owns the finite proof command, and official `Tongyi-MAI/Z-Image-Turbo` has bounded checkpoint evidence |
 | Qwen-Image is tracked as image generation, not Qwen VLM serving | `@mlxts/diffusion` recognizes base `QwenImagePipeline` snapshots, parses and loads Qwen-Image transformer plus Qwen-specific VAE configs/weights, owns true-CFG denoising over prepared Qwen2.5-VL text conditioning, `examples/qwen-image` owns the finite proof command, and official `Qwen/Qwen-Image-2512` has bounded checkpoint evidence |
-| FLUX.2 Klein is treated as a separate later family | The roadmap names `Flux2KleinPipeline` / `Flux2Transformer2DModel` separately from FLUX.1 rather than treating Klein as a checkpoint variant |
+| FLUX.2 Klein is treated as a separate later family | The roadmap names `Flux2KleinPipeline` / `Flux2Transformer2DModel` separately from FLUX.1, and the current snapshot/config skeleton recognizes Klein without claiming runtime tensor execution |
 | Distilled or turbo variants do not become separate architecture surfaces | Tests prove they reuse the base family loader or document the required delta |
 
 ---

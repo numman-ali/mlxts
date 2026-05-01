@@ -6,6 +6,7 @@ export type DiffusersPipelineClassName =
   | "StableDiffusionPipeline"
   | "StableDiffusionXLPipeline"
   | "FluxPipeline"
+  | "Flux2KleinPipeline"
   | "QwenImagePipeline"
   | "ZImagePipeline";
 
@@ -14,6 +15,7 @@ export type DiffusionPipelineKind =
   | "stable-diffusion"
   | "stable-diffusion-xl"
   | "flux"
+  | "flux2-klein"
   | "qwen-image"
   | "z-image";
 
@@ -77,6 +79,7 @@ const SCALAR_CONFIG_KEYS = new Set([
   "add_watermarker",
   "requires_safety_checker",
   "force_zeros_for_empty_prompt",
+  "is_distilled",
 ]);
 
 function fieldName(context: string, key: string): string {
@@ -135,6 +138,7 @@ function parsePipelineClassName(
     className === "StableDiffusionPipeline" ||
     className === "StableDiffusionXLPipeline" ||
     className === "FluxPipeline" ||
+    className === "Flux2KleinPipeline" ||
     className === "QwenImagePipeline" ||
     className === "ZImagePipeline"
   ) {

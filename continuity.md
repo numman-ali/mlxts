@@ -181,6 +181,11 @@ major product-agent focus on package-owned CLIs and future PI-agent integration.
   log-mel features. `examples/whisper` owns 16 kHz WAV loading and an AXI-shaped
   one-shot proof command. Cached decoder state, timestamp segmentation, language
   detection, resampling, and long-form audio chunking remain future work.
+- **Phase 10 FLUX.2 Klein snapshot skeleton**: `@mlxts/diffusion` now recognizes
+  current `Flux2KleinPipeline` snapshots and parses `Flux2Transformer2DModel`
+  plus `AutoencoderKLFlux2` component configs as a separate family contract.
+  Runtime tensor execution, weight loading, image/reference conditioning,
+  KV-cache behavior, examples, and proof commands remain future work.
 - **Qwen conditional serving**: top-level Qwen 3.5 / 3.6 conditional
   checkpoints expose the Qwen text batch-cache surface for text-only continuous
   serving. Media/content requests still route as `media_input` and stay off

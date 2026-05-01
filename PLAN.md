@@ -1038,8 +1038,12 @@ decoder-embedding logits projection, and Hugging Face safetensor loading.
 for 16 kHz WAV inputs over the package-owned Whisper prompt/decode helpers.
 Cached decoder state, timestamp segmentation, language detection, resampling,
 and long-form audio chunking remain follow-up work.
-Broader VLM families, audio encoder/decoder families, and additional
-diffusion/flow families remain Phase 10 work.
+FLUX.2 Klein snapshot/config recognition now exists as a separate
+`@mlxts/diffusion` family contract over current Diffusers
+`Flux2KleinPipeline`, `Flux2Transformer2DModel`, and `AutoencoderKLFlux2`
+metadata. Runtime tensor execution, proof commands, broader VLM families, audio
+encoder/decoder families, and additional diffusion/flow families remain Phase
+10 work.
 
 **What this phase covers**:
 
@@ -1109,7 +1113,9 @@ All diffusion and flow-based generation across modalities: image, video, and aud
    It uses Diffusers `Flux2KleinPipeline`, `Flux2Transformer2DModel`,
    `AutoencoderKLFlux2`, and Qwen3 text encoding, so it should land only after
    the FLUX.1 and Z/Qwen flow-transformer seams are clean enough to avoid a
-   parallel package shape.
+   parallel package shape. Snapshot recognition and component config parsing
+   have landed; runtime tensor execution, image/reference conditioning, KV
+   cache behavior, weight loading, and proof commands remain separate tranches.
 6. **Stable Diffusion 3 / 3.5 and distilled variants**: these become follow-on
    targets when their MMDiT/flow components can reuse the FLUX/Z-Image/Qwen
    infrastructure without creating a parallel package shape. SD3 has its own

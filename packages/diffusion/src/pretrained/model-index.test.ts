@@ -153,6 +153,34 @@ describe("diffusion model index loading", () => {
     ]);
   });
 
+  test("parses FLUX.2 Klein model_index components", () => {
+    const parsed = parseDiffusionModelIndex({
+      _class_name: "Flux2KleinPipeline",
+      _diffusers_version: "0.37.0.dev0",
+      is_distilled: true,
+      scheduler: ["diffusers", "FlowMatchEulerDiscreteScheduler"],
+      text_encoder: ["transformers", "Qwen3ForCausalLM"],
+      tokenizer: ["transformers", "Qwen2TokenizerFast"],
+      transformer: ["diffusers", "Flux2Transformer2DModel"],
+      vae: ["diffusers", "AutoencoderKLFlux2"],
+    });
+
+    expect(parsed.kind).toBe("flux2-klein");
+    expect(parsed.diffusersVersion).toBe("0.37.0.dev0");
+    expect(parsed.pipelineConfig).toEqual({ is_distilled: true });
+    expect(parsed.components.map((component) => component.name)).toEqual([
+      "transformer",
+      "vae",
+      "scheduler",
+      "text_encoder",
+      "tokenizer",
+    ]);
+    expect(parsed.components.find((component) => component.name === "text_encoder")).toMatchObject({
+      role: "text-encoder",
+      className: "Qwen3ForCausalLM",
+    });
+  });
+
   test("parses Qwen-Image model_index components", () => {
     const parsed = parseDiffusionModelIndex({
       _class_name: "QwenImagePipeline",
@@ -262,6 +290,15 @@ describe("diffusion model index loading", () => {
       parseDiffusionModelIndex({ _class_name: "StableDiffusionImg2ImgPipeline" }),
     ).toThrow("not supported");
     expect(() => parseDiffusionModelIndex({ _class_name: "QwenImageEditPipeline" })).toThrow(
+      "not supported",
+    );
+    expect(() => parseDiffusionModelIndex({ _class_name: "Flux2Pipeline" })).toThrow(
+      "not supported",
+    );
+    expect(() => parseDiffusionModelIndex({ _class_name: "Flux2KleinInpaintPipeline" })).toThrow(
+      "not supported",
+    );
+    expect(() => parseDiffusionModelIndex({ _class_name: "Flux2KleinKVPipeline" })).toThrow(
       "not supported",
     );
     expect(() => parseDiffusionModelIndex({ _class_name: "ZImageOmniPipeline" })).toThrow(
@@ -430,6 +467,47 @@ describe("diffusion model index loading", () => {
       expect(
         manifest.components.find((component) => component.name === "tokenizer")?.metadataPaths,
       ).toEqual([join(directory, "tokenizer", "tokenizer.json")]);
+    });
+
+    await withTempDirectory("mlxts-diffusion-flux2-klein-manifest-", async (directory) => {
+      writeJson(join(directory, "model_index.json"), {
+        _class_name: "Flux2KleinPipeline",
+        is_distilled: true,
+        scheduler: ["diffusers", "FlowMatchEulerDiscreteScheduler"],
+        text_encoder: ["transformers", "Qwen3ForCausalLM"],
+        tokenizer: ["transformers", "Qwen2TokenizerFast"],
+        transformer: ["diffusers", "Flux2Transformer2DModel"],
+        vae: ["diffusers", "AutoencoderKLFlux2"],
+      });
+      writeComponentFiles(
+        directory,
+        "transformer",
+        ["config.json"],
+        ["diffusion_pytorch_model.safetensors"],
+      );
+      writeComponentFiles(
+        directory,
+        "vae",
+        ["config.json"],
+        ["diffusion_pytorch_model.safetensors"],
+      );
+      writeComponentFiles(directory, "scheduler", ["scheduler_config.json"]);
+      writeJson(join(directory, "scheduler", "scheduler_config.json"), {
+        _class_name: "FlowMatchEulerDiscreteScheduler",
+        use_dynamic_shifting: true,
+        time_shift_type: "exponential",
+      });
+      writeComponentFiles(directory, "text_encoder", ["config.json"], ["model.safetensors"]);
+      writeComponentFiles(directory, "tokenizer", ["tokenizer.json"]);
+
+      const manifest = await loadDiffusionSnapshotManifest(directory);
+
+      expect(manifest.modelIndex.kind).toBe("flux2-klein");
+      expect(manifest.schedulerConfig.kind).toBe("flow-match-euler");
+      expect(manifest.schedulerConfig.config).toMatchObject({
+        timeShiftType: "exponential",
+        useDynamicShifting: true,
+      });
     });
 
     await withTempDirectory("mlxts-diffusion-z-image-manifest-", async (directory) => {

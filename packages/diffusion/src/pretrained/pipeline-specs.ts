@@ -196,6 +196,42 @@ const FLUX_COMPONENTS: readonly DiffusionModelIndexComponentSpec[] = [
   },
 ];
 
+const FLUX2_KLEIN_COMPONENTS: readonly DiffusionModelIndexComponentSpec[] = [
+  {
+    name: "transformer",
+    role: "backbone",
+    allowed: [["diffusers", "Flux2Transformer2DModel"]],
+    requiresConfig: true,
+    requiresWeights: true,
+  },
+  {
+    name: "vae",
+    role: "vae",
+    allowed: [["diffusers", "AutoencoderKLFlux2"]],
+    requiresConfig: true,
+    requiresWeights: true,
+  },
+  {
+    name: "scheduler",
+    role: "scheduler",
+    allowed: [["diffusers", "FlowMatchEulerDiscreteScheduler"]],
+    requiresConfig: true,
+  },
+  {
+    name: "text_encoder",
+    role: "text-encoder",
+    allowed: [["transformers", "Qwen3ForCausalLM"]],
+    requiresConfig: true,
+    requiresWeights: true,
+  },
+  {
+    name: "tokenizer",
+    role: "tokenizer",
+    allowed: [["transformers", "Qwen2TokenizerFast"]],
+    requiresTokenizerFiles: true,
+  },
+];
+
 const QWEN_IMAGE_COMPONENTS: readonly DiffusionModelIndexComponentSpec[] = [
   {
     name: "transformer",
@@ -283,6 +319,10 @@ export const PIPELINE_SPECS: Record<DiffusersPipelineClassName, PipelineSpec> = 
   FluxPipeline: {
     kind: "flux",
     components: FLUX_COMPONENTS,
+  },
+  Flux2KleinPipeline: {
+    kind: "flux2-klein",
+    components: FLUX2_KLEIN_COMPONENTS,
   },
   QwenImagePipeline: {
     kind: "qwen-image",

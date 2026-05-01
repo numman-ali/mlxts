@@ -54,6 +54,18 @@ export {
   transformFluxTransformerWeight,
 } from "./families/flux/weights";
 export {
+  type Flux2KleinAutoencoderConfig,
+  type Flux2KleinComponentConfigs,
+  type Flux2KleinRopeAxes,
+  type Flux2KleinTransformerConfig,
+  type Flux2KleinVaeDownBlockType,
+  type Flux2KleinVaePatchSize,
+  type Flux2KleinVaeUpBlockType,
+  loadFlux2KleinComponentConfigs,
+  parseFlux2KleinAutoencoderConfig,
+  parseFlux2KleinTransformerConfig,
+} from "./families/flux2/config";
+export {
   QwenImageAutoencoderKL,
   QwenImageDecoder3d,
   QwenImageEncoder3d,
