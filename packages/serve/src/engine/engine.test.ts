@@ -424,6 +424,14 @@ async function collectStreamEvents(
   return output;
 }
 
+function streamDoneUsage(events: readonly GenerationStreamEvent[]) {
+  const done = events.find((event) => event.type === "done");
+  if (done === undefined || done.usage === undefined) {
+    throw new Error("Expected stream to finish with usage.");
+  }
+  return done.usage;
+}
+
 function batchEligibleModel(config: TinyModelConfig = {}): TinyModel {
   return new TinyModel({ family: "llama", modelType: "llama", ...config });
 }
@@ -1459,7 +1467,13 @@ describe("transformers generation engine", () => {
 
   test("keeps parallel exact-boundary agent sessions warm by default", async () => {
     using model = new SnapshotCountingModel(
-      { family: "gemma", modelType: "gemma4", layerKinds: ["full", "sliding"] },
+      {
+        family: "gemma",
+        modelType: "gemma4_text",
+        slidingWindow: 16,
+        layerTypes: ["full_attention", "sliding_attention"],
+        layerKinds: ["full", "sliding"],
+      },
       false,
     );
     const tokenizer = new CharCodeTokenizer();
@@ -1506,6 +1520,84 @@ describe("transformers generation engine", () => {
       events.filter((event) => event.type === "generation_prompt_cache" && event.result === "hit")
         .length,
     ).toBe(2);
+  });
+
+  test("keeps concurrent streaming exact-boundary Gemma agent sessions warm", async () => {
+    using model = new SnapshotCountingModel(
+      {
+        family: "gemma",
+        modelType: "gemma4_text",
+        slidingWindow: 16,
+        layerTypes: ["full_attention", "sliding_attention"],
+        layerKinds: ["full", "sliding"],
+      },
+      false,
+    );
+    const tokenizer = new CharCodeTokenizer();
+    const events: ServeEvent[] = [];
+    const engine = createTransformersGenerationEngine({
+      model,
+      tokenizer,
+      interactionProfile: contentOnlyChatProfile,
+      maxBatchSize: 2,
+      batchWindowMs: 1,
+      onEvent(event) {
+        events.push(event);
+      },
+    });
+    const stream = engine.stream;
+    if (stream === undefined) {
+      throw new Error("Expected transformers engine to expose stream.");
+    }
+    const request = (id: string, content: string): NormalizedGenerationRequest => ({
+      id,
+      model: "tiny",
+      input: {
+        kind: "messages",
+        messages: [
+          { role: "system", content: "AGENTS.md stable repo instructions" },
+          { role: "user", content },
+        ],
+      },
+      sampling: { maxTokens: 1, temperature: 0 },
+      stream: true,
+      protocol: "openai.chat_completions",
+    });
+
+    const [coldA, coldB] = await Promise.all([
+      collectStreamEvents(stream, request("gemma-agent-a-cold", "work on Gemma")),
+      collectStreamEvents(stream, request("gemma-agent-b-cold", "work on Qwen")),
+    ]);
+    const coldAUsage = streamDoneUsage(coldA);
+    const coldBUsage = streamDoneUsage(coldB);
+    expect(coldAUsage.cacheReadTokens).toBe(0);
+    expect(coldBUsage.cacheReadTokens).toBe(0);
+    expect(coldAUsage.cacheWriteTokens).toBeGreaterThan(0);
+    expect(coldBUsage.cacheWriteTokens).toBeGreaterThan(0);
+
+    events.length = 0;
+    const [warmA, warmB] = await Promise.all([
+      collectStreamEvents(stream, request("gemma-agent-a-warm", "work on Gemma")),
+      collectStreamEvents(stream, request("gemma-agent-b-warm", "work on Qwen")),
+    ]);
+    const exactA = await collectStreamEvents(
+      stream,
+      request("gemma-agent-a-exact", "work on Gemma"),
+    );
+
+    const warmAUsage = streamDoneUsage(warmA);
+    const warmBUsage = streamDoneUsage(warmB);
+    const exactAUsage = streamDoneUsage(exactA);
+    expect(warmAUsage.cacheReadTokens).toBeGreaterThan(0);
+    expect(warmBUsage.cacheReadTokens).toBeGreaterThan(0);
+    expect(exactAUsage.cacheReadTokens).toBeGreaterThan(0);
+    expect(warmAUsage.cacheWriteTokens).toBe(0);
+    expect(warmBUsage.cacheWriteTokens).toBe(0);
+    expect(exactAUsage.cacheWriteTokens).toBe(0);
+    expect(
+      events.filter((event) => event.type === "generation_prompt_cache" && event.result === "hit")
+        .length,
+    ).toBe(3);
   });
 
   test("reuses message prompt prefixes through continuous batch cache seeding", async () => {
