@@ -80,6 +80,14 @@ export {
   replaceLtx2ConnectorPaddingWithRegisters,
 } from "./connectors-ltx2-transformer";
 export {
+  type Ltx2TextConnectorWeightLoadOptions,
+  type Ltx2TextConnectorWeightLoadResult,
+  loadLtx2TextConnectorsFromSnapshot,
+  loadLtx2TextConnectorWeights,
+  ltx2TextConnectorWeightPath,
+  transformLtx2TextConnectorWeight,
+} from "./connectors-ltx2-weights";
+export {
   decodeLtxVideoLatents,
   denormalizeLtxVideoLatents,
   type LtxVideoLatentDecoder,

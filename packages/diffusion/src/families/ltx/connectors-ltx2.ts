@@ -25,6 +25,15 @@ export class Ltx2TextConnectors extends Module {
 
   constructor(config: Ltx2TextConnectorsConfig) {
     super();
+    if (
+      config.perModalityProjections &&
+      (config.videoHiddenDim !== config.videoConnectorHiddenSize ||
+        config.audioHiddenDim !== config.audioConnectorHiddenSize)
+    ) {
+      throw new Error(
+        "Ltx2TextConnectors: per-modality projection dims must match connector hidden sizes.",
+      );
+    }
     this.#config = config;
     this.textProjIn = config.perModalityProjections
       ? null

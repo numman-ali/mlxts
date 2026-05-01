@@ -288,4 +288,17 @@ describe("LTX-2 text connectors", () => {
       disposeLtx2TextConnectorOutput(output);
     }
   });
+
+  test("rejects per-modality projection dims that do not match connector hidden sizes", () => {
+    expect(
+      () =>
+        new Ltx2TextConnectors(
+          tinyConnectorConfig({
+            perModalityProjections: true,
+            videoHiddenDim: 4,
+            audioHiddenDim: 2,
+          }),
+        ),
+    ).toThrow(/per-modality projection dims/);
+  });
 });
