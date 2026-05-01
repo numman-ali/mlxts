@@ -1157,8 +1157,10 @@ All diffusion and flow-based generation across modalities: image, video, and aud
    T5 prompt embedding padding, and classifier-free guidance prompt rules.
    The finite proof command now resolves snapshots, loads the package-owned
    FlowMatch scheduler, transformer, and VAE, runs the prompt bridge, and writes
-   BMP artifact evidence. Gated official checkpoint proof remains a separate
-   follow-on tranche.
+   BMP artifact evidence. The official `stabilityai/stable-diffusion-3.5-medium`
+   proof is blocked on gated Hub access for the configured token; rerun the same
+   proof command when access is granted or a local SD3/SD3.5 Diffusers snapshot
+   is supplied.
 
 ### 10c. Examples
 

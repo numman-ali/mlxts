@@ -223,8 +223,9 @@ major product-agent focus on package-owned CLIs and future PI-agent integration.
   and classifier-free guidance prompt rules stay outside `@mlxts/diffusion`.
   The finite proof command now resolves snapshots, loads the package-owned
   FlowMatch scheduler, transformer, and VAE, runs the prompt bridge, and writes
-  BMP artifact evidence. Authenticated proof against gated Stability
-  checkpoints remains future work.
+  BMP artifact evidence. The official `stabilityai/stable-diffusion-3.5-medium`
+  proof attempt reached Hub snapshot resolution but was blocked because the
+  configured token is not authorized for the gated repo.
 - **Qwen conditional serving**: top-level Qwen 3.5 / 3.6 conditional
   checkpoints expose the Qwen text batch-cache surface for text-only continuous
   serving. Media/content requests still route as `media_input` and stay off

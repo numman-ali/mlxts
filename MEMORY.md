@@ -62,8 +62,10 @@ This file captures durable cross-session learnings for `mlxts` so future agent s
   classifier-free guidance is active only when guidance scale is greater than
   one. The finite proof command resolves snapshots, loads package-owned
   FlowMatch/transformer/VAE components, runs the prompt bridge, and writes BMP
-  artifact evidence. Authenticated proof against gated Stability checkpoints
-  remains a follow-up. — refs:
+  artifact evidence. Official `stabilityai/stable-diffusion-3.5-medium`
+  checkpoint proof was attempted with the configured HF token and blocked by
+  gated repo authorization before any MLX component loaded; rerun when access is
+  granted or a local SD3/SD3.5 Diffusers snapshot is supplied. — refs:
   `packages/diffusion/src/pretrained/model-index.ts`,
   `packages/diffusion/src/families/stable-diffusion-3/config.ts`,
   `packages/diffusion/src/families/stable-diffusion-3/transformer.ts`,
@@ -76,7 +78,8 @@ This file captures durable cross-session learnings for `mlxts` so future agent s
   `docs/reviews/2026-05-01-stable-diffusion-3-runtime-foundation.md`,
   `docs/reviews/2026-05-01-stable-diffusion-3-weight-loading.md`,
   `docs/reviews/2026-05-01-stable-diffusion-3-prompt-conditioning.md`,
-  `docs/reviews/2026-05-01-stable-diffusion-3-proof-cli.md`
+  `docs/reviews/2026-05-01-stable-diffusion-3-proof-cli.md`,
+  `docs/reviews/2026-05-01-stable-diffusion-3-real-checkpoint-proof-blocked.md`
 
 - (2026-05-01) [DIFFUSION/FLUX2] Official `black-forest-labs/FLUX.2-klein-4B`
   now has a bounded real checkpoint proof through `examples/flux2`: snapshot
