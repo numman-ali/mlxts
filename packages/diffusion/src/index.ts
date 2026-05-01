@@ -142,6 +142,21 @@ export {
   parseLtxVideoTransformerConfig,
 } from "./families/ltx/config";
 export {
+  createLtx2AudioInitialLatents,
+  createLtxVideoInitialLatents,
+  type Ltx2AudioInitialLatentOptions,
+  type LtxVideoInitialLatentOptions,
+  ltx2AudioLatentLength,
+  ltx2AudioLatentShape,
+  ltx2AudioPackedLatentShape,
+  ltxVideoLatentShape,
+  ltxVideoPackedLatentShape,
+  packLtx2AudioLatents,
+  packLtxVideoLatents,
+  unpackLtx2AudioLatents,
+  unpackLtxVideoLatents,
+} from "./families/ltx/latents";
+export {
   QwenImageAutoencoderKL,
   QwenImageDecoder3d,
   QwenImageEncoder3d,

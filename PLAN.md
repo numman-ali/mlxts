@@ -1067,9 +1067,10 @@ additional diffusion/flow families remain Phase 10 work. LTX-Video and LTX-2
 now have a package-owned Diffusers manifest entry point: current
 `LTXPipeline`, `LTXConditionPipeline`, and `LTX2Pipeline` snapshots parse into
 video/audio component roles and typed component configs without importing
-transformer encoders or claiming runtime generation. LTX runtime, latent
-upsampling, audio-video output encoding, and finite proof commands remain
-future tranches.
+transformer encoders or claiming runtime generation. Package-owned LTX latent
+geometry now covers Diffusers-compatible video BCFHW packing and LTX-2 audio
+BCLM packing. LTX runtime, latent upsampling, audio-video output encoding, and
+finite proof commands remain future tranches.
 
 **What this phase covers**:
 
@@ -1174,9 +1175,10 @@ All diffusion and flow-based generation across modalities: image, video, and aud
    snapshots expose `LTX2Pipeline` over Gemma3 text metadata,
    `LTX2VideoTransformer3DModel`, `AutoencoderKLLTX2Video`,
    `AutoencoderKLLTX2Audio`, `LTX2TextConnectors`, and `LTX2Vocoder`. Snapshot
-   recognition and component config parsing have landed as the entry point;
-   runtime generation, latent upsampling, audio/video artifact output, and
-   proof commands remain separate tranches.
+   recognition and component config parsing have landed as the entry point.
+   Video latent shape/packing and LTX-2 audio latent shape/packing now match
+   Diffusers token order. Runtime generation, latent upsampling, audio/video
+   artifact output, and proof commands remain separate tranches.
 
 ### 10c. Examples
 

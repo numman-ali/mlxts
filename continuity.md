@@ -233,9 +233,12 @@ major product-agent focus on package-owned CLIs and future PI-agent integration.
   text metadata, `LTX2VideoTransformer3DModel`, `AutoencoderKLLTX2Video`,
   `AutoencoderKLLTX2Audio`, `LTX2TextConnectors`, and `LTX2Vocoder`. Typed
   component config parsing now covers both LTX-Video and LTX-2, including
-  LTX-2 video/audio/connector/vocoder cross-component checks. Runtime
-  generation, latent upsampling, audio/video artifact writing, and proof
-  commands remain future Phase 10 tranches.
+  LTX-2 video/audio/connector/vocoder cross-component checks. Package-owned
+  LTX latent helpers now cover Diffusers-compatible video BCFHW token packing,
+  video latent shape derivation, LTX-2 audio BCLM token packing, and audio
+  latent duration/mel geometry. Runtime generation, latent upsampling,
+  audio/video artifact writing, and proof commands remain future Phase 10
+  tranches.
 - **Qwen conditional serving**: top-level Qwen 3.5 / 3.6 conditional
   checkpoints expose the Qwen text batch-cache surface for text-only continuous
   serving. Media/content requests still route as `media_input` and stay off

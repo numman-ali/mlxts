@@ -56,14 +56,19 @@ This file captures durable cross-session learnings for `mlxts` so future agent s
   `processor_config.json`; root monolith exports and latent upsampler sidecars
   still stay out of the selected manifest path. Component config parsing now
   exists for LTX-Video and LTX-2, including LTX-2 video/audio/connector/vocoder
-  cross-component checks. Runtime generation, latent upsampling, audio/video
-  artifact output, and finite proof commands remain future tranches. — refs:
+  cross-component checks. Latent geometry helpers now match Diffusers video
+  BCFHW packing and LTX-2 audio BCLM packing, including audio duration/mel
+  compression shape derivation. Runtime generation, latent upsampling,
+  audio/video artifact output, and finite proof commands remain future
+  tranches. — refs:
   `packages/diffusion/src/pretrained/model-index.ts`,
   `packages/diffusion/src/pretrained/ltx-pipeline-specs.ts`,
   `packages/diffusion/src/pretrained/snapshot-file-selection.ts`,
   `packages/diffusion/src/families/ltx/config.ts`,
+  `packages/diffusion/src/families/ltx/latents.ts`,
   `docs/reviews/2026-05-01-ltx-video-snapshot-skeleton.md`,
-  `docs/reviews/2026-05-01-ltx-video-component-configs.md`
+  `docs/reviews/2026-05-01-ltx-video-component-configs.md`,
+  `docs/reviews/2026-05-01-ltx-latent-geometry.md`
 
 - (2026-05-01) [DIFFUSION/SD3] `@mlxts/diffusion` recognizes Diffusers
   `StableDiffusion3Pipeline` snapshots and parses `SD3Transformer2DModel` plus
