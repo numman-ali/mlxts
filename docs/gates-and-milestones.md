@@ -334,7 +334,7 @@ safe to drive through shell tools.
 |-----------|--------------|
 | Stable Diffusion / SDXL has a real checkpoint proof | Local Diffusers snapshot generates an image artifact through `examples/stable-diffusion/` |
 | FLUX.1 has a local proof command | `examples/flux/` loads a local Diffusers snapshot, runs the package-owned FLUX path, and writes an image artifact |
-| Qwen-Image is tracked as image generation, not Qwen VLM serving | Roadmap and package docs keep Qwen-Image under `@mlxts/diffusion`, with `AutoencoderKLQwenImage` and Qwen2.5-VL text-encoder requirements named before implementation |
+| Qwen-Image is tracked as image generation, not Qwen VLM serving | `@mlxts/diffusion` recognizes base `QwenImagePipeline` snapshots and parses Qwen-Image transformer, Qwen-specific VAE, and FlowMatch scheduler configs while runtime tensor execution remains a separate tranche |
 | Z-Image-Turbo follows Qwen/flow-DiT primitive work | Support lands only after a reference audit and finite proof command for `ZImageTransformer2DModel`, FlowMatch Euler, prompt encoding, and VAE handling |
 | Distilled or turbo variants do not become separate architecture surfaces | Tests prove they reuse the base family loader or document the required delta |
 

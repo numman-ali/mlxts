@@ -128,7 +128,6 @@ function rejectUnsupportedFlowMatchFields(record: Record<string, unknown>, conte
     "rescale_betas_zero_snr",
     "sigma_min",
     "sigma_max",
-    "shift_terminal",
   ]) {
     expectAbsent(record, key, context);
   }
@@ -152,6 +151,7 @@ export function parseFlowMatchEulerConfig(
 
   const numTrainTimesteps = optionalInteger(record, "num_train_timesteps", context);
   const shift = optionalNumber(record, "shift", context);
+  const shiftTerminal = optionalNumber(record, "shift_terminal", context);
   const useDynamicShifting = optionalBoolean(record, "use_dynamic_shifting", context);
   const baseShift = optionalNumber(record, "base_shift", context);
   const maxShift = optionalNumber(record, "max_shift", context);
@@ -162,6 +162,7 @@ export function parseFlowMatchEulerConfig(
   return {
     ...(numTrainTimesteps !== undefined ? { numTrainTimesteps } : {}),
     ...(shift !== undefined ? { shift } : {}),
+    ...(shiftTerminal !== undefined ? { shiftTerminal } : {}),
     ...(useDynamicShifting !== undefined ? { useDynamicShifting } : {}),
     ...(baseShift !== undefined ? { baseShift } : {}),
     ...(maxShift !== undefined ? { maxShift } : {}),

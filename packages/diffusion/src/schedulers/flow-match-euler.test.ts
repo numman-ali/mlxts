@@ -83,6 +83,26 @@ describe("FlowMatchEulerScheduler", () => {
     );
   });
 
+  test("stretches shifted sigmas to a configured terminal sigma", () => {
+    const scheduler = new FlowMatchEulerScheduler({
+      numTrainTimesteps: 1000,
+      shift: 1,
+      shiftTerminal: 0.02,
+      useDynamicShifting: false,
+    });
+
+    const steps = scheduler.timesteps(4);
+
+    expectNumbersClose(
+      steps.map((step) => step.sigma),
+      [1, 0.673333, 0.346667, 0.02],
+    );
+    expectNumbersClose(
+      steps.map((step) => step.nextSigma),
+      [0.673333, 0.346667, 0.02, 0],
+    );
+  });
+
   test("matches Flux dynamic exponential time shifting", () => {
     const mu = calculateFlowMatchShift(1024, {
       baseImageSeqLen: 256,

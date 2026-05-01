@@ -54,6 +54,15 @@ export {
   transformFluxTransformerWeight,
 } from "./families/flux/weights";
 export {
+  loadQwenImageComponentConfigs,
+  parseQwenImageAutoencoderConfig,
+  parseQwenImageTransformerConfig,
+  type QwenImageAutoencoderConfig,
+  type QwenImageComponentConfigs,
+  type QwenImageRopeAxes,
+  type QwenImageTransformerConfig,
+} from "./families/qwen-image/config";
+export {
   StableDiffusionAutoencoderKL,
   StableDiffusionVaeDecoder,
   StableDiffusionVaeEncoder,

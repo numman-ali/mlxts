@@ -149,6 +149,32 @@ describe("diffusion model index loading", () => {
     ]);
   });
 
+  test("parses Qwen-Image model_index components", () => {
+    const parsed = parseDiffusionModelIndex({
+      _class_name: "QwenImagePipeline",
+      _diffusers_version: "0.36.0.dev0",
+      transformer: ["diffusers", "QwenImageTransformer2DModel"],
+      vae: ["diffusers", "AutoencoderKLQwenImage"],
+      scheduler: ["diffusers", "FlowMatchEulerDiscreteScheduler"],
+      text_encoder: ["transformers", "Qwen2_5_VLForConditionalGeneration"],
+      tokenizer: ["transformers", "Qwen2Tokenizer"],
+    });
+
+    expect(parsed.kind).toBe("qwen-image");
+    expect(parsed.diffusersVersion).toBe("0.36.0.dev0");
+    expect(parsed.components.map((component) => component.name)).toEqual([
+      "transformer",
+      "vae",
+      "scheduler",
+      "text_encoder",
+      "tokenizer",
+    ]);
+    expect(parsed.components.find((component) => component.name === "vae")).toMatchObject({
+      role: "vae",
+      className: "AutoencoderKLQwenImage",
+    });
+  });
+
   test("loads a local snapshot manifest without constructing models", async () => {
     await withTempDirectory("mlxts-diffusion-model-index-", async (directory) => {
       writeStableDiffusionSnapshot(directory);
@@ -176,6 +202,9 @@ describe("diffusion model index loading", () => {
     expect(() =>
       parseDiffusionModelIndex({ _class_name: "StableDiffusionImg2ImgPipeline" }),
     ).toThrow("not supported");
+    expect(() => parseDiffusionModelIndex({ _class_name: "QwenImageEditPipeline" })).toThrow(
+      "not supported",
+    );
     expect(() =>
       parseDiffusionModelIndex({
         _class_name: "StableDiffusionPipeline",
@@ -300,6 +329,45 @@ describe("diffusion model index loading", () => {
 
       expect(manifest.modelIndex.kind).toBe("flux");
       expect(manifest.schedulerConfig.kind).toBe("flow-match-euler");
+    });
+
+    await withTempDirectory("mlxts-diffusion-qwen-image-manifest-", async (directory) => {
+      writeJson(join(directory, "model_index.json"), {
+        _class_name: "QwenImagePipeline",
+        transformer: ["diffusers", "QwenImageTransformer2DModel"],
+        vae: ["diffusers", "AutoencoderKLQwenImage"],
+        scheduler: ["diffusers", "FlowMatchEulerDiscreteScheduler"],
+        text_encoder: ["transformers", "Qwen2_5_VLForConditionalGeneration"],
+        tokenizer: ["transformers", "Qwen2Tokenizer"],
+      });
+      writeComponentFiles(
+        directory,
+        "transformer",
+        ["config.json"],
+        ["diffusion_pytorch_model.safetensors"],
+      );
+      writeComponentFiles(
+        directory,
+        "vae",
+        ["config.json"],
+        ["diffusion_pytorch_model.safetensors"],
+      );
+      writeComponentFiles(directory, "scheduler", ["scheduler_config.json"]);
+      writeJson(join(directory, "scheduler", "scheduler_config.json"), {
+        _class_name: "FlowMatchEulerDiscreteScheduler",
+        shift_terminal: 0.02,
+      });
+      writeComponentFiles(directory, "text_encoder", ["config.json"], ["model.safetensors"]);
+      writeComponentFiles(directory, "tokenizer", ["tokenizer.json"]);
+
+      const manifest = await loadDiffusionSnapshotManifest(directory);
+
+      expect(manifest.modelIndex.kind).toBe("qwen-image");
+      expect(manifest.schedulerConfig.kind).toBe("flow-match-euler");
+      expect(manifest.schedulerConfig.config).toMatchObject({ shiftTerminal: 0.02 });
+      expect(
+        manifest.components.find((component) => component.name === "tokenizer")?.metadataPaths,
+      ).toEqual([join(directory, "tokenizer", "tokenizer.json")]);
     });
 
     await withTempDirectory("mlxts-diffusion-flux-unsupported-scheduler-", async (directory) => {

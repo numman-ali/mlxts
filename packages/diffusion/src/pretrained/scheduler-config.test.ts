@@ -113,7 +113,7 @@ describe("diffusion scheduler config loading", () => {
       max_shift: 1.15,
       num_train_timesteps: 1000,
       shift: 3,
-      shift_terminal: null,
+      shift_terminal: 0.02,
       stochastic_sampling: false,
       time_shift_type: "exponential",
       use_beta_sigmas: false,
@@ -132,6 +132,7 @@ describe("diffusion scheduler config loading", () => {
         maxShift: 1.15,
         numTrainTimesteps: 1000,
         shift: 3,
+        shiftTerminal: 0.02,
         timeShiftType: "exponential",
         useDynamicShifting: true,
       },
@@ -258,7 +259,7 @@ describe("diffusion scheduler config loading", () => {
     expect(() =>
       parseDiffusionSchedulerConfig({
         _class_name: "FlowMatchEulerDiscreteScheduler",
-        shift_terminal: 0.1,
+        shift_terminal: "0.1",
       }),
     ).toThrow("shift_terminal");
     expect(() =>

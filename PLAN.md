@@ -993,9 +993,12 @@ VAE/UNet construction and loading, sampling, pipeline loading, and an
 AXI-shaped example proof command. It also owns the first FLUX.1 package path:
 FlowMatch Euler scheduling, FLUX transformer config/backbone/weights, FLUX VAE
 config/loading/decoding, latent packing, sampling, and an AXI-shaped
-`examples/flux` proof command. Real checkpoint image evidence is still pending
-for both SD/SDXL and FLUX before either becomes a product-complete generation
-claim. Broader VLM families, audio encoder/decoder families, and additional
+`examples/flux` proof command. Base Qwen-Image snapshot recognition and config
+parsing has landed, including the Qwen-specific 3D causal VAE metadata and
+FlowMatch `shift_terminal` scheduler field, but Qwen-Image tensor execution is
+not implemented yet. Real checkpoint image evidence is still pending for both
+SD/SDXL and FLUX before either becomes a product-complete generation claim.
+Broader VLM families, audio encoder/decoder families, and additional
 diffusion/flow families remain Phase 10 work.
 
 **What this phase covers**:
@@ -1044,8 +1047,9 @@ All diffusion and flow-based generation across modalities: image, video, and aud
    exposes it as `QwenImagePipeline` over FlowMatch Euler,
    `QwenImageTransformer2DModel`, `AutoencoderKLQwenImage`, and a Qwen2.5-VL
    text encoder. Its VAE is a 3D causal Qwen/Wan-derived autoencoder, so the
-   first implementation tranche is a reference audit and config/model-index
-   parser, not reuse of the Stable Diffusion or FLUX VAE path.
+   first implementation tranche is the landed reference-audited
+   config/model-index parser, not reuse of the Stable Diffusion or FLUX VAE
+   path. Runtime tensor execution remains a separate tranche.
 4. **Z-Image-Turbo**: this is the first speed-first modern image target after
    Qwen-Image is represented cleanly. Diffusers exposes a 6B
    `ZImageTransformer2DModel` pipeline using FlowMatch Euler, standard

@@ -1,13 +1,19 @@
 import { DiffusionConfigError } from "../errors";
+import { PIPELINE_SPECS, type PipelineSpec } from "./pipeline-specs";
 
 /** Diffusers pipeline classes with recognized local text-to-image snapshot layout. */
 export type DiffusersPipelineClassName =
   | "StableDiffusionPipeline"
   | "StableDiffusionXLPipeline"
-  | "FluxPipeline";
+  | "FluxPipeline"
+  | "QwenImagePipeline";
 
 /** Pipeline family represented by a supported Diffusers `model_index.json`. */
-export type DiffusionPipelineKind = "stable-diffusion" | "stable-diffusion-xl" | "flux";
+export type DiffusionPipelineKind =
+  | "stable-diffusion"
+  | "stable-diffusion-xl"
+  | "flux"
+  | "qwen-image";
 
 /** Component folders recognized in Diffusers text-to-image snapshots. */
 export type DiffusionComponentName =
@@ -63,213 +69,6 @@ export type DiffusionModelIndexComponentSpec = {
   requiresConfig?: boolean;
   requiresTokenizerFiles?: boolean;
   requiresWeights?: boolean;
-};
-
-type PipelineSpec = {
-  kind: DiffusionPipelineKind;
-  components: readonly DiffusionModelIndexComponentSpec[];
-};
-
-const STABLE_DIFFUSION_COMPONENTS: readonly DiffusionModelIndexComponentSpec[] = [
-  {
-    name: "vae",
-    role: "vae",
-    allowed: [["diffusers", "AutoencoderKL"]],
-    requiresConfig: true,
-    requiresWeights: true,
-  },
-  {
-    name: "text_encoder",
-    role: "text-encoder",
-    allowed: [["transformers", "CLIPTextModel"]],
-    requiresConfig: true,
-    requiresWeights: true,
-  },
-  {
-    name: "tokenizer",
-    role: "tokenizer",
-    allowed: [
-      ["transformers", "CLIPTokenizer"],
-      ["transformers", "CLIPTokenizerFast"],
-    ],
-    requiresTokenizerFiles: true,
-  },
-  {
-    name: "unet",
-    role: "backbone",
-    allowed: [["diffusers", "UNet2DConditionModel"]],
-    requiresConfig: true,
-    requiresWeights: true,
-  },
-  {
-    name: "scheduler",
-    role: "scheduler",
-    allowed: [
-      ["diffusers", "DDIMScheduler"],
-      ["diffusers", "EulerDiscreteScheduler"],
-    ],
-    requiresConfig: true,
-  },
-  {
-    name: "safety_checker",
-    role: "safety",
-    optional: true,
-    allowed: [["stable_diffusion", "StableDiffusionSafetyChecker"]],
-    requiresConfig: true,
-    requiresWeights: true,
-  },
-  {
-    name: "feature_extractor",
-    role: "image-processor",
-    optional: true,
-    allowed: [["transformers", "CLIPImageProcessor"]],
-    requiresConfig: true,
-  },
-  {
-    name: "image_encoder",
-    role: "image-encoder",
-    optional: true,
-    allowed: [["transformers", "CLIPVisionModelWithProjection"]],
-    requiresConfig: true,
-    requiresWeights: true,
-  },
-];
-
-const STABLE_DIFFUSION_XL_COMPONENTS: readonly DiffusionModelIndexComponentSpec[] = [
-  {
-    name: "vae",
-    role: "vae",
-    allowed: [["diffusers", "AutoencoderKL"]],
-    requiresConfig: true,
-    requiresWeights: true,
-  },
-  {
-    name: "text_encoder",
-    role: "text-encoder",
-    allowed: [["transformers", "CLIPTextModel"]],
-    requiresConfig: true,
-    requiresWeights: true,
-  },
-  {
-    name: "text_encoder_2",
-    role: "text-encoder",
-    allowed: [["transformers", "CLIPTextModelWithProjection"]],
-    requiresConfig: true,
-    requiresWeights: true,
-  },
-  {
-    name: "tokenizer",
-    role: "tokenizer",
-    allowed: [
-      ["transformers", "CLIPTokenizer"],
-      ["transformers", "CLIPTokenizerFast"],
-    ],
-    requiresTokenizerFiles: true,
-  },
-  {
-    name: "tokenizer_2",
-    role: "tokenizer",
-    allowed: [
-      ["transformers", "CLIPTokenizer"],
-      ["transformers", "CLIPTokenizerFast"],
-    ],
-    requiresTokenizerFiles: true,
-  },
-  {
-    name: "unet",
-    role: "backbone",
-    allowed: [["diffusers", "UNet2DConditionModel"]],
-    requiresConfig: true,
-    requiresWeights: true,
-  },
-  {
-    name: "scheduler",
-    role: "scheduler",
-    allowed: [
-      ["diffusers", "DDIMScheduler"],
-      ["diffusers", "EulerDiscreteScheduler"],
-    ],
-    requiresConfig: true,
-  },
-  {
-    name: "feature_extractor",
-    role: "image-processor",
-    optional: true,
-    allowed: [["transformers", "CLIPImageProcessor"]],
-    requiresConfig: true,
-  },
-  {
-    name: "image_encoder",
-    role: "image-encoder",
-    optional: true,
-    allowed: [["transformers", "CLIPVisionModelWithProjection"]],
-    requiresConfig: true,
-    requiresWeights: true,
-  },
-];
-
-const FLUX_COMPONENTS: readonly DiffusionModelIndexComponentSpec[] = [
-  {
-    name: "transformer",
-    role: "backbone",
-    allowed: [["diffusers", "FluxTransformer2DModel"]],
-    requiresConfig: true,
-    requiresWeights: true,
-  },
-  {
-    name: "vae",
-    role: "vae",
-    allowed: [["diffusers", "AutoencoderKL"]],
-    requiresConfig: true,
-    requiresWeights: true,
-  },
-  {
-    name: "scheduler",
-    role: "scheduler",
-    allowed: [["diffusers", "FlowMatchEulerDiscreteScheduler"]],
-    requiresConfig: true,
-  },
-  {
-    name: "text_encoder",
-    role: "text-encoder",
-    allowed: [["transformers", "CLIPTextModel"]],
-    requiresConfig: true,
-    requiresWeights: true,
-  },
-  {
-    name: "tokenizer",
-    role: "tokenizer",
-    allowed: [["transformers", "CLIPTokenizer"]],
-    requiresTokenizerFiles: true,
-  },
-  {
-    name: "text_encoder_2",
-    role: "text-encoder",
-    allowed: [["transformers", "T5EncoderModel"]],
-    requiresConfig: true,
-    requiresWeights: true,
-  },
-  {
-    name: "tokenizer_2",
-    role: "tokenizer",
-    allowed: [["transformers", "T5TokenizerFast"]],
-    requiresTokenizerFiles: true,
-  },
-];
-
-const PIPELINE_SPECS: Record<DiffusersPipelineClassName, PipelineSpec> = {
-  StableDiffusionPipeline: {
-    kind: "stable-diffusion",
-    components: STABLE_DIFFUSION_COMPONENTS,
-  },
-  StableDiffusionXLPipeline: {
-    kind: "stable-diffusion-xl",
-    components: STABLE_DIFFUSION_XL_COMPONENTS,
-  },
-  FluxPipeline: {
-    kind: "flux",
-    components: FLUX_COMPONENTS,
-  },
 };
 
 const SCALAR_CONFIG_KEYS = new Set(["requires_safety_checker", "force_zeros_for_empty_prompt"]);
@@ -329,7 +128,8 @@ function parsePipelineClassName(
   if (
     className === "StableDiffusionPipeline" ||
     className === "StableDiffusionXLPipeline" ||
-    className === "FluxPipeline"
+    className === "FluxPipeline" ||
+    className === "QwenImagePipeline"
   ) {
     return className;
   }

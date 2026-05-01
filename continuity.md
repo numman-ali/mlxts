@@ -107,6 +107,12 @@ major product-agent focus on package-owned CLIs and future PI-agent integration.
   required/enabled safety-checker semantics. FLUX now has package-owned
   FlowMatch Euler scheduling, transformer config/backbone/weight loading, VAE
   config/loading/decoding, latent packing, and sampling for finite proof use.
+  Base Qwen-Image Diffusers snapshots are now recognized as
+  `QwenImagePipeline`, with package-owned parsing for the Qwen image
+  transformer config, Qwen-specific 3D causal VAE config, and FlowMatch
+  `shift_terminal` scheduler field; Qwen-Image edit/control/inpaint/img2img
+  variants remain explicitly unsupported until their runtime semantics are
+  designed.
   `examples/stable-diffusion` now owns the application-layer prompt
   conditioner that composes CLIP tokenizers, CLIP text encoders, and diffusion
   tensor conditioning while preserving package dependencies. It also has a

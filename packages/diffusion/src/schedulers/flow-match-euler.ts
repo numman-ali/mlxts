@@ -16,6 +16,7 @@ export type FlowMatchEulerTimeShiftType = "exponential" | "linear";
 export type FlowMatchEulerSchedulerConfig = {
   numTrainTimesteps?: number;
   shift?: number;
+  shiftTerminal?: number;
   useDynamicShifting?: boolean;
   baseShift?: number;
   maxShift?: number;
@@ -38,7 +39,11 @@ export type FlowMatchEulerStep = {
   nextSigma: number;
 };
 
-type ResolvedFlowMatchEulerConfig = Required<FlowMatchEulerSchedulerConfig>;
+type ResolvedFlowMatchEulerConfig = Required<
+  Omit<FlowMatchEulerSchedulerConfig, "shiftTerminal">
+> & {
+  shiftTerminal?: number;
+};
 
 const DEFAULT_FLOW_MATCH_EULER_CONFIG: ResolvedFlowMatchEulerConfig = {
   numTrainTimesteps: 1000,
@@ -70,7 +75,10 @@ function expectNonNegativeFinite(value: number, name: string): void {
 }
 
 function resolveConfig(config: FlowMatchEulerSchedulerConfig): ResolvedFlowMatchEulerConfig {
-  const resolved = { ...DEFAULT_FLOW_MATCH_EULER_CONFIG, ...config };
+  const resolved: ResolvedFlowMatchEulerConfig = {
+    ...DEFAULT_FLOW_MATCH_EULER_CONFIG,
+    ...config,
+  };
 
   expectPositiveInteger(resolved.numTrainTimesteps, "numTrainTimesteps");
   expectPositiveFinite(resolved.shift, "shift");
@@ -83,6 +91,15 @@ function resolveConfig(config: FlowMatchEulerSchedulerConfig): ResolvedFlowMatch
   }
   if (resolved.timeShiftType !== "exponential" && resolved.timeShiftType !== "linear") {
     throw new Error("timeShiftType must be exponential or linear.");
+  }
+  if (resolved.shiftTerminal !== undefined) {
+    if (
+      !Number.isFinite(resolved.shiftTerminal) ||
+      resolved.shiftTerminal < 0 ||
+      resolved.shiftTerminal >= 1
+    ) {
+      throw new Error("shiftTerminal must be within [0, 1).");
+    }
   }
   return resolved;
 }
@@ -166,6 +183,15 @@ function shiftSigmas(
   return sigmas.map((sigma) => exponentialTimeShift(mu, sigma));
 }
 
+function stretchShiftToTerminal(sigmas: readonly number[], shiftTerminal: number): number[] {
+  const finalSigma = sigmas.at(-1);
+  if (finalSigma === undefined) {
+    throw new Error("stretchShiftToTerminal: missing terminal sigma.");
+  }
+  const scaleFactor = (1 - finalSigma) / (1 - shiftTerminal);
+  return sigmas.map((sigma) => 1 - (1 - sigma) / scaleFactor);
+}
+
 /** Calculate the Flux resolution-dependent time-shift value. */
 export function calculateFlowMatchShift(
   imageSequenceLength: number,
@@ -207,7 +233,12 @@ export class FlowMatchEulerScheduler {
     expectPositiveInteger(numInferenceSteps, "numInferenceSteps");
 
     const baseSigmas = resolveBaseSigmas(numInferenceSteps, options);
-    const sigmas = [...shiftSigmas(baseSigmas, this.#config, options), 0];
+    const shiftedSigmas = shiftSigmas(baseSigmas, this.#config, options);
+    const denoisingSigmas =
+      this.#config.shiftTerminal === undefined
+        ? shiftedSigmas
+        : stretchShiftToTerminal(shiftedSigmas, this.#config.shiftTerminal);
+    const sigmas = [...denoisingSigmas, 0];
     return Array.from({ length: numInferenceSteps }, (_, index) => {
       const sigma = sigmas[index];
       const nextSigma = sigmas[index + 1];
