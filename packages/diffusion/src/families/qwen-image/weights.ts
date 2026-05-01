@@ -21,14 +21,30 @@ import type {
 } from "../../pretrained/snapshot-manifest";
 import { QwenImageAutoencoderKL } from "./autoencoder";
 import { loadQwenImageComponentConfigs } from "./config";
+import { QwenImageTransformer2DModel } from "./transformer";
+import { qwenImageTransformerWeightPath } from "./weight-mapping";
+
+export { qwenImageTransformerWeightPath } from "./weight-mapping";
 
 export type QwenImageAutoencoderWeightLoadOptions = {
   /** Throw when the checkpoint contains unsupported tensor names. */
   strictUnexpectedWeights?: boolean;
 };
 
+export type QwenImageTransformerWeightLoadOptions = {
+  /** Throw when the checkpoint contains unsupported tensor names. */
+  strictUnexpectedWeights?: boolean;
+};
+
 /** Assignment summary returned after loading Qwen-Image VAE weights. */
 export type QwenImageAutoencoderWeightLoadResult = {
+  assignedPaths: readonly string[];
+  unexpectedWeights: readonly string[];
+  shardCount: number;
+};
+
+/** Assignment summary returned after loading Qwen-Image transformer weights. */
+export type QwenImageTransformerWeightLoadResult = {
   assignedPaths: readonly string[];
   unexpectedWeights: readonly string[];
   shardCount: number;
@@ -155,12 +171,17 @@ async function componentSafetensorShards(component: DiffusionSnapshotComponent):
     .sort((left, right) => left.localeCompare(right));
 }
 
-function qwenImageComponent(manifest: DiffusionSnapshotManifest): DiffusionSnapshotComponent {
+function qwenImageComponent(
+  manifest: DiffusionSnapshotManifest,
+  componentName: "transformer" | "vae",
+): DiffusionSnapshotComponent {
   const component = manifest.components.find(
-    (candidate) => candidate.name === "vae" && candidate.enabled,
+    (candidate) => candidate.name === componentName && candidate.enabled,
   );
   if (component === undefined) {
-    throw new DiffusionConfigError("Qwen-Image snapshot manifest is missing an enabled VAE.");
+    throw new DiffusionConfigError(
+      `Qwen-Image snapshot manifest is missing an enabled ${componentName}.`,
+    );
   }
   return component;
 }
@@ -177,15 +198,14 @@ function throwIfMissingWeights(
 
 function throwIfUnexpectedWeights(
   unexpectedWeights: readonly string[],
-  options: QwenImageAutoencoderWeightLoadOptions,
+  options: QwenImageAutoencoderWeightLoadOptions | QwenImageTransformerWeightLoadOptions,
+  owner = "loadQwenImageAutoencoderWeights",
 ): void {
   if (unexpectedWeights.length === 0 || options.strictUnexpectedWeights !== true) {
     return;
   }
   throw new Error(
-    `loadQwenImageAutoencoderWeights: checkpoint contained unexpected unmapped weights: ${[
-      ...unexpectedWeights,
-    ]
+    `${owner}: checkpoint contained unexpected unmapped weights: ${[...unexpectedWeights]
       .toSorted((left, right) => left.localeCompare(right))
       .join(", ")}.`,
   );
@@ -264,6 +284,11 @@ function transformedAutoencoderWeight(
   return transformed;
 }
 
+/** Transform a Diffusers Qwen-Image transformer tensor into the package-owned layout. */
+export function transformQwenImageTransformerWeight(_weightPath: string, tensor: MxArray): MxArray {
+  return tensor;
+}
+
 /** Load Diffusers safetensors weights into a Qwen-Image AutoencoderKL module. */
 export async function loadQwenImageAutoencoderWeights(
   model: QwenImageAutoencoderKL,
@@ -310,6 +335,56 @@ export async function loadQwenImageAutoencoderWeights(
   };
 }
 
+/** Load Diffusers safetensors weights into a Qwen-Image transformer module. */
+export async function loadQwenImageTransformerWeights(
+  model: QwenImageTransformer2DModel,
+  component: DiffusionSnapshotComponent,
+  options: QwenImageTransformerWeightLoadOptions = {},
+): Promise<QwenImageTransformerWeightLoadResult> {
+  const expectedPaths = new Set(listParameterPaths(model.parameters()));
+  const assignedPaths = new Set<string>();
+  const unexpectedWeights: string[] = [];
+  const shardPaths = await componentSafetensorShards(component);
+
+  if (shardPaths.length === 0) {
+    throw new DiffusionConfigError(`${component.name} has no safetensors weight shards.`);
+  }
+
+  for (const shardPath of shardPaths) {
+    for await (const { name, tensor } of iterateSafetensors(shardPath)) {
+      const path = qwenImageTransformerWeightPath(name);
+      if (path === null || !expectedPaths.has(path)) {
+        unexpectedWeights.push(name);
+        tensor.free();
+        continue;
+      }
+
+      let assignedTensor: MxArray | null = tensor;
+      try {
+        const transformed = transformQwenImageTransformerWeight(path, assignedTensor);
+        if (transformed !== assignedTensor) {
+          assignedTensor.free();
+        }
+        assignedTensor = transformed;
+        assignQwenImageWeightPath(model, path, assignedTensor);
+        assignedPaths.add(path);
+        assignedTensor = null;
+      } finally {
+        assignedTensor?.free();
+      }
+    }
+  }
+
+  throwIfMissingWeights(expectedPaths, assignedPaths);
+  throwIfUnexpectedWeights(unexpectedWeights, options, "loadQwenImageTransformerWeights");
+
+  return {
+    assignedPaths: [...assignedPaths].toSorted((left, right) => left.localeCompare(right)),
+    unexpectedWeights: [...unexpectedWeights].toSorted((left, right) => left.localeCompare(right)),
+    shardCount: shardPaths.length,
+  };
+}
+
 /** Construct and load the Qwen-Image VAE component from a snapshot manifest. */
 export async function loadQwenImageAutoencoderFromSnapshot(
   manifest: DiffusionSnapshotManifest,
@@ -318,7 +393,30 @@ export async function loadQwenImageAutoencoderFromSnapshot(
   const configs = await loadQwenImageComponentConfigs(manifest);
   const model = new QwenImageAutoencoderKL(configs.vae);
   try {
-    await loadQwenImageAutoencoderWeights(model, qwenImageComponent(manifest), options);
+    await loadQwenImageAutoencoderWeights(model, qwenImageComponent(manifest, "vae"), options);
+    model.eval();
+    const parameters = treeFlatten(model.parameters()).map(([, tensor]) => tensor);
+    mxEval(...parameters);
+    return model;
+  } catch (error) {
+    model[Symbol.dispose]();
+    throw error;
+  }
+}
+
+/** Construct and load the Qwen-Image transformer component from a snapshot manifest. */
+export async function loadQwenImageTransformerFromSnapshot(
+  manifest: DiffusionSnapshotManifest,
+  options: QwenImageTransformerWeightLoadOptions = {},
+): Promise<QwenImageTransformer2DModel> {
+  const configs = await loadQwenImageComponentConfigs(manifest);
+  const model = new QwenImageTransformer2DModel(configs.transformer);
+  try {
+    await loadQwenImageTransformerWeights(
+      model,
+      qwenImageComponent(manifest, "transformer"),
+      options,
+    );
     model.eval();
     const parameters = treeFlatten(model.parameters()).map(([, tensor]) => tensor);
     mxEval(...parameters);

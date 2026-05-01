@@ -95,12 +95,22 @@ export {
   type QwenImageLatentDecoder,
 } from "./families/qwen-image/pipeline";
 export {
+  type QwenImageDenoiserInput,
+  QwenImageTransformer2DModel,
+} from "./families/qwen-image/transformer";
+export {
   loadQwenImageAutoencoderFromSnapshot,
   loadQwenImageAutoencoderWeights,
+  loadQwenImageTransformerFromSnapshot,
+  loadQwenImageTransformerWeights,
   type QwenImageAutoencoderWeightLoadOptions,
   type QwenImageAutoencoderWeightLoadResult,
+  type QwenImageTransformerWeightLoadOptions,
+  type QwenImageTransformerWeightLoadResult,
   qwenImageAutoencoderWeightPath,
+  qwenImageTransformerWeightPath,
   transformQwenImageAutoencoderWeight,
+  transformQwenImageTransformerWeight,
 } from "./families/qwen-image/weights";
 export {
   StableDiffusionAutoencoderKL,

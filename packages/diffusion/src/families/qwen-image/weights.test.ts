@@ -15,12 +15,17 @@ import { DiffusionMissingWeightsError, DiffusionWeightMismatchError } from "../.
 import type { DiffusionSnapshotComponent } from "../../pretrained/snapshot-manifest";
 import { loadDiffusionSnapshotManifest } from "../../pretrained/snapshot-manifest";
 import { QwenImageAutoencoderKL } from "./autoencoder";
-import type { QwenImageAutoencoderConfig } from "./config";
+import type { QwenImageAutoencoderConfig, QwenImageTransformerConfig } from "./config";
+import { QwenImageTransformer2DModel } from "./transformer";
 import {
   loadQwenImageAutoencoderFromSnapshot,
   loadQwenImageAutoencoderWeights,
+  loadQwenImageTransformerFromSnapshot,
+  loadQwenImageTransformerWeights,
   qwenImageAutoencoderWeightPath,
+  qwenImageTransformerWeightPath,
   transformQwenImageAutoencoderWeight,
+  transformQwenImageTransformerWeight,
 } from "./weights";
 
 async function withTempDirectory<T>(
@@ -74,6 +79,43 @@ function diffusersTinyAutoencoderConfig(): Record<string, unknown> {
   };
 }
 
+function tinyTransformerConfig(): QwenImageTransformerConfig {
+  return {
+    patchSize: 2,
+    inChannels: 4,
+    outChannels: 1,
+    latentChannels: 1,
+    packedLatentChannels: 4,
+    numLayers: 1,
+    attentionHeadDim: 6,
+    numAttentionHeads: 2,
+    hiddenSize: 12,
+    jointAttentionDim: 8,
+    guidanceEmbeds: false,
+    axesDimsRope: [2, 2, 2],
+    ropeTheta: 10000,
+    zeroCondT: false,
+    useAdditionalTCond: false,
+    useLayer3dRope: false,
+    rawConfig: {},
+  };
+}
+
+function diffusersTinyTransformerConfig(): Record<string, unknown> {
+  return {
+    _class_name: "QwenImageTransformer2DModel",
+    attention_head_dim: 6,
+    axes_dims_rope: [2, 2, 2],
+    guidance_embeds: false,
+    in_channels: 4,
+    joint_attention_dim: 8,
+    num_attention_heads: 2,
+    num_layers: 1,
+    out_channels: 1,
+    patch_size: 2,
+  };
+}
+
 function writeComponentFiles(
   snapshot: string,
   component: string,
@@ -123,6 +165,11 @@ function writeQwenImageSnapshot(snapshot: string): void {
   writeComponentFiles(snapshot, "tokenizer", ["tokenizer.json"]);
 }
 
+function writeTinyQwenImageTransformerSnapshot(snapshot: string): void {
+  writeQwenImageSnapshot(snapshot);
+  writeJson(join(snapshot, "transformer", "config.json"), diffusersTinyTransformerConfig());
+}
+
 function vaeComponent(weightPaths: readonly string[]): DiffusionSnapshotComponent {
   return {
     name: "vae",
@@ -132,6 +179,20 @@ function vaeComponent(weightPaths: readonly string[]): DiffusionSnapshotComponen
     enabled: true,
     optional: false,
     subfolder: "vae",
+    metadataPaths: [],
+    weightPaths,
+  };
+}
+
+function transformerComponent(weightPaths: readonly string[]): DiffusionSnapshotComponent {
+  return {
+    name: "transformer",
+    role: "backbone",
+    library: "diffusers",
+    className: "QwenImageTransformer2DModel",
+    enabled: true,
+    optional: false,
+    subfolder: "transformer",
     metadataPaths: [],
     weightPaths,
   };
@@ -212,6 +273,54 @@ function checkpointTensorsForParameters(
     const shape =
       internalPath === options.mismatchPath ? [1] : checkpointShapeFor(internalPath, parameter);
     tensors[checkpointNameForPath(internalPath)] = zeros(shape);
+  }
+  return { ...tensors, ...(options.extra ?? {}) };
+}
+
+function transformerCheckpointNameForPath(path: string): string {
+  return path
+    .replaceAll("timeTextEmbed", "time_text_embed")
+    .replaceAll("timestepEmbedder", "timestep_embedder")
+    .replaceAll("linear1", "linear_1")
+    .replaceAll("linear2", "linear_2")
+    .replaceAll("txtNorm", "txt_norm")
+    .replaceAll("imgIn", "img_in")
+    .replaceAll("txtIn", "txt_in")
+    .replaceAll("transformerBlocks", "transformer_blocks")
+    .replaceAll("imgMod.linear", "img_mod.1")
+    .replaceAll("txtMod.linear", "txt_mod.1")
+    .replaceAll("attn.toQ", "attn.to_q")
+    .replaceAll("attn.toK", "attn.to_k")
+    .replaceAll("attn.toV", "attn.to_v")
+    .replaceAll("attn.addQProj", "attn.add_q_proj")
+    .replaceAll("attn.addKProj", "attn.add_k_proj")
+    .replaceAll("attn.addVProj", "attn.add_v_proj")
+    .replaceAll("attn.norm.queryNorm", "attn.norm_q")
+    .replaceAll("attn.norm.keyNorm", "attn.norm_k")
+    .replaceAll("attn.addedNorm.queryNorm", "attn.norm_added_q")
+    .replaceAll("attn.addedNorm.keyNorm", "attn.norm_added_k")
+    .replaceAll("attn.toOut", "attn.to_out.0")
+    .replaceAll("attn.toAddOut", "attn.to_add_out")
+    .replaceAll("imgMlp.linear_1", "img_mlp.net.0.proj")
+    .replaceAll("imgMlp.linear_2", "img_mlp.net.2")
+    .replaceAll("txtMlp.linear_1", "txt_mlp.net.0.proj")
+    .replaceAll("txtMlp.linear_2", "txt_mlp.net.2")
+    .replaceAll("normOut.linear", "norm_out.linear")
+    .replaceAll("projOut", "proj_out");
+}
+
+function checkpointTensorsForTransformerParameters(
+  parameters: ParameterTree,
+  options: { omitPath?: string; extra?: Record<string, MxArray>; mismatchPath?: string } = {},
+): Record<string, MxArray> {
+  const tensors: Record<string, MxArray> = {};
+  for (const [path, parameter] of treeFlatten(parameters)) {
+    const internalPath = path.join(".");
+    if (internalPath === options.omitPath) {
+      continue;
+    }
+    const shape = internalPath === options.mismatchPath ? [1] : [...parameter.shape];
+    tensors[transformerCheckpointNameForPath(internalPath)] = zeros(shape);
   }
   return { ...tensors, ...(options.extra ?? {}) };
 }
@@ -434,6 +543,122 @@ describe("Qwen-Image VAE weight mapping", () => {
       using unexpectedTarget = new QwenImageAutoencoderKL(tinyAutoencoderConfig());
       await expect(
         loadQwenImageAutoencoderWeights(unexpectedTarget, vaeComponent([unexpectedPath]), {
+          strictUnexpectedWeights: true,
+        }),
+      ).rejects.toThrow("unexpected unmapped weights");
+    });
+  });
+});
+
+describe("Qwen-Image transformer weight mapping", () => {
+  test("maps Diffusers transformer names onto the package parameter tree", () => {
+    expect(qwenImageTransformerWeightPath("img_in.weight")).toBe("imgIn.weight");
+    expect(qwenImageTransformerWeightPath("txt_norm.weight")).toBe("txtNorm.weight");
+    expect(
+      qwenImageTransformerWeightPath("time_text_embed.timestep_embedder.linear_1.weight"),
+    ).toBe("timeTextEmbed.timestepEmbedder.linear1.weight");
+    expect(qwenImageTransformerWeightPath("transformer_blocks.0.img_mod.1.bias")).toBe(
+      "transformerBlocks.0.imgMod.linear.bias",
+    );
+    expect(qwenImageTransformerWeightPath("transformer_blocks.0.attn.norm_added_k.weight")).toBe(
+      "transformerBlocks.0.attn.addedNorm.keyNorm.weight",
+    );
+    expect(qwenImageTransformerWeightPath("transformer_blocks.0.img_mlp.net.0.proj.weight")).toBe(
+      "transformerBlocks.0.imgMlp.linear1.weight",
+    );
+    expect(qwenImageTransformerWeightPath("norm_out.linear.bias")).toBe("normOut.linear.bias");
+    expect(qwenImageTransformerWeightPath("proj_out.weight")).toBe("projOut.weight");
+    expect(qwenImageTransformerWeightPath("")).toBeNull();
+  });
+
+  test("leaves transformer tensors in Diffusers linear layout", () => {
+    using checkpoint = MxArray.fromData([1, 2, 3, 4], [2, 2]);
+    const transformed = transformQwenImageTransformerWeight("imgIn.weight", checkpoint);
+
+    expect(transformed).toBe(checkpoint);
+  });
+
+  test("loads a complete generated transformer safetensors shard", async () => {
+    await withTempDirectory("mlxts-qwen-image-transformer-weights-", async (directory) => {
+      using source = new QwenImageTransformer2DModel(tinyTransformerConfig());
+      const checkpointPath = join(directory, "diffusion_pytorch_model.safetensors");
+      await writeCheckpoint(
+        checkpointPath,
+        checkpointTensorsForTransformerParameters(source.parameters()),
+      );
+      using target = new QwenImageTransformer2DModel(tinyTransformerConfig());
+
+      const result = await loadQwenImageTransformerWeights(
+        target,
+        transformerComponent([checkpointPath]),
+      );
+
+      expect(result.shardCount).toBe(1);
+      expect(result.unexpectedWeights).toEqual([]);
+      expect(result.assignedPaths).toEqual(
+        treeFlatten(target.parameters())
+          .map(([path]) => path.join("."))
+          .toSorted((left, right) => left.localeCompare(right)),
+      );
+      expect(target.imgIn.weight.shape).toEqual([12, 4]);
+      expect(target.transformerBlocks[0]?.attn.toOut.weight.shape).toEqual([12, 12]);
+    });
+  });
+
+  test("loads a transformer directly from an inspected Qwen-Image snapshot manifest", async () => {
+    await withTempDirectory("mlxts-qwen-image-transformer-manifest-", async (directory) => {
+      writeTinyQwenImageTransformerSnapshot(directory);
+      using source = new QwenImageTransformer2DModel(tinyTransformerConfig());
+      await writeCheckpoint(
+        join(directory, "transformer", "diffusion_pytorch_model.safetensors"),
+        checkpointTensorsForTransformerParameters(source.parameters()),
+      );
+
+      const manifest = await loadDiffusionSnapshotManifest(directory);
+      using model = await loadQwenImageTransformerFromSnapshot(manifest);
+
+      expect(model.config.hiddenSize).toBe(12);
+      expect(model.imgIn.weight.shape).toEqual([12, 4]);
+    });
+  });
+
+  test("rejects missing, mismatched, and strict unexpected transformer weights", async () => {
+    await withTempDirectory("mlxts-qwen-image-transformer-invalid-", async (directory) => {
+      using source = new QwenImageTransformer2DModel(tinyTransformerConfig());
+      const missingPath = join(directory, "missing.safetensors");
+      await writeCheckpoint(
+        missingPath,
+        checkpointTensorsForTransformerParameters(source.parameters(), {
+          omitPath: "projOut.bias",
+        }),
+      );
+      using missingTarget = new QwenImageTransformer2DModel(tinyTransformerConfig());
+      await expect(
+        loadQwenImageTransformerWeights(missingTarget, transformerComponent([missingPath])),
+      ).rejects.toThrow(DiffusionMissingWeightsError);
+
+      const mismatchPath = join(directory, "mismatch.safetensors");
+      await writeCheckpoint(
+        mismatchPath,
+        checkpointTensorsForTransformerParameters(source.parameters(), {
+          mismatchPath: "imgIn.weight",
+        }),
+      );
+      using mismatchTarget = new QwenImageTransformer2DModel(tinyTransformerConfig());
+      await expect(
+        loadQwenImageTransformerWeights(mismatchTarget, transformerComponent([mismatchPath])),
+      ).rejects.toThrow(DiffusionWeightMismatchError);
+
+      const unexpectedPath = join(directory, "unexpected.safetensors");
+      await writeCheckpoint(
+        unexpectedPath,
+        checkpointTensorsForTransformerParameters(source.parameters(), {
+          extra: { "transformer.extra.weight": zeros([1]) },
+        }),
+      );
+      using unexpectedTarget = new QwenImageTransformer2DModel(tinyTransformerConfig());
+      await expect(
+        loadQwenImageTransformerWeights(unexpectedTarget, transformerComponent([unexpectedPath]), {
           strictUnexpectedWeights: true,
         }),
       ).rejects.toThrow("unexpected unmapped weights");
