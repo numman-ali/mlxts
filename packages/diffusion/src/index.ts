@@ -171,6 +171,16 @@ export {
   unpackLtxVideoLatents,
 } from "./families/ltx/latents";
 export {
+  applyLtxVideoClassifierFreeGuidance,
+  denoiseLtxVideoLatents,
+  type LtxVideoConditioning,
+  type LtxVideoDenoiseOptions,
+  type LtxVideoDenoiser,
+  type LtxVideoDenoiserInput,
+  type LtxVideoDenoisingStepEvent,
+  type LtxVideoScheduler,
+} from "./families/ltx/pipeline";
+export {
   QwenImageAutoencoderKL,
   QwenImageDecoder3d,
   QwenImageEncoder3d,

@@ -238,9 +238,13 @@ major product-agent focus on package-owned CLIs and future PI-agent integration.
   video latent shape derivation, LTX-2 audio BCLM token packing, and audio
   latent duration/mel geometry. LTX RoPE helpers now cover classic LTX
   video coordinate scaling plus LTX-2 video/audio patch-boundary coordinates
-  and interleaved/split frequency tensors. Runtime generation, latent
-  upsampling, audio/video artifact writing, and proof commands remain future
-  Phase 10 tranches.
+  and interleaved/split frequency tensors. Classic LTX-Video prepared-tensor
+  denoising now runs over packed video latents with raw FlowMatch timesteps,
+  unpatched video-length dynamic shift, negative-first batched CFG, semantic
+  prompt attention masks, and VAE-derived RoPE interpolation scale. Transformer
+  execution, VAE decode/denormalization, latent upsampling, audio/video
+  artifact writing, LTX-2 denoising, and proof commands remain future Phase 10
+  tranches.
 - **Qwen conditional serving**: top-level Qwen 3.5 / 3.6 conditional
   checkpoints expose the Qwen text batch-cache surface for text-only continuous
   serving. Media/content requests still route as `media_input` and stay off

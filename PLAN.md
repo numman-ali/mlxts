@@ -1070,9 +1070,12 @@ video/audio component roles and typed component configs without importing
 transformer encoders or claiming runtime generation. Package-owned LTX latent
 geometry now covers Diffusers-compatible video BCFHW packing and LTX-2 audio
 BCLM packing, and package-owned RoPE geometry now covers classic LTX video
-coordinate scaling plus LTX-2 video/audio patch-boundary coordinates. LTX
-runtime, latent upsampling, audio-video output encoding, and finite proof
-commands remain future tranches.
+coordinate scaling plus LTX-2 video/audio patch-boundary coordinates. Classic
+LTX-Video packed-latent denoising now covers prepared prompt embeddings and
+attention masks, raw FlowMatch timesteps, unpatched video-length dynamic shift,
+and negative-first batched CFG. LTX transformer execution, VAE
+decode/denormalization, latent upsampling, audio-video output encoding, LTX-2
+denoising, and finite proof commands remain future tranches.
 
 **What this phase covers**:
 
@@ -1181,8 +1184,11 @@ All diffusion and flow-based generation across modalities: image, video, and aud
    Video latent shape/packing and LTX-2 audio latent shape/packing now match
    Diffusers token order. Classic LTX video RoPE coordinates and LTX-2
    video/audio patch-boundary RoPE coordinates now match the current Diffusers
-   geometry. Runtime generation, latent upsampling, audio/video artifact
-   output, and proof commands remain separate tranches.
+   geometry. Classic LTX-Video prepared-tensor denoising now matches the
+   current Diffusers loop shape for raw timesteps, video-length dynamic shift,
+   semantic attention masks, VAE-derived RoPE interpolation scale, and batched
+   CFG. Transformer/VAE runtime, latent upsampling, audio/video artifact
+   output, LTX-2 denoising, and proof commands remain separate tranches.
 
 ### 10c. Examples
 

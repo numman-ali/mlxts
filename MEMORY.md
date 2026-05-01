@@ -60,19 +60,25 @@ This file captures durable cross-session learnings for `mlxts` so future agent s
   BCFHW packing and LTX-2 audio BCLM packing, including audio duration/mel
   compression shape derivation. RoPE geometry helpers now match classic LTX
   video coordinate scaling and LTX-2 video/audio patch-boundary coordinate
-  semantics, including interleaved and split frequency tensor layouts. Runtime
-  generation, latent upsampling, audio/video artifact output, and finite proof
-  commands remain future tranches. — refs:
+  semantics, including interleaved and split frequency tensor layouts. Classic
+  LTX-Video prepared-tensor denoising now runs over packed video latents with
+  raw FlowMatch timesteps, unpatched video-length dynamic shift, semantic
+  prompt attention masks, VAE-derived RoPE interpolation scale, and
+  negative-first batched CFG. Transformer/VAE runtime, LTX-2 denoising, latent
+  upsampling, audio/video artifact output, and finite proof commands remain
+  future tranches. — refs:
   `packages/diffusion/src/pretrained/model-index.ts`,
   `packages/diffusion/src/pretrained/ltx-pipeline-specs.ts`,
   `packages/diffusion/src/pretrained/snapshot-file-selection.ts`,
   `packages/diffusion/src/families/ltx/config.ts`,
   `packages/diffusion/src/families/ltx/latents.ts`,
   `packages/diffusion/src/families/ltx/embeddings.ts`,
+  `packages/diffusion/src/families/ltx/pipeline.ts`,
   `docs/reviews/2026-05-01-ltx-video-snapshot-skeleton.md`,
   `docs/reviews/2026-05-01-ltx-video-component-configs.md`,
   `docs/reviews/2026-05-01-ltx-latent-geometry.md`,
-  `docs/reviews/2026-05-01-ltx-rope-geometry.md`
+  `docs/reviews/2026-05-01-ltx-rope-geometry.md`,
+  `docs/reviews/2026-05-01-ltx-video-denoising-runtime.md`
 
 - (2026-05-01) [DIFFUSION/SD3] `@mlxts/diffusion` recognizes Diffusers
   `StableDiffusion3Pipeline` snapshots and parses `SD3Transformer2DModel` plus
