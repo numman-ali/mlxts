@@ -995,14 +995,14 @@ Euler metadata now maps to sigma-space scheduler behavior for SD/SDXL leading
 or trailing timestep spacing, `steps_offset`, and final sigma policy. It also
 owns the first FLUX.1 package path: FlowMatch Euler scheduling, FLUX
 transformer config/backbone/weights, FLUX VAE config/loading/decoding, latent
-packing, sampling, and an AXI-shaped `examples/flux` proof command. Both image
-proof commands accept a local directory or Hugging Face model id and resolve it
-to a concrete local snapshot before generation; remote resolution selects
-component-local Diffusers weights and supports an explicit filename variant such
-as `fp16` so proof runs do not download root monolith exports or duplicate
-weight variants. The official SDXL base fp16 checkpoint has passed a bounded
-real image proof through this path, loading the Hub snapshot, encoding prompt
-conditioning, running denoising, and writing a BMP artifact. Official
+packing, sampling, and an AXI-shaped `examples/flux` proof command. The SDXL
+and FLUX proof commands accept a local directory or Hugging Face model id and
+resolve it to a concrete local snapshot before generation; remote resolution
+selects component-local Diffusers weights and supports an explicit filename
+variant such as `fp16` so proof runs do not download root monolith exports or
+duplicate weight variants. The official SDXL base fp16 checkpoint has passed a
+bounded real image proof through this path, loading the Hub snapshot, encoding
+prompt conditioning, running denoising, and writing a BMP artifact. Official
 `black-forest-labs/FLUX.1-schnell` has also passed a bounded real image proof
 through `examples/flux`, including Hub snapshot resolution, FLUX transformer
 and no-quant VAE loading, CLIP/T5 prompt conditioning, two denoise steps, and
@@ -1010,9 +1010,9 @@ BMP output. Base Qwen-Image runtime support has landed: snapshot recognition,
 Qwen-Image transformer and 3D causal VAE config parsing/loading, FlowMatch
 `shift_terminal` scheduling, latent packing, true-CFG denoising, Diffusers-style
 Qwen2.5-VL prompt conditioning in `examples/qwen-image`, and an AXI-shaped
-finite proof command. Official `Qwen/Qwen-Image-2512` checkpoint evidence
-remains follow-on because the full snapshot is not yet locally proven. Base
-Z-Image snapshot recognition and config parsing has
+finite proof command. Official `Qwen/Qwen-Image-2512` has passed a bounded real
+checkpoint proof through that path. Base Z-Image snapshot recognition and
+config parsing has
 also landed for current Diffusers `ZImagePipeline` snapshots, including
 `ZImageTransformer2DModel` geometry, RoPE axes, padding constants, standard
 AutoencoderKL metadata, and the Qwen3 text-encoder manifest boundary. Base
