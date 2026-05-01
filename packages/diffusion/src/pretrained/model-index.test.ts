@@ -101,6 +101,79 @@ function writeStableDiffusion3Snapshot(snapshot: string): void {
   writeComponentFiles(snapshot, "tokenizer_3", ["spiece.model"]);
 }
 
+function writeLtxVideoSnapshot(snapshot: string): void {
+  writeJson(join(snapshot, "model_index.json"), {
+    _class_name: "LTXPipeline",
+    _diffusers_version: "0.32.0.dev0",
+    scheduler: ["diffusers", "FlowMatchEulerDiscreteScheduler"],
+    text_encoder: ["transformers", "T5EncoderModel"],
+    tokenizer: ["transformers", "T5Tokenizer"],
+    transformer: ["diffusers", "LTXVideoTransformer3DModel"],
+    vae: ["diffusers", "AutoencoderKLLTXVideo"],
+  });
+  writeComponentFiles(
+    snapshot,
+    "transformer",
+    ["config.json"],
+    ["diffusion_pytorch_model.safetensors"],
+  );
+  writeComponentFiles(snapshot, "vae", ["config.json"], ["diffusion_pytorch_model.safetensors"]);
+  writeComponentFiles(snapshot, "scheduler", ["scheduler_config.json"]);
+  writeJson(join(snapshot, "scheduler", "scheduler_config.json"), {
+    _class_name: "FlowMatchEulerDiscreteScheduler",
+    use_dynamic_shifting: true,
+  });
+  writeComponentFiles(snapshot, "text_encoder", ["config.json"], ["model.safetensors"]);
+  writeComponentFiles(snapshot, "tokenizer", ["spiece.model"]);
+}
+
+function writeLtx2Snapshot(snapshot: string): void {
+  writeJson(join(snapshot, "model_index.json"), {
+    _class_name: "LTX2Pipeline",
+    _diffusers_version: "0.37.0.dev0",
+    audio_vae: ["diffusers", "AutoencoderKLLTX2Audio"],
+    connectors: ["ltx2", "LTX2TextConnectors"],
+    scheduler: ["diffusers", "FlowMatchEulerDiscreteScheduler"],
+    text_encoder: ["transformers", "Gemma3ForConditionalGeneration"],
+    tokenizer: ["transformers", "GemmaTokenizerFast"],
+    transformer: ["diffusers", "LTX2VideoTransformer3DModel"],
+    vae: ["diffusers", "AutoencoderKLLTX2Video"],
+    vocoder: ["ltx2", "LTX2Vocoder"],
+  });
+  writeComponentFiles(
+    snapshot,
+    "transformer",
+    ["config.json"],
+    ["diffusion_pytorch_model.safetensors"],
+  );
+  writeComponentFiles(snapshot, "vae", ["config.json"], ["diffusion_pytorch_model.safetensors"]);
+  writeComponentFiles(
+    snapshot,
+    "audio_vae",
+    ["config.json"],
+    ["diffusion_pytorch_model.safetensors"],
+  );
+  writeComponentFiles(snapshot, "scheduler", ["scheduler_config.json"]);
+  writeJson(join(snapshot, "scheduler", "scheduler_config.json"), {
+    _class_name: "FlowMatchEulerDiscreteScheduler",
+    shift: 3,
+  });
+  writeComponentFiles(snapshot, "text_encoder", ["config.json"], ["model.safetensors"]);
+  writeComponentFiles(snapshot, "tokenizer", ["tokenizer.json"]);
+  writeComponentFiles(
+    snapshot,
+    "connectors",
+    ["config.json"],
+    ["diffusion_pytorch_model.safetensors"],
+  );
+  writeComponentFiles(
+    snapshot,
+    "vocoder",
+    ["config.json"],
+    ["diffusion_pytorch_model.safetensors"],
+  );
+}
+
 describe("diffusion model index loading", () => {
   test("parses Stable Diffusion model_index components", () => {
     const parsed = parseDiffusionModelIndex({
@@ -314,6 +387,76 @@ describe("diffusion model index loading", () => {
     });
   });
 
+  test("parses LTX-Video model_index components", () => {
+    const modelIndex = {
+      _class_name: "LTXPipeline",
+      _diffusers_version: "0.32.0.dev0",
+      scheduler: ["diffusers", "FlowMatchEulerDiscreteScheduler"],
+      text_encoder: ["transformers", "T5EncoderModel"],
+      tokenizer: ["transformers", "T5Tokenizer"],
+      transformer: ["diffusers", "LTXVideoTransformer3DModel"],
+      vae: ["diffusers", "AutoencoderKLLTXVideo"],
+    };
+    const parsed = parseDiffusionModelIndex(modelIndex);
+
+    expect(parsed.kind).toBe("ltx-video");
+    expect(parsed.diffusersVersion).toBe("0.32.0.dev0");
+    expect(parsed.components.map((component) => component.name)).toEqual([
+      "transformer",
+      "vae",
+      "scheduler",
+      "text_encoder",
+      "tokenizer",
+    ]);
+    expect(parsed.components.find((component) => component.name === "transformer")).toMatchObject({
+      role: "backbone",
+      className: "LTXVideoTransformer3DModel",
+    });
+    expect(
+      parseDiffusionModelIndex({
+        ...modelIndex,
+        _class_name: "LTXConditionPipeline",
+        _diffusers_version: "0.34.0.dev0",
+      }).kind,
+    ).toBe("ltx-video");
+  });
+
+  test("parses LTX-2 audio-video model_index components", () => {
+    const parsed = parseDiffusionModelIndex({
+      _class_name: "LTX2Pipeline",
+      _diffusers_version: "0.37.0.dev0",
+      audio_vae: ["diffusers", "AutoencoderKLLTX2Audio"],
+      connectors: ["ltx2", "LTX2TextConnectors"],
+      scheduler: ["diffusers", "FlowMatchEulerDiscreteScheduler"],
+      text_encoder: ["transformers", "Gemma3ForConditionalGeneration"],
+      tokenizer: ["transformers", "GemmaTokenizerFast"],
+      transformer: ["diffusers", "LTX2VideoTransformer3DModel"],
+      vae: ["diffusers", "AutoencoderKLLTX2Video"],
+      vocoder: ["ltx2", "LTX2Vocoder"],
+    });
+
+    expect(parsed.kind).toBe("ltx2");
+    expect(parsed.diffusersVersion).toBe("0.37.0.dev0");
+    expect(parsed.components.map((component) => component.name)).toEqual([
+      "transformer",
+      "vae",
+      "audio_vae",
+      "scheduler",
+      "text_encoder",
+      "tokenizer",
+      "connectors",
+      "vocoder",
+    ]);
+    expect(parsed.components.find((component) => component.name === "audio_vae")).toMatchObject({
+      role: "audio-vae",
+      className: "AutoencoderKLLTX2Audio",
+    });
+    expect(parsed.components.find((component) => component.name === "vocoder")).toMatchObject({
+      role: "vocoder",
+      library: "ltx2",
+    });
+  });
+
   test("loads a local snapshot manifest without constructing models", async () => {
     await withTempDirectory("mlxts-diffusion-model-index-", async (directory) => {
       writeStableDiffusionSnapshot(directory);
@@ -346,6 +489,37 @@ describe("diffusion model index loading", () => {
         join(directory, "transformer", "diffusion_pytorch_model.safetensors"),
       ]);
       expect(t5Tokenizer?.metadataPaths).toEqual([join(directory, "tokenizer_3", "spiece.model")]);
+    });
+  });
+
+  test("loads LTX-Video and LTX-2 local snapshot manifests", async () => {
+    await withTempDirectory("mlxts-diffusion-ltx-video-model-index-", async (directory) => {
+      writeLtxVideoSnapshot(directory);
+
+      const manifest = await loadDiffusionSnapshotManifest(directory);
+
+      expect(manifest.modelIndex.className).toBe("LTXPipeline");
+      expect(manifest.modelIndex.kind).toBe("ltx-video");
+      expect(manifest.schedulerConfig.kind).toBe("flow-match-euler");
+      expect(
+        manifest.components.find((component) => component.name === "tokenizer")?.metadataPaths,
+      ).toEqual([join(directory, "tokenizer", "spiece.model")]);
+    });
+
+    await withTempDirectory("mlxts-diffusion-ltx2-model-index-", async (directory) => {
+      writeLtx2Snapshot(directory);
+
+      const manifest = await loadDiffusionSnapshotManifest(directory);
+      const audioVae = manifest.components.find((component) => component.name === "audio_vae");
+      const connector = manifest.components.find((component) => component.name === "connectors");
+
+      expect(manifest.modelIndex.className).toBe("LTX2Pipeline");
+      expect(manifest.modelIndex.kind).toBe("ltx2");
+      expect(manifest.schedulerConfig.kind).toBe("flow-match-euler");
+      expect(audioVae?.weightPaths).toEqual([
+        join(directory, "audio_vae", "diffusion_pytorch_model.safetensors"),
+      ]);
+      expect(connector?.metadataPaths).toEqual([join(directory, "connectors", "config.json")]);
     });
   });
 
@@ -404,6 +578,21 @@ describe("diffusion model index loading", () => {
       "not supported",
     );
     expect(() => parseDiffusionModelIndex({ _class_name: "ZImageOmniPipeline" })).toThrow(
+      "not supported",
+    );
+    expect(() => parseDiffusionModelIndex({ _class_name: "LTXImageToVideoPipeline" })).toThrow(
+      "not supported",
+    );
+    expect(() => parseDiffusionModelIndex({ _class_name: "LTXLatentUpsamplePipeline" })).toThrow(
+      "not supported",
+    );
+    expect(() => parseDiffusionModelIndex({ _class_name: "LTX2ImageToVideoPipeline" })).toThrow(
+      "not supported",
+    );
+    expect(() => parseDiffusionModelIndex({ _class_name: "LTX2ConditionPipeline" })).toThrow(
+      "not supported",
+    );
+    expect(() => parseDiffusionModelIndex({ _class_name: "LTX2LatentUpsamplePipeline" })).toThrow(
       "not supported",
     );
     expect(() =>

@@ -1,7 +1,7 @@
 import { DiffusionConfigError } from "../errors";
 import { PIPELINE_SPECS, type PipelineSpec } from "./pipeline-specs";
 
-/** Diffusers pipeline classes with recognized local text-to-image snapshot layout. */
+/** Diffusers pipeline classes with recognized local generative-media snapshot layout. */
 export type DiffusersPipelineClassName =
   | "StableDiffusionPipeline"
   | "StableDiffusionXLPipeline"
@@ -9,7 +9,10 @@ export type DiffusersPipelineClassName =
   | "FluxPipeline"
   | "Flux2KleinPipeline"
   | "QwenImagePipeline"
-  | "ZImagePipeline";
+  | "ZImagePipeline"
+  | "LTXPipeline"
+  | "LTXConditionPipeline"
+  | "LTX2Pipeline";
 
 /** Pipeline family represented by a supported Diffusers `model_index.json`. */
 export type DiffusionPipelineKind =
@@ -19,11 +22,14 @@ export type DiffusionPipelineKind =
   | "flux"
   | "flux2-klein"
   | "qwen-image"
-  | "z-image";
+  | "z-image"
+  | "ltx-video"
+  | "ltx2";
 
-/** Component folders recognized in Diffusers text-to-image snapshots. */
+/** Component folders recognized in Diffusers generative-media snapshots. */
 export type DiffusionComponentName =
   | "vae"
+  | "audio_vae"
   | "text_encoder"
   | "text_encoder_2"
   | "text_encoder_3"
@@ -35,18 +41,23 @@ export type DiffusionComponentName =
   | "scheduler"
   | "safety_checker"
   | "feature_extractor"
-  | "image_encoder";
+  | "image_encoder"
+  | "connectors"
+  | "vocoder";
 
 /** Semantic role for a Diffusers component folder. */
 export type DiffusionComponentRole =
   | "vae"
+  | "audio-vae"
   | "text-encoder"
   | "tokenizer"
   | "backbone"
   | "scheduler"
   | "safety"
   | "image-processor"
-  | "image-encoder";
+  | "image-encoder"
+  | "connector"
+  | "vocoder";
 
 /** Component entry parsed from `model_index.json`. */
 export type DiffusionModelIndexComponent = {
@@ -145,7 +156,10 @@ function parsePipelineClassName(
     className === "FluxPipeline" ||
     className === "Flux2KleinPipeline" ||
     className === "QwenImagePipeline" ||
-    className === "ZImagePipeline"
+    className === "ZImagePipeline" ||
+    className === "LTXPipeline" ||
+    className === "LTXConditionPipeline" ||
+    className === "LTX2Pipeline"
   ) {
     return className;
   }

@@ -226,6 +226,14 @@ major product-agent focus on package-owned CLIs and future PI-agent integration.
   BMP artifact evidence. The official `stabilityai/stable-diffusion-3.5-medium`
   proof attempt reached Hub snapshot resolution but was blocked because the
   configured token is not authorized for the gated repo.
+- **Phase 10 LTX video/audio snapshot entry point**: `@mlxts/diffusion` now
+  recognizes Diffusers `LTXPipeline`, `LTXConditionPipeline`, and `LTX2Pipeline`
+  snapshots. LTX-Video maps FlowMatch Euler, T5 text metadata,
+  `LTXVideoTransformer3DModel`, and `AutoencoderKLLTXVideo`; LTX-2 maps Gemma3
+  text metadata, `LTX2VideoTransformer3DModel`, `AutoencoderKLLTX2Video`,
+  `AutoencoderKLLTX2Audio`, `LTX2TextConnectors`, and `LTX2Vocoder`. This is
+  manifest support only; runtime generation, latent upsampling, audio/video
+  artifact writing, and proof commands remain future Phase 10 tranches.
 - **Qwen conditional serving**: top-level Qwen 3.5 / 3.6 conditional
   checkpoints expose the Qwen text batch-cache surface for text-only continuous
   serving. Media/content requests still route as `media_input` and stay off

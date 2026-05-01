@@ -1,3 +1,4 @@
+import { LTX_VIDEO_COMPONENTS, LTX2_COMPONENTS } from "./ltx-pipeline-specs";
 import type {
   DiffusersPipelineClassName,
   DiffusionModelIndexComponentSpec,
@@ -418,5 +419,17 @@ export const PIPELINE_SPECS: Record<DiffusersPipelineClassName, PipelineSpec> = 
   ZImagePipeline: {
     kind: "z-image",
     components: Z_IMAGE_COMPONENTS,
+  },
+  LTXPipeline: {
+    kind: "ltx-video",
+    components: LTX_VIDEO_COMPONENTS,
+  },
+  LTXConditionPipeline: {
+    kind: "ltx-video",
+    components: LTX_VIDEO_COMPONENTS,
+  },
+  LTX2Pipeline: {
+    kind: "ltx2",
+    components: LTX2_COMPONENTS,
   },
 };

@@ -17,6 +17,7 @@ const REMOTE_SUPPORTED_FILE_NAMES = new Set([
   "generation_config.json",
   "tokenizer.json",
   "tokenizer_config.json",
+  "processor_config.json",
   "special_tokens_map.json",
   "vocab.json",
   "merges.txt",
@@ -29,12 +30,15 @@ const REMOTE_SUPPORTED_FILE_NAMES = new Set([
 const REMOTE_WEIGHT_COMPONENT_FOLDERS = new Set([
   "unet",
   "vae",
+  "audio_vae",
   "text_encoder",
   "text_encoder_2",
   "text_encoder_3",
   "transformer",
   "transformer_2",
   "image_encoder",
+  "connectors",
+  "vocoder",
 ]);
 
 const SAFETENSORS_SUFFIX = ".safetensors";

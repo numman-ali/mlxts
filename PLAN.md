@@ -1063,7 +1063,12 @@ encoder ownership outside `@mlxts/diffusion`, and the finite AXI proof command
 now runs that bridge through FlowMatch denoising plus BMP artifact evidence.
 Authenticated gated checkpoint proof remains a separate tranche. Reference-image
 / KV variants, broader VLM families, audio encoder/decoder families, and
-additional diffusion/flow families remain Phase 10 work.
+additional diffusion/flow families remain Phase 10 work. LTX-Video and LTX-2
+now have a package-owned Diffusers manifest entry point: current
+`LTXPipeline`, `LTXConditionPipeline`, and `LTX2Pipeline` snapshots parse into
+video/audio component roles without importing transformer encoders or claiming
+runtime generation. LTX runtime, latent upsampling, audio-video output encoding,
+and finite proof commands remain future tranches.
 
 **What this phase covers**:
 
@@ -1089,7 +1094,7 @@ All diffusion and flow-based generation across modalities: image, video, and aud
 - Schedulers: DDPM, DDIM, DPM-Solver, Euler, Flow Matching
 - Conditioning: cross-attention from text/image embeddings (produced by encoders from `@mlxts/transformers`)
 - Sampling: classifier-free guidance, negative prompts
-- Target families (informed by mlxr proving workloads): Stable Diffusion/SDXL, FLUX.1, Z-Image-Turbo, Qwen-Image/Qwen-Image-2512, FLUX.2 Klein, Stable Diffusion 3 / 3.5, LTX-Video
+- Target families (informed by mlxr proving workloads): Stable Diffusion/SDXL, FLUX.1, Z-Image-Turbo, Qwen-Image/Qwen-Image-2512, FLUX.2 Klein, Stable Diffusion 3 / 3.5, LTX-Video, LTX-2
 - Fine-tuning: `@mlxts/lora` and `@mlxts/train` work on diffusion models — LoRA targets attention layers in UNet/DiT the same way it targets attention in text decoders. DreamBooth and textual inversion are diffusion-specific techniques that live in this package.
 
 **Image-generation support ladder:**
@@ -1161,6 +1166,16 @@ All diffusion and flow-based generation across modalities: image, video, and aud
    proof is blocked on gated Hub access for the configured token; rerun the same
    proof command when access is granted or a local SD3/SD3.5 Diffusers snapshot
    is supplied.
+7. **LTX-Video / LTX-2**: these open the video and audio-video diffusion track.
+   Current Diffusers LTX-Video snapshots expose `LTXPipeline` or
+   `LTXConditionPipeline` over FlowMatch Euler, T5 text metadata,
+   `LTXVideoTransformer3DModel`, and `AutoencoderKLLTXVideo`. Current LTX-2
+   snapshots expose `LTX2Pipeline` over Gemma3 text metadata,
+   `LTX2VideoTransformer3DModel`, `AutoencoderKLLTX2Video`,
+   `AutoencoderKLLTX2Audio`, `LTX2TextConnectors`, and `LTX2Vocoder`. Snapshot
+   recognition has landed as a manifest-only entry point; runtime generation,
+   latent upsampling, audio/video artifact output, and proof commands remain
+   separate tranches.
 
 ### 10c. Examples
 

@@ -44,6 +44,24 @@ This file captures durable cross-session learnings for `mlxts` so future agent s
   `bn.running_mean` and `bn.running_var` as required non-parameter buffers, and
   keep `bn.num_batches_tracked` skipped.
 
+- (2026-05-01) [DIFFUSION/LTX] `@mlxts/diffusion` recognizes current
+  Diffusers LTX video/audio snapshot manifests without importing transformer
+  encoders or claiming runtime generation. `LTXPipeline` and
+  `LTXConditionPipeline` map to `ltx-video` with FlowMatch Euler, T5 text
+  metadata, `LTXVideoTransformer3DModel`, and `AutoencoderKLLTXVideo`.
+  `LTX2Pipeline` maps to `ltx2` with Gemma3 text metadata,
+  `LTX2VideoTransformer3DModel`, `AutoencoderKLLTX2Video`,
+  `AutoencoderKLLTX2Audio`, `LTX2TextConnectors`, and `LTX2Vocoder`. Remote
+  snapshot selection keeps those LTX-2 component folders plus tokenizer
+  `processor_config.json`; root monolith exports and latent upsampler sidecars
+  still stay out of the selected manifest path. Runtime generation, latent
+  upsampling, audio/video artifact output, and finite proof commands remain
+  future tranches. — refs:
+  `packages/diffusion/src/pretrained/model-index.ts`,
+  `packages/diffusion/src/pretrained/ltx-pipeline-specs.ts`,
+  `packages/diffusion/src/pretrained/snapshot-file-selection.ts`,
+  `docs/reviews/2026-05-01-ltx-video-snapshot-skeleton.md`
+
 - (2026-05-01) [DIFFUSION/SD3] `@mlxts/diffusion` recognizes Diffusers
   `StableDiffusion3Pipeline` snapshots and parses `SD3Transformer2DModel` plus
   AutoencoderKL component configs, including SD3.5 `dual_attention_layers` and

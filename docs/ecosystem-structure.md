@@ -270,6 +270,10 @@ command.
 Stable Diffusion 3 / 3.5 and distilled or turbo variants now have manifest and
 component-config skeleton support; runtime/proof work follows only through the
 base family infrastructure or with a documented architecture delta.
+LTX-Video and LTX-2 now have manifest-only snapshot recognition for current
+Diffusers `LTXPipeline`, `LTXConditionPipeline`, and `LTX2Pipeline` layouts.
+Runtime video/audio generation, latent upsampling, and artifact output remain
+future Phase 10 tranches.
 
 **Architecture pattern:** Mirrors `@mlxts/transformers` — explicit family
 registry, config-driven model construction, and official Hugging Face JS-backed snapshot loading.

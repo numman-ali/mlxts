@@ -156,6 +156,58 @@ describe("Diffusers snapshot remote file selection", () => {
     ]);
   });
 
+  test("selects LTX-2 audio-video component folders", () => {
+    const selected = selectSupportedRemoteFiles("Lightricks/LTX-2", "abc", [
+      file("README.md"),
+      file("ltx-2-19b-dev.safetensors", 12_000),
+      file("model_index.json"),
+      file("audio_vae/config.json"),
+      file("audio_vae/diffusion_pytorch_model.safetensors"),
+      file("connectors/config.json"),
+      file("connectors/diffusion_pytorch_model.safetensors"),
+      file("scheduler/scheduler_config.json"),
+      file("text_encoder/config.json"),
+      file("text_encoder/generation_config.json"),
+      file("text_encoder/model.safetensors.index.json"),
+      file("text_encoder/model-00001-of-00002.safetensors"),
+      file("text_encoder/model-00002-of-00002.safetensors"),
+      file("tokenizer/processor_config.json"),
+      file("tokenizer/tokenizer.json"),
+      file("transformer/config.json"),
+      file("transformer/diffusion_pytorch_model.safetensors.index.json"),
+      file("transformer/diffusion_pytorch_model-00001-of-00002.safetensors"),
+      file("transformer/diffusion_pytorch_model-00002-of-00002.safetensors"),
+      file("vae/config.json"),
+      file("vae/diffusion_pytorch_model.safetensors"),
+      file("vocoder/config.json"),
+      file("vocoder/diffusion_pytorch_model.safetensors"),
+    ]);
+
+    expect(selected.map((entry) => entry.relativePath)).toEqual([
+      "audio_vae/config.json",
+      "audio_vae/diffusion_pytorch_model.safetensors",
+      "connectors/config.json",
+      "connectors/diffusion_pytorch_model.safetensors",
+      "model_index.json",
+      "scheduler/scheduler_config.json",
+      "text_encoder/config.json",
+      "text_encoder/generation_config.json",
+      "text_encoder/model-00001-of-00002.safetensors",
+      "text_encoder/model-00002-of-00002.safetensors",
+      "text_encoder/model.safetensors.index.json",
+      "tokenizer/processor_config.json",
+      "tokenizer/tokenizer.json",
+      "transformer/config.json",
+      "transformer/diffusion_pytorch_model-00001-of-00002.safetensors",
+      "transformer/diffusion_pytorch_model-00002-of-00002.safetensors",
+      "transformer/diffusion_pytorch_model.safetensors.index.json",
+      "vae/config.json",
+      "vae/diffusion_pytorch_model.safetensors",
+      "vocoder/config.json",
+      "vocoder/diffusion_pytorch_model.safetensors",
+    ]);
+  });
+
   test("rejects requested variants when no matching or default component weights exist", () => {
     expect(() =>
       selectSupportedRemoteFiles(
