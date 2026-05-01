@@ -91,6 +91,14 @@ export {
   unpackQwenImageLatents,
 } from "./families/qwen-image/latents";
 export {
+  decodeQwenImageLatents,
+  type QwenImageLatentDecoder,
+} from "./families/qwen-image/pipeline";
+export {
+  loadQwenImageAutoencoderFromSnapshot,
+  loadQwenImageAutoencoderWeights,
+  type QwenImageAutoencoderWeightLoadOptions,
+  type QwenImageAutoencoderWeightLoadResult,
   qwenImageAutoencoderWeightPath,
   transformQwenImageAutoencoderWeight,
 } from "./families/qwen-image/weights";
