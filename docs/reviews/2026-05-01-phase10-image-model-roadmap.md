@@ -37,8 +37,8 @@ Klein as a separate later family rather than a FLUX.1 variant.
 - Qwen-Image remains architecturally important but heavier. Diffusers exposes
   `QwenImagePipeline`, while `Qwen/Qwen-Image-2512` is the newer forward target
   with improved realism, detail, and text rendering. Its Qwen-specific VAE and
-  text stack make runtime execution a separate tranche after the existing
-  config/model-index skeleton. Sources:
+  text stack now have a package-owned runtime/proof-command path; official full
+  checkpoint evidence remains pending. Sources:
   https://huggingface.co/docs/diffusers/api/pipelines/qwenimage and
   https://huggingface.co/Qwen/Qwen-Image-2512
 - FLUX.2 Klein is not a FLUX.1 checkpoint variant. Diffusers exposes
@@ -72,9 +72,9 @@ runtime tensor execution today.
 
 ## Remaining Risks / Follow-ups
 
-- FLUX.1 still needs real checkpoint image evidence before it can be called
-  product-complete.
-- Z-Image and Qwen-Image runtime execution remain separate implementation
-  tranches.
+- Z-Image-Turbo still needs official dense checkpoint image evidence before it
+  can be called product-complete.
+- Qwen-Image / Qwen-Image-2512 still needs official full checkpoint image
+  evidence before it can be called product-complete.
 - Video and audio generation remain Phase 10 work after the first image
   generation surfaces are stable.

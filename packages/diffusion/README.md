@@ -6,12 +6,13 @@ This package is the Phase 10 counterpart to `@mlxts/transformers`: transformer
 families generate autoregressively, while diffusion families iteratively denoise
 latents through schedulers, backbones, VAE decoders, and conditioning tensors.
 
-The current package surface covers scheduler infrastructure plus the Stable
-Diffusion / SDXL package path: local Diffusers manifest/config inspection,
-VAE/UNet construction and safetensor loading, scheduler-backed sampling, and a
-disposable pipeline bundle that accepts caller-owned conditioning tensors.
-Prompt tokenization, CLIP text encoding, and image artifact writing stay outside
-this package boundary.
+The current package surface covers the active Phase 10 image-generation ladder:
+Stable Diffusion / SDXL, FLUX.1, Z-Image, and Qwen-Image package paths. The
+package owns Diffusers snapshot inspection, scheduler/config loading, VAE and
+backbone modules, safetensor loading, denoising loops, latent helpers, and
+conditioning tensor contracts. Prompt tokenization, text encoders, image
+artifact writing, and proof-command ergonomics stay in examples or the packages
+that own those encoders.
 
 ```ts
 import { array } from "@mlxts/core";
@@ -46,8 +47,20 @@ using bundle = await loadStableDiffusionPipelineFromSnapshot("/models/stable-dif
 bundle.scheduler.timesteps(2);
 ```
 
-`examples/stable-diffusion` owns the AXI-shaped finite proof command that
-composes this package with CLIP tokenizers/text encoders and writes a BMP image
-artifact. Real checkpoint image evidence, FLUX.1, Qwen-Image, Z-Image-Turbo,
-Stable Diffusion 3 / 3.5, Hub-backed snapshot resolution, image-to-image,
-inpainting, and broader output formats remain follow-on Phase 10 tranches.
+## Image Support Ladder
+
+| Family | Package Runtime | Proof Command | Real Checkpoint Evidence | Status |
+| --- | --- | --- | --- | --- |
+| Stable Diffusion / SDXL | VAE, UNet2D, DDIM/Euler, CFG, SD/SDXL conditioning contracts | `examples/stable-diffusion` | Official SDXL base fp16 bounded proof passed | Baseline supported path |
+| FLUX.1 | FlowMatch Euler, FLUX transformer, VAE, latent packing, sampling | `examples/flux` | Official `black-forest-labs/FLUX.1-schnell` bounded proof passed | Modern flow baseline |
+| Z-Image-Turbo | Dense base Z-Image transformer, FlowMatch denoising, VAE decode layout, weight loading | `examples/z-image` | Pending for official dense `Tongyi-MAI/Z-Image-Turbo`; snapshot is heavyweight and not cached by default | Next speed-first proof target |
+| Qwen-Image / Qwen-Image-2512 | Qwen-Image transformer, 3D causal VAE, FlowMatch, true-CFG denoising, weight loading | `examples/qwen-image` | Pending for official `Qwen/Qwen-Image-2512`; local full snapshot proof is still required | Forward Qwen image-generation target |
+| FLUX.2 Klein | Not implemented | None | None | Later separate family, not a FLUX.1 variant |
+| Stable Diffusion 3 / 3.5 | Not implemented | None | None | Later MMDiT/flow family after shared seams settle |
+
+`examples/stable-diffusion`, `examples/flux`, `examples/z-image`, and
+`examples/qwen-image` own the AXI-shaped finite proof commands that compose this
+package with tokenizer/text-encoder packages and write BMP image artifacts.
+Image-to-image, inpainting, ControlNet, Omni/SigLIP, video/audio generation,
+broader output formats, and quantized mflux-style sidecars remain follow-on
+Phase 10 tranches until their runtime semantics are designed deliberately.

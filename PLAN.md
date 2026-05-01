@@ -1006,19 +1006,23 @@ conditioning, running denoising, and writing a BMP artifact. Official
 `black-forest-labs/FLUX.1-schnell` has also passed a bounded real image proof
 through `examples/flux`, including Hub snapshot resolution, FLUX transformer
 and no-quant VAE loading, CLIP/T5 prompt conditioning, two denoise steps, and
-BMP output. Base Qwen-Image
-snapshot recognition and config parsing has landed, including the
-Qwen-specific 3D causal VAE metadata and FlowMatch `shift_terminal` scheduler
-field, but Qwen-Image tensor execution is not implemented yet. Base Z-Image
-snapshot recognition and config parsing has
+BMP output. Base Qwen-Image runtime support has landed: snapshot recognition,
+Qwen-Image transformer and 3D causal VAE config parsing/loading, FlowMatch
+`shift_terminal` scheduling, latent packing, true-CFG denoising, Diffusers-style
+Qwen2.5-VL prompt conditioning in `examples/qwen-image`, and an AXI-shaped
+finite proof command. Official `Qwen/Qwen-Image-2512` checkpoint evidence
+remains follow-on because the full snapshot is not yet locally proven. Base
+Z-Image snapshot recognition and config parsing has
 also landed for current Diffusers `ZImagePipeline` snapshots, including
 `ZImageTransformer2DModel` geometry, RoPE axes, padding constants, standard
 AutoencoderKL metadata, and the Qwen3 text-encoder manifest boundary. Base
 Z-Image tensor execution now has a package-owned foundation for dense
 Diffusers snapshots: latent patching, Z RoPE, single-stream transformer blocks,
 FlowMatch denoising over prepared Qwen caption embeddings, VAE decode layout,
-and transformer weight mapping/loading. The finite proof command and official
-`Tongyi-MAI/Z-Image-Turbo` checkpoint evidence remain follow-on work.
+transformer weight mapping/loading, and an AXI-shaped finite proof command in
+`examples/z-image`. Official `Tongyi-MAI/Z-Image-Turbo` checkpoint evidence
+remains follow-on work because the dense official snapshot is heavyweight and
+not cached by default.
 Broader VLM families, audio encoder/decoder families, and additional
 diffusion/flow families remain Phase 10 work.
 
@@ -1074,7 +1078,8 @@ All diffusion and flow-based generation across modalities: image, video, and aud
    prompt encoding. The reference-audited snapshot/config skeleton has landed,
    and the base package runtime now owns patching, RoPE, single-stream
    denoising, VAE decode layout, and dense transformer weight mapping. The
-   finite proof command and official checkpoint evidence remain follow-on work.
+   finite proof command is implemented in `examples/z-image`; official dense
+   checkpoint evidence remains the next Z-Image gate.
 4. **Qwen-Image family**: this is the Qwen text-to-image generation track, not
    the already-landed Qwen 3.5 / Qwen 3.6 image-understanding route.
    `Qwen/Qwen-Image-2512` is the primary forward target once runtime execution
@@ -1082,9 +1087,10 @@ All diffusion and flow-based generation across modalities: image, video, and aud
    exposes it as `QwenImagePipeline` over FlowMatch Euler,
    `QwenImageTransformer2DModel`, `AutoencoderKLQwenImage`, and a Qwen2.5-VL
    text encoder. Its VAE is a 3D causal Qwen/Wan-derived autoencoder, so the
-   first implementation tranche is the landed reference-audited
-   config/model-index parser, not reuse of the Stable Diffusion, FLUX, or
-   Z-Image VAE path. Runtime tensor execution remains a separate tranche.
+   landed implementation path is separate from the Stable Diffusion, FLUX, and
+   Z-Image VAE paths. Runtime tensor execution and the AXI-shaped proof command
+   are implemented; official `Qwen/Qwen-Image-2512` checkpoint evidence remains
+   the next Qwen-Image gate.
 5. **FLUX.2 Klein 4B**: this is a later separate family, not a FLUX.1 variant.
    It uses Diffusers `Flux2KleinPipeline`, `Flux2Transformer2DModel`,
    `AutoencoderKLFlux2`, and Qwen3 text encoding, so it should land only after
