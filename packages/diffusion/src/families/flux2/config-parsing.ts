@@ -1,6 +1,7 @@
 import { basename } from "path";
 
 import { DiffusionConfigError } from "../../errors";
+import type { DiffusionComponentName } from "../../pretrained/model-index";
 import type { DiffusionSnapshotManifest } from "../../pretrained/snapshot-manifest";
 
 function describeConfigValue(value: unknown): string {
@@ -164,7 +165,7 @@ export function optionalPositiveIntegerList(
 
 export function componentConfigPath(
   manifest: DiffusionSnapshotManifest,
-  componentName: "transformer" | "vae",
+  componentName: DiffusionComponentName,
 ): string {
   const component = manifest.components.find(
     (candidate) => candidate.name === componentName && candidate.enabled,

@@ -231,9 +231,11 @@ major product-agent focus on package-owned CLIs and future PI-agent integration.
   snapshots. LTX-Video maps FlowMatch Euler, T5 text metadata,
   `LTXVideoTransformer3DModel`, and `AutoencoderKLLTXVideo`; LTX-2 maps Gemma3
   text metadata, `LTX2VideoTransformer3DModel`, `AutoencoderKLLTX2Video`,
-  `AutoencoderKLLTX2Audio`, `LTX2TextConnectors`, and `LTX2Vocoder`. This is
-  manifest support only; runtime generation, latent upsampling, audio/video
-  artifact writing, and proof commands remain future Phase 10 tranches.
+  `AutoencoderKLLTX2Audio`, `LTX2TextConnectors`, and `LTX2Vocoder`. Typed
+  component config parsing now covers both LTX-Video and LTX-2, including
+  LTX-2 video/audio/connector/vocoder cross-component checks. Runtime
+  generation, latent upsampling, audio/video artifact writing, and proof
+  commands remain future Phase 10 tranches.
 - **Qwen conditional serving**: top-level Qwen 3.5 / 3.6 conditional
   checkpoints expose the Qwen text batch-cache surface for text-only continuous
   serving. Media/content requests still route as `media_input` and stay off

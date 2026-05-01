@@ -54,13 +54,16 @@ This file captures durable cross-session learnings for `mlxts` so future agent s
   `AutoencoderKLLTX2Audio`, `LTX2TextConnectors`, and `LTX2Vocoder`. Remote
   snapshot selection keeps those LTX-2 component folders plus tokenizer
   `processor_config.json`; root monolith exports and latent upsampler sidecars
-  still stay out of the selected manifest path. Runtime generation, latent
-  upsampling, audio/video artifact output, and finite proof commands remain
-  future tranches. — refs:
+  still stay out of the selected manifest path. Component config parsing now
+  exists for LTX-Video and LTX-2, including LTX-2 video/audio/connector/vocoder
+  cross-component checks. Runtime generation, latent upsampling, audio/video
+  artifact output, and finite proof commands remain future tranches. — refs:
   `packages/diffusion/src/pretrained/model-index.ts`,
   `packages/diffusion/src/pretrained/ltx-pipeline-specs.ts`,
   `packages/diffusion/src/pretrained/snapshot-file-selection.ts`,
-  `docs/reviews/2026-05-01-ltx-video-snapshot-skeleton.md`
+  `packages/diffusion/src/families/ltx/config.ts`,
+  `docs/reviews/2026-05-01-ltx-video-snapshot-skeleton.md`,
+  `docs/reviews/2026-05-01-ltx-video-component-configs.md`
 
 - (2026-05-01) [DIFFUSION/SD3] `@mlxts/diffusion` recognizes Diffusers
   `StableDiffusion3Pipeline` snapshots and parses `SD3Transformer2DModel` plus
