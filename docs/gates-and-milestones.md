@@ -19,7 +19,7 @@ These gates are non-negotiable at every phase boundary. Code does not advance un
 | Runtime review | `bun run check:runtime-review` | Runtime-sensitive diffs have review artifacts |
 | Coverage | `bun run check:coverage` | Package-specific line/function/branch thresholds |
 | Training proof surfaces | `bun run check:training-proofs` | Phase 8 example proof code typechecks and report-verifier tests pass |
-| Phase 10 proof surfaces | `bun run check:phase10-proofs` | Phase 10 example proof code typechecks; BMP artifact/report verifier tests pass |
+| Phase 10 proof surfaces | `bun run check:phase10-proofs` | Phase 10 example proof code typechecks; BMP/WAV artifact and report verifier tests pass |
 | Agent-facing CLI contract | Focused CLI formatter/parser tests plus manual AXI review | Finite commands emit compact structured stdout, actionable stdout errors, stable exit codes, and no non-TTY prompts |
 | Full validation | `bun run validate` | All of the above in sequence |
 
@@ -57,7 +57,7 @@ before commit.
 | Agent loop behavior | `bun test packages/agent/src` plus a served-model smoke when practical | Serve regression if protocol or streaming semantics changed |
 | Agent-facing CLI work | Parser/formatter tests plus stdout/stderr/exit-code assertions | Package typecheck and coverage; served-model or example smoke when the command executes model work |
 | Training or alignment proof | Example/package-focused tests and the relevant proof command | Promote to self-hosted Apple Silicon gate only after the proof is stable |
-| Image generation proof | `bun run examples/image-proof/verify-report.ts <report-json>` against the saved proof JSON | `bun run check:phase10-proofs`; real checkpoint proof rerun when model files and memory budget fit |
+| Media generation proof | `bun run examples/image-proof/verify-report.ts <report-json>` or `bun run examples/ltx-video/verify-report.ts <report-json>` against the saved proof JSON | `bun run check:phase10-proofs`; real checkpoint proof rerun when model files and memory budget fit |
 | Example/workbook docs or scripts | The example's documented smoke command | No root example script; reusable behavior belongs in packages |
 
 ---
@@ -357,7 +357,7 @@ diffusion/flow generation as package-owned product surfaces.
 | `@mlxts/diffusion` owns at least one real text-to-image pipeline | Real checkpoint smoke plus package tests |
 | Serving advertises only implemented media semantics | Protocol tests reject unsupported media/tool/file shapes clearly |
 | Examples are workbooks, not hidden product surfaces | Manual review: reusable logic lives in packages |
-| Image proof artifacts are machine-checkable | Saved proof JSON verifies through `examples/image-proof/verify-report.ts` |
+| Media proof artifacts are machine-checkable | Saved image proof JSON verifies through `examples/image-proof/verify-report.ts`; saved LTX proof JSON verifies through `examples/ltx-video/verify-report.ts` |
 | Runtime-sensitive media paths have review artifacts | `bun run check:runtime-review` |
 | Full validation is green | `bun run validate` |
 

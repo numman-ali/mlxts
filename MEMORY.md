@@ -48,9 +48,11 @@ This file captures durable cross-session learnings for `mlxts` so future agent s
   left-padded tokenizer ids, a real tokenizer attention mask, all Gemma hidden
   states stacked and flattened into connector width, and connector-produced
   video/audio prompt embeddings plus masks. The example writes BMP video
-  preview evidence and PCM16 WAV audio evidence; real full-checkpoint LTX-2
-  proof, bandwidth extension, and LTX-2.3 runtime branches remain separate
-  tranches. — refs: `packages/transformers/src/families/gemma3/config.ts`,
+  preview evidence and PCM16 WAV audio evidence, and
+  `examples/ltx-video/verify-report.ts` verifies saved LTX/LTX-2 reports without
+  rerunning generation; real full-checkpoint LTX-2 proof, bandwidth extension,
+  and LTX-2.3 runtime branches remain separate tranches. — refs:
+  `packages/transformers/src/families/gemma3/config.ts`,
   `packages/transformers/src/families/gemma3/model.ts`,
   `packages/transformers/src/families/gemma3/weights.ts`,
   `packages/transformers/src/infrastructure/masks.ts`,
@@ -58,6 +60,7 @@ This file captures durable cross-session learnings for `mlxts` so future agent s
   `examples/ltx-video/conditioning-ltx2-runtime.ts`,
   `examples/ltx-video/audio-output.ts`,
   `examples/ltx-video/index.ts`,
+  `examples/ltx-video/verify-report.ts`,
   `docs/reviews/2026-05-02-ltx2-proof-assembly.md`
 
 - FLUX.2 `AutoencoderKLFlux2` keeps an NCHW public VAE boundary even though the

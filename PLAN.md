@@ -1087,10 +1087,13 @@ latent repacking. LTX-2 sidecar latent upsampling now recognizes
 rational spatial resampling, and preserves packed-token unpack/repack
 boundaries. LTX-2 prepared denoising, video VAE decode, audio VAE decode, and
 plain `LTX2Vocoder` waveform output now have package-owned runtime/loading
-surfaces, with LTX-2.3 and full proof assembly still separate.
-`examples/ltx-video` now provides the finite classic LTX
-text-to-video proof command with T5 conditioning, denoising, VAE decode, and a
-BMP preview-sheet artifact.
+surfaces, and `examples/ltx-video` now assembles those into a finite BMP plus
+WAV proof path. LTX-2.3 branches, bandwidth extension, and full real-checkpoint
+evidence remain separate.
+`examples/ltx-video` now provides finite proof commands for classic LTX
+text-to-video with T5 conditioning and BMP preview evidence, plus LTX-2
+prompt-to-audio-video with Gemma3 conditioning, connectors, video/audio denoise,
+VAE decode, vocoder output, BMP preview evidence, and PCM16 WAV evidence.
 
 **What this phase covers**:
 
@@ -1220,7 +1223,11 @@ All diffusion and flow-based generation across modalities: image, video, and aud
    width validation. LTX-2 vocoder execution/loading now maps decoded BCLM mel
    spectrograms to BCS waveform tensors through MLX-backed transposed Conv1d.
    The classic LTX finite proof command now writes a BMP preview-sheet artifact
-   from decoded video. LTX-2 full proof assembly remains a separate tranche.
+   from decoded video. The LTX-2 finite proof command now assembles Gemma3
+   hidden-state conditioning, text connectors, video/audio denoising, VAE decode,
+   vocoder output, BMP preview evidence, and PCM16 WAV evidence. LTX-2
+   real-checkpoint evidence, bandwidth extension, and LTX-2.3 branches remain
+   separate tranches.
 
 ### 10c. Examples
 

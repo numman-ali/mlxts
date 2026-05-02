@@ -269,8 +269,10 @@ major product-agent focus on package-owned CLIs and future PI-agent integration.
   LTX-2 path resolves local/Hub snapshots, loads Gemma3 text conditioning plus
   LTX-2 text connectors, flattens all Gemma hidden states into connector
   inputs, denoises video/audio latents, decodes video/audio, runs the vocoder,
-  and writes BMP plus PCM16 WAV artifact evidence. LTX-2 real checkpoint proof,
-  bandwidth extension, and LTX-2.3 branches remain future Phase 10 tranches.
+  and writes BMP plus PCM16 WAV artifact evidence. `examples/ltx-video/verify-report.ts`
+  verifies saved classic LTX and LTX-2 reports offline, including BMP preview
+  and WAV header/hash evidence. LTX-2 real checkpoint proof, bandwidth
+  extension, and LTX-2.3 branches remain future Phase 10 tranches.
 - **Qwen conditional serving**: top-level Qwen 3.5 / 3.6 conditional
   checkpoints expose the Qwen text batch-cache surface for text-only continuous
   serving. Media/content requests still route as `media_input` and stay off
