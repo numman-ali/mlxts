@@ -1,13 +1,15 @@
 # Repo Memory
 
-This file captures durable cross-session learnings for `mlxts` so future agent sessions do not need to rediscover the same sharp edges.
+This file captures durable cross-session learnings for `mlxts` so later work
+does not need to rediscover the same sharp edges.
 
 ## How To Use This File
 
 ### Tier 1 — Must Read
 
 - Read this section at the start of every session, immediately after `AGENTS.md`.
-- Keep it short and durable. Promote only facts that should shape most future sessions.
+- Keep it short and durable. Promote only facts that should shape most later
+  sessions.
 - If Tier 1 grows, demote older or narrower items into Tier 2.
 
 ### Tier 2 — Lookup Log
@@ -15,6 +17,9 @@ This file captures durable cross-session learnings for `mlxts` so future agent s
 - Do not read this section end to end by default.
 - Search it when working on a related area.
 - Append durable learnings here at the end of a session.
+- Keep each entry compact enough to work as a lookup index. If evidence needs
+  more than a short paragraph, link the review or audit artifact instead of
+  copying the evidence here.
 
 ## Memory Update Rule
 
@@ -24,9 +29,20 @@ This file captures durable cross-session learnings for `mlxts` so future agent s
 - Keep Tier 1 focused on durable repo facts and recurring sharp edges, not doctrine already stated in `AGENTS.md`.
 - Archive obsolete items instead of silently deleting them.
 - Do not put transient task notes or diary-style updates here.
+- Do not use this file for active continuity state. Put current assumptions,
+  blockers, next commands, and compaction-ready session state in `continuity.md`.
+- Do not paste validation logs, audit prose, or phase histories here. Store
+  evidence in `docs/reviews/` and keep memory as the searchable pointer.
 
 ## Tier 1 — Must Read
 
+- Capability completion doctrine lives in `AGENTS.md`: proofs are evidence, not
+  the finish line. Do not promote a proof slice into a support claim without
+  tracking the remaining product-surface gaps.
+- Route durable knowledge to one natural home: `PLAN.md` for roadmap changes,
+  `continuity.md` for active continuity state, `MEMORY.md` for recurring sharp
+  edges, `docs/reviews/` for evidence, and package/product docs for stable
+  contracts.
 - `examples/nanogpt/` is the committed in-repo example and regression surface for the GPT proof path; prefer improving canonical `@mlxts/*` packages over deepening example-only abstractions, and document its commands from the example directory rather than as root scripts.
 - When Nomi has authorized sub-agents, use them for non-trivial repo work. Complex changes in this repo benefit from a second opinion and deliberate orchestration across explorers/workers, especially when local context is already crowded.
 - Before writing a JS fallback for a GPU-facing operation, check whether `mlx-c` already exposes the op in `packages/core/native/build/_deps/mlx-c-src/mlx/c/ops.h`.

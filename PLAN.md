@@ -37,6 +37,42 @@ Phases 8, 9, and 10 fan out after the Phase 7 architecture base. Work advances
 by narrow tranches with review artifacts and gates, not by bundling multiple
 product areas into one commit.
 
+Roadmap entries should describe outcomes, success criteria, proof expectations,
+and accepted sequencing. Keep procedural detail in package docs, skills, or
+review artifacts. When an audit outcome is accepted, update this file only if it
+changes mission, phase order, or high-level product/architecture direction;
+otherwise route it to `continuity.md`, `MEMORY.md`, `AGENTS.md`, package docs,
+or `docs/reviews/` as appropriate.
+
+### Current posture update - 2026-05-02
+
+The next roadmap move is capability completion, not more proof breadth. A
+single finite proof or bounded checkpoint run does not complete a product area.
+For generation, completion means package-owned generation behavior, artifact
+writers, verification, docs, real-checkpoint evidence where possible, clear
+unsupported-mode errors, and coherent CLI/API/SDK entrypoints.
+
+Accepted near-term order:
+
+1. **Restore native runtime proof gates.** Current local native smoke and
+   Phase 10 proof gates fail with null MLX array/stream pointers. This blocks
+   new runtime/proof claims until isolated and fixed.
+2. **Finish Phase 10b product/proof infrastructure.** Move repeated image,
+   video, audio, artifact, report, and verifier behavior out of examples and
+   into package-owned surfaces before adding another broad media family.
+3. **Split and prove LTX properly.** Separate classic LTX-Video and LTX-2
+   folders, then run documented real-checkpoint proofs for both where local
+   access permits.
+4. **Design the generation product contract.** Define the package-owned media
+   generation request/response, artifact, capability, model-source, and proof
+   metadata layer before building a top-level wrapper.
+5. **Design `mlxts` as the agent-native CLI.** The no-argument command should
+   show a compact live dashboard and discoverable next commands. Session hooks
+   are not a v1 requirement.
+6. **Adapt serving after the generation contract exists.** `@mlxts/serve`
+   should likely own HTTP routes and resource policy, but not family artifact
+   writers or proof schemas.
+
 ### Product-area order
 
 1. **Phase 7 closeout: model architecture truth.** Keep dense decoder families,

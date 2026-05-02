@@ -15,6 +15,40 @@ centers on:
 - `**Official Hugging Face JS packages**`: `@huggingface/hub` for snapshot download/cache and `@huggingface/jinja` for chat-template rendering inside the transformers loading surface
 - `**examples/nanogpt**`: the committed nanoGPT example and regression surface built on the extracted packages
 
+## Operating Mindset
+
+Work outcome-first. Define what "done" means for the user-visible capability,
+then choose the shortest rigorous path that reaches it. Process exists to
+protect quality and continuity; it is not the goal.
+
+- **Finish the capability, not just the proof**: a proof is evidence that one
+  path works. Completion means the intended variants, inputs, outputs,
+  CLI/API/docs, validation, operator evidence, and failure behavior are covered
+  end to end. If a tranche intentionally proves only one slice, state what
+  remains before the capability is complete.
+- **Use an explicit close rule**: work is complete only when the requested
+  capability is delivered and validated, or when the remaining gaps are
+  deliberately accepted into `PLAN.md`, `continuity.md`, a review artifact, or
+  a tracked follow-up with clear owner/scope.
+- **Use evidence tiers honestly**: `Add` means code or finite proof exists;
+  `Prove` means a realistic workflow or checkpoint has run with review
+  evidence; `Product-ready` means ergonomic product surface, docs, limits,
+  structured errors, and operator evidence; `Capability-complete` means the
+  intended modes and surfaces are all covered.
+- **Prefer concise, durable instructions**: keep docs outcome-oriented and
+  searchable. Avoid process-heavy prompt stacks unless every step is a real
+  invariant.
+- **Use tool and retrieval budgets**: read enough source, references, docs, or
+  web evidence to answer correctly, then stop. Make another retrieval pass only
+  when a required fact, owner, date, source, artifact, or validation result is
+  missing.
+- **Validate when validation is possible**: after changes, run the narrowest
+  command that proves the behavior, plus required gates for touched surfaces. If
+  validation cannot run, say why and name the next best check.
+- **Keep continuity clean**: long-running work should keep the current state,
+  blockers, evidence, and next concrete goal clear enough that work can resume
+  without reconstructing context from chat history.
+
 ## Repo Memory
 
 `MEMORY.md` is the repo's shared cross-session memory for durable learnings and sharp edges.
@@ -28,8 +62,8 @@ centers on:
 
 Repo-local skills under [`.agents/skills`](./.agents/skills) capture repeatable
 agent operating procedures. Use a skill when the work has a durable workflow,
-debug ladder, CLI contract, QA matrix, or reference pattern that future agents
-must execute rather than rediscover from memory.
+debug ladder, CLI contract, QA matrix, or reference pattern that should be
+executed consistently rather than rediscovered from memory.
 
 - Use skills as procedural automation and memory as durable facts. Do not copy
   long doctrine into both places.
@@ -43,6 +77,32 @@ must execute rather than rediscover from memory.
   whether a repo-local skill already captures the relevant operating practice;
   after a tranche teaches a new repeatable practice, improve the skill instead
   of leaving the learning only in chat history.
+
+## Prompt and Context Discipline
+
+Agent instructions in this repo should be outcome-first. State the target,
+success criteria, constraints, evidence rules, and stopping condition; avoid
+copying long step-by-step process stacks unless the exact path is a real product
+or safety requirement.
+
+- For medium or larger work, keep a lightweight plan with 2-5 outcome
+  milestones. Avoid operational micro-steps such as "open file" or "run tests"
+  as plan items.
+- Use the smallest tool and retrieval loop that can answer or validate the core
+  request. Continue searching or reading only when a required fact, source,
+  path, owner, ID, benchmark, or validation result is missing.
+- Keep stable instructions cache-friendly and reusable: durable doctrine in
+  `AGENTS.md` or package-local `AGENTS.md`, repeatable workflows in skills,
+  durable sharp edges in `MEMORY.md`, current continuity state in
+  `continuity.md`, completed-tranche evidence in `docs/reviews/`, and dated
+  diagnosis in `docs/audits/`.
+- For long-running sessions and context compaction, update `continuity.md` with
+  completed actions, active assumptions, important paths/commands/IDs, tool
+  outcomes, unresolved blockers, and the next concrete goal. Delete stale
+  detail instead of appending an archive.
+- When prompts or docs are migrated from older model behavior, preserve the
+  product contract but remove redundant scaffolding, generic current-date
+  boilerplate, and repeated output schemas that belong in code or validation.
 
 ## Architecture Decisions
 
@@ -147,6 +207,28 @@ The `.reference/` folder contains local clones of upstream repositories for rese
 | [docs/setup.md](./docs/setup.md)                       | Development environment setup and build instructions                               |
 
 
+## Documentation Lifecycle
+
+Each durable doc has one job:
+
+- `PLAN.md` is the accepted mission, phase roadmap, and high-level sequencing.
+  Update it when the roadmap changes, not after every task.
+- `continuity.md` is the compact live state for active long-running work. Keep
+  it current, short, and focused on what continuing work needs.
+- `MEMORY.md` is the durable lookup index for recurring sharp edges and lessons.
+  Search it by area; do not turn it into a transcript.
+- `docs/reviews/` holds evidence for completed tranches, validation, runtime
+  review, and independent review.
+- `docs/audits/` holds dated posture diagnosis. Accepted audit outcomes should
+  be routed into the plan, continuity, memory, AGENTS files, reviews, or product
+  docs as appropriate.
+- Package/product docs hold stable contracts and user-facing behavior.
+
+For 10-30 hour work runs, do a documentation hygiene pass at each major pause
+or completed tranche: update `continuity.md`, add or link review evidence,
+promote only durable learnings into `MEMORY.md`, and update `PLAN.md` only if
+the mission or phase order changed.
+
 ## Session Startup
 
 Before non-trivial work, agents should:
@@ -156,7 +238,7 @@ Before non-trivial work, agents should:
 3. Read the relevant source-of-truth docs and search `MEMORY.md` for the area being changed.
 4. For non-trivial structural or product-surface work, read the most recent posture audit under [`docs/audits/`](./docs/audits/) and anchor on its findings. Treat persisting recommendations as constraints on the current change.
 5. When Nomi has authorized sub-agents, treat them as part of the default workflow for non-trivial repo changes: use at least one well-scoped second-opinion explorer or worker for architecture truth, implementation review, or parallel bounded work, and integrate their findings deliberately rather than as decoration. Sub-agents may implement bounded, disjoint slices when the context and write scope are clear, but the lead agent must review and integrate their code before it ships.
-6. Prefer the narrowest validation that proves the change, then run required repo gates before handoff.
+6. Prefer the narrowest validation that proves the change, then run required repo gates before declaring done.
 
 ## Terminal Debugging
 
@@ -313,7 +395,10 @@ This project uses multiple AI agents in a structured loop. See [docs/agentic-loo
 
 ### Workflow principles
 
-- **Done fully, never simply.** Every phase should be thoroughly researched and planned before implementation begins. Do not rush features into earlier phases to "get them done sooner." If something is scoped for a later phase, that is the right decision — better to do it fully later than partially now.
+- **Done fully, never simply.** Every phase should be thoroughly researched and
+  planned before implementation begins. Do not rush features into earlier
+  phases to "get them done sooner." If something is scoped for a later phase,
+  that is the right decision — better to do it fully later than partially now.
 - **Research spike before new territory.** Phases involving genuinely new architectural ground (new generation paradigms, new model families with novel architecture patterns) require a dedicated research spike before implementation begins. See Phase 0.5 as the model: investigate official sources, validate assumptions, then plan.
 - **When delegation is available, use it as force multiplication, not garnish.** Complex repo work benefits from multiple eyes. Ask sub-agents concrete questions, give them bounded ownership, and use their results to sharpen design choices, uncover upstream truth, and catch blind spots while local context is crowded. Explorers are useful for architecture truth; workers can implement narrow, disjoint slices when the write scope is safe. The lead agent remains responsible for reviewing delegated code before integration.
 - **Phases fan out, not chain.** Phases 8 (fine-tuning), 9 (serving), and 10 (multimodal + diffusion) all depend on Phase 7 (model architectures) but not on each other. Do not treat the phase numbering as a strict sequential dependency.
