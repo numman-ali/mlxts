@@ -14,7 +14,24 @@ export type QwenImageInitialLatentOptions = {
   rngKey?: MxArray;
 };
 
+/** RoPE segment shape for a packed Qwen-Image latent sequence. */
 export type QwenImageRopeImageShape = readonly [frames: number, height: number, width: number];
+
+/** Ordered Qwen-Image RoPE segments, with the target segment first. */
+export type QwenImageRopeImageShapes = readonly QwenImageRopeImageShape[];
+
+/** Return the packed sequence length occupied by one Qwen-Image RoPE segment. */
+export function qwenImageRopeImageShapeProduct(imageShape: QwenImageRopeImageShape): number {
+  return imageShape[0] * imageShape[1] * imageShape[2];
+}
+
+/** Return the packed sequence length occupied by all Qwen-Image RoPE segments. */
+export function qwenImageRopeImageShapesProduct(imageShapes: QwenImageRopeImageShapes): number {
+  return imageShapes.reduce(
+    (total, imageShape) => total + qwenImageRopeImageShapeProduct(imageShape),
+    0,
+  );
+}
 
 function expectPositiveInteger(value: number, name: string): void {
   if (!Number.isInteger(value) || value <= 0) {

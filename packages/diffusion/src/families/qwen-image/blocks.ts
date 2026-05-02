@@ -2,6 +2,8 @@ import type { MxArray } from "@mlxts/core";
 import {
   add,
   divide,
+  equal,
+  expandDims,
   geluApprox,
   maximum,
   mean,
@@ -13,11 +15,12 @@ import {
   sqrt,
   square,
   subtract,
+  where,
 } from "@mlxts/core";
 import { Linear, Module, silu } from "@mlxts/nn";
 
 import { QwenImageJointAttention } from "./attention";
-import { assertSequence3d, freeArrays } from "./tensor-utils";
+import { assertSequence3d, freeArrays, sliceAxis } from "./tensor-utils";
 
 type QwenImageModulationTriplet = {
   shift: MxArray;
@@ -78,12 +81,67 @@ function reshapeModulation(part: MxArray, batch: number, hiddenSize: number): Mx
   return reshape(part, [batch, 1, hiddenSize]);
 }
 
+function assertModulationIndex(
+  index: MxArray,
+  batch: number,
+  owner: string,
+): readonly [number, number] {
+  const [indexBatch, indexLength] = index.shape;
+  if (index.shape.length !== 2 || indexBatch === undefined || indexLength === undefined) {
+    throw new Error(`${owner}: modulateIndex must have shape [batch, imageLength].`);
+  }
+  if (batch !== indexBatch * 2) {
+    throw new Error(`${owner}: zero_cond_t modulation requires two timestep embeddings per batch.`);
+  }
+  return [indexBatch, indexLength];
+}
+
+function indexedModulationPart(
+  part: MxArray,
+  index: MxArray,
+  batch: number,
+  hiddenSize: number,
+  owner: string,
+): MxArray {
+  const [indexBatch] = assertModulationIndex(index, batch, owner);
+  using targetPart = sliceAxis(part, 0, 0, indexBatch);
+  using referencePart = sliceAxis(part, 0, indexBatch, batch);
+  using target = reshapeModulation(targetPart, indexBatch, hiddenSize);
+  using reference = reshapeModulation(referencePart, indexBatch, hiddenSize);
+  using targetSelector = equal(index, 0);
+  using selector = expandDims(targetSelector, 2);
+  return where(selector, target, reference);
+}
+
+function modulationPart(
+  part: MxArray,
+  batch: number,
+  hiddenSize: number,
+  owner: string,
+  index?: MxArray,
+): MxArray {
+  if (index === undefined) {
+    return reshapeModulation(part, batch, hiddenSize);
+  }
+  return indexedModulationPart(part, index, batch, hiddenSize, owner);
+}
+
 function clipFloat16(x: MxArray): MxArray {
   if (x.dtype !== "float16") {
     return retainArray(x);
   }
   using upper = minimum(x, 65504);
   return maximum(upper, -65504);
+}
+
+function validateImageModulateIndex(index: MxArray | undefined, image: MxArray): void {
+  if (index === undefined) {
+    return;
+  }
+  const { batch, length } = assertSequence3d(image, "QwenImageTransformerBlock.run image");
+  if (index.shape.length !== 2 || index.shape[0] !== batch || index.shape[1] !== length) {
+    throw new Error("QwenImageTransformerBlock.run: modulateIndex must match image tokens.");
+  }
 }
 
 /** Gated modulation projection used by Qwen-Image dual-stream blocks. */
@@ -106,7 +164,7 @@ export class QwenImageModulation extends Module {
     return this.linear.forward(activated);
   }
 
-  modulate(vec: MxArray): QwenImageBlockModulation {
+  modulate(vec: MxArray, index?: MxArray): QwenImageBlockModulation {
     const [batch] = vec.shape;
     if (batch === undefined) {
       throw new Error("QwenImageModulation.modulate: vec must include a batch dimension.");
@@ -116,37 +174,49 @@ export class QwenImageModulation extends Module {
     try {
       return {
         attention: {
-          shift: reshapeModulation(
+          shift: modulationPart(
             partAt(parts, 0, "QwenImageModulation.modulate"),
             batch,
             this.#hiddenSize,
+            "QwenImageModulation.modulate attention shift",
+            index,
           ),
-          scale: reshapeModulation(
+          scale: modulationPart(
             partAt(parts, 1, "QwenImageModulation.modulate"),
             batch,
             this.#hiddenSize,
+            "QwenImageModulation.modulate attention scale",
+            index,
           ),
-          gate: reshapeModulation(
+          gate: modulationPart(
             partAt(parts, 2, "QwenImageModulation.modulate"),
             batch,
             this.#hiddenSize,
+            "QwenImageModulation.modulate attention gate",
+            index,
           ),
         },
         feedForward: {
-          shift: reshapeModulation(
+          shift: modulationPart(
             partAt(parts, 3, "QwenImageModulation.modulate"),
             batch,
             this.#hiddenSize,
+            "QwenImageModulation.modulate feedForward shift",
+            index,
           ),
-          scale: reshapeModulation(
+          scale: modulationPart(
             partAt(parts, 4, "QwenImageModulation.modulate"),
             batch,
             this.#hiddenSize,
+            "QwenImageModulation.modulate feedForward scale",
+            index,
           ),
-          gate: reshapeModulation(
+          gate: modulationPart(
             partAt(parts, 5, "QwenImageModulation.modulate"),
             batch,
             this.#hiddenSize,
+            "QwenImageModulation.modulate feedForward gate",
+            index,
           ),
         },
       };
@@ -256,12 +326,15 @@ export class QwenImageTransformerBlock extends Module {
   run(
     image: MxArray,
     text: MxArray,
-    vector: MxArray,
+    imageVector: MxArray,
+    textVector: MxArray,
     rope: MxArray,
     textMask?: MxArray,
+    modulateIndex?: MxArray,
   ): QwenImageBlockOutput {
-    const imageModulation = this.imgMod.modulate(vector);
-    const textModulation = this.txtMod.modulate(vector);
+    validateImageModulateIndex(modulateIndex, image);
+    const imageModulation = this.imgMod.modulate(imageVector, modulateIndex);
+    const textModulation = this.txtMod.modulate(textVector);
     try {
       using imageNormed = affineFreeLayerNorm(
         image,

@@ -1018,8 +1018,9 @@ checkpoint proof through that path. Qwen-Image Edit and Edit Plus snapshots are
 now recognized as separate manifest kinds over the Qwen image transformer/VAE
 components plus a Qwen2VL processor. Package-owned Qwen image VAE encode and
 multi-reference packed-latent preparation have landed as the next edit
-foundation, while edit runtime remains fenced until processor reference-image
-conditioning, multi-segment RoPE/denoising, and `zero_cond_t` execution are
+foundation, and the transformer now supports multi-segment target/reference
+RoPE plus `zero_cond_t` image modulation. Edit runtime remains fenced until
+processor reference-image conditioning and denoising concat/slice are
 implemented. Base Z-Image snapshot recognition and
 config parsing has
 also landed for current Diffusers `ZImagePipeline` snapshots, including
@@ -1167,9 +1168,10 @@ All diffusion and flow-based generation across modalities: image, video, and aud
    and official `Qwen/Qwen-Image-2512` bounded checkpoint evidence have landed.
    Qwen-Image Edit and Edit Plus manifest/config recognition has landed, and
    Qwen image VAE encode plus multi-reference packed-latent preparation now
-   live in `@mlxts/diffusion`; edit generation remains a separate runtime
-   tranche because it needs processor-owned reference-image conditioning,
-   multi-segment RoPE/denoising, and `zero_cond_t` support.
+   live in `@mlxts/diffusion`. The Qwen-Image transformer accepts
+   multi-segment target/reference RoPE and `zero_cond_t` modulation; edit
+   generation remains a separate runtime tranche because it needs
+   processor-owned reference-image conditioning and denoising concat/slice.
 5. **FLUX.2 Klein 4B**: this is a later separate family, not a FLUX.1 variant.
    It uses Diffusers `Flux2KleinPipeline`, `Flux2Transformer2DModel`,
    `AutoencoderKLFlux2`, and Qwen3 text encoding, so it should land only after

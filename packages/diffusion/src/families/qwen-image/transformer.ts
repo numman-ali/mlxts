@@ -1,18 +1,24 @@
 import type { MxArray } from "@mlxts/core";
-import { asType, formatShape, retainArray } from "@mlxts/core";
+import { asType, concatenate, formatShape, multiply, ones, retainArray, zeros } from "@mlxts/core";
 import { Linear, Module, RMSNorm } from "@mlxts/nn";
 
 import { QwenImageAdaptiveLayerNormContinuous, QwenImageTransformerBlock } from "./blocks";
 import type { QwenImageTransformerConfig } from "./config";
 import { QwenImageRopeEmbedder, QwenImageTimestepProjEmbeddings } from "./embeddings";
-import type { QwenImageRopeImageShape } from "./latents";
-import { assertSequence3d, checkedModule } from "./tensor-utils";
+import {
+  type QwenImageRopeImageShape,
+  type QwenImageRopeImageShapes,
+  qwenImageRopeImageShapeProduct,
+  qwenImageRopeImageShapesProduct,
+} from "./latents";
+import { assertSequence3d, checkedModule, sliceAxis } from "./tensor-utils";
 
 export type QwenImageDenoiserInput = {
   hiddenStates: MxArray;
   encoderHiddenStates: MxArray;
   timestep: MxArray;
   imageShape: QwenImageRopeImageShape;
+  imageShapes?: QwenImageRopeImageShapes;
   encoderHiddenStatesMask?: MxArray;
   additionalTCond?: MxArray;
 };
@@ -26,9 +32,6 @@ function validateQwenImageTransformerConfig(config: QwenImageTransformerConfig):
   if (config.guidanceEmbeds) {
     throw new Error("QwenImageTransformer2DModel: guidance_embeds is unsupported.");
   }
-  if (config.zeroCondT) {
-    throw new Error("QwenImageTransformer2DModel: zero_cond_t is unsupported.");
-  }
   if (config.useAdditionalTCond) {
     throw new Error("QwenImageTransformer2DModel: use_additional_t_cond is unsupported.");
   }
@@ -37,8 +40,46 @@ function validateQwenImageTransformerConfig(config: QwenImageTransformerConfig):
   }
 }
 
-function imageShapeProduct(imageShape: QwenImageRopeImageShape): number {
-  return imageShape[0] * imageShape[1] * imageShape[2];
+function sameImageShape(left: QwenImageRopeImageShape, right: QwenImageRopeImageShape): boolean {
+  return left[0] === right[0] && left[1] === right[1] && left[2] === right[2];
+}
+
+function resolveImageShapes(input: QwenImageDenoiserInput): QwenImageRopeImageShapes {
+  const imageShapes = input.imageShapes ?? [input.imageShape];
+  if (imageShapes.length === 0) {
+    throw new Error("QwenImageTransformer2DModel.forward: imageShapes must not be empty.");
+  }
+  const firstShape = imageShapes[0];
+  if (firstShape === undefined || !sameImageShape(input.imageShape, firstShape)) {
+    throw new Error(
+      "QwenImageTransformer2DModel.forward: first imageShapes entry must match imageShape.",
+    );
+  }
+  return imageShapes;
+}
+
+function zeroCondTimestep(timestep: MxArray): MxArray {
+  using zeroTimestep = multiply(timestep, 0);
+  return concatenate([timestep, zeroTimestep], 0);
+}
+
+function createModulateIndex(
+  imageShapes: QwenImageRopeImageShapes,
+  batchSize: number,
+  dtype: MxArray["dtype"],
+): MxArray {
+  const targetShape = imageShapes[0];
+  if (targetShape === undefined) {
+    throw new Error("QwenImageTransformer2DModel.forward: imageShapes must not be empty.");
+  }
+  const targetLength = qwenImageRopeImageShapeProduct(targetShape);
+  const referenceLength = qwenImageRopeImageShapesProduct(imageShapes.slice(1));
+  using targetIndex = zeros([batchSize, targetLength], dtype);
+  if (referenceLength === 0) {
+    return retainArray(targetIndex);
+  }
+  using referenceIndex = ones([batchSize, referenceLength], dtype);
+  return concatenate([targetIndex, referenceIndex], 1);
 }
 
 /** Diffusers-compatible base Qwen-Image `QwenImageTransformer2DModel` tensor path. */
@@ -102,7 +143,9 @@ export class QwenImageTransformer2DModel extends Module {
     );
     if (imageShape.channels !== this.#config.inChannels) {
       throw new Error(
-        `QwenImageTransformer2DModel.forward: hiddenStates channels must be ${this.#config.inChannels}.`,
+        `QwenImageTransformer2DModel.forward: hiddenStates channels must be ${
+          this.#config.inChannels
+        }.`,
       );
     }
     if (
@@ -110,21 +153,25 @@ export class QwenImageTransformer2DModel extends Module {
       textShape.channels !== this.#config.jointAttentionDim
     ) {
       throw new Error(
-        `QwenImageTransformer2DModel.forward: encoderHiddenStates must have shape [${imageShape.batch}, length, ${this.#config.jointAttentionDim}], got ${formatShape(
+        `QwenImageTransformer2DModel.forward: encoderHiddenStates must have shape [${
+          imageShape.batch
+        }, length, ${this.#config.jointAttentionDim}], got ${formatShape(
           input.encoderHiddenStates.shape,
         )}.`,
       );
     }
-    if (imageShapeProduct(input.imageShape) !== imageShape.length) {
+    const imageShapes = resolveImageShapes(input);
+    if (qwenImageRopeImageShapesProduct(imageShapes) !== imageShape.length) {
       throw new Error(
-        "QwenImageTransformer2DModel.forward: imageShape product must match image sequence length.",
+        "QwenImageTransformer2DModel.forward: imageShapes product must match image sequence " +
+          "length.",
       );
     }
     if (input.timestep.shape.length !== 1 || input.timestep.shape[0] !== imageShape.batch) {
       throw new Error(
-        `QwenImageTransformer2DModel.forward: timestep must have shape [${imageShape.batch}], got ${formatShape(
-          input.timestep.shape,
-        )}.`,
+        `QwenImageTransformer2DModel.forward: timestep must have shape [${
+          imageShape.batch
+        }], got ${formatShape(input.timestep.shape)}.`,
       );
     }
 
@@ -132,12 +179,21 @@ export class QwenImageTransformer2DModel extends Module {
     using normalizedText = this.txtNorm.forward(input.encoderHiddenStates);
     using textStates = this.txtIn.forward(normalizedText);
     using timestep = asType(input.timestep, input.hiddenStates.dtype);
+    using embeddingTimestep = this.#config.zeroCondT
+      ? zeroCondTimestep(timestep)
+      : retainArray(timestep);
     using vector = this.timeTextEmbed.embed(
-      timestep,
+      embeddingTimestep,
       input.hiddenStates.dtype,
       input.additionalTCond,
     );
-    using rope = this.posEmbed.embed(input.imageShape, textShape.length, input.hiddenStates.dtype);
+    using textVector = this.#config.zeroCondT
+      ? sliceAxis(vector, 0, 0, imageShape.batch)
+      : retainArray(vector);
+    using rope = this.posEmbed.embed(imageShapes, textShape.length, input.hiddenStates.dtype);
+    const modulateIndex = this.#config.zeroCondT
+      ? createModulateIndex(imageShapes, imageShape.batch, "int32")
+      : null;
 
     let image = retainArray(imageStates);
     let text = retainArray(textStates);
@@ -148,15 +204,24 @@ export class QwenImageTransformer2DModel extends Module {
           index,
           "QwenImageTransformer2DModel.forward transformerBlocks",
         );
-        const next = block.run(image, text, vector, rope, input.encoderHiddenStatesMask);
+        const next = block.run(
+          image,
+          text,
+          vector,
+          textVector,
+          rope,
+          input.encoderHiddenStatesMask,
+          modulateIndex ?? undefined,
+        );
         image.free();
         text.free();
         image = next.image;
         text = next.text;
       }
-      using normalizedOutput = this.normOut.forward(image, vector);
+      using normalizedOutput = this.normOut.forward(image, textVector);
       return this.projOut.forward(normalizedOutput);
     } finally {
+      modulateIndex?.free();
       image.free();
       text.free();
     }

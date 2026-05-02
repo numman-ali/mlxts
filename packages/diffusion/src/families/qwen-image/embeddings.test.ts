@@ -22,6 +22,25 @@ describe("Qwen-Image transformer embeddings", () => {
     expect(Array.from(embedded.toTypedArray()).every(Number.isFinite)).toBe(true);
   });
 
+  test("builds multi-segment image RoPE with distinct frame positions", () => {
+    using rope = new QwenImageRopeEmbedder(6, 10000, [2, 2, 2]);
+    using embedded = rope.embed(
+      [
+        [1, 1, 1],
+        [1, 1, 1],
+      ],
+      1,
+      "float32",
+    );
+
+    mxEval(embedded);
+    expect(embedded.shape).toEqual([1, 1, 3, 3, 2, 2]);
+    const values = Array.from(embedded.toTypedArray());
+    const tokenStride = 3 * 2 * 2;
+    expect(values[tokenStride]).toBeCloseTo(1, 6);
+    expect(values[tokenStride * 2]).not.toBeCloseTo(values[tokenStride] ?? Number.NaN, 6);
+  });
+
   test("rejects invalid RoPE geometry", () => {
     expect(() => new QwenImageRopeEmbedder(8, 10000, [2, 2, 2])).toThrow("headDim");
     using rope = new QwenImageRopeEmbedder(6, 10000, [2, 2, 2]);

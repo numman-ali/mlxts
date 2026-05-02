@@ -17,7 +17,7 @@ import {
 import { Linear, Module, silu } from "@mlxts/nn";
 
 import type { QwenImageRopeAxes } from "./config";
-import type { QwenImageRopeImageShape } from "./latents";
+import type { QwenImageRopeImageShape, QwenImageRopeImageShapes } from "./latents";
 
 /** Create the sinusoidal scalar embedding used by Qwen-Image timesteps. */
 export function qwenImageTimestepEmbedding(
@@ -120,6 +120,30 @@ function expectImageShape(imageShape: QwenImageRopeImageShape): void {
   }
 }
 
+function isImageShape(
+  imageShapeOrShapes: QwenImageRopeImageShape | QwenImageRopeImageShapes,
+): imageShapeOrShapes is QwenImageRopeImageShape {
+  return typeof imageShapeOrShapes[0] === "number";
+}
+
+function normalizeImageShapes(
+  imageShapeOrShapes: QwenImageRopeImageShape | QwenImageRopeImageShapes,
+): QwenImageRopeImageShapes {
+  const imageShapes = isImageShape(imageShapeOrShapes) ? [imageShapeOrShapes] : imageShapeOrShapes;
+  if (imageShapes.length === 0) {
+    throw new Error("QwenImageRopeEmbedder.embed: at least one image shape is required.");
+  }
+  return imageShapes;
+}
+
+function maxTextStartIndex(imageShapes: QwenImageRopeImageShapes): number {
+  return imageShapes.reduce(
+    (maxIndex, [, height, width]) =>
+      Math.max(maxIndex, Math.floor(height / 2), Math.floor(width / 2)),
+    0,
+  );
+}
+
 function ropeMatricesForPositions(positions: MxArray, axisDim: number, theta: number): MxArray {
   using positionsFloat = asType(positions, "float32");
   using positionColumn = reshape(positionsFloat, [positions.shape[0] ?? 0, 1]);
@@ -163,22 +187,41 @@ export class QwenImageRopeEmbedder extends Module {
   }
 
   /** Build combined `[text, image]` RoPE matrices for Qwen-Image joint attention. */
-  embed(imageShape: QwenImageRopeImageShape, textLength: number, dtype: DType): MxArray {
-    expectImageShape(imageShape);
+  embed(
+    imageShapeOrShapes: QwenImageRopeImageShape | QwenImageRopeImageShapes,
+    textLength: number,
+    dtype: DType,
+  ): MxArray {
+    const imageShapes = normalizeImageShapes(imageShapeOrShapes);
+    for (const imageShape of imageShapes) {
+      expectImageShape(imageShape);
+    }
     if (!Number.isInteger(textLength) || textLength <= 0) {
       throw new Error("QwenImageRopeEmbedder.embed: textLength must be positive.");
     }
 
-    const [frames, height, width] = imageShape;
-    using text = this.#textRope(
-      textLength,
-      Math.max(Math.floor(height / 2), Math.floor(width / 2)),
-    );
-    using image = this.#imageRope(frames, height, width);
-    using combined = concatenate([text, image], 0);
-    using cast = combined.dtype === dtype ? retainArray(combined) : asType(combined, dtype);
-    using batched = expandDims(cast, 0);
-    return expandDims(batched, 0);
+    const imageRopes: MxArray[] = [];
+    try {
+      for (let index = 0; index < imageShapes.length; index += 1) {
+        const imageShape = imageShapes[index];
+        if (imageShape === undefined) {
+          throw new Error("QwenImageRopeEmbedder.embed: missing image shape.");
+        }
+        const [frames, height, width] = imageShape;
+        imageRopes.push(this.#imageRope(frames, height, width, index));
+      }
+
+      using text = this.#textRope(textLength, maxTextStartIndex(imageShapes));
+      using image = concatenate(imageRopes, 0);
+      using combined = concatenate([text, image], 0);
+      using cast = combined.dtype === dtype ? retainArray(combined) : asType(combined, dtype);
+      using batched = expandDims(cast, 0);
+      return expandDims(batched, 0);
+    } finally {
+      for (const imageRope of imageRopes) {
+        imageRope.free();
+      }
+    }
   }
 
   #textRope(textLength: number, startIndex: number): MxArray {
@@ -196,9 +239,9 @@ export class QwenImageRopeEmbedder extends Module {
     }
   }
 
-  #imageRope(frames: number, height: number, width: number): MxArray {
+  #imageRope(frames: number, height: number, width: number, frameStartIndex: number): MxArray {
     const [frameDim, heightDim, widthDim] = this.#axesDims;
-    using framePositions = arange(0, frames, 1, "float32");
+    using framePositions = arange(frameStartIndex, frameStartIndex + frames, 1, "float32");
     using heightPositions = scaleRopePositions(height);
     using widthPositions = scaleRopePositions(width);
     using frameRope = ropeMatricesForPositions(framePositions, frameDim, this.#theta);

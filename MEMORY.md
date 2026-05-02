@@ -38,6 +38,19 @@ This file captures durable cross-session learnings for `mlxts` so future agent s
 
 ## Tier 2 — Lookup Log
 
+- (2026-05-02) [DIFFUSION/QWEN-IMAGE] Qwen-Image transformer semantics now
+  cover the next edit prerequisite: `QwenImageRopeEmbedder.embed()` accepts
+  ordered target/reference RoPE segments, `QwenImageDenoiserInput.imageShapes`
+  carries those segments with `imageShape` as the target/base compatibility
+  field, and `zero_cond_t` modulation uses real timestep embeddings for target
+  tokens plus zero-timestep embeddings for reference tokens. Edit denoising is
+  still fenced until processor reference-image conditioning and target/reference
+  concat/slice scheduler plumbing land. — refs:
+  `packages/diffusion/src/families/qwen-image/embeddings.ts`,
+  `packages/diffusion/src/families/qwen-image/blocks.ts`,
+  `packages/diffusion/src/families/qwen-image/transformer.ts`,
+  `docs/reviews/2026-05-02-qwen-image-edit-transformer-segments.md`
+
 - (2026-05-02) [DIFFUSION/QWEN-IMAGE] Qwen-Image Edit/Edit Plus now has the
   package-owned VAE image-conditioning foundation: `QwenImageAutoencoderKL`
   exposes deterministic `encodeRaw()`, `encodeQwenImageLatents()` applies

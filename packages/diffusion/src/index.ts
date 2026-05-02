@@ -146,10 +146,13 @@ export {
   packQwenImageLatents,
   type QwenImageInitialLatentOptions,
   type QwenImageRopeImageShape,
+  type QwenImageRopeImageShapes,
   qwenImageLatentShape,
   qwenImagePackedLatentShape,
   qwenImageRopeImageShape,
   qwenImageRopeImageShapeFromLatents,
+  qwenImageRopeImageShapeProduct,
+  qwenImageRopeImageShapesProduct,
   unpackQwenImageLatents,
 } from "./families/qwen-image/latents";
 export {

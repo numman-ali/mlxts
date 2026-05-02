@@ -118,9 +118,11 @@ major product-agent focus on package-owned CLIs and future PI-agent integration.
   now recognized as separate manifest/config kinds with the required
   `Qwen2VLProcessor` component. Package-owned Qwen image VAE encode and
   multi-reference packed-latent preparation now expose the edit/img2img/control
-  image-conditioning foundation; edit generation remains explicitly unsupported
-  until processor reference-image conditioning, multi-segment RoPE/denoising,
-  and `zero_cond_t` runtime semantics are designed. Base Z-Image Diffusers snapshots are now recognized as
+  image-conditioning foundation. The Qwen-Image transformer now supports
+  ordered target/reference RoPE segments and `zero_cond_t` modulation for those
+  segments; edit generation remains explicitly unsupported until processor
+  reference-image conditioning and target/reference denoising concat/slice
+  land. Base Z-Image Diffusers snapshots are now recognized as
   `ZImagePipeline`, with package-owned parsing for `ZImageTransformer2DModel`
   geometry, RoPE axes, sequence padding constants, standard AutoencoderKL
   metadata, and the Qwen3 text-encoder manifest boundary. The base Z-Image

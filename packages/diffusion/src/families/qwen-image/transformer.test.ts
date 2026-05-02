@@ -115,12 +115,48 @@ describe("QwenImageTransformer2DModel", () => {
     expect(output.shape).toEqual([1, 2, 4]);
   });
 
+  test("runs zero_cond_t with target and reference image segments", () => {
+    using model = new QwenImageTransformer2DModel(tinyConfig({ zeroCondT: true }));
+    model.eval();
+    using hiddenStates = array(
+      [
+        [
+          [0.1, 0.2, 0.3, 0.4],
+          [0.4, 0.3, 0.2, 0.1],
+        ],
+      ],
+      "float32",
+    );
+    using encoderHiddenStates = array(
+      [
+        [
+          [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8],
+          [0.8, 0.7, 0.6, 0.5, 0.4, 0.3, 0.2, 0.1],
+          [0.2, 0.4, 0.6, 0.8, 1.0, 1.2, 1.4, 1.6],
+        ],
+      ],
+      "float32",
+    );
+    using timestep = array([0.5], "float32");
+    using output = model.forward({
+      hiddenStates,
+      encoderHiddenStates,
+      timestep,
+      imageShape: [1, 1, 1],
+      imageShapes: [
+        [1, 1, 1],
+        [1, 1, 1],
+      ],
+    });
+
+    mxEval(output);
+    expect(output.shape).toEqual([1, 2, 4]);
+    expect(Array.from(output.toTypedArray()).every(Number.isFinite)).toBe(true);
+  });
+
   test("rejects unsupported Qwen-Image transformer variants deliberately", () => {
     expect(() => new QwenImageTransformer2DModel(tinyConfig({ guidanceEmbeds: true }))).toThrow(
       "guidance_embeds",
-    );
-    expect(() => new QwenImageTransformer2DModel(tinyConfig({ zeroCondT: true }))).toThrow(
-      "zero_cond_t",
     );
     expect(() => new QwenImageTransformer2DModel(tinyConfig({ useAdditionalTCond: true }))).toThrow(
       "use_additional_t_cond",
@@ -144,5 +180,14 @@ describe("QwenImageTransformer2DModel", () => {
         imageShape: [1, 1, 2],
       }),
     ).toThrow("imageShape");
+    expect(() =>
+      model.forward({
+        hiddenStates,
+        encoderHiddenStates,
+        timestep,
+        imageShape: [1, 1, 1],
+        imageShapes: [[1, 1, 2]],
+      }),
+    ).toThrow("first imageShapes");
   });
 });
