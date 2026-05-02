@@ -229,3 +229,10 @@ packing checks for the public packages before any real release happens.
   seams are proven
 
 Those come later in the roadmap once the current package ergonomics are fully settled.
+
+## License
+
+[MIT](./LICENSE) © Numman Ali. The `.reference/` folder is intentionally empty
+on the published repo and excluded from version control; populate it locally
+from the upstream repos listed in [AGENTS.md](./AGENTS.md) when working in
+this codebase.

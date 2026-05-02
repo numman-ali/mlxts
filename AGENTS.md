@@ -172,7 +172,7 @@ Useful pattern:
 ```bash
 cmux tree --all
 cmux new-surface --workspace workspace:1 --type terminal
-cmux send --workspace workspace:1 --surface surface:<id> "cd /Users/numman/Repos/nanogpt-ts\n"
+cmux send --workspace workspace:1 --surface surface:<id> "cd /Users/numman/Repos/mlxts\n"
 cmux send --workspace workspace:1 --surface surface:<id> "pi --offline --provider mlxts --model mlx-community/Qwen3.6-27B-4bit -p 'Reply with exactly: pi-ok'\n"
 cmux read-screen --workspace workspace:1 --surface surface:<id> --scrollback --lines 120
 ```
