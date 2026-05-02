@@ -2,7 +2,7 @@
 
 **Audit type**: Repo-wide structural / doctrinal review. Read-only diagnosis.
 **Reviewer**: Synthesized from six parallel Opus sub-agent slices over `core/nn/optimizers`, `train/data/tokenizers/lora/align/quantize`, `transformers`, `protocols/serve/agent`, `examples/*`, and `docs/scripts/root` files.
-**Mechanical baseline**: `docs/reviews/2026-04-28-audit-metrics.md`.
+**Mechanical baseline**: `docs/audits/2026-04-28-audit-metrics.md`.
 **No code changes proposed**. No PRs opened.
 
 ---
@@ -672,6 +672,6 @@ This audit reviewed the structure, contents, or summary metrics of the following
 **Scripts** (`scripts/`):
 - `check-coverage.ts`, `check-file-lines.ts`, `check-runtime-review.ts`, `check-type-assertions.ts`, `check-visible-tensor-lifetimes.ts`, `runtime-sensitive-ops.ts`, `runtime-command-lock.ts`, `regression-qwen-gemma.ts`, `build-package.ts`, `build-workspaces.ts`, `pack-public-packages.ts`
 
-**Mechanical metrics**: `docs/reviews/2026-04-28-audit-metrics.md` (companion to this audit; gitignored `.tmp/` baseline relocated for durability).
+**Mechanical metrics**: `docs/audits/2026-04-28-audit-metrics.md` (companion to this audit; gitignored `.tmp/` baseline relocated for durability).
 
 **Sub-agent reports**: 6 parallel Opus sub-agent slices. No sub-agent wrote files; output returned in tool-result message bodies and synthesized into this document, which is the canonical record. The transcripts themselves are not preserved as durable evidence — this audit is the artifact.

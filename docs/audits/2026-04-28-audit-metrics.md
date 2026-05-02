@@ -1,7 +1,7 @@
 # Audit Phase 0 — Mechanical Snapshot
 Date: 2026-04-28
 
-Companion to `docs/reviews/2026-04-28-architectural-posture-audit.md`.
+Companion to `docs/audits/2026-04-28-architectural-posture-audit.md`.
 Captures the mechanical baseline used during the audit so future readers can
 verify the numbers. Generated with the existing repo gates plus shell tooling
 (`find`, `wc -l`, `grep`).

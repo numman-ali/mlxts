@@ -139,6 +139,7 @@ The `.reference/` folder contains local clones of upstream repositories for rese
 | [docs/architecture.md](./docs/architecture.md)         | System architecture and layer responsibilities                                     |
 | [docs/mlx-bindings.md](./docs/mlx-bindings.md)         | Technical guide to the MLX binding approach                                        |
 | [docs/agentic-loop.md](./docs/agentic-loop.md)         | Multi-agent engineering workflow                                                   |
+| [docs/audits/README.md](./docs/audits/README.md)       | Architectural posture audit practice — what, why, cadence, format                  |
 | [docs/code-standards.md](./docs/code-standards.md)     | Code quality, naming, structure, testing standards                                 |
 | [docs/runtime-safety.md](./docs/runtime-safety.md)     | Runtime ownership, telemetry, and soak expectations                                |
 | [docs/product-surfaces.md](./docs/product-surfaces.md) | API, CLI, TUI, GUI design guidelines                                               |
@@ -153,8 +154,9 @@ Before non-trivial work, agents should:
 1. Read `AGENTS.md`, then Tier 1 of [`MEMORY.md`](./MEMORY.md).
 2. Inspect `git status` and recent local changes before editing.
 3. Read the relevant source-of-truth docs and search `MEMORY.md` for the area being changed.
-4. When Nomi has authorized sub-agents, treat them as part of the default workflow for non-trivial repo changes: use at least one well-scoped second-opinion explorer or worker for architecture truth, implementation review, or parallel bounded work, and integrate their findings deliberately rather than as decoration. Sub-agents may implement bounded, disjoint slices when the context and write scope are clear, but the lead agent must review and integrate their code before it ships.
-5. Prefer the narrowest validation that proves the change, then run required repo gates before handoff.
+4. For non-trivial structural or product-surface work, read the most recent posture audit under [`docs/audits/`](./docs/audits/) and anchor on its findings. Treat persisting recommendations as constraints on the current change.
+5. When Nomi has authorized sub-agents, treat them as part of the default workflow for non-trivial repo changes: use at least one well-scoped second-opinion explorer or worker for architecture truth, implementation review, or parallel bounded work, and integrate their findings deliberately rather than as decoration. Sub-agents may implement bounded, disjoint slices when the context and write scope are clear, but the lead agent must review and integrate their code before it ships.
+6. Prefer the narrowest validation that proves the change, then run required repo gates before handoff.
 
 ## Terminal Debugging
 
