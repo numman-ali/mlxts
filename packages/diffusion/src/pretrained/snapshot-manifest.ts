@@ -83,7 +83,7 @@ function metadataPathsFor(component: DiffusionModelIndexComponent, directory: st
       .filter((path): path is string => path !== undefined);
   }
   if (component.role === "image-processor") {
-    return ["preprocessor_config.json", "config.json"]
+    return ["preprocessor_config.json", "video_preprocessor_config.json", "config.json"]
       .map((name) => pathIfFile(join(directory, name)))
       .filter((path): path is string => path !== undefined);
   }

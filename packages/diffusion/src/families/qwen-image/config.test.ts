@@ -112,6 +112,36 @@ function writeQwenImageSnapshot(snapshot: string): void {
   writeComponentFiles(snapshot, "tokenizer", ["tokenizer.json"]);
 }
 
+function writeQwenImageEditPlusSnapshot(snapshot: string): void {
+  writeJson(join(snapshot, "model_index.json"), {
+    _class_name: "QwenImageEditPlusPipeline",
+    _diffusers_version: "0.36.0.dev0",
+    transformer: ["diffusers", "QwenImageTransformer2DModel"],
+    vae: ["diffusers", "AutoencoderKLQwenImage"],
+    scheduler: ["diffusers", "FlowMatchEulerDiscreteScheduler"],
+    text_encoder: ["transformers", "Qwen2_5_VLForConditionalGeneration"],
+    tokenizer: ["transformers", "Qwen2Tokenizer"],
+    processor: ["transformers", "Qwen2VLProcessor"],
+  });
+  writeComponentFiles(
+    snapshot,
+    "transformer",
+    ["config.json"],
+    ["diffusion_pytorch_model.safetensors"],
+  );
+  writeJson(join(snapshot, "transformer", "config.json"), qwenImageTransformerConfig());
+  writeComponentFiles(snapshot, "vae", ["config.json"], ["diffusion_pytorch_model.safetensors"]);
+  writeJson(join(snapshot, "vae", "config.json"), qwenImageVaeConfig());
+  writeComponentFiles(snapshot, "scheduler", ["scheduler_config.json"]);
+  writeJson(join(snapshot, "scheduler", "scheduler_config.json"), {
+    _class_name: "FlowMatchEulerDiscreteScheduler",
+    shift_terminal: 0.02,
+  });
+  writeComponentFiles(snapshot, "text_encoder", ["config.json"], ["model.safetensors"]);
+  writeComponentFiles(snapshot, "tokenizer", ["tokenizer.json"]);
+  writeComponentFiles(snapshot, "processor", ["preprocessor_config.json"]);
+}
+
 describe("Qwen-Image component config parsing", () => {
   test("parses Qwen-Image transformer config into package-owned shape", () => {
     const parsed = parseQwenImageTransformerConfig(qwenImageTransformerConfig());
@@ -162,6 +192,20 @@ describe("Qwen-Image component config parsing", () => {
       expect(configs.pipelineKind).toBe("qwen-image");
       expect(configs.transformer.jointAttentionDim).toBe(3584);
       expect(configs.vae.spatialCompressionRatio).toBe(8);
+    });
+  });
+
+  test("loads Qwen-Image Edit Plus configs without claiming edit generation", async () => {
+    await withTempDirectory("mlxts-qwen-image-edit-plus-config-", async (directory) => {
+      writeQwenImageEditPlusSnapshot(directory);
+
+      const manifest = await loadDiffusionSnapshotManifest(directory);
+      const configs = await loadQwenImageComponentConfigs(manifest);
+
+      expect(configs.pipelineKind).toBe("qwen-image-edit-plus");
+      expect(configs.transformer.zeroCondT).toBe(true);
+      expect(configs.transformer.guidanceEmbeds).toBe(false);
+      expect(configs.vae.latentChannels).toBe(16);
     });
   });
 

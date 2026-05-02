@@ -393,6 +393,62 @@ describe("diffusion model index loading", () => {
     });
   });
 
+  test("parses Qwen-Image Edit Plus model_index components", () => {
+    const parsed = parseDiffusionModelIndex({
+      _class_name: "QwenImageEditPlusPipeline",
+      _diffusers_version: "0.36.0.dev0",
+      transformer: ["diffusers", "QwenImageTransformer2DModel"],
+      vae: ["diffusers", "AutoencoderKLQwenImage"],
+      scheduler: ["diffusers", "FlowMatchEulerDiscreteScheduler"],
+      text_encoder: ["transformers", "Qwen2_5_VLForConditionalGeneration"],
+      tokenizer: ["transformers", "Qwen2Tokenizer"],
+      processor: ["transformers", "Qwen2VLProcessor"],
+    });
+
+    expect(parsed.kind).toBe("qwen-image-edit-plus");
+    expect(parsed.diffusersVersion).toBe("0.36.0.dev0");
+    expect(parsed.components.map((component) => component.name)).toEqual([
+      "transformer",
+      "vae",
+      "scheduler",
+      "text_encoder",
+      "tokenizer",
+      "processor",
+    ]);
+    expect(parsed.components.find((component) => component.name === "processor")).toMatchObject({
+      role: "image-processor",
+      className: "Qwen2VLProcessor",
+    });
+  });
+
+  test("parses Qwen-Image Edit model_index components", () => {
+    const parsed = parseDiffusionModelIndex({
+      _class_name: "QwenImageEditPipeline",
+      _diffusers_version: "0.35.0.dev0",
+      transformer: ["diffusers", "QwenImageTransformer2DModel"],
+      vae: ["diffusers", "AutoencoderKLQwenImage"],
+      scheduler: ["diffusers", "FlowMatchEulerDiscreteScheduler"],
+      text_encoder: ["transformers", "Qwen2_5_VLForConditionalGeneration"],
+      tokenizer: ["transformers", "Qwen2Tokenizer"],
+      processor: ["transformers", "Qwen2VLProcessor"],
+    });
+
+    expect(parsed.kind).toBe("qwen-image-edit");
+    expect(parsed.diffusersVersion).toBe("0.35.0.dev0");
+    expect(parsed.components.map((component) => component.name)).toEqual([
+      "transformer",
+      "vae",
+      "scheduler",
+      "text_encoder",
+      "tokenizer",
+      "processor",
+    ]);
+    expect(parsed.components.find((component) => component.name === "processor")).toMatchObject({
+      role: "image-processor",
+      className: "Qwen2VLProcessor",
+    });
+  });
+
   test("parses Z-Image model_index components", () => {
     const parsed = parseDiffusionModelIndex({
       _class_name: "ZImagePipeline",
@@ -679,9 +735,6 @@ describe("diffusion model index loading", () => {
     expect(() =>
       parseDiffusionModelIndex({ _class_name: "StableDiffusion3Img2ImgPipeline" }),
     ).toThrow("not supported");
-    expect(() => parseDiffusionModelIndex({ _class_name: "QwenImageEditPipeline" })).toThrow(
-      "not supported",
-    );
     expect(() => parseDiffusionModelIndex({ _class_name: "Flux2Pipeline" })).toThrow(
       "not supported",
     );
@@ -868,6 +921,55 @@ describe("diffusion model index loading", () => {
       expect(
         manifest.components.find((component) => component.name === "tokenizer")?.metadataPaths,
       ).toEqual([join(directory, "tokenizer", "tokenizer.json")]);
+    });
+
+    await withTempDirectory("mlxts-diffusion-qwen-image-edit-plus-manifest-", async (directory) => {
+      writeJson(join(directory, "model_index.json"), {
+        _class_name: "QwenImageEditPlusPipeline",
+        transformer: ["diffusers", "QwenImageTransformer2DModel"],
+        vae: ["diffusers", "AutoencoderKLQwenImage"],
+        scheduler: ["diffusers", "FlowMatchEulerDiscreteScheduler"],
+        text_encoder: ["transformers", "Qwen2_5_VLForConditionalGeneration"],
+        tokenizer: ["transformers", "Qwen2Tokenizer"],
+        processor: ["transformers", "Qwen2VLProcessor"],
+      });
+      writeComponentFiles(
+        directory,
+        "transformer",
+        ["config.json"],
+        ["diffusion_pytorch_model.safetensors"],
+      );
+      writeComponentFiles(
+        directory,
+        "vae",
+        ["config.json"],
+        ["diffusion_pytorch_model.safetensors"],
+      );
+      writeComponentFiles(directory, "scheduler", ["scheduler_config.json"]);
+      writeJson(join(directory, "scheduler", "scheduler_config.json"), {
+        _class_name: "FlowMatchEulerDiscreteScheduler",
+        shift_terminal: 0.02,
+      });
+      writeComponentFiles(directory, "text_encoder", ["config.json"], ["model.safetensors"]);
+      writeComponentFiles(directory, "tokenizer", ["tokenizer.json"]);
+      writeComponentFiles(directory, "processor", [
+        "preprocessor_config.json",
+        "video_preprocessor_config.json",
+      ]);
+
+      const manifest = await loadDiffusionSnapshotManifest(directory);
+
+      expect(manifest.modelIndex.kind).toBe("qwen-image-edit-plus");
+      expect(manifest.schedulerConfig).toMatchObject({
+        kind: "flow-match-euler",
+        config: { shiftTerminal: 0.02 },
+      });
+      expect(
+        manifest.components.find((component) => component.name === "processor")?.metadataPaths,
+      ).toEqual([
+        join(directory, "processor", "preprocessor_config.json"),
+        join(directory, "processor", "video_preprocessor_config.json"),
+      ]);
     });
 
     await withTempDirectory("mlxts-diffusion-flux2-klein-manifest-", async (directory) => {

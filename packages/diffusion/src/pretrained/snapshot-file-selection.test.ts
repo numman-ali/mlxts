@@ -212,6 +212,47 @@ describe("Diffusers snapshot remote file selection", () => {
     ]);
   });
 
+  test("selects Qwen-Image Edit Plus processor metadata", () => {
+    const selected = selectSupportedRemoteFiles("Qwen/Qwen-Image-Edit-2511", "abc", [
+      file("README.md"),
+      file("model_index.json"),
+      file("processor/preprocessor_config.json"),
+      file("processor/video_preprocessor_config.json"),
+      file("scheduler/scheduler_config.json"),
+      file("text_encoder/config.json"),
+      file("text_encoder/generation_config.json"),
+      file("text_encoder/model.safetensors.index.json"),
+      file("text_encoder/model-00001-of-00002.safetensors"),
+      file("text_encoder/model-00002-of-00002.safetensors"),
+      file("tokenizer/tokenizer.json"),
+      file("transformer/config.json"),
+      file("transformer/diffusion_pytorch_model.safetensors.index.json"),
+      file("transformer/diffusion_pytorch_model-00001-of-00002.safetensors"),
+      file("transformer/diffusion_pytorch_model-00002-of-00002.safetensors"),
+      file("vae/config.json"),
+      file("vae/diffusion_pytorch_model.safetensors"),
+    ]);
+
+    expect(selected.map((entry) => entry.relativePath)).toEqual([
+      "model_index.json",
+      "processor/preprocessor_config.json",
+      "processor/video_preprocessor_config.json",
+      "scheduler/scheduler_config.json",
+      "text_encoder/config.json",
+      "text_encoder/generation_config.json",
+      "text_encoder/model-00001-of-00002.safetensors",
+      "text_encoder/model-00002-of-00002.safetensors",
+      "text_encoder/model.safetensors.index.json",
+      "tokenizer/tokenizer.json",
+      "transformer/config.json",
+      "transformer/diffusion_pytorch_model-00001-of-00002.safetensors",
+      "transformer/diffusion_pytorch_model-00002-of-00002.safetensors",
+      "transformer/diffusion_pytorch_model.safetensors.index.json",
+      "vae/config.json",
+      "vae/diffusion_pytorch_model.safetensors",
+    ]);
+  });
+
   test("rejects requested variants when no matching or default component weights exist", () => {
     expect(() =>
       selectSupportedRemoteFiles(

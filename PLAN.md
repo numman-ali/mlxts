@@ -1014,7 +1014,11 @@ Qwen-Image transformer and 3D causal VAE config parsing/loading, FlowMatch
 `shift_terminal` scheduling, latent packing, true-CFG denoising, Diffusers-style
 Qwen2.5-VL prompt conditioning in `examples/qwen-image`, and an AXI-shaped
 finite proof command. Official `Qwen/Qwen-Image-2512` has passed a bounded real
-checkpoint proof through that path. Base Z-Image snapshot recognition and
+checkpoint proof through that path. Qwen-Image Edit and Edit Plus snapshots are
+now recognized as separate manifest kinds over the Qwen image transformer/VAE
+components plus a Qwen2VL processor, while edit runtime remains fenced until
+reference-image conditioning, VAE encode, and `zero_cond_t` execution are
+implemented. Base Z-Image snapshot recognition and
 config parsing has
 also landed for current Diffusers `ZImagePipeline` snapshots, including
 `ZImageTransformer2DModel` geometry, RoPE axes, padding constants, standard
@@ -1159,6 +1163,10 @@ All diffusion and flow-based generation across modalities: image, video, and aud
    landed implementation path is separate from the Stable Diffusion, FLUX, and
    Z-Image VAE paths. Runtime tensor execution, the AXI-shaped proof command,
    and official `Qwen/Qwen-Image-2512` bounded checkpoint evidence have landed.
+   Qwen-Image Edit and Edit Plus manifest/config recognition has landed as the
+   next image-edit foundation; edit generation remains a separate runtime
+   tranche because it needs processor-owned reference images, VAE image encode,
+   multi-reference latent concatenation, and `zero_cond_t` support.
 5. **FLUX.2 Klein 4B**: this is a later separate family, not a FLUX.1 variant.
    It uses Diffusers `Flux2KleinPipeline`, `Flux2Transformer2DModel`,
    `AutoencoderKLFlux2`, and Qwen3 text encoding, so it should land only after

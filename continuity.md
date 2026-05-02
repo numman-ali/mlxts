@@ -114,9 +114,11 @@ major product-agent focus on package-owned CLIs and future PI-agent integration.
   Base Qwen-Image Diffusers snapshots are now recognized as
   `QwenImagePipeline`, with package-owned parsing for the Qwen image
   transformer config, Qwen-specific 3D causal VAE config, and FlowMatch
-  `shift_terminal` scheduler field; Qwen-Image edit/control/inpaint/img2img
-  variants remain explicitly unsupported until their runtime semantics are
-  designed. Base Z-Image Diffusers snapshots are now recognized as
+  `shift_terminal` scheduler field. Qwen-Image Edit and Edit Plus snapshots are
+  now recognized as separate manifest/config kinds with the required
+  `Qwen2VLProcessor` component; edit generation remains explicitly unsupported
+  until reference-image conditioning, VAE image encode, and `zero_cond_t`
+  runtime semantics are designed. Base Z-Image Diffusers snapshots are now recognized as
   `ZImagePipeline`, with package-owned parsing for `ZImageTransformer2DModel`
   geometry, RoPE axes, sequence padding constants, standard AutoencoderKL
   metadata, and the Qwen3 text-encoder manifest boundary. The base Z-Image

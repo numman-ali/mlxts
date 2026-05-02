@@ -360,6 +360,18 @@ const QWEN_IMAGE_COMPONENTS: readonly DiffusionModelIndexComponentSpec[] = [
   },
 ];
 
+const QWEN_IMAGE_EDIT_PLUS_COMPONENTS: readonly DiffusionModelIndexComponentSpec[] = [
+  ...QWEN_IMAGE_COMPONENTS,
+  {
+    name: "processor",
+    role: "image-processor",
+    allowed: [["transformers", "Qwen2VLProcessor"]],
+    requiresConfig: true,
+  },
+];
+
+const QWEN_IMAGE_EDIT_COMPONENTS = QWEN_IMAGE_EDIT_PLUS_COMPONENTS;
+
 const Z_IMAGE_COMPONENTS: readonly DiffusionModelIndexComponentSpec[] = [
   {
     name: "transformer",
@@ -420,6 +432,14 @@ export const PIPELINE_SPECS: Record<DiffusersPipelineClassName, PipelineSpec> = 
   QwenImagePipeline: {
     kind: "qwen-image",
     components: QWEN_IMAGE_COMPONENTS,
+  },
+  QwenImageEditPipeline: {
+    kind: "qwen-image-edit",
+    components: QWEN_IMAGE_EDIT_COMPONENTS,
+  },
+  QwenImageEditPlusPipeline: {
+    kind: "qwen-image-edit-plus",
+    components: QWEN_IMAGE_EDIT_PLUS_COMPONENTS,
   },
   ZImagePipeline: {
     kind: "z-image",

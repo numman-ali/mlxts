@@ -46,7 +46,7 @@ export type QwenImageAutoencoderConfig = {
 
 /** Configs required before Qwen-Image model construction can begin. */
 export type QwenImageComponentConfigs = {
-  pipelineKind: "qwen-image";
+  pipelineKind: "qwen-image" | "qwen-image-edit" | "qwen-image-edit-plus";
   vae: QwenImageAutoencoderConfig;
   transformer: QwenImageTransformerConfig;
 };
@@ -367,13 +367,17 @@ export function parseQwenImageAutoencoderConfig(rawConfig: unknown): QwenImageAu
 export async function loadQwenImageComponentConfigs(
   manifest: DiffusionSnapshotManifest,
 ): Promise<QwenImageComponentConfigs> {
-  if (manifest.modelIndex.kind !== "qwen-image") {
+  if (
+    manifest.modelIndex.kind !== "qwen-image" &&
+    manifest.modelIndex.kind !== "qwen-image-edit" &&
+    manifest.modelIndex.kind !== "qwen-image-edit-plus"
+  ) {
     throw new DiffusionConfigError(
       `Qwen-Image component configs do not support ${manifest.modelIndex.kind}.`,
     );
   }
   return {
-    pipelineKind: "qwen-image",
+    pipelineKind: manifest.modelIndex.kind,
     vae: parseQwenImageAutoencoderConfig(
       await readComponentJson(componentConfigPath(manifest, "vae"), "vae/config.json"),
     ),

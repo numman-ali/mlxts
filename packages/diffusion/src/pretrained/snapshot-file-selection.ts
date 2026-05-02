@@ -14,6 +14,7 @@ const REMOTE_SUPPORTED_FILE_NAMES = new Set([
   "scheduler_config.json",
   "config.json",
   "preprocessor_config.json",
+  "video_preprocessor_config.json",
   "generation_config.json",
   "tokenizer.json",
   "tokenizer_config.json",

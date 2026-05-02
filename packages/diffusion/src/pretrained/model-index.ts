@@ -9,6 +9,8 @@ export type DiffusersPipelineClassName =
   | "FluxPipeline"
   | "Flux2KleinPipeline"
   | "QwenImagePipeline"
+  | "QwenImageEditPipeline"
+  | "QwenImageEditPlusPipeline"
   | "ZImagePipeline"
   | "LTXPipeline"
   | "LTXConditionPipeline"
@@ -24,6 +26,8 @@ export type DiffusionPipelineKind =
   | "flux"
   | "flux2-klein"
   | "qwen-image"
+  | "qwen-image-edit"
+  | "qwen-image-edit-plus"
   | "z-image"
   | "ltx-video"
   | "ltx-video-latent-upsample"
@@ -45,6 +49,7 @@ export type DiffusionComponentName =
   | "scheduler"
   | "safety_checker"
   | "feature_extractor"
+  | "processor"
   | "image_encoder"
   | "latent_upsampler"
   | "connectors"
@@ -162,6 +167,8 @@ function parsePipelineClassName(
     className === "FluxPipeline" ||
     className === "Flux2KleinPipeline" ||
     className === "QwenImagePipeline" ||
+    className === "QwenImageEditPipeline" ||
+    className === "QwenImageEditPlusPipeline" ||
     className === "ZImagePipeline" ||
     className === "LTXPipeline" ||
     className === "LTXConditionPipeline" ||
