@@ -12,6 +12,7 @@ describe("family registry", () => {
     expect(resolveFamily("gemma").family).toBe("gemma");
     expect(supportedModelTypes).toEqual([
       "gemma",
+      "gemma3",
       "gemma3_text",
       "gemma4",
       "gemma4_text",

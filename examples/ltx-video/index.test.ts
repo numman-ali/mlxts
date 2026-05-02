@@ -30,6 +30,8 @@ describe("LTX-Video example command", () => {
       "--local-files-only",
       "--output",
       ".tmp/out.bmp",
+      "--audio-output",
+      ".tmp/out.wav",
       "--steps",
       "4",
       "--height",
@@ -42,6 +44,8 @@ describe("LTX-Video example command", () => {
       "24",
       "--guidance-scale",
       "3.5",
+      "--audio-guidance-scale",
+      "2.5",
       "--max-sequence-length",
       "64",
       "--seed",
@@ -61,12 +65,14 @@ describe("LTX-Video example command", () => {
       prompt: "a red apple",
       negativePrompt: "low quality",
       outputPath: ".tmp/out.bmp",
+      audioOutputPath: ".tmp/out.wav",
       steps: 4,
       height: 128,
       width: 160,
       frames: 9,
       frameRate: 24,
       guidanceScale: 3.5,
+      audioGuidanceScale: 2.5,
       maxSequenceLength: 64,
       seed: 11,
       dtype: "float32",
@@ -198,8 +204,11 @@ describe("LTX-Video example command", () => {
       "divisible by 32",
     );
     expect(() =>
-      parseArgs(["/models/ltx-video", "--prompt", "a", "--max-sequence-length", "129"]),
-    ).toThrow("128");
+      parseArgs(["/models/ltx-video", "--prompt", "a", "--audio-output", "sample.mp3"]),
+    ).toThrow(".wav");
+    expect(() =>
+      parseArgs(["/models/ltx-video", "--prompt", "a", "--max-sequence-length", "1025"]),
+    ).toThrow("1024");
     expect(() => parseArgs(["/models/ltx-video", "--prompt", "a", "--dtype", "float64"])).toThrow(
       "float16",
     );
@@ -245,5 +254,74 @@ describe("LTX-Video example command", () => {
     expect(formatted).toContain("requested_frames: 9");
     expect(formatted).toContain("decoded_frames: 9");
     expect(formatted).toContain(`artifact_sha256: "${"a".repeat(64)}"`);
+  });
+
+  test("formats LTX-2 audio proof fields when present", () => {
+    const formatted = formatSuccess({
+      snapshotPath: "/models/ltx2",
+      source: "/models/ltx2",
+      pipeline: "ltx2",
+      prompt: "a small robot",
+      negativePrompt: "",
+      outputPath: ".tmp/out.bmp",
+      audioOutputPath: ".tmp/out.wav",
+      imageSize: { width: 512, height: 128 },
+      videoSize: { width: 128, height: 128, frames: 9, channels: 3 },
+      latentSize: { width: 4, height: 4, frames: 2, channels: 128 },
+      outputBytes: 196_662,
+      artifact: exampleImageProofArtifactReport({
+        path: ".tmp/out.bmp",
+        width: 512,
+        height: 128,
+        bytes: 196_662,
+      }),
+      audioSize: {
+        sampleRate: 16000,
+        channels: 1,
+        samples: 8000,
+        durationSeconds: 0.5,
+      },
+      audioOutputBytes: 16_044,
+      audioArtifact: {
+        path: ".tmp/out.wav",
+        format: "wav",
+        sampleRate: 16000,
+        channels: 1,
+        samples: 8000,
+        durationSeconds: 0.5,
+        bitsPerSample: 16,
+        bytes: 16_044,
+        sha256: "b".repeat(64),
+        peakAbs: 0.75,
+        meanAbs: 0.12,
+        checks: {
+          riffHeaderValid: true,
+          byteLengthMatches: true,
+          sampleRateMatches: true,
+          sha256Present: true,
+          finiteTensor: true,
+          waveformHasSamples: true,
+        },
+        status: "passed",
+      },
+      steps: 4,
+      guidanceScale: 3,
+      audioGuidanceScale: 2,
+      maxSequenceLength: 128,
+      requestedFrames: 9,
+      decodedFrames: 9,
+      frameRate: 25,
+      seed: 0,
+      dtype: "float16",
+      promptTruncated: false,
+      negativePromptTruncated: false,
+      elapsedMs: 2,
+    });
+
+    expect(formatted).toContain('pipeline: "ltx2"');
+    expect(formatted).toContain('audio_output_path: ".tmp/out.wav"');
+    expect(formatted).toContain("audio_sample_rate: 16000");
+    expect(formatted).toContain('audio_artifact_sha256: "bbbb');
+    expect(formatted).toContain("audio_guidance_scale: 2");
   });
 });

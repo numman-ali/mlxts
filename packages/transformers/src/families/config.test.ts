@@ -378,6 +378,29 @@ describe("family config parsing", () => {
     expect(config.queryPreAttentionScalar).toBe(4);
   });
 
+  test("gemma3 top-level conditional-generation config uses the text decoder config", () => {
+    const config = parseGemma3TextConfig({
+      model_type: "gemma3",
+      text_config: {
+        model_type: "gemma3_text",
+        vocab_size: 32,
+        hidden_size: 16,
+        intermediate_size: 32,
+        num_hidden_layers: 2,
+        num_attention_heads: 4,
+        max_position_embeddings: 128,
+        hidden_act: "gelu_pytorch_tanh",
+        layer_types: ["sliding_attention", "full_attention"],
+      },
+      vision_config: {
+        model_type: "siglip_vision_model",
+      },
+    });
+
+    expect(config.modelType).toBe("gemma3_text");
+    expect(config.layerTypes).toEqual(["sliding_attention", "full_attention"]);
+  });
+
   test("gemma3 config validates layer_types, rope_parameters, activation, and sliding windows", () => {
     expect(() =>
       parseGemma3TextConfig({
@@ -497,6 +520,9 @@ describe("llama-like weight mapping", () => {
       "model.layers.0.selfAttention.qNorm.weight",
     );
     expect(
+      sanitizeGemma3Weight(gemma3Config, "language_model.model.layers.0.self_attn.q_norm.weight"),
+    ).toBe("model.layers.0.selfAttention.qNorm.weight");
+    expect(
       sanitizeGemma3Weight(gemma3Config, "model.layers.0.pre_feedforward_layernorm.weight"),
     ).toBe("model.layers.0.preFeedforwardLayerNorm.weight");
     expect(
@@ -546,6 +572,11 @@ describe("llama-like weight mapping", () => {
     ).toBe(false);
     expect(isIgnoredPhiWeight(config, "lm_head.weight")).toBe(true);
     expect(isIgnoredGemma3Weight(gemma3Config, "lm_head.weight")).toBe(true);
+    expect(isIgnoredGemma3Weight(gemma3Config, "language_model.lm_head.weight")).toBe(true);
+    expect(isIgnoredGemma3Weight(gemma3Config, "vision_tower.vision_model.norm.weight")).toBe(true);
+    expect(
+      isIgnoredGemma3Weight(gemma3Config, "multi_modal_projector.mm_input_projection_weight"),
+    ).toBe(true);
     expect(
       isIgnoredGemma4TextWeight(gemma4Config, "model.layers.0.self_attn.rotary_emb.inv_freq"),
     ).toBe(true);

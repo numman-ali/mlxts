@@ -262,10 +262,14 @@ major product-agent focus on package-owned CLIs and future PI-agent integration.
   width checks. LTX-2 plain vocoder decode now covers BCLM mel spectrograms to
   BCS waveform tensors through MLX-backed transposed Conv1d, with Diffusers
   weight loading for `LTX2Vocoder`.
-  `examples/ltx-video` now owns the finite
-  AXI proof command for classic LTX text-to-video: local/Hub snapshot resolve,
-  T5 prompt conditioning, packed-latent denoising, VAE decode, and BMP
-  preview-sheet artifact output. LTX-2 full prompt/audio-video proof assembly,
+  `examples/ltx-video` now owns the finite AXI proof command for both classic
+  LTX text-to-video and LTX-2 prompt-to-audio-video assembly. The classic path
+  resolves local/Hub snapshots, applies T5 prompt conditioning, denoises packed
+  video latents, decodes with the VAE, and writes a BMP preview sheet. The
+  LTX-2 path resolves local/Hub snapshots, loads Gemma3 text conditioning plus
+  LTX-2 text connectors, flattens all Gemma hidden states into connector
+  inputs, denoises video/audio latents, decodes video/audio, runs the vocoder,
+  and writes BMP plus PCM16 WAV artifact evidence. LTX-2 real checkpoint proof,
   bandwidth extension, and LTX-2.3 branches remain future Phase 10 tranches.
 - **Qwen conditional serving**: top-level Qwen 3.5 / 3.6 conditional
   checkpoints expose the Qwen text batch-cache surface for text-only continuous

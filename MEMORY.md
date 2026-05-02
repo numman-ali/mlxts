@@ -38,6 +38,28 @@ This file captures durable cross-session learnings for `mlxts` so future agent s
 
 ## Tier 2 — Lookup Log
 
+- (2026-05-02) [DIFFUSION/LTX2] LTX-2 prompt-to-audio-video proof assembly now
+  runs through `examples/ltx-video` over package-owned diffusion components and
+  transformer-owned Gemma3 text conditioning. Current LTX-2 snapshots expose a
+  top-level `model_type: "gemma3"` text encoder with nested
+  `text_config.model_type: "gemma3_text"` and `language_model.*` weight
+  prefixes; the Gemma3 loader maps that wrapper shape while ignoring
+  vision/projector tensors for text-only conditioning. LTX-2 conditioning uses
+  left-padded tokenizer ids, a real tokenizer attention mask, all Gemma hidden
+  states stacked and flattened into connector width, and connector-produced
+  video/audio prompt embeddings plus masks. The example writes BMP video
+  preview evidence and PCM16 WAV audio evidence; real full-checkpoint LTX-2
+  proof, bandwidth extension, and LTX-2.3 runtime branches remain separate
+  tranches. — refs: `packages/transformers/src/families/gemma3/config.ts`,
+  `packages/transformers/src/families/gemma3/model.ts`,
+  `packages/transformers/src/families/gemma3/weights.ts`,
+  `packages/transformers/src/infrastructure/masks.ts`,
+  `examples/ltx-video/conditioning-ltx2.ts`,
+  `examples/ltx-video/conditioning-ltx2-runtime.ts`,
+  `examples/ltx-video/audio-output.ts`,
+  `examples/ltx-video/index.ts`,
+  `docs/reviews/2026-05-02-ltx2-proof-assembly.md`
+
 - FLUX.2 `AutoencoderKLFlux2` keeps an NCHW public VAE boundary even though the
   shared Stable Diffusion VAE internals are channel-last. Preserve the explicit
   transpose boundary in `families/flux2/autoencoder.ts`; load

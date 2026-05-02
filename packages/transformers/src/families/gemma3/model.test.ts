@@ -1,11 +1,12 @@
 import { describe, expect, test } from "bun:test";
+import { array, mxEval } from "@mlxts/core";
 
 import {
   createContinuousBatchTokenScheduler,
   generateBatchTokens,
   generateTokens,
 } from "../../generation";
-import { Gemma3TextCausalLM } from "./model";
+import { disposeGemma3TextModelOutput, Gemma3TextCausalLM } from "./model";
 import type { Gemma3TextConfig } from "./types";
 
 function gemma3Config(overrides: Partial<Gemma3TextConfig> = {}): Gemma3TextConfig {
@@ -35,6 +36,43 @@ function gemma3Config(overrides: Partial<Gemma3TextConfig> = {}): Gemma3TextConf
 }
 
 describe("Gemma3TextCausalLM batch cache", () => {
+  test("retains embedding and layer hidden states for prompt conditioning", () => {
+    using model = new Gemma3TextCausalLM(gemma3Config());
+    using inputIds = array([[1, 2, 3]], "int32");
+    using attentionMask = array([[1, 1, 1]], "int32");
+    const output = model.model.runWithHiddenStates(inputIds, {
+      attentionMask,
+      outputHiddenStates: true,
+    });
+
+    try {
+      mxEval(output.lastHiddenState, ...(output.hiddenStates ?? []));
+      expect(output.lastHiddenState.shape).toEqual([1, 3, 8]);
+      expect(output.hiddenStates?.map((hiddenState) => hiddenState.shape)).toEqual([
+        [1, 3, 8],
+        [1, 3, 8],
+        [1, 3, 8],
+      ]);
+    } finally {
+      disposeGemma3TextModelOutput(output);
+    }
+  });
+
+  test("rejects prompt attention masks with cache-backed generation", () => {
+    using model = new Gemma3TextCausalLM(gemma3Config());
+    using inputIds = array([[1, 2, 3]], "int32");
+    using attentionMask = array([[1, 1, 1]], "int32");
+    using cache = model.createCache();
+
+    expect(() =>
+      model.model.runWithHiddenStates(inputIds, {
+        cache,
+        attentionMask,
+        outputHiddenStates: true,
+      }),
+    ).toThrow("attentionMask is only supported without cache");
+  });
+
   test("static greedy batch generation matches separate single-prompt generation", () => {
     using model = new Gemma3TextCausalLM(gemma3Config());
     const prompts = [

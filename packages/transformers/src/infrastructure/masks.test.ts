@@ -9,6 +9,7 @@ import {
   createLeftPaddedAttentionMask,
   createStepAttentionMask,
   createStepCausalMask,
+  createTokenizerCausalAttentionMask,
 } from "./masks";
 
 describe("causal masks", () => {
@@ -120,6 +121,55 @@ describe("causal masks", () => {
           [1, 1, 0, 0],
           [1, 1, 1, 0],
           [1, 1, 1, 1],
+        ],
+      ],
+    ]);
+  });
+
+  test("creates tokenizer causal masks from left-padded attention masks", () => {
+    using tokenizerMask = array(
+      [
+        [0, 0, 1, 1],
+        [0, 1, 1, 1],
+      ],
+      "int32",
+    );
+    using mask = createTokenizerCausalAttentionMask(tokenizerMask);
+
+    expect(mask.dtype).toBe("bool");
+    expect(mask.shape).toEqual([2, 1, 4, 4]);
+    expect(mask.toList()).toEqual([
+      [
+        [
+          [0, 0, 0, 0],
+          [0, 0, 0, 0],
+          [0, 0, 1, 0],
+          [0, 0, 1, 1],
+        ],
+      ],
+      [
+        [
+          [0, 0, 0, 0],
+          [0, 1, 0, 0],
+          [0, 1, 1, 0],
+          [0, 1, 1, 1],
+        ],
+      ],
+    ]);
+  });
+
+  test("creates sliding tokenizer causal masks", () => {
+    using tokenizerMask = array([[1, 1, 1, 1]], "int32");
+    using mask = createTokenizerCausalAttentionMask(tokenizerMask, 2);
+
+    expect(mask.shape).toEqual([1, 1, 4, 4]);
+    expect(mask.toList()).toEqual([
+      [
+        [
+          [1, 0, 0, 0],
+          [1, 1, 0, 0],
+          [0, 1, 1, 0],
+          [0, 0, 1, 1],
         ],
       ],
     ]);

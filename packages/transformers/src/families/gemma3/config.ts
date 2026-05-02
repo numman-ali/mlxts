@@ -84,6 +84,11 @@ function parseRopeTheta(
 export function parseGemma3TextConfig(rawConfig: Record<string, unknown>): Gemma3TextConfig {
   const config = expectConfigRecord(rawConfig, "Gemma 3 text config");
   const modelType = expectString(config, "model_type", "Gemma 3 text config");
+  if (modelType === "gemma3") {
+    return parseGemma3TextConfig(
+      expectConfigRecord(config.text_config, "Gemma 3 text config.text_config"),
+    );
+  }
   if (modelType !== "gemma3_text") {
     throw new Error(`Gemma 3 text config.model_type must be "gemma3_text", got "${modelType}".`);
   }
@@ -142,7 +147,7 @@ export function parseGemma3TextConfig(rawConfig: Record<string, unknown>): Gemma
 
 export const gemma3TextFamily: FamilyRegistration<Gemma3TextConfig> = {
   family: "gemma",
-  modelTypes: ["gemma3_text"],
+  modelTypes: ["gemma3", "gemma3_text"],
   parseConfig: parseGemma3TextConfig,
   createModel: (config) => new Gemma3TextCausalLM(config),
   sanitizeWeight: sanitizeGemma3Weight,

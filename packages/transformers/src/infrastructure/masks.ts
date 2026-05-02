@@ -239,6 +239,54 @@ export function createLeftPaddedAttentionMask(
   }
 }
 
+/** Build a boolean prompt mask from a tokenizer attention mask and causal visibility. */
+export function createTokenizerCausalAttentionMask(
+  attentionMask: MxArray,
+  windowSize?: number,
+): MxArray {
+  const [batch, sequenceLength] = attentionMask.shape;
+  if (batch === undefined || sequenceLength === undefined || attentionMask.shape.length !== 2) {
+    throw new Error(
+      `createTokenizerCausalAttentionMask: attentionMask must be rank-2, got rank ${attentionMask.shape.length}.`,
+    );
+  }
+  if (sequenceLength <= 0) {
+    throw new Error("createTokenizerCausalAttentionMask: sequence length must be positive.");
+  }
+  if (windowSize !== undefined && (!Number.isInteger(windowSize) || windowSize <= 0)) {
+    throw new Error(
+      `createTokenizerCausalAttentionMask: windowSize must be a positive integer when present, got ${windowSize}`,
+    );
+  }
+
+  using positions = positionRange(0, sequenceLength);
+  using queryBatch = expandDims(positions, 0);
+  using keyBatch = expandDims(positions, 0);
+  using queryRows = expandDims(queryBatch, 2);
+  using keyColumns = expandDims(keyBatch, 1);
+  using causalMask = greaterEqual(queryRows, keyColumns);
+  using tokenizerMask = asType(attentionMask, "int32");
+  using keyMask = expandDims(tokenizerMask, 1);
+  using causalInts = asType(causalMask, "int32");
+  let combinedInts = multiply(causalInts, keyMask);
+
+  try {
+    if (windowSize !== undefined) {
+      using keyWindowLimit = add(keyColumns, windowSize);
+      using localMask = less(queryRows, keyWindowLimit);
+      using localInts = asType(localMask, "int32");
+      const nextCombinedInts = multiply(combinedInts, localInts);
+      combinedInts.free();
+      combinedInts = nextCombinedInts;
+    }
+
+    using combinedMask = asType(combinedInts, "bool");
+    return expandDims(combinedMask, 1);
+  } finally {
+    combinedInts.free();
+  }
+}
+
 /** Build the fast attention mask for one decoder step from the current cache offset. */
 export function createStepAttentionMask(
   queryLength: number,

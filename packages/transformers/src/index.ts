@@ -39,6 +39,16 @@ export {
   clipTextWeightPath,
   loadCLIPTextWeights,
 } from "./families/clip/weights";
+export type {
+  Gemma3Cache,
+  Gemma3TextModelOptions,
+  Gemma3TextModelOutput,
+} from "./families/gemma3/model";
+export {
+  disposeGemma3TextModelOutput,
+  Gemma3TextCausalLM,
+  Gemma3TextModel,
+} from "./families/gemma3/model";
 export { parseQwen2Config } from "./families/qwen2/config";
 export {
   loadQwen2_5VLTextEncoder,

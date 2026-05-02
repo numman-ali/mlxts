@@ -3,7 +3,7 @@
  * @module
  */
 
-import { formatShape, MxArray, multiply } from "@mlxts/core";
+import { formatShape, MxArray, multiply, retainArray } from "@mlxts/core";
 import { Embedding, Linear, Module } from "@mlxts/nn";
 
 import {
@@ -14,13 +14,31 @@ import {
   LayerPatternKVCache,
 } from "../../infrastructure/cache";
 import { retainInputEmbeddings } from "../../infrastructure/input-embeddings";
-import { type AttentionMask, createStepAttentionMask } from "../../infrastructure/masks";
+import {
+  type AttentionMask,
+  createStepAttentionMask,
+  createTokenizerCausalAttentionMask,
+} from "../../infrastructure/masks";
 import type { CausalLM, DecoderCache, ForwardOptions, TransformerCache } from "../../types";
 import { Gemma3DecoderBlock } from "./block";
 import { Gemma3RMSNorm } from "./norm";
 import type { Gemma3TextConfig } from "./types";
 
-type Gemma3Cache = TransformerCache | LayerPatternBatchKVCache;
+export type Gemma3Cache = TransformerCache | LayerPatternBatchKVCache;
+
+/** Runtime options for a Gemma 3 decoder backbone pass. */
+export type Gemma3TextModelOptions = {
+  cache?: Gemma3Cache;
+  inputEmbeddings?: MxArray;
+  attentionMask?: MxArray;
+  outputHiddenStates?: boolean;
+};
+
+/** Retained Gemma 3 decoder backbone outputs for conditioning consumers. */
+export type Gemma3TextModelOutput = {
+  lastHiddenState: MxArray;
+  hiddenStates?: MxArray[];
+};
 
 function expectGemma3Cache(
   cache: DecoderCache | undefined,
@@ -34,6 +52,72 @@ function expectGemma3Cache(
   }
   const cacheName = isManagedBatchKVCache(cache) ? "BatchKVCache" : "batch cache";
   throw new Error(`${context}: ${cacheName} is not supported by Gemma 3.`);
+}
+
+function disposeHiddenStates(hiddenStates: MxArray[] | undefined): void {
+  if (hiddenStates === undefined) {
+    return;
+  }
+  for (const hiddenState of hiddenStates) {
+    hiddenState.free();
+  }
+}
+
+function expectRunShape(
+  inputIds: MxArray,
+  options: Gemma3TextModelOptions,
+): { sequenceLength: number } {
+  const [batch, sequenceLength] = inputIds.shape;
+  if (batch === undefined || sequenceLength === undefined || inputIds.shape.length !== 2) {
+    throw new Error(
+      `Gemma3TextModel.forward: expected rank-2 token ids, got ${formatShape(inputIds.shape)}.`,
+    );
+  }
+  if (options.attentionMask !== undefined && options.cache !== undefined) {
+    throw new Error("Gemma3TextModel.forward: attentionMask is only supported without cache.");
+  }
+  if (
+    options.attentionMask !== undefined &&
+    (options.attentionMask.shape[0] !== batch || options.attentionMask.shape[1] !== sequenceLength)
+  ) {
+    throw new Error(
+      `Gemma3TextModel.forward: attentionMask must match token ids, got ${formatShape(
+        options.attentionMask.shape,
+      )}.`,
+    );
+  }
+  return { sequenceLength };
+}
+
+function retainHiddenState(hiddenStates: MxArray[] | undefined, hidden: MxArray): void {
+  hiddenStates?.push(retainArray(hidden));
+}
+
+function gemma3Output(
+  lastHiddenState: MxArray,
+  hiddenStates: MxArray[] | undefined,
+): Gemma3TextModelOutput {
+  const output: Gemma3TextModelOutput = { lastHiddenState };
+  if (hiddenStates !== undefined) {
+    output.hiddenStates = hiddenStates;
+  }
+  return output;
+}
+
+function releaseAttentionMasks(attentionMasks: readonly (AttentionMask | undefined)[]): void {
+  const releasedMasks = new Set<MxArray>();
+  for (const attentionMask of attentionMasks) {
+    if (attentionMask instanceof MxArray && !releasedMasks.has(attentionMask)) {
+      releasedMasks.add(attentionMask);
+      attentionMask.free();
+    }
+  }
+}
+
+/** Dispose arrays returned by `Gemma3TextModel.runWithHiddenStates`. */
+export function disposeGemma3TextModelOutput(output: Gemma3TextModelOutput): void {
+  output.lastHiddenState.free();
+  disposeHiddenStates(output.hiddenStates);
 }
 
 /** Decoder backbone shared by Gemma 3 text checkpoints. */
@@ -63,22 +147,44 @@ export class Gemma3TextModel extends Module {
   }
 
   run(inputIds: MxArray, cache?: Gemma3Cache, inputEmbeddings?: MxArray): MxArray {
-    const [batch, sequenceLength] = inputIds.shape;
-    if (batch === undefined || sequenceLength === undefined || inputIds.shape.length !== 2) {
-      throw new Error(
-        `Gemma3TextModel.forward: expected rank-2 token ids, got ${formatShape(inputIds.shape)}.`,
-      );
+    const options: Gemma3TextModelOptions = {};
+    if (cache !== undefined) {
+      options.cache = cache;
     }
+    if (inputEmbeddings !== undefined) {
+      options.inputEmbeddings = inputEmbeddings;
+    }
+    const output = this.runModel(inputIds, options);
+    disposeHiddenStates(output.hiddenStates);
+    return output.lastHiddenState;
+  }
+
+  /** Run the decoder backbone and retain hidden states for conditioning paths. */
+  runWithHiddenStates(
+    inputIds: MxArray,
+    options: Gemma3TextModelOptions = {},
+  ): Gemma3TextModelOutput {
+    return this.runModel(inputIds, options);
+  }
+
+  private runModel(inputIds: MxArray, options: Gemma3TextModelOptions): Gemma3TextModelOutput {
+    const { sequenceLength } = expectRunShape(inputIds, options);
 
     using embedded =
       retainInputEmbeddings(
         inputIds,
-        inputEmbeddings,
+        options.inputEmbeddings,
         this.#hiddenSize,
         "Gemma3TextModel.forward",
       ) ?? this.embedTokens.forward(inputIds);
     let hidden = multiply(embedded, this.#embeddingScale);
-    const attentionMasks = this.createAttentionMasks(sequenceLength, cache);
+    const hiddenStates: MxArray[] | undefined = options.outputHiddenStates ? [] : undefined;
+    const attentionMasks = this.createAttentionMasks(
+      sequenceLength,
+      options.cache,
+      options.attentionMask,
+    );
+    let lastHiddenState: MxArray | null = null;
 
     try {
       for (let layerIndex = 0; layerIndex < this.layers.length; layerIndex += 1) {
@@ -86,33 +192,46 @@ export class Gemma3TextModel extends Module {
         if (layer === undefined) {
           continue;
         }
-        const nextHidden = layer.run(hidden, cache, attentionMasks[layerIndex]);
+        retainHiddenState(hiddenStates, hidden);
+        const nextHidden = layer.run(hidden, options.cache, attentionMasks[layerIndex]);
         hidden.free();
         hidden = nextHidden;
       }
 
-      const normalized = this.norm.forward(hidden);
-      hidden.free();
-      hidden = normalized;
-      return hidden;
+      lastHiddenState = this.norm.forward(hidden);
+      retainHiddenState(hiddenStates, lastHiddenState);
+      return gemma3Output(lastHiddenState, hiddenStates);
     } catch (error) {
-      hidden.free();
+      lastHiddenState?.free();
+      disposeHiddenStates(hiddenStates);
       throw error;
     } finally {
-      const releasedMasks = new Set<MxArray>();
-      for (const attentionMask of attentionMasks) {
-        if (attentionMask instanceof MxArray && !releasedMasks.has(attentionMask)) {
-          releasedMasks.add(attentionMask);
-          attentionMask.free();
-        }
-      }
+      releaseAttentionMasks(attentionMasks);
+      hidden.free();
     }
   }
 
   private createAttentionMasks(
     sequenceLength: number,
     cache: Gemma3Cache | undefined,
+    tokenizerAttentionMask: MxArray | undefined,
   ): (AttentionMask | undefined)[] {
+    if (tokenizerAttentionMask !== undefined) {
+      const sharedMasks = new Map<string, AttentionMask>();
+      return this.layers.map((layer) => {
+        const key = layer.isSliding ? `sliding:${this.#slidingWindow}` : "full";
+        const existingMask = sharedMasks.get(key);
+        if (existingMask !== undefined) {
+          return existingMask;
+        }
+        const attentionMask = createTokenizerCausalAttentionMask(
+          tokenizerAttentionMask,
+          layer.isSliding ? this.#slidingWindow : undefined,
+        );
+        sharedMasks.set(key, attentionMask);
+        return attentionMask;
+      });
+    }
     if (isManagedLayerPatternBatchKVCache(cache)) {
       return this.layers.map(() => undefined);
     }
