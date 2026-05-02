@@ -226,3 +226,12 @@ export function qwenImageRopeImageShape(
   const patchSize = resolvePatchSize(options.patchSize);
   return [1, latentHeight / patchSize, latentWidth / patchSize];
 }
+
+/** Return the Qwen-Image RoPE shape for an NCHW or NCFHW latent image tensor. */
+export function qwenImageRopeImageShapeFromLatents(
+  latents: MxArray,
+  patchSize = 2,
+): QwenImageRopeImageShape {
+  const [, , height, width] = expectQwenImageLatents(latents, resolvePatchSize(patchSize));
+  return [1, height / patchSize, width / patchSize];
+}

@@ -127,6 +127,12 @@ export {
   qwenImageNdhwcToNcfhw,
 } from "./families/qwen-image/autoencoder-blocks";
 export {
+  encodeQwenImageLatents,
+  prepareQwenImageReferenceLatents,
+  type QwenImageLatentEncoder,
+  type QwenImageReferenceLatents,
+} from "./families/qwen-image/conditioning";
+export {
   loadQwenImageComponentConfigs,
   parseQwenImageAutoencoderConfig,
   parseQwenImageTransformerConfig,
@@ -143,6 +149,7 @@ export {
   qwenImageLatentShape,
   qwenImagePackedLatentShape,
   qwenImageRopeImageShape,
+  qwenImageRopeImageShapeFromLatents,
   unpackQwenImageLatents,
 } from "./families/qwen-image/latents";
 export {

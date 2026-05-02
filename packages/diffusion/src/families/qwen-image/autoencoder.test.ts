@@ -49,12 +49,14 @@ describe("QwenImageAutoencoderKL", () => {
       [1, 3, 1, 2, 2],
     );
     using moments = autoencoder.encodeMoments(sample);
+    using encoded = autoencoder.encodeRaw(sample);
     using latents = MxArray.fromData([0.1, -0.1, 0.2, -0.2], [1, 1, 1, 2, 2]);
     using decoded = autoencoder.decodeRaw(latents);
     using reconstructed = autoencoder.forward(sample);
 
-    mxEval(moments, decoded, reconstructed);
+    mxEval(moments, encoded, decoded, reconstructed);
     expect(moments.shape).toEqual([1, 2, 1, 2, 2]);
+    expect(encoded.shape).toEqual([1, 1, 1, 2, 2]);
     expect(decoded.shape).toEqual([1, 3, 1, 2, 2]);
     expect(reconstructed.shape).toEqual([1, 3, 1, 2, 2]);
   });

@@ -8,6 +8,7 @@ import {
   qwenImageLatentShape,
   qwenImagePackedLatentShape,
   qwenImageRopeImageShape,
+  qwenImageRopeImageShapeFromLatents,
   unpackQwenImageLatents,
 } from "./latents";
 
@@ -124,6 +125,9 @@ describe("Qwen-Image latent helpers", () => {
         patchSize: 2,
       }),
     ).toEqual([1, 64, 48]);
+
+    using latents = MxArray.fromData([0, 0, 0, 0], [1, 1, 1, 2, 2]);
+    expect(qwenImageRopeImageShapeFromLatents(latents)).toEqual([1, 1, 1]);
   });
 
   test("rejects malformed latent shapes", () => {

@@ -1,6 +1,5 @@
 import {
   add,
-  array,
   type DType,
   divide,
   formatShape,
@@ -10,7 +9,6 @@ import {
   minimum,
   multiply,
   mxEval,
-  reshape,
   retainArray,
   slice,
   sqrt,
@@ -24,6 +22,7 @@ import type {
   FlowMatchEulerScheduler,
   FlowMatchEulerStep,
 } from "../../schedulers/flow-match-euler";
+import { qwenImageLatentStatsTensor, validateQwenImageLatentStats } from "./latent-stats";
 import {
   createQwenImageInitialLatents,
   type QwenImageInitialLatentOptions,
@@ -100,17 +99,6 @@ export type QwenImageGenerationOptions = Omit<
 function assertPositiveInteger(name: string, value: number): void {
   if (!Number.isInteger(value) || value <= 0) {
     throw new Error(`${name} must be a positive integer.`);
-  }
-}
-
-function validateLatentStats(vae: QwenImageLatentDecoder): void {
-  if (
-    vae.latentsMean.length !== vae.latentChannels ||
-    vae.latentsStd.length !== vae.latentChannels
-  ) {
-    throw new Error(
-      "decodeQwenImageLatents: VAE latent mean/std lengths must match latent channels.",
-    );
   }
 }
 
@@ -337,15 +325,6 @@ function expectSingleFrameSample(sample: MxArray): readonly [number, number, num
   return [batch, channels, height, width];
 }
 
-function latentStatsTensor(
-  values: readonly number[],
-  channels: number,
-  dtype: MxArray["dtype"],
-): MxArray {
-  using vector = array([...values], dtype);
-  return reshape(vector, [1, channels, 1, 1, 1]);
-}
-
 /** Denoise packed Qwen-Image latents with prepared prompt embedding tensors. */
 export function denoiseQwenImageLatents(options: QwenImageDenoiseOptions): MxArray {
   assertPositiveInteger("numInferenceSteps", options.numInferenceSteps);
@@ -395,11 +374,11 @@ export function decodeQwenImageLatents(
   latentWidth: number,
   patchSize = 2,
 ): MxArray {
-  validateLatentStats(vae);
+  validateQwenImageLatentStats("decodeQwenImageLatents", vae);
 
   using unpacked = unpackQwenImageLatents(packedLatents, latentHeight, latentWidth, patchSize);
-  using std = latentStatsTensor(vae.latentsStd, vae.latentChannels, unpacked.dtype);
-  using mean = latentStatsTensor(vae.latentsMean, vae.latentChannels, unpacked.dtype);
+  using std = qwenImageLatentStatsTensor(vae.latentsStd, vae.latentChannels, unpacked.dtype);
+  using mean = qwenImageLatentStatsTensor(vae.latentsMean, vae.latentChannels, unpacked.dtype);
   using scaled = multiply(unpacked, std);
   using shifted = add(scaled, mean);
   using decoded = vae.decodeRaw(shifted);

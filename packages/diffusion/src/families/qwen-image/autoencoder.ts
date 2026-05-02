@@ -269,6 +269,23 @@ export class QwenImageAutoencoderKL extends Module {
     return qwenImageNdhwcToNcfhw(moments);
   }
 
+  /** Encode an NCFHW sample volume into the deterministic posterior mode. */
+  encodeRaw(sample: MxArray): MxArray {
+    using moments = this.encodeMoments(sample);
+    const parts = split(moments, 2, 1);
+    const mean = parts[0];
+    const logVariance = parts[1];
+    if (mean === undefined || logVariance === undefined) {
+      for (const part of parts) {
+        part.free();
+      }
+      throw new Error("QwenImageAutoencoderKL.encodeRaw: expected mean/log-variance moments.");
+    }
+
+    logVariance.free();
+    return mean;
+  }
+
   /** Decode an NCFHW latent volume into an NCFHW sample volume. */
   decodeRaw(latents: MxArray): MxArray {
     using internal = qwenImageNcfhwToNdhwc(latents);
@@ -279,19 +296,7 @@ export class QwenImageAutoencoderKL extends Module {
 
   /** Reconstruct an NCFHW sample volume through the deterministic posterior mode. */
   forward(sample: MxArray): MxArray {
-    using moments = this.encodeMoments(sample);
-    const parts = split(moments, 2, 1);
-    const mean = parts[0];
-    const logVariance = parts[1];
-    if (mean === undefined || logVariance === undefined) {
-      for (const part of parts) {
-        part.free();
-      }
-      throw new Error("QwenImageAutoencoderKL.forward: expected mean/log-variance moments.");
-    }
-
-    using posteriorMode = mean;
-    logVariance.free();
+    using posteriorMode = this.encodeRaw(sample);
     return this.decodeRaw(posteriorMode);
   }
 }

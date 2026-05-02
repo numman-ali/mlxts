@@ -38,6 +38,20 @@ This file captures durable cross-session learnings for `mlxts` so future agent s
 
 ## Tier 2 — Lookup Log
 
+- (2026-05-02) [DIFFUSION/QWEN-IMAGE] Qwen-Image Edit/Edit Plus now has the
+  package-owned VAE image-conditioning foundation: `QwenImageAutoencoderKL`
+  exposes deterministic `encodeRaw()`, `encodeQwenImageLatents()` applies
+  Qwen latent mean/std normalization and Diffusers-compatible 2x2 patch
+  packing, and `prepareQwenImageReferenceLatents()` concatenates multiple
+  reference latent segments while preserving per-reference RoPE shapes. This
+  does not enable edit denoising yet; processor reference-image conditioning,
+  multi-segment RoPE/denoiser input/output slicing, and `zero_cond_t`
+  modulation remain separate runtime tranches. — refs:
+  `packages/diffusion/src/families/qwen-image/autoencoder.ts`,
+  `packages/diffusion/src/families/qwen-image/conditioning.ts`,
+  `packages/diffusion/src/families/qwen-image/latents.ts`,
+  `docs/reviews/2026-05-02-qwen-image-reference-latent-prep.md`
+
 - (2026-05-02) [DIFFUSION/LTX2] LTX-2 prompt-to-audio-video proof assembly now
   runs through `examples/ltx-video` over package-owned diffusion components and
   transformer-owned Gemma3 text conditioning. Current LTX-2 snapshots expose a
